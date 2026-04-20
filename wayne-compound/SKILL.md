@@ -38,8 +38,13 @@ stay English even in Chinese prose.
 1. **Gather pipeline artifacts** — decision log, plan, review findings, commit messages
 2. **Extract the learning** — what was the real insight?
 3. **Classify** — bug fix, pattern, decision, how-to?
-4. **Check for duplicates** — search KB and docs/solutions/ first
-5. **Write to KB** — `/mnt/share/kb/` (primary, Obsidian-compatible)
+4. **Check for duplicates** — MANDATORY before writing. Search KB and docs/solutions/ first. If anything similar exists, UPDATE it, do not create a new file. Specifically:
+   - grep both the title AND the trigger keywords across `/mnt/share/wayne-note/`
+   - check `how-to/lessons/` (imported lessons from prior projects)
+   - check the current repo's `docs/solutions/`
+   - if a hit shares the same root cause or trigger condition → update the existing file (bump `updated:`, append new evidence/refinement). Do not write a new lesson.
+   - only write a new file when the topic is genuinely new
+5. **Write to KB** — `/mnt/share/wayne-note/` (primary, Obsidian-compatible)
 6. **Write to repo** — `docs/solutions/` (secondary, in-repo discovery)
 7. **Cross-reference** — link between KB entry and repo doc
 
@@ -55,7 +60,7 @@ digraph compound {
     "Search KB + docs/solutions/\nfor duplicates" [shape=box];
     "Duplicate found?" [shape=diamond];
     "Update existing entry" [shape=box];
-    "Write new KB entry\n(/mnt/share/kb/)" [shape=box];
+    "Write new KB entry\n(/mnt/share/wayne-note/)" [shape=box];
     "Write repo doc\n(docs/solutions/)" [shape=box];
     "Cross-reference\nKB <-> repo doc" [shape=box];
     "Done" [shape=doublecircle];
@@ -65,9 +70,9 @@ digraph compound {
     "Classify:\nbug / pattern / decision / how-to" -> "Search KB + docs/solutions/\nfor duplicates";
     "Search KB + docs/solutions/\nfor duplicates" -> "Duplicate found?";
     "Duplicate found?" -> "Update existing entry" [label="yes"];
-    "Duplicate found?" -> "Write new KB entry\n(/mnt/share/kb/)" [label="no"];
+    "Duplicate found?" -> "Write new KB entry\n(/mnt/share/wayne-note/)" [label="no"];
     "Update existing entry" -> "Done";
-    "Write new KB entry\n(/mnt/share/kb/)" -> "Write repo doc\n(docs/solutions/)";
+    "Write new KB entry\n(/mnt/share/wayne-note/)" -> "Write repo doc\n(docs/solutions/)";
     "Write repo doc\n(docs/solutions/)" -> "Cross-reference\nKB <-> repo doc";
     "Cross-reference\nKB <-> repo doc" -> "Done";
 }
@@ -145,7 +150,7 @@ Search both knowledge stores:
 
 ```bash
 # Search KB
-grep -r "<keywords>" /mnt/share/kb/ --include="*.md" -l 2>/dev/null
+grep -r "<keywords>" /mnt/share/wayne-note/ --include="*.md" -l 2>/dev/null
 
 # Search docs/solutions
 grep -r "<keywords>" docs/solutions/ --include="*.md" -l 2>/dev/null
@@ -160,9 +165,9 @@ If a related entry exists:
 
 ## Phase 5: Write to KB (as a Lesson)
 
-**Primary store:** `/mnt/share/kb/<folder>/<kebab-title>.md`
+**Primary store:** `/mnt/share/wayne-note/<folder>/<kebab-title>.md`
 
-**Read `/mnt/share/kb/SCHEMA.md` first** — it defines the Write Protocol and lesson
+**Read `/mnt/share/wayne-note/SCHEMA.md` first** — it defines the Write Protocol and lesson
 frontmatter spec. This phase defers to SCHEMA. Don't re-implement reindex /
 log / commit logic here.
 
@@ -173,9 +178,9 @@ fields (`type: lesson` + `trigger`) so future workflow skills can recall it.
 
 | Category | Folder |
 |----------|--------|
-| Bug fix / pitfall | `kb/how-to/<kebab-title>.md` |
-| Reusable pattern | `kb/research/<kebab-title>.md` |
-| Architectural decision | `kb/decisions/<kebab-title>.md` |
+| Bug fix / pitfall | `wayne-note/how-to/<kebab-title>.md` |
+| Reusable pattern | `wayne-note/research/<kebab-title>.md` |
+| Architectural decision | `wayne-note/decisions/<kebab-title>.md` |
 
 ### Lesson format (per SCHEMA.md)
 
@@ -260,7 +265,7 @@ Update the file in place if the user revises it, then proceed.
 
 ### Then follow the Write Protocol
 
-After `trigger` is confirmed, follow `/mnt/share/kb/SCHEMA.md` Write Protocol:
+After `trigger` is confirmed, follow `/mnt/share/wayne-note/SCHEMA.md` Write Protocol:
 reindex → append log.md (action: `lesson`) → git commit → report files.
 
 ---
@@ -301,7 +306,7 @@ tags: [tag1, tag2]
 
 ## Related
 
-- KB: /mnt/share/kb/<folder>/<filename>.md
+- KB: /mnt/share/wayne-note/<folder>/<filename>.md
 ```
 
 Create directory if needed:
@@ -334,7 +339,7 @@ the non-obvious insights into searchable, reusable knowledge.
 
 | Aspect | CE compound | Wayne compound |
 |--------|-------------|----------------|
-| **Primary store** | `docs/solutions/` only | `/mnt/share/kb/` (Obsidian) + `docs/solutions/` |
+| **Primary store** | `docs/solutions/` only | `/mnt/share/wayne-note/` (Obsidian) + `docs/solutions/` |
 | **Input** | Conversation history | Full pipeline: decision log + plan + review + commits |
 | **Decision trace** | None | Links back to specific decisions in the log |
 | **Specialized reviews** | Auto-dispatches domain experts | Skip (user can run manually) |
