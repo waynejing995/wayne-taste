@@ -141,6 +141,21 @@ Run `git diff origin/$BASE` and analyze the full diff against these categories:
 | **Documentation Staleness** | Code changed but docs not updated |
 | **Test Coverage Gaps** | New logic without corresponding tests |
 
+### Optional: Cybernetics Lens (for architectural / structural review)
+
+If the diff touches architecture (new modules, control flow, state management,
+multi-component interaction, control-plane changes), apply the cybernetics lens
+to surface structural issues a line-by-line review misses:
+
+**Read first:** `~/.claude/skills/_shared/cybernetics-lens.md`
+
+Look for: multiple SoTs for same state (Principle #4), open-loop rules with no
+verification (Principle #2/#3), L0/L1/L2 stratification violations (Principle #5),
+new redundancy points / drift sources (Principle #4 + #7).
+
+Skip for pure logic/bugfix diffs (no structural surface). Findings from the lens
+go into the Critical or Informational categories per severity.
+
 ### Finding Format
 
 ```
