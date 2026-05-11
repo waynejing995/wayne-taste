@@ -13,17 +13,22 @@ Every commit is atomic (1 feature / 1 fix / 1 request), signed-off, and Jira-tag
 invoke it first. No exceptions.
 </HARD-GATE>
 
-## Language Rules
+## Inherits from ~/.claude/CLAUDE.md
 
-**Chinese (output to user):** ALL communication shown to the user — questions, explanations,
-commit plan presentation, status reports, warnings. This includes AskUserQuestion text
-and any prose the user reads.
+This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
 
-**English (written to files):** ALL files saved to disk — commit messages, PR descriptions,
-code comments. No exceptions.
+- Language Rules (Chinese to user, English to files)
+- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
+- Code Standards (uv run python, markdown tables)
+- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
+- Skill invocation rule (proportional effort)
+- Commit format (CLAUDE.md `## Commit Format` section)
 
-**English (structural labels):** Commit prefixes (`SWDEV-1234`, `feat:`, `fix:`), `[why]`/`[how]`
-section headers stay English even in Chinese prose.
+This skill only specifies the per-feature commit + push + PR workflow.
+
+## Files Written
+
+commit messages, PR descriptions, code comments. Commit prefixes (`SWDEV-1234`, `feat:`, `fix:`), `[why]`/`[how]` headers stay English in Chinese prose.
 
 ## Checklist
 
@@ -227,12 +232,12 @@ EOF
 ## Integration with Wayne Workflow
 
 ```
-wayne-mind-explode  →  wayne-plan  →  ce-work  →  wayne-code-review  →  wayne-ship
-     (WHAT)              (HOW)       (BUILD)        (GATE)              (COMMIT)
+wayne-mind-explode  →  wayne-plan  →  wayne-work  →  wayne-code-review  →  wayne-ship
+     (WHAT)              (HOW)         (BUILD)         (GATE)              (COMMIT)
 ```
 
 This is the final step. It only runs after:
-1. Implementation is complete (`ce-work`)
+1. Implementation is complete (`wayne-work`)
 2. Dual-voice review has passed (`wayne-code-review`)
 
 ---

@@ -11,17 +11,21 @@ This skill takes a plan from `wayne-plan` (or a bare prompt) and builds it
 task by task, testing as it goes. It does NOT commit or create PRs — that's
 `wayne-ship`'s job after `wayne-code-review` passes.
 
-## Language Rules
+## Inherits from ~/.claude/CLAUDE.md
 
-**Chinese (output to user):** ALL communication shown to the user — questions, explanations,
-progress updates, status reports, blocker announcements. This includes AskUserQuestion
-text and any prose the user reads.
+This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
 
-**English (written to files):** ALL files saved to disk — source code, tests, configs,
-code comments, task updates. No exceptions.
+- Language Rules (Chinese to user, English to files)
+- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
+- Code Standards (uv run python, markdown tables)
+- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
+- Skill invocation rule (proportional effort)
 
-**English (structural labels):** Task names, phase headers, status markers stay English
-even in Chinese prose.
+This skill only specifies the implementation / per-task execution / build workflow.
+
+## Files Written
+
+source code, tests, configs, code comments, task updates. Task names / phase headers / status markers stay English in Chinese prose.
 
 ## Checklist
 

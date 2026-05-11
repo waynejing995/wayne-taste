@@ -8,17 +8,23 @@ description: Turn ideas into fully formed designs through relentless interview-s
 Turn ideas into fully formed designs through collaborative but relentless dialogue.
 Every decision is logged. Every branch of the design tree is explored. No handwaving allowed.
 
-## Language Rules
+## Inherits from ~/.claude/CLAUDE.md
 
-**Chinese (output to user):** ALL communication shown to the user — questions, explanations,
-recommendations, summaries, status reports, warnings, synthesis, critical findings.
-This includes AskUserQuestion text, inline explanations, and any prose the user reads.
+This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
 
-**English (written to files):** ALL files saved to disk — decision logs, specs, plans,
-code comments, commit messages, KB entries, solution docs. No exceptions.
+- Language Rules (Chinese to user, English to files)
+- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
+- Code Standards (uv run python, markdown tables)
+- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
+- Skill invocation rule (proportional effort)
 
-**English (structural labels):** Headers like "Q3:", "My recommendation:", severity tags,
-table headers. These stay English even in Chinese prose for consistency.
+This skill only specifies the brainstorming / design / decision-log workflow.
+
+## Files Written
+
+decision logs, specs, plans, code comments, commit messages, KB entries, solution docs.
+
+Structural labels stay English even in Chinese prose: `Q3:`, `My recommendation:`, severity tags, table headers.
 
 <HARD-GATE>
 Do NOT write any code, scaffold any project, or take any implementation action until the design is approved and the plan is written. This applies to EVERY project regardless of perceived simplicity.

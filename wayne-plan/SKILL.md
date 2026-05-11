@@ -11,17 +11,21 @@ This skill produces a durable implementation plan. It does **not** write code, r
 or execute anything. If the answer depends on changing code and seeing what happens,
 that belongs in implementation, not here.
 
-## Language Rules
+## Inherits from ~/.claude/CLAUDE.md
 
-**Chinese (output to user):** ALL communication shown to the user — questions, explanations,
-recommendations, summaries, status reports, warnings, synthesis, critical findings.
-This includes AskUserQuestion text, inline explanations, and any prose the user reads.
+This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
 
-**English (written to files):** ALL files saved to disk — plans, specs, decision logs,
-code comments. No exceptions.
+- Language Rules (Chinese to user, English to files)
+- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
+- Code Standards (uv run python, markdown tables)
+- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
+- Skill invocation rule (proportional effort)
 
-**English (structural labels):** Headers, severity tags, table headers stay English
-even in Chinese prose.
+This skill only specifies the planning / implementation-unit decomposition workflow.
+
+## Files Written
+
+plans, specs, decision logs, code comments. Headers / severity tags / table headers stay English in Chinese prose.
 
 ## Checklist
 
@@ -275,112 +279,24 @@ Create `docs/plans/` if it doesn't exist.
 
 ### 7.2 Plan Template
 
-```markdown
----
-title: [Plan Title]
-type: [feat|fix|refactor]
-status: active
-date: YYYY-MM-DD
-origin: docs/specs/YYYY-MM-DD-<topic>-design.md
-decisions: docs/decisions/YYYY-MM-DD-<topic>-decisions.md
----
+**Read first, then write:** `${HOME}/.claude/skills/wayne-plan/templates/plan-template.md`
 
-# [Plan Title]
+The template is the canonical structure. Do not improvise sections. Required to fill:
+- frontmatter: `title`, `type`, `status`, `date`, `origin`, `decisions`
+- `## Overview` (2-3 sentences max)
+- `## Problem Frame`
+- `## Requirements Trace` (R1-Rn list, one line each)
+- `## Scope Boundaries`
+- `## Context` (subsections: Relevant Code and Patterns; Constraints from Existing Plans)
+- `## Key Technical Decisions`
+- `## Open Questions` (subsections: Resolved During Planning; Deferred to Implementation)
+- `## Implementation Units` (each with Goal, Requirements, Dependencies, Decision trace, Files, Approach, Patterns, Test scenarios, Verification)
+- `## Dead Code / Legacy Cleanup`
+- `## System-Wide Impact`
+- `## Risks & Dependencies` (table)
+- `## Sources & References`
 
-## Overview
-
-[What is changing and why — 2-3 sentences]
-
-## Problem Frame
-
-[User/business problem and context. Reference origin doc.]
-
-## Requirements Trace
-
-- R1. [Requirement this plan must satisfy]
-- R2. [Requirement this plan must satisfy]
-
-## Scope Boundaries
-
-- [Explicit non-goal or exclusion]
-
-## Context
-
-### Relevant Code and Patterns
-
-- [Existing file, class, pattern to follow]
-
-### Constraints from Existing Plans
-
-- [Any constraints from other active plans]
-
-## Key Technical Decisions
-
-- [Decision]: [Rationale] (see decision log #N)
-
-## Open Questions
-
-### Resolved During Planning
-
-- [Question]: [Resolution]
-
-### Deferred to Implementation
-
-- [Question]: [Why deferred]
-
-## Implementation Units
-
-- [ ] **Unit 1: [Name]**
-
-  **Goal:** [What this accomplishes]
-  **Requirements:** [R1, R2]
-  **Dependencies:** [None / Unit N / external]
-  **Decision trace:** [Decision log #N, #M]
-
-  **Files:**
-  - Create: `path/to/new_file`
-  - Modify: `path/to/existing_file`
-  - Test: `path/to/test_file`
-
-  **Approach:**
-  - [Key design or sequencing decision]
-
-  **Patterns to follow:**
-  - [Existing code or convention]
-
-  **Test scenarios:**
-  - Happy path: [input → action → expected outcome]
-  - Edge case: [boundary → action → expected outcome]
-  - Error path: [failure → action → expected outcome]
-
-  **Verification:**
-  - [Outcome that holds when this unit is complete]
-
-## Dead Code / Legacy Cleanup
-
-- [Dead] `path/to/old_file` — action: delete / decision log #N
-- [Legacy] `path/to/legacy_file` — action: deprecate by YYYY-MM-DD / decision log #N
-- [Shared] `path/to/shared_file` — action: keep, used by both old and new
-
-## System-Wide Impact
-
-- **Interaction graph:** [What callbacks, middleware, observers affected]
-- **Error propagation:** [How failures travel across layers]
-- **State lifecycle risks:** [Partial-write, cache, duplicate concerns]
-- **Unchanged invariants:** [Existing APIs/behaviors explicitly not changed]
-
-## Risks & Dependencies
-
-| Risk | Mitigation |
-|------|------------|
-| [Risk] | [How addressed] |
-
-## Sources & References
-
-- **Origin spec:** [path](path)
-- **Decision log:** [path](path)
-- Related code: [path or symbol]
-```
+Use the template verbatim — do not invent new sections. If the template feels insufficient, escalate to spec revision (separate task) before writing.
 
 ### 7.3 Planning Rules
 
@@ -426,39 +342,39 @@ The plan is now ready for implementation.
 ## Full Wayne Workflow
 
 ```
-wayne-mind-explode  →  wayne-plan  →  ce-work  →  wayne-code-review  →  ship
-   (WHAT)              (HOW)        (BUILD)      (GATE)               (PR)
+wayne-mind-explode  →  wayne-plan  →  wayne-work  →  wayne-code-review  →  wayne-ship
+   (WHAT)              (HOW)         (BUILD)         (GATE)                (PR)
 ```
 
 | Stage | Skill | What it does |
 |-------|-------|--------------|
 | Brainstorm | `wayne-mind-explode` | Grill, decide, log decisions, write spec |
 | Plan | `wayne-plan` (this skill) | Structure implementation from decisions + spec |
-| Execute | `compound-engineering:ce-work` | Build the plan (use CE's work skill as-is) |
-| Review gate | `wayne-code-review` | Dual-voice review — must pass before PR |
-| Ship | User's choice | Commit, PR, merge |
+| Execute | `wayne-work` | Build the plan task-by-task with test-as-you-go |
+| Review gate | `wayne-code-review` | Dual-voice review — must pass before commit |
+| Ship | `wayne-ship` | Commit per-feature with Wayne format, push, PR |
 
 ### From wayne-mind-explode
 
 When a decision log exists, every plan item traces back to logged decisions.
 The `Decision trace` field in each implementation unit references specific decision numbers.
 
-### To ce-work
+### To wayne-work
 
-After plan approval, invoke `compound-engineering:ce-work` to execute.
-CE's work skill handles implementation with its own incremental review subagents during build.
+After plan approval, invoke `wayne-work` to execute. wayne-work reads this plan,
+follows the decision log, builds task-by-task with test-as-you-go, and hands off
+to wayne-code-review.
 
-### To wayne-code-review (pre-PR gate)
+### To wayne-code-review (pre-commit gate)
 
-After implementation is complete, `wayne-code-review` runs as the **final gate before PR**.
+After implementation is complete, `wayne-code-review` runs as the **final gate before commit**.
 It cross-references the diff against this plan:
 - What was planned vs actually built
 - Plan items missing from the diff
 - Diff changes not in the plan
 - Dual-voice adversarial review (Claude + Codex)
 
-**`wayne-code-review` must pass before shipping.** CE's `ce-review` subagents may run
-during `ce-work`, but they don't replace the final dual-voice gate.
+**`wayne-code-review` must pass before `wayne-ship`.**
 
 ### Standalone Use
 
