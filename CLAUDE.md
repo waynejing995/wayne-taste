@@ -175,6 +175,7 @@ Before `AskUserQuestion` on complex problems: explain in plain Chinese. No jargo
 | "capture lesson" / "记一下" / post-mortem after solving | `wayne-compound` |
 | Frontend / UI / landing page / dashboard | `wayne-frontend-design` |
 | "save to KB" / "add to knowledge base" / "what do we know about X" / "search KB" | `wayne-manner` |
+| "用控制论分析" / "apply cybernetics" / "system design audit" / "architecture review" / "find drift sources" | `wayne-cybernetics` |
 | Final deliverable for **human** audience: presentation / publication / design doc routed to architect for review | `humanizer-zh` (two-pass audit) |
 
 **Skip `humanizer-zh` for:** AI-consumed docs (CLAUDE.md, plans, specs, agent prompts, internal notes), code comments, commit messages, chat replies. Default = no humanize.

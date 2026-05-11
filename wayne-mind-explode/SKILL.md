@@ -261,6 +261,24 @@ This is the core of the skill. Interview the user relentlessly about every aspec
 - **Testing:** How do we know it works? What's the test strategy?
 - **Rollback:** If this goes wrong, how do we undo it?
 
+### Optional: Cybernetics Lens (for systems / control / state / process design)
+
+If the topic involves systems, state management, control flow, process design, or
+any "control plane" question (e.g. "how do we organize this", "where does this
+live", "why is this drifting"), apply the cybernetics lens to make the grilling
+more rigorous:
+
+**Read first:** `~/.claude/skills/_shared/cybernetics-lens.md`
+
+The lens distills 8 principles from Qian Xuesen's *Engineering Cybernetics* (1954)
+into diagnostic questions: system identification, observability, controllability,
+single SoT, hierarchical control, signal-to-noise, minimum control effort,
+feedback stability. Each principle becomes a grill question to drive the design
+toward observable, controllable, low-drift form.
+
+Skip the lens for pure-logic problems, single-line bugs, or non-systems topics
+(e.g. "what should we name this function").
+
 ### Question Format
 
 ```
