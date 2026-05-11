@@ -22,12 +22,14 @@ This skill only specifies the brainstorming / design / decision-log workflow.
 
 ## Files Written
 
-decision logs, specs, plans, code comments, commit messages, KB entries, solution docs.
+decision logs, specs, code comments, commit messages, KB entries, solution docs.
+
+**This skill does NOT write implementation plans.** Plans are wayne-plan's job. wayne-mind-explode's terminal artifact is the spec; wayne-plan reads the spec + decision log to produce the plan as a separate, focused step.
 
 Structural labels stay English even in Chinese prose: `Q3:`, `My recommendation:`, severity tags, table headers.
 
 <HARD-GATE>
-Do NOT write any code, scaffold any project, or take any implementation action until the design is approved and the plan is written. This applies to EVERY project regardless of perceived simplicity.
+Do NOT write any code, scaffold any project, or take any implementation action until the design is approved by the user. This applies to EVERY project regardless of perceived simplicity. Plan creation is delegated to wayne-plan and is out of scope here.
 </HARD-GATE>
 
 ## Checklist
@@ -38,13 +40,14 @@ You MUST create a task for each of these items and complete them in order:
    prior lessons relevant to the topic before brainstorming starts.
 2. **Init decision log** — create `docs/decisions/YYYY-MM-DD-<topic>-decisions.md`
 3. **Explore project context** — check files, docs, recent commits, existing plans
-4. **Grill the user** — relentless branch-by-branch interview, logging every decision
+4. **Grill the user** — relentless branch-by-branch interview, logging every decision.
+   **MUST apply Cybernetics Lens** when topic matches triggers (see Phase 3 §Cybernetics Lens).
 5. **Propose 2-3 approaches** — with trade-offs and your recommendation
 6. **Present design** — section by section, get user approval after each
 7. **Conflict review** — read ALL existing plans/specs/docs, flag any contradictions
 8. **Write spec** — save design doc, commit
-9. **Plan review via gstack** — dispatch `/plan-ceo-review` and `/plan-eng-review` on the spec
-10. **Read decision log + write plan** — consume full decision history, then create implementation plan
+9. **Plan review via gstack** — dispatch `/plan-ceo-review` and `/plan-eng-review` on the spec; iterate spec until both clean
+10. **Hand off to wayne-plan** — once the spec is approved + reviews are clean, the design phase is done. Tell the user: "Spec ready at <path>. Invoke `wayne-plan` to produce the implementation plan." Do NOT write the plan yourself — wayne-plan reads the decision log + spec and produces the plan as its own focused workflow.
 
 ## Lesson Recall (Step 1)
 
@@ -98,7 +101,7 @@ digraph brainstorming {
     "Dispatch /plan-ceo-review\n+ /plan-eng-review" [shape=box, style=bold];
     "Review passes?" [shape=diamond];
     "Revise spec from\nreview feedback" [shape=box];
-    "Read full decision log\n→ write implementation plan" [shape=doublecircle];
+    "Hand off: tell user\n'Spec ready, invoke wayne-plan'" [shape=doublecircle];
 
     "Web research:\nsearch latest best practices\n+ references" [shape=box];
 
@@ -122,7 +125,7 @@ digraph brainstorming {
     "Conflicts found?" -> "Write spec + commit" [label="no"];
     "Write spec + commit" -> "Dispatch /plan-ceo-review\n+ /plan-eng-review";
     "Dispatch /plan-ceo-review\n+ /plan-eng-review" -> "Review passes?";
-    "Review passes?" -> "Read full decision log\n→ write implementation plan" [label="yes"];
+    "Review passes?" -> "Hand off: tell user\n'Spec ready, invoke wayne-plan'" [label="yes"];
     "Review passes?" -> "Revise spec from\nreview feedback" [label="no"];
     "Revise spec from\nreview feedback" -> "Dispatch /plan-ceo-review\n+ /plan-eng-review";
 }
@@ -261,23 +264,49 @@ This is the core of the skill. Interview the user relentlessly about every aspec
 - **Testing:** How do we know it works? What's the test strategy?
 - **Rollback:** If this goes wrong, how do we undo it?
 
-### Optional: Cybernetics Lens (for systems / control / state / process design)
+### Cybernetics Lens (mandatory when triggers match)
 
-If the topic involves systems, state management, control flow, process design, or
-any "control plane" question (e.g. "how do we organize this", "where does this
-live", "why is this drifting"), apply the cybernetics lens to make the grilling
-more rigorous:
+**Trigger check (run BEFORE grilling).** If ANY of the following are true, the lens
+is mandatory — not optional, not skippable. Default to applying it; only the explicit
+skip list below excuses you.
 
-**Read first:** `~/.claude/skills/_shared/cybernetics-lens.md`
+| Trigger | Match if topic involves... |
+|---|---|
+| State / lifecycle | new state machine, state transitions, status fields, persistence shape |
+| Control plane | who decides what, who writes what, dispatch / routing / scheduling |
+| Multi-writer / multi-reader | ≥2 components touch the same state, multi-replica, multi-tab, multi-process |
+| Real-time / streaming | WebSocket / SSE / pub-sub / NOTIFY / event broadcast |
+| Observability | health checks, metrics, dashboards, tail / streaming logs |
+| Drift / SoT risk | "single source of truth", config in multiple places, derived vs source data |
+| Feedback loops | reconciliation, retry, redeploy, healing, polling vs push |
+| Process / workflow | pipeline stages, approval flow, orchestration, agents |
 
-The lens distills 8 principles from Qian Xuesen's *Engineering Cybernetics* (1954)
-into diagnostic questions: system identification, observability, controllability,
-single SoT, hierarchical control, signal-to-noise, minimum control effort,
-feedback stability. Each principle becomes a grill question to drive the design
-toward observable, controllable, low-drift form.
+**Skip list (lens NOT required).** Only skip if ALL of these hold:
+- Pure-logic / pure-algorithm problem (sort, parser, formula)
+- No persistent state introduced
+- No new component talks to any other component
+- ≤ ~50 LOC change, single file
 
-Skip the lens for pure-logic problems, single-line bugs, or non-systems topics
-(e.g. "what should we name this function").
+If you're unsure whether to skip, **apply the lens**. The cost is one Read + one
+mental walkthrough; the cost of missing a SoT or feedback violation in spec is
+re-architecture later.
+
+**How to apply:**
+
+1. Read `~/.claude/skills/_shared/cybernetics-lens.md` (8 principles + diagnostic questions)
+2. Step 1: name Plant / Controller / Setpoint / Disturbance / Feedback (if you can't, stop and ask)
+3. Step 2: walk principles #2–#8 as a checklist against your current design (use the table at end of lens doc)
+4. Step 3: each violation becomes a finding with severity (HIGH / MEDIUM / LOW) and a recommended intervention
+5. Present findings to the user as a table; user picks which to apply
+6. Apply approved findings as new decisions in the log; revise spec if already written
+
+**When to run.** Run the lens BEFORE writing the spec (Phase 7) — ideally during
+or right after grilling (Phase 3). If you discover you skipped the lens after spec
+is written, run it then and iterate.
+
+**The lens distills** 8 principles from Qian Xuesen's *Engineering Cybernetics* (1954):
+system identification, observability, controllability, single SoT, hierarchical
+control, signal-to-noise, minimum control effort, feedback stability.
 
 ### Question Format
 
@@ -411,19 +440,15 @@ Only proceed to plan creation once both reviews are satisfied.
 
 ---
 
-## Phase 9: Decision-Log-Driven Plan
+## Phase 9: Hand off to wayne-plan
 
-This is the payoff. The decision log is the single source of truth.
+Design phase ends here. Plan creation is delegated.
 
-1. **Read the full decision log** — every decision, every rationale, every constraint
-2. **Read the approved spec**
-3. **Read ALL existing plans again** — ensure no new conflicts
-4. **Write the implementation plan** informed by the complete decision history
-   - Every plan item should trace back to a logged decision
-   - No plan item should contradict a logged decision
-   - Flag any decision that was deferred — these are risks
+1. Update the decision log status from `in-progress` to `design-approved` and add a link to the spec.
+2. Tell the user (Chinese): "Spec 已落盘 at `<path>`，CEO + Eng review 都过。要做实现计划请调用 `wayne-plan`，它会读 decision log + spec 产出 plan。"
+3. **Do NOT write the implementation plan in this skill.** That's wayne-plan's job. Skill ends.
 
-Update the decision log status to `completed` and link to the spec and plan.
+Why split: wayne-mind-explode owns "design + decisions + spec + reviews". wayne-plan owns "plan from spec". Each is a focused workflow with its own quality bar. Bundling them in one skill bloats both and makes interruption / resumption messy. SSoT for plan creation = wayne-plan.
 
 ---
 
