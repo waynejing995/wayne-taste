@@ -9,17 +9,21 @@ Dual-voice code review: structured analysis + adversarial cross-model challenge.
 Two independent reviewers see the same diff with fresh eyes. Neither knows what the other found.
 You synthesize, the user decides.
 
-## Language Rules
+## Inherits from ~/.claude/CLAUDE.md
 
-**Chinese (output to user):** ALL communication shown to the user — questions, explanations,
-recommendations, synthesis, critical findings summary, status reports, warnings.
-This includes AskUserQuestion text, inline explanations, and any prose the user reads.
+This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
 
-**English (written to files):** ALL files saved to disk — review reports, finding logs,
-code comments. No exceptions.
+- Language Rules (Chinese to user, English to files)
+- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
+- Code Standards (uv run python, markdown tables)
+- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
+- Skill invocation rule (proportional effort)
 
-**English (structural labels):** Severity tags `[CRITICAL]`, `[INFORMATIONAL]`, confidence
-scores, file:line references, table headers stay English even in Chinese prose.
+This skill only specifies the dual-voice code review workflow.
+
+## Files Written
+
+review reports, finding logs, code comments. Severity tags `[CRITICAL]` / `[INFORMATIONAL]`, confidence scores, file:line references stay English in Chinese prose.
 
 ## Checklist
 

@@ -8,17 +8,21 @@ description: Capture lessons learned after solving a problem or shipping a featu
 Each solved problem should make the next one easier.
 This skill captures what was learned and saves it where it can be found later.
 
-## Language Rules
+## Inherits from ~/.claude/CLAUDE.md
 
-**Chinese (output to user):** ALL communication shown to the user — questions, explanations,
-summaries, insight presentations, status reports. This includes AskUserQuestion text
-and any prose the user reads.
+This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
 
-**English (written to files):** ALL files saved to disk — KB entries, solution docs,
-decision log updates. No exceptions.
+- Language Rules (Chinese to user, English to files)
+- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
+- Code Standards (uv run python, markdown tables)
+- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
+- Skill invocation rule (proportional effort)
 
-**English (structural labels):** Category names, frontmatter keys, section headers
-stay English even in Chinese prose.
+This skill only specifies the lesson-capture / KB-write / repo-doc workflow.
+
+## Files Written
+
+KB entries (`/work/kb/`), solution docs (`docs/solutions/<category>/`), decision log updates. Category names / frontmatter keys / section headers stay English in Chinese prose.
 
 ## When to Run
 
@@ -38,12 +42,17 @@ stay English even in Chinese prose.
 1. **Gather pipeline artifacts** — decision log, plan, review findings, commit messages
 2. **Extract the learning** — what was the real insight?
 3. **Classify** — bug fix, pattern, decision, how-to?
-4. **Check for duplicates** — MANDATORY before writing. Search KB and docs/solutions/ first. If anything similar exists, UPDATE it, do not create a new file. Specifically:
+4. **Check for duplicates** — MANDATORY before writing. Search KB and docs/solutions/ first. If anything similar exists, UPDATE or MERGE, do not create a new file. Specifically:
    - grep both the title AND the trigger keywords across `/mnt/share/wayne-note/`
-   - check `how-to/lessons/` (imported lessons from prior projects)
+   - check `how-to/lessons/` (imported lessons from prior projects) — **read every existing lesson title + trigger before deciding to write new**
    - check the current repo's `docs/solutions/`
-   - if a hit shares the same root cause or trigger condition → update the existing file (bump `updated:`, append new evidence/refinement). Do not write a new lesson.
-   - only write a new file when the topic is genuinely new
+   - **Bias strongly toward update/merge over new file.** Default action when in doubt is "extend an existing lesson", not "write a new one". A KB with 30 sharp lessons beats one with 60 overlapping ones.
+   - **Merge criteria** — collapse two lessons into one when ANY of these hold:
+     * Same root cause expressed in different surfaces (e.g. CLI dispatch owner + thread-reply dispatch owner = "secondary surface shares dispatch owner")
+     * One lesson is a specific technique that the other already lists as a sub-lesson (e.g. `shape_key()` granular repaint is a sub-lesson of dashboard hotfix collapse)
+     * Two lessons cite the same decision letter / invariant / contract from different angles (e.g. contract-vs-cosmetic + cosmetic-auto-fix-triage both about OBS routing)
+   - **When merging**: keep the broader title, expand `trigger:` to cover both scenarios, add sections for each empirical instance with its own anchor (commit SHA, review seq, date), preserve all anti-patterns + prevention bullets from both, then `git rm` the absorbed file and rewrite cross-references.
+   - Only write a NEW file when: (a) the topic genuinely is not covered by any existing lesson, AND (b) merging it into the closest existing lesson would dilute that lesson's trigger past usability.
 5. **Write to KB** — `/mnt/share/wayne-note/` (primary, Obsidian-compatible)
 6. **Write to repo** — `docs/solutions/` (secondary, in-repo discovery)
 7. **Cross-reference** — link between KB entry and repo doc
@@ -184,51 +193,18 @@ fields (`type: lesson` + `trigger`) so future workflow skills can recall it.
 
 ### Lesson format (per SCHEMA.md)
 
-```markdown
----
-title: <Descriptive title>
-date: YYYY-MM-DD
-tags: [tag1, tag2, tag3]
-source: manual
-pipeline: wayne          # captured from Wayne workflow
-type: lesson             # ★ identifies this as a lesson (recallable)
-trigger: "<one sentence: when this lesson should be recalled>"   # ★ recall hook
-related: [[folder/related-entry]]
----
+**Read first, then write:** `${HOME}/.claude/skills/wayne-compound/templates/lesson-template.md`
 
-## Summary
+The template is the canonical structure. Required sections:
+- frontmatter: `title`, `date`, `tags`, `source`, `pipeline: wayne`, `type: lesson`, `trigger`, `related`
+- `## Summary` (one-line takeaway)
+- `## Context` (when does this apply?)
+- `## Detail` (subsections: What Happened / The Insight / Code Examples)
+- `## Anti-Patterns`
+- `## Prevention`
+- `## References` (decision log, plan, repo doc)
 
-<One-line takeaway — the insight in one sentence>
-
-## Context
-
-<When does this apply? What situation triggers this knowledge?>
-
-## Detail
-
-### What Happened
-<Brief narrative of the problem and investigation>
-
-### The Insight
-<The non-obvious thing we learned>
-
-### Code Examples
-<Before/after, configuration, commands>
-
-## Anti-Patterns
-
-<What NOT to do, and why>
-
-## Prevention
-
-<How to avoid this in the future>
-
-## References
-
-- Decision log: [[decisions/YYYY-MM-DD-topic]]
-- Plan: docs/plans/YYYY-MM-DD-NNN-type-name-plan.md
-- Repo doc: docs/solutions/category/filename.md
-```
+The `trigger` field is mandatory — see "Writing a good `trigger`" below.
 
 ### Writing a good `trigger`
 
@@ -277,37 +253,16 @@ reindex → append log.md (action: `lesson`) → git commit → report files.
 This is for in-repo discovery — agents working in this repo can find it without
 accessing the personal KB.
 
-```markdown
----
-title: <Title>
-date: YYYY-MM-DD
-problem_type: <bug|pattern|pitfall|how-to>
-module: <affected module>
-tags: [tag1, tag2]
----
+**Read first, then write:** `${HOME}/.claude/skills/wayne-compound/templates/solution-doc-template.md`
 
-# <Title>
-
-## Problem
-
-<1-2 sentence description>
-
-## Root Cause
-
-<Technical explanation>
-
-## Solution
-
-<The fix, with code examples>
-
-## Prevention
-
-<How to avoid recurrence>
-
-## Related
-
-- KB: /mnt/share/wayne-note/<folder>/<filename>.md
-```
+The template is the canonical structure. Required sections:
+- frontmatter: `title`, `date`, `problem_type` (bug|pattern|pitfall|how-to), `module`, `tags`
+- `# <Title>`
+- `## Problem` (1-2 sentences)
+- `## Root Cause`
+- `## Solution` (with code examples)
+- `## Prevention`
+- `## Related` (link back to KB)
 
 Create directory if needed:
 ```bash
@@ -328,8 +283,8 @@ Link the two entries:
 ## Integration with Wayne Workflow
 
 ```
-wayne-mind-explode → wayne-plan → ce-work → wayne-code-review → wayne-ship → wayne-compound
-     (WHAT)            (HOW)      (BUILD)       (GATE)           (COMMIT)     (LEARN)
+wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-ship → wayne-compound
+     (WHAT)            (HOW)        (BUILD)        (GATE)            (COMMIT)     (LEARN)
 ```
 
 This is the closing step. It reads everything upstream produced and distills

@@ -1,3 +1,8 @@
+---
+name: wayne-manner
+description: Manage and query Wayne's personal knowledge base in `/mnt/share/kb/`. Use when saving lessons, recalling prior decisions, searching the KB, updating existing notes, or ingesting new findings into the vault. Trigger on "save this to KB", "search KB", "what do we know about X", "recall X", or "update KB".
+---
+
 # Knowledge Base
 
 Personal KB at `/mnt/share/kb/`. Obsidian-compatible markdown vault. Available from any session.
