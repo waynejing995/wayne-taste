@@ -20,6 +20,13 @@ CLAUDE.md / AGENTS.md is not a changelog. Anti-patterns to strip:
 | Intermediate design doc / plan / draft / RFC under `docs/{plans,decisions,brainstorms,rfcs,proposals,change-requests}/` for a **shipped** feature | Promote final-state portions to canonical doc (DESIGN.md / ARCHITECTURE.md / `docs/<feature>.md`), then delete the intermediate. See SKILL.md "Doc lifecycle" section |
 | Resolved entry in `docs/known-issues/` (fix shipped) | Delete the entry (or move to `docs/CHANGES.md` if changelog maintained). See SKILL.md "Known issues lifecycle" section |
 | Date-prefixed file like `docs/2026-MM-DD-*.md` whose feature has shipped and canonical doc exists | Delete unless explicitly an ADR archive |
+| Code comment that narrates what the code obviously does (`// returns the user count`) | Delete (Wayne convention: default no comments, code self-describes) |
+| Code comment that contradicts the adjacent code (`// throws on null` next to a function that returns null silently) | Fix to match code OR fix code to match comment — pick one based on whether the comment was a load-bearing WHY |
+| `// TODO`, `# TODO`, `// FIXME` with met trigger condition (date passed, dependency upgraded, feature shipped) | Resolve and delete; if work was done, ensure the fix is captured in commit / docs first |
+| `LEGACY_DELETE_WHEN_RETIRE:` marker whose condition is now met | Delete the marked code AND the marker in one edit (per Wayne legacy convention) |
+| Stale identifier reference in comments (`// see foo()` after rename to `bar()`) | Mechanical update — rename is mechanical |
+| Docstring / parameter comment that no longer matches the current function signature | Sync to current signature (signature is the source of truth) |
+| Module file header that describes a no-longer-true architecture (`# Auth via JWT` after switch to sessions) | Rewrite to current state, or delete if the module is now self-evident |
 
 Test: **if the next AI writing code doesn't see this line, will it make a mistake?** If not, delete or migrate.
 
@@ -44,6 +51,12 @@ Test: **if the next AI writing code doesn't see this line, will it make a mistak
 | **Feature shipped that had intermediate design / plan / decision docs** | **Promote final-state portions to canonical doc, then delete intermediates** under `docs/plans/`, `docs/decisions/`, `docs/brainstorms/`, `docs/rfcs/`, `docs/change-requests/` |
 | New deploy target (local / staging / prod / customer-onsite) | New section in `docs/deploy-guide.md` OR new `docs/deploy-<target>.md` |
 | New setup path (Linux / Mac / Docker / WSL) | New section in `docs/setup-guide.md` OR new `docs/setup-<env>.md` |
+| Function / method renamed | `grep -rn "<old-name>"` across **all** comments (`//`, `#`, `/* */`, docstrings) — update or delete every reference |
+| Function / method deleted | Same grep + delete every comment that refers to it; check for orphaned `// see X()` or `# called by X()` lines |
+| Public API signature changed (params, return type) | Docstring on the function · parameter comments · any caller-side comment explaining what was passed |
+| Algorithm replaced (e.g., switched sort, switched hash) | WHY comment about the old algorithm becomes stale — rewrite to explain new choice, or delete if self-evident |
+| Code path / branch / module deleted | TODOs / FIXMEs / LEGACY markers anchored to that path — delete with the code |
+| Bug fixed that had a `// FIXME: <bug>` near it | Delete the FIXME in the same commit as the fix (don't let it linger) |
 
 ## Memory-layer changes
 

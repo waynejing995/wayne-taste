@@ -32,15 +32,16 @@ Adapted from [`KKKKhazix/khazix-skills/neat-freak`](https://github.com/KKKKhazix
 
 Code can be rewritten anytime. Docs and memory are the only bridge across sessions and across agents. A stale fact in memory becomes the next Agent's wrong premise. A drifted README costs the next teammate (human or AI) hours of confusion.
 
-## Three layers, three audiences — DO NOT collapse
+## Four layers, four audiences — DO NOT collapse
 
 | Location | Audience | Job | Cost of drift |
 |---|---|---|---|
 | **Agent memory** (Claude Code: `~/.claude/projects/<...>/memory/`) | Future-you across sessions | Personal preferences, non-obvious facts, cross-project references | Next session forgets prior decisions |
 | **Project root `CLAUDE.md` / `AGENTS.md`** | The AI in this project, next session | Rules, red lines, command cheat-sheets, env vars, route inventory | Next AI takes wrong path in this repo |
 | **Project `docs/` + `README.md`** | **Other people** — human teammates, downstream devs, future AI taking over | Onboarding, architecture, **guides** (deploy / setup / operator / integration), handoff, API reference | Outsiders cannot ramp or operate |
+| **Code comments / docstrings** | Future code reader (human or AI) opening this exact file | Explain non-obvious WHY (constraints, hidden invariants, surprising behavior); identifier references; TODO/FIXME; LEGACY markers | Reader misreads intent, re-introduces deleted bug, or skips a constraint |
 
-Audiences differ. Jobs do not overlap. "Added 5 device-flow routes to CLAUDE.md" ≠ "downstream consumers integrating the device flow" in `docs/integration-guide.md`. Both must be written.
+Audiences differ. Jobs do not overlap. "Added 5 device-flow routes to CLAUDE.md" ≠ "downstream consumers integrating the device flow" in `docs/integration-guide.md` ≠ a docstring on the route handler explaining the auth quirk. All three must be written and kept current.
 
 > Memory location varies by platform — see [references/sync-matrix.md](references/sync-matrix.md). If the current agent has no memory system, skip that layer entirely; spend everything on docs + project markdown.
 
@@ -147,6 +148,47 @@ When neat scans, verify:
 
 If `docs/operator-runbook.md` exists, **rename to `docs/operator-guide.md`** for consistency, update inbound references.
 
+## Code comment drift
+
+Comments are the layer **closest to code** and the most expensive to keep aligned. They lie quietly when code changes around them. Wayne's global rule is "default to writing no comments; only add one when the WHY is non-obvious" — which means surviving comments are usually load-bearing WHYs, not narration. **Bias toward flagging over editing** for anything that's not obvious WHAT-narration.
+
+### Comment categories
+
+| Type | Example | Drift trigger | Default action |
+|---|---|---|---|
+| WHAT narration | `// returns user count` | Code shape changes | Often safe to delete (Wayne convention: code should self-describe) |
+| WHY constraint | `// avoid race with reconcile loop` | The cited constraint goes away | Verify constraint still applies; preserve if yes, fix/delete if no |
+| TODO / FIXME | `# TODO: switch to asyncio when py3.12 lands` | Trigger condition met | Resolve and delete, or restate clearly |
+| LEGACY marker | `// LEGACY_DELETE_WHEN_RETIRE: foo flow removed` | Condition met | Delete code + marker together (per [[feedback_legacy_marker]]) |
+| Stale identifier reference | `// see processBatch()` after rename to `runBatch()` | Rename / delete | Update reference or remove |
+| Module header | `# Handles auth via JWT` after switch to sessions | Architecture change | Verify against current behavior; rewrite |
+| Parameter docstring | `:param user_id: int` after change to `UserId` | Signature change | Sync to current signature |
+| Anchored debug log | `// 2024-01-15: temporary fix until X is patched` | Calendar / fix landed | Resolve and delete, or de-anchor if still needed |
+
+### Detection — scope to diff range, not whole repo
+
+Whole-repo comment scan is prohibitively expensive. Scope to where drift actually concentrates:
+
+1. **Files modified by `git log <range>`** — read the file, check comments near modified lines against the code's current shape.
+2. **Identifiers renamed / deleted in the range** — `grep -rn "<old-name>"` across the codebase to find stale comment references.
+3. **TODO / FIXME / LEGACY markers in modified files** — check whether the trigger condition is now met.
+4. **All `LEGACY_DELETE_WHEN_RETIRE:` markers, even outside diff scope** — these are explicit "remove me when X" promises and accumulate without active prompting. Wayne convention; see [[feedback_legacy_marker]].
+5. **Public API surfaces touched** — docstrings on changed signatures, parameter comments, return-value comments.
+
+### Action — edit vs flag
+
+- **Clear WHAT drift** (comment narrates what the code obviously does, and code now does something else) → delete or fix inline.
+- **WHY drift** (comment cites a constraint that may or may not still apply) → **flag in summary**, ask user before editing. Editing wrong here removes a load-bearing constraint reminder.
+- **Stale identifier reference** → update mechanically (rename is mechanical).
+- **TODO / FIXME with met condition** → delete; if the work is now done, verify the fix is captured in commit message or docs first.
+- **LEGACY marker with met condition** → delete the marked code AND the marker in the same edit.
+- **Docstring / parameter mismatch** with current signature → sync mechanically (signature is the source of truth).
+- **Module header that no longer describes the module** → rewrite to current state.
+
+### Subagent fan-out
+
+For ranges touching > 30 files, dispatch one `Explore` subagent per major directory. Each returns flagged candidates only — `file:line | comment text | suspected drift type | edit-vs-flag recommendation`. Main agent reviews flags and decides edits. Do not let subagents edit comments; main agent owns the WHY-vs-WHAT call.
+
 ## Wayne auto-memory format (must respect)
 
 Memory files at `~/.claude/projects/<encoded>/memory/` follow this exact shape. Preserve it on edits:
@@ -181,6 +223,7 @@ Wayne-neat is I/O-heavy (`ls`, `find`, reading many `.md`, `git log`, `git diff`
 |---|---|---|---|
 | Phase 1 inventory, **per project touched** | `Explore` (read-only) | `ls` + read every `.md` in project, return file inventory + their current claims | Each project is independent; no shared state |
 | Phase 2, alongside conversation review | `general-purpose` | Read `git log <range>` + `git diff --stat`, list public-surface changes (routes, env vars, schemas, CLI flags) | Independent of conversation review; both feed into change list |
+| Phase 2, comment drift scan | `Explore` × N major dirs | For modified files in range: flag candidate comment drift (WHAT-narration mismatch, stale identifier refs, met TODO/FIXME, met LEGACY markers, docstring/signature mismatch). Returns flags only, never edits | Pure read, dir-parallelizable; main agent decides edit-vs-flag |
 | Phase 4 self-check, **per project** | `Explore` | Verify each path/command/env var/route mentioned in updated CLAUDE.md actually exists in code | Pure read; per-project parallelizable |
 
 **Do NOT parallelize Phase 3 edits** — single editor keeps the mental model coherent and avoids file-level conflicts.
@@ -243,7 +286,7 @@ All three in one message → run concurrently. Main agent gets three summaries, 
 
 ### Phase 2 — Identify changes (TWO input sources)
 
-Drift sources are not just "what we discussed." Always merge two streams:
+Drift sources are not just "what we discussed." Always merge three streams:
 
 **Source A — conversation deltas** (what we did and decided this session)
 
@@ -260,6 +303,20 @@ git diff --stat <base>..HEAD
 For each commit not obviously discussed: read the diff summary, check whether it touches a public surface (route, env var, schema, command, CLI flag, public function signature). If yes → it has a doc-layer obligation we may have skipped.
 
 **Parallelization**: dispatch the git log scan as a `general-purpose` subagent in the same message as Phase 1 inventory agents — it has no dependency on conversation review and runs concurrently. Subagent returns a list of public-surface changes; main agent merges with conversation deltas.
+
+**Source C — code comment drift in touched files** (the layer closest to code, easiest to lie quietly):
+
+Scope to files modified in `git log <range>` plus all `LEGACY_DELETE_WHEN_RETIRE:` markers (which are checked codebase-wide regardless of range). For each candidate:
+- WHAT-narration that contradicts current code → fix or delete
+- WHY constraint that may have gone away → flag, don't auto-edit
+- Stale identifier reference after rename → mechanical update
+- TODO/FIXME with met condition → resolve or restate
+- LEGACY marker with met condition → delete code + marker
+- Docstring/parameter mismatch with current signature → sync
+
+Full mechanics + safety rules: see "Code comment drift" section above.
+
+**Parallelization**: dispatch one `Explore` subagent per major source directory; each returns flagged candidates only (never edits). Main agent makes the WHY-vs-WHAT call.
 
 **Change → file mapping** — see [references/sync-matrix.md](references/sync-matrix.md) for the full table. Common shapes:
 
@@ -318,6 +375,10 @@ API tables, env-var tables, glossaries are high-frequency structured lookups —
 - [ ] **Deploy/setup steps changed → deploy-guide / setup-guide updated**
 - [ ] **Resolved known-issues entries deleted from `docs/known-issues/`**
 - [ ] **Intermediate design docs / plans / drafts for shipped features removed (see "Doc lifecycle" section)**
+- [ ] **Comments in modified files: WHAT-narration drift fixed/deleted, WHY drift flagged, stale identifier refs updated**
+- [ ] **TODO/FIXME with met conditions resolved or restated**
+- [ ] **`LEGACY_DELETE_WHEN_RETIRE:` markers checked across whole codebase, met-condition ones removed with their code**
+- [ ] **Docstrings and parameter comments synced to current function signatures on touched API surfaces**
 - [ ] **New DB table → present in BOTH architecture Data Model AND project root markdown**
 - [ ] **Cross-project impact: downstream project docs also updated**
 - [ ] No relative time leftovers: `grep -E "today|yesterday|recently|last week|今天|昨天|刚刚|最近|上周"` returns clean
