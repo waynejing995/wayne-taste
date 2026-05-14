@@ -2,8 +2,9 @@
 name: wayne-neat
 description: >
   OCD-level reconciliation of project docs (CLAUDE.md/AGENTS.md, README, docs/) and agent memory
-  against actual code state. Two input sources: this conversation AND git log since last sync —
-  catches drift the chat didn't surface. MUST trigger on: "neat", "tidy up docs", "sync docs",
+  against actual code state. Three input sources: this conversation, git log since last sync,
+  and code comments in modified files — catches drift the chat didn't surface. Subagent fan-out
+  in two batches (master read + verification). MUST trigger on: "neat", "tidy up docs", "sync docs",
   "update memory", "/neat", "/sync", "整理一下", "整理文档", "同步一下", "更新记忆", "梳理一下",
   "收尾", "这个阶段做完了", or any phrase suggesting a milestone where knowledge needs reconciliation.
   Also trigger when the user reports stale docs, conflicting memory, or wants a clean handoff.
@@ -12,7 +13,7 @@ description: >
 
 # Wayne Neat
 
-End-of-stage knowledge cleanup. Aligns three layers (agent memory · project root markdown · docs/+README) with what the code actually does. Treats CLAUDE.md as a **rule book**, not a changelog. Reads both this conversation AND `git log` since the last sync.
+End-of-stage knowledge cleanup. Aligns four layers (agent memory · project root markdown · docs/+README · code comments) with what the code actually does. Treats CLAUDE.md as a **rule book**, not a changelog. Reads three sources in parallel: this conversation, `git log` since last sync, and comments in `git diff`-touched files.
 
 ## Inherits from ~/.claude/CLAUDE.md
 
@@ -187,7 +188,7 @@ Whole-repo comment scan is prohibitively expensive. Scope to where drift actuall
 
 ### Subagent fan-out
 
-For ranges touching > 30 files, dispatch one `Explore` subagent per major directory. Each returns flagged candidates only — `file:line | comment text | suspected drift type | edit-vs-flag recommendation`. Main agent reviews flags and decides edits. Do not let subagents edit comments; main agent owns the WHY-vs-WHAT call.
+Comment scan dispatches in **Batch A** (see Execution Shape section), one `Explore` per major source dir. Returns flagged candidates only — `file:line | comment text | suspected drift type | edit-vs-flag recommendation`. **Subagents never edit comments.** Main agent owns the WHY-vs-WHAT call. For tiny ranges (< 5 modified files), do inline instead of dispatching.
 
 ## Wayne auto-memory format (must respect)
 
@@ -215,39 +216,104 @@ Hard rules:
 
 When neat finds a memory file violating this shape (missing frontmatter, narrative changelog, > 100 lines, contradicts another), fix it.
 
-## Parallelization with subagents
+## Execution shape — 3 parallel batches + 1 sequential edit
 
-Wayne-neat is I/O-heavy (`ls`, `find`, reading many `.md`, `git log`, `git diff`) — perfect for subagent fan-out. Dispatch in **two phases**:
+Wayne-neat is overwhelmingly I/O-heavy. Naive phase-by-phase walks waste 5-10× on serial reads. The dispatch shape is:
 
-| When | Agent type | What | Why parallel |
+```
+Batch A (one message, ~10-30 parallel calls)  → all reads + scans
+   ↓
+Synthesize → delete-list / edit-list / flag-list
+   ↓
+Phase 0 slim pass (only if size audit failed)
+   ↓
+Phase 3 sequential edits  ← single editor, never parallelized
+   ↓
+Batch B (one message, N parallel calls)  → all verifications
+   ↓
+Phase 5 summary
+```
+
+Phases 0/1/2/3/4/5 below describe **what each piece means**; Batches A and B describe **how to dispatch them**.
+
+### Batch A — Master read dispatch (fire on invocation)
+
+**Everything that doesn't depend on something else goes in ONE message.** Mix `Agent` (subagents), `Bash` (cheap mechanical scans), and `Read` (small known files) calls in the same block.
+
+| Call type | Tool | What | Notes |
 |---|---|---|---|
-| Phase 1 inventory, **per project touched** | `Explore` (read-only) | `ls` + read every `.md` in project, return file inventory + their current claims | Each project is independent; no shared state |
-| Phase 2, alongside conversation review | `general-purpose` | Read `git log <range>` + `git diff --stat`, list public-surface changes (routes, env vars, schemas, CLI flags) | Independent of conversation review; both feed into change list |
-| Phase 2, comment drift scan | `Explore` × N major dirs | For modified files in range: flag candidate comment drift (WHAT-narration mismatch, stale identifier refs, met TODO/FIXME, met LEGACY markers, docstring/signature mismatch). Returns flags only, never edits | Pure read, dir-parallelizable; main agent decides edit-vs-flag |
-| Phase 4 self-check, **per project** | `Explore` | Verify each path/command/env var/route mentioned in updated CLAUDE.md actually exists in code | Pure read; per-project parallelizable |
+| Per-project doc inventory | `Agent` Explore × N projects | `ls + find + read all *.md` per project, return file table with claims | One agent per project |
+| Per-project intermediate-doc scan | `Agent` Explore × N projects | List `docs/{plans,decisions,brainstorms,rfcs,proposals,change-requests}/*.md` + body sniff for "implemented in PR/commit X" | Folded into doc-inventory agent if same project |
+| Per-project known-issues scan | `Agent` Explore × N projects | List `docs/known-issues/*.md` + `KNOWN_ISSUES.md`; for each entry note bug summary + last-modified date | Folded into doc-inventory agent if same project |
+| Per-project guides verification | `Agent` Explore × N projects | Cross-reference `scripts/deploy*` / `scripts/install*` / `Makefile` deploy targets vs `docs/{deploy,setup,operator}-guide.md` existence; list missing | Folded into doc-inventory agent if same project |
+| Git log scan | `Agent` general-purpose × 1 | `git log <range>`, `git diff --stat <base>..HEAD`, return public-surface changes (routes, env vars, schemas, CLI flags, function renames/deletes) | One per repo touched |
+| Comment drift scan | `Agent` Explore × N major source dirs | For modified files in range: flag WHAT-mismatch / stale identifier / met TODO / met LEGACY / docstring-signature mismatch. **Returns flags only, never edits** | Per top-level src/backend/frontend/etc. |
+| Codebase-wide LEGACY marker sweep | `Bash` × 1 | `grep -rn "LEGACY_DELETE_WHEN_RETIRE" --include='*.py' --include='*.ts' --include='*.tsx' --include='*.go' .` per repo | One Bash call covers the whole codebase; not subagent-worthy |
+| Size audit | `Bash` × 1 | `wc -l <list of all candidate CLAUDE.md, AGENTS.md, MEMORY.md, every memory file, every docs/*.md>` in one call | Single Bash with all paths |
+| Memory inventory | `Bash` × 1 + `Read` for `MEMORY.md` | `ls ~/.claude/projects/<...>/memory/` and read `MEMORY.md` (the index) | Individual memory files read inline AFTER synthesis identifies which need attention — don't pre-read all of them |
+| Global agent config | `Read` × 1-2 | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` if exists | Small, known paths |
+| Conversation recall | main agent | Review what we did this session | Free, runs alongside other dispatches |
 
-**Do NOT parallelize Phase 3 edits** — single editor keeps the mental model coherent and avoids file-level conflicts.
+**Folding rule**: if multiple per-project subagent calls would target the same project, fold them into ONE agent prompt with a multi-task brief. Three calls × same project = one agent with a three-section return format. Cuts agent overhead.
 
-**When to skip subagents** (proportional effort):
-- Single project · no `git log` since last sync · short conversation → just do it inline
-- < 5 doc files total → inline reading is faster than agent overhead
-
-**Dispatch rule**: in a single message, fire all independent agents in parallel (multiple Agent tool calls in one block). The main agent synthesizes their reports — agents return summaries, not raw file contents, to protect the main context window.
-
-**Example dispatch (Phase 1, three projects touched):**
+**Dispatch shape (template):**
 
 ```
-Agent({ subagent_type: "Explore", description: "TRACE doc inventory",
-        prompt: "ls /home/wayne/TRACE/docs/ recursively. Read every .md
-                 (excluding /node_modules /.git). Return a table:
-                 file | one-line topic | claims that depend on code
-                 (env vars, route paths, CLI commands, public APIs).
-                 Under 400 words." })
-Agent({ subagent_type: "Explore", description: "ProjectB doc inventory", ... })
-Agent({ subagent_type: "Explore", description: "ProjectC doc inventory", ... })
+[ONE MESSAGE containing:]
+Bash({ command: "wc -l /path/to/CLAUDE.md ~/.claude/CLAUDE.md /repo/docs/*.md /repo/.../memory/*.md 2>/dev/null" })
+Bash({ command: "grep -rn 'LEGACY_DELETE_WHEN_RETIRE' --include='*.py' --include='*.ts' /repo" })
+Read({ file_path: "/.../MEMORY.md" })
+Read({ file_path: "/repo/CLAUDE.md" })
+Agent({ subagent_type: "Explore", description: "RepoA full inventory",
+        prompt: "For /repo: (1) list all docs/ + read each .md (claims that depend on code);
+                 (2) scan docs/plans/ docs/decisions/ etc. for intermediate docs whose body says
+                 'implemented in PR/commit X'; (3) list docs/known-issues/*.md entries;
+                 (4) cross-ref scripts/deploy* + Makefile deploy targets vs deploy-guide existence.
+                 Return four labeled tables. Under 600 words." })
+Agent({ subagent_type: "general-purpose", description: "RepoA git log scan", prompt: "..." })
+Agent({ subagent_type: "Explore", description: "RepoA backend comment drift", prompt: "..." })
+Agent({ subagent_type: "Explore", description: "RepoA frontend comment drift", prompt: "..." })
+[... repeat for RepoB, RepoC ...]
 ```
 
-All three in one message → run concurrently. Main agent gets three summaries, builds the unified file checklist.
+All concurrent. Main agent synthesizes when results return.
+
+### Batch B — Verification dispatch (fire after Phase 3 edits)
+
+**One message after edits land.** Verifies the edits stuck and didn't introduce new drift.
+
+| Call type | Tool | What |
+|---|---|---|
+| Per-project existence checks | `Agent` Explore × N projects | For every path / command / env var / route mentioned in the updated CLAUDE.md, verify it exists in code |
+| Per-project memory frontmatter validation | `Agent` Explore × 1 | Walk every `*.md` in memory dir, validate `name`/`description`/`metadata.type` frontmatter shape; flag violations |
+| Relative-time sweep | `Bash` × 1 | `grep -rEn "today\|yesterday\|recently\|last week\|今天\|昨天\|刚刚\|最近\|上周" docs/ CLAUDE.md ...` |
+| MEMORY.md link integrity | `Bash` × 1 | Extract `[*.md]` links from MEMORY.md, `ls` each target, list missing |
+| Cross-project downstream check | `Agent` Explore × N downstream projects | If upstream API/SDK shape changed, verify downstream `docs/<integration>.md` was updated |
+
+### Sequential — Phase 3 edits
+
+**NEVER parallelize edits.** Two reasons:
+1. File-level conflicts when subagents try to write the same file.
+2. Editor needs coherent mental model across edits — subagents lose context across handoffs.
+
+Order within Phase 3: docs/ → CLAUDE.md/AGENTS.md → memory. External readers see the latest aligned state if interrupted.
+
+### Proportional effort — when to skip subagents
+
+Subagents have overhead (~5-15s spinup, context cost). Skip when:
+- Single project + < 5 doc files + no `git log` since last sync → inline `Read`s are faster
+- No comment drift candidates flagged in commit range → skip Source C dispatch
+- No `docs/known-issues/` directory → skip the known-issues fold
+- No memory layer (agent has no memory) → skip memory inventory entirely
+
+**Bias**: when in doubt, dispatch — overhead of one extra agent is far cheaper than missing a drift class.
+
+### Subagent return-format rules
+
+- Subagents return **summaries**, not raw file contents — protect main context window
+- Use bounded length: "Under 400 words", "Under 600 words" — enforces signal density
+- Use structured returns: tables, labeled lists — main agent merges mechanically
+- Never let subagents `Edit` / `Write` files — main agent owns all edits
 
 ## Execution flow
 
@@ -269,20 +335,20 @@ All three in one message → run concurrently. Main agent gets three summaries, 
 
 ### Phase 1 — Inventory (mechanical enumeration, no shortcuts)
 
-**`ls` first, judge later.** **If ≥ 2 projects touched, fan out via `Explore` subagents (one per project) — see Parallelization section above.** Single project: do inline.
+**`ls` first, judge later.** Dispatch via **Batch A** (see Execution Shape section); never serial. Coverage required:
 
-1. List agent memory files (if applicable):
-   - Claude Code: `ls ~/.claude/projects/<...>/memory/` and read `MEMORY.md` + every referenced `.md`
-   - Other agents: see `references/sync-matrix.md` for paths
+1. Agent memory files (if platform supports): `MEMORY.md` index + the directory listing. Individual entries fetched lazily after synthesis identifies which need edits.
 2. For every project this conversation touched:
-   - `ls <project-root>/` — confirm root layout
-   - `ls <project-root>/docs/ 2>/dev/null` — enumerate every doc (record absence too)
+   - `ls <project-root>/` + `ls <project-root>/docs/`
    - `find <project-root> -maxdepth 2 -name "*.md" -not -path "*/node_modules/*" -not -path "*/.git/*"` — catch stragglers
-   - Read `README.md`, project root markdown (CLAUDE.md / AGENTS.md), every `docs/*.md`
-3. Read global agent config (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`)
-4. Recall the entire conversation
+   - Read `README.md`, project root markdown, every `docs/*.md`
+   - Scan `docs/{plans,decisions,brainstorms,rfcs,proposals,change-requests}/` for intermediate-doc retire candidates
+   - Scan `docs/known-issues/` for stale entries
+   - Cross-reference `scripts/deploy*` / `scripts/install*` / `Makefile` deploy targets vs guide existence
+3. Global agent config (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`)
+4. Conversation recall — main agent, runs alongside dispatched agents
 
-**Internal output: a checklist** — for every file, mark "evaluated / will edit / no change". Missing one is the most common failure mode here.
+Per-project work above (steps 2 sub-bullets) folds into a single per-project `Explore` agent with multi-section return. **Internal output: a checklist** — for every file, mark "evaluated / will edit / no change". Missing one is the most common failure mode here.
 
 ### Phase 2 — Identify changes (TWO input sources)
 
@@ -302,21 +368,11 @@ git diff --stat <base>..HEAD
 
 For each commit not obviously discussed: read the diff summary, check whether it touches a public surface (route, env var, schema, command, CLI flag, public function signature). If yes → it has a doc-layer obligation we may have skipped.
 
-**Parallelization**: dispatch the git log scan as a `general-purpose` subagent in the same message as Phase 1 inventory agents — it has no dependency on conversation review and runs concurrently. Subagent returns a list of public-surface changes; main agent merges with conversation deltas.
-
 **Source C — code comment drift in touched files** (the layer closest to code, easiest to lie quietly):
 
-Scope to files modified in `git log <range>` plus all `LEGACY_DELETE_WHEN_RETIRE:` markers (which are checked codebase-wide regardless of range). For each candidate:
-- WHAT-narration that contradicts current code → fix or delete
-- WHY constraint that may have gone away → flag, don't auto-edit
-- Stale identifier reference after rename → mechanical update
-- TODO/FIXME with met condition → resolve or restate
-- LEGACY marker with met condition → delete code + marker
-- Docstring/parameter mismatch with current signature → sync
+Scope to files modified in `git log <range>` plus all `LEGACY_DELETE_WHEN_RETIRE:` markers (codebase-wide regardless of range). Drift categories + edit-vs-flag policy: see "Code comment drift" section above.
 
-Full mechanics + safety rules: see "Code comment drift" section above.
-
-**Parallelization**: dispatch one `Explore` subagent per major source directory; each returns flagged candidates only (never edits). Main agent makes the WHY-vs-WHAT call.
+**Parallelization**: all three sources dispatch in **Batch A** alongside Phase 1 inventory. Source A is main-agent recall (free), Source B is one `general-purpose` agent per repo, Source C is one `Explore` agent per major source dir + a single `Bash` for the codebase-wide LEGACY sweep. All in one message.
 
 **Change → file mapping** — see [references/sync-matrix.md](references/sync-matrix.md) for the full table. Common shapes:
 
@@ -391,7 +447,7 @@ API tables, env-var tables, glossaries are high-frequency structured lookups —
 
 If any box fails, go back. "Close enough" defeats the skill.
 
-**Parallelization**: the path/command/env-var existence checks (lines marked "actually exist in code") fan out cleanly — one `Explore` subagent per project, each verifying its own CLAUDE.md claims against the codebase. Run in parallel after Phase 3 edits land.
+**Parallelization**: dispatch via **Batch B** — one message after Phase 3 edits land, containing per-project existence checks (`Explore` × N), memory frontmatter validation (`Explore` × 1), relative-time sweep (`Bash`), MEMORY.md link integrity (`Bash`), and downstream cross-project verification (`Explore` × N). See Execution Shape section.
 
 ### Phase 5 — Summary + handoff to wayne-ship
 
