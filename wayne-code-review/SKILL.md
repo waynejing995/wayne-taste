@@ -224,7 +224,7 @@ _REPO_ROOT=$(git rev-parse --show-toplevel)
 codex exec "{THE_SHARED_PROMPT}" -C "$_REPO_ROOT" -s read-only 2>/tmp/codex-review-err.txt
 ```
 
-Timeout: 300000ms (5 min).
+Timeout: 3600000ms (60 min).
 
 **If Codex unavailable or fails:** Continue with Claude-only review. Note: "Codex not available — single-voice adversarial review only."
 
