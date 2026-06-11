@@ -18,15 +18,21 @@ uv run --no-project python ~/.claude/skills/wayne-context-audit/launch_footprint
 ```
 
 Reports:
-- **CLAUDE.md / memory** — line/word/byte of global + project CLAUDE.md + the current project's MEMORY.md
-- **Total skills surfaced** — global + plugin-provided + project (enabled vs disabled)
-- **Enabled plugins** — how many skills each ships (the biggest lever)
+- **CLAUDE.md / memory** — line/word/byte of global + project CLAUDE.md + the current project's MEMORY.md (size proxy)
+- **Plugins** — from `claude plugin list --json` + `claude plugin details`: enabled/disabled, skill count, and the CLI's own **always-on token** projection per plugin (real cost, not a proxy)
+- **Local standalone skills** — flat `~/.claude/skills/` + project `.claude/skills/`
 - **MCP servers** — the deferred-tool surface
 
-Counts are line/word/byte proxies, not exact tokens.
+**Authority:** plugin data comes from the `claude` CLI, not from walking the
+plugin cache. The CLI knows which version is loaded, which plugin is enabled,
+and the real token cost — so the script doesn't re-derive any of that with
+fragile filesystem heuristics. (Earlier versions scanned the cache and
+mis-counted: wrong versions, disabled plugins, nested vendor copies.) Requires
+the `claude` CLI on PATH; without it the plugin section is skipped.
 
-**Levers, by impact:** disable unused plugins (`enabledPlugins` in `settings.json`)
-> trim CLAUDE.md > move unused global skills to `skills-disabled/` > drop heavy MCP servers.
+**Levers, by impact:** sort by the always-on column and disable the biggest
+unused plugins (`claude plugin disable <id>`) > trim CLAUDE.md > move unused
+local skills to `skills-disabled/` > drop heavy MCP servers.
 
 ## Mode 2 — Skill usage (what you actually invoke)
 
