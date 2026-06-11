@@ -5,7 +5,7 @@ All `wayne-*` skills inherit from here and MUST NOT redeclare these rules.
 
 ## Language
 
-English output to user. Chinese only for `AskUserQuestion`. English in all files.
+Chat with user in Chinese (简体中文). Output files (code, docs, configs, commits) in English.
 
 ## Code Standards
 
