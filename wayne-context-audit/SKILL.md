@@ -1,50 +1,32 @@
 ---
 name: wayne-context-audit
-description: Audit what consumes context. Two modes. (1) Launch footprint — measures the static cost paid at turn zero (CLAUDE.md/memory sizes, enabled plugins + skills each ships, MCP servers, total skills surfaced). (2) Skill usage — reads the PreToolUse skill-usage log to report invocation counts, never-used prune candidates, and re-enable candidates. Use when asked to "audit context", "why does context fill up", "launch footprint", "audit skills", "which skills do I use", "clean up my skills", or "what can I remove".
+description: See which skills you actually use, to decide what to prune. Reads the PreToolUse skill-usage log (~/.claude/skill-usage.jsonl) and reports per-skill invocation counts, last-used / days-idle, and installed-but-never-used prune candidates. For the static snapshot of what's loaded right now (per-item token cost of skills, agents, MCP, memory), just run the built-in `/context all` — this skill does NOT re-derive that. Use when asked to "audit skills", "which skills do I use", "is this skill used", "clean up my skills", or "what can I remove".
 ---
 
 # Context Audit
 
-Find what eats context and decide what to cut — from measured data, not guesses.
-Two independent analyzers; run either or both.
+Two questions, two tools — don't conflate them:
 
-## Mode 1 — Launch footprint (static turn-zero cost)
+1. **"What's loaded right now and what does it cost?"** → run the built-in
+   **`/context all`**. It already gives per-item token cost for every skill,
+   agent, MCP tool, and memory file, grouped by source. It's the authoritative
+   snapshot — this skill does not re-implement it, and neither should you.
 
-What loads before the user types anything. The dominant cost is usually the
-skill list, then CLAUDE.md and the MCP tool surface.
+2. **"Which skills do I actually invoke across sessions?"** → that's the gap
+   `/context` can't fill (it's one moment, not history). This skill answers it
+   from the usage log.
 
-```bash
-uv run --no-project python ~/.claude/skills/wayne-context-audit/launch_footprint.py --project .
-```
-
-Reports:
-- **CLAUDE.md / memory** — line/word/byte of global + project CLAUDE.md + the current project's MEMORY.md (size proxy)
-- **Plugins** — from `claude plugin list --json` + `claude plugin details`: enabled/disabled, skill count, and the CLI's own **always-on token** projection per plugin (real cost, not a proxy)
-- **Local standalone skills** — flat `~/.claude/skills/` + project `.claude/skills/`
-- **MCP servers** — the deferred-tool surface
-
-**Authority:** plugin data comes from the `claude` CLI, not from walking the
-plugin cache. The CLI knows which version is loaded, which plugin is enabled,
-and the real token cost — so the script doesn't re-derive any of that with
-fragile filesystem heuristics. (Earlier versions scanned the cache and
-mis-counted: wrong versions, disabled plugins, nested vendor copies.) Requires
-the `claude` CLI on PATH; without it the plugin section is skipped.
-
-**Levers, by impact:** sort by the always-on column and disable the biggest
-unused plugins (`claude plugin disable <id>`) > trim CLAUDE.md > move unused
-local skills to `skills-disabled/` > drop heavy MCP servers.
-
-## Mode 2 — Skill usage (what you actually invoke)
-
-Needs the capture hook installed (see below). Empty until the hook has run.
+## Usage report
 
 ```bash
 uv run --no-project python ~/.claude/skills/wayne-context-audit/skill_usage.py
 # options: --idle-days N (default 30), -v
 ```
 
-Reports: used skills by count (last-used, days idle, status), installed-but-never-used
-**prune candidates**, and disabled-but-still-invoked **re-enable candidates**.
+Reports:
+- **Used skills by count** — invocations, last-used, days idle, status (enabled / disabled / external-plugin)
+- **Installed but never used** — prune candidates
+- **Disabled but still invoked** — re-enable candidates
 
 ### Data source (SSoT)
 
@@ -52,15 +34,19 @@ Reports: used skills by count (last-used, days idle, status), installed-but-neve
 `{ts, skill, args, cwd, session}`. Written by the PreToolUse hook. Logs only
 going forward — no retroactive data; a 0-use skill may just predate the hook.
 
-## Acting on results
+## Deciding what to cut
+
+Cross-reference the two: `/context all` tells you a skill's **cost**, the usage
+report tells you its **value** (how often it actually fires). High-cost +
+never-used = first to go.
 
 - **Prune** (installed, never used, idle): `mv ~/.claude/skills/<name> ~/.claude/skills-disabled/` — reversible.
 - **Re-enable**: `mv ~/.claude/skills-disabled/<name> ~/.claude/skills/`.
-- **Plugin skill** (status `external/plugin`): toggle via `enabledPlugins` in `settings.json`, not by moving folders.
+- **Plugin skill** (status `external/plugin`): `claude plugin disable <id>`, not a folder move.
 
 Always confirm the move list with the user before touching folders.
 
-## Install the capture hook (Mode 2 prerequisite)
+## Install the capture hook (prerequisite)
 
 The bundled `PreToolUse`/`Skill` hook appends one JSONL line per Skill call.
 
