@@ -32,15 +32,80 @@ def file_stats(path):
     return {"lines": text.count("\n") + 1, "words": len(text.split()), "bytes": len(text.encode())}
 
 
-def count_skills(root):
-    """Count SKILL.md files under a directory (one per skill)."""
-    if not os.path.isdir(root):
+def count_direct_skills(skills_dir):
+    """Count only direct children: skills_dir/<name>/SKILL.md.
+
+    Plugins keep skills in a flat skills/ dir; counting recursively would also
+    pick up nested vendor copies (.factory/, openclaw/, etc.) some plugins bundle,
+    inflating the total. One level deep is the real surfaced count.
+    """
+    if not os.path.isdir(skills_dir):
         return 0
     n = 0
-    for dirpath, _, files in os.walk(root):
-        if "SKILL.md" in files:
+    for name in os.listdir(skills_dir):
+        if os.path.isfile(os.path.join(skills_dir, name, "SKILL.md")):
             n += 1
     return n
+
+
+def latest_version_dir(plugin_dir):
+    """Pick one version subdir per plugin (newest by mtime).
+
+    The cache keeps every installed version side by side; summing them all
+    double-counts a plugin's skills. Only the latest is actually loaded.
+    """
+    subdirs = [
+        os.path.join(plugin_dir, d)
+        for d in os.listdir(plugin_dir)
+        if os.path.isdir(os.path.join(plugin_dir, d))
+    ]
+    if not subdirs:
+        return None
+    return max(subdirs, key=os.path.getmtime)
+
+
+def plugin_skill_count(plugin_dir):
+    """Skills shipped by a plugin's latest cached version.
+
+    Plugins don't share one layout — some keep skills in skills/, others nest
+    under claude-plugin/<name>/skills/. So count SKILL.md anywhere under the
+    latest version, but exclude two kinds of non-loaded copies:
+      - hidden segments (.claude/, .factory/, etc.) — dev/vendor scaffolding
+      - openclaw/ — bundled cross-agent mirrors
+    """
+    ver = latest_version_dir(plugin_dir)
+    if not ver:
+        return 0
+    n = 0
+    for dirpath, _, files in os.walk(ver):
+        if "SKILL.md" not in files:
+            continue
+        rel = os.path.relpath(dirpath, ver)
+        segs = rel.split(os.sep)
+        if any(s.startswith(".") for s in segs) or "openclaw" in segs:
+            continue
+        n += 1
+    return n
+
+
+def enabled_plugin_keys():
+    """Set of '<plugin>@<marketplace>' keys that are enabled in settings.json."""
+    settings = load_json(SETTINGS)
+    return {k for k, v in settings.get("enabledPlugins", {}).items() if v}
+
+
+def walk_plugins():
+    """Yield (marketplace, plugin, plugin_dir) for every plugin in the cache."""
+    if not os.path.isdir(PLUGIN_CACHE):
+        return
+    for marketplace in sorted(os.listdir(PLUGIN_CACHE)):
+        mp = os.path.join(PLUGIN_CACHE, marketplace)
+        if not os.path.isdir(mp):
+            continue
+        for plugin in sorted(os.listdir(mp)):
+            pdir = os.path.join(mp, plugin)
+            if os.path.isdir(pdir):
+                yield marketplace, plugin, pdir
 
 
 def load_json(path):
@@ -82,27 +147,25 @@ def section_claude_md(project_dir):
 def section_plugins():
     print("## Enabled plugins + skills shipped\n")
     settings = load_json(SETTINGS)
-    enabled = {k: v for k, v in settings.get("enabledPlugins", {}).items() if v}
-    disabled = {k: v for k, v in settings.get("enabledPlugins", {}).items() if not v}
-    print(f"- Enabled: **{len(enabled)}**  |  Disabled: **{len(disabled)}**\n")
+    enabled_keys = {k for k, v in settings.get("enabledPlugins", {}).items() if v}
+    disabled_keys = {k for k, v in settings.get("enabledPlugins", {}).items() if not v}
+    print(f"- Enabled: **{len(enabled_keys)}**  |  Disabled: **{len(disabled_keys)}**\n")
+    print("Only enabled plugins load skills into context. Counts use each plugin's "
+          "latest cached version (older versions side by side are not loaded).\n")
     print("| Plugin | Skills shipped |")
     print("|---|---|")
     rows = []
-    if os.path.isdir(PLUGIN_CACHE):
-        for marketplace in os.listdir(PLUGIN_CACHE):
-            mp = os.path.join(PLUGIN_CACHE, marketplace)
-            if not os.path.isdir(mp):
-                continue
-            for plugin in os.listdir(mp):
-                pdir = os.path.join(mp, plugin)
-                # version subdir(s)
-                n = count_skills(pdir)
-                if n:
-                    rows.append((f"{marketplace}/{plugin}", n))
+    for marketplace, plugin, pdir in walk_plugins():
+        key = f"{plugin}@{marketplace}"
+        if key not in enabled_keys:
+            continue
+        n = plugin_skill_count(pdir)
+        rows.append((f"{plugin}@{marketplace}", n))
     for name, n in sorted(rows, key=lambda r: -r[1]):
         print(f"| {name} | {n} |")
-    if disabled:
-        print(f"\n_Disabled plugins:_ {', '.join(sorted(disabled))}")
+    print(f"\n_Enabled plugin skills total: **{sum(n for _, n in rows)}**_")
+    if disabled_keys:
+        print(f"\n_Disabled plugins (not loaded):_ {', '.join(sorted(disabled_keys))}")
     print()
 
 
@@ -118,20 +181,24 @@ def section_mcp():
 
 def section_skill_total(project_dir):
     print("## Total skills surfaced\n")
-    g = count_skills(os.path.join(GLOBAL_CLAUDE, "skills"))
-    d = count_skills(os.path.join(GLOBAL_CLAUDE, "skills-disabled"))
-    p = count_skills(os.path.join(project_dir, ".claude", "skills"))
-    plug = 0
-    if os.path.isdir(PLUGIN_CACHE):
-        plug = count_skills(PLUGIN_CACHE)
+    g = count_direct_skills(os.path.join(GLOBAL_CLAUDE, "skills"))
+    d = count_direct_skills(os.path.join(GLOBAL_CLAUDE, "skills-disabled"))
+    p = count_direct_skills(os.path.join(project_dir, ".claude", "skills"))
+    # Plugin skills: only ENABLED plugins, latest version each.
+    enabled_keys = enabled_plugin_keys()
+    plug = sum(
+        plugin_skill_count(pdir)
+        for marketplace, plugin, pdir in walk_plugins()
+        if f"{plugin}@{marketplace}" in enabled_keys
+    )
     print("| Source | Count |")
     print("|---|---|")
     print(f"| global ~/.claude/skills | {g} |")
-    print(f"| plugin-provided (cache) | {plug} |")
+    print(f"| enabled plugins | {plug} |")
     print(f"| project .claude/skills | {p} |")
-    print(f"| **surfaced total (enabled)** | **{g + plug + p}** |")
-    print(f"| disabled (backup, not loaded) | {d} |\n")
-    print("> Skill descriptions are the single biggest static cost. Each enabled skill "
+    print(f"| **surfaced total (loaded)** | **{g + plug + p}** |")
+    print(f"| global disabled (backup, not loaded) | {d} |\n")
+    print("> Skill descriptions are the single biggest static cost. Each surfaced skill "
           "adds its name + description to every session's turn-zero context.\n")
 
 
