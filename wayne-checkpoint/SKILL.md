@@ -1,6 +1,6 @@
 ---
 name: wayne-checkpoint
-description: Save and resume working state within the project. Captures git state, decision log progress, plan status, and remaining work so you can pick up exactly where you left off across sessions. Stored in .wayne/checkpoints/ (project-scoped, gitignored). Use when asked to "checkpoint", "save progress", "where was I", "resume", or "pick up where I left off".
+description: Save and resume working state within the project, and act as the handoff conductor between Wayne pipeline stages. Captures git state, decision log progress, plan status, and remaining work so you can pick up exactly where you left off across sessions. Also emits a standardized "handoff packet" (snapshot + next agent + self-contained next prompt + optional goal) at the end of each pipeline stage to standardize the transition to the next stage — without ever advancing it. Stored in .wayne/checkpoints/ (project-scoped, gitignored). Use when asked to "checkpoint", "save progress", "where was I", "resume", "pick up where I left off", or "hand off"; also auto-called by other Wayne pipeline skills as their final step to produce a handoff packet.
 ---
 
 # Wayne Checkpoint
@@ -17,11 +17,12 @@ This skill inherits the Wayne control-plane invariants and does not redeclare th
 - Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
 - Skill invocation rule (proportional effort)
 
-This skill only specifies the save / resume / list checkpoint workflow.
+This skill only specifies the save / resume / list checkpoint workflow and the
+pipeline handoff workflow.
 
 ## Files Written
 
-checkpoint markdown files at `.wayne/checkpoints/`.
+checkpoint and handoff-packet markdown files at `.wayne/checkpoints/`.
 
 ## Commands
 
@@ -30,6 +31,7 @@ checkpoint markdown files at `.wayne/checkpoints/`.
 | `/wayne-checkpoint` or `/wayne-checkpoint save` | Save current state |
 | `/wayne-checkpoint resume` | Load most recent checkpoint, resume |
 | `/wayne-checkpoint list` | Show all checkpoints |
+| `/wayne-checkpoint handoff` | Emit a handoff packet for the next pipeline stage (returns the packet only; never advances). Also auto-called by other Wayne pipeline skills as their final step. |
 
 ## Save Flow
 
@@ -249,6 +251,139 @@ Read frontmatter of each file. Present as table (in Chinese):
 
 ---
 
+## Handoff Mode
+
+Handoff mode is the skill's **second role**: it is the handoff conductor between
+Wayne pipeline stages. Each pipeline skill, as its FINAL step, auto-calls
+wayne-checkpoint in handoff mode. Handoff mode gathers state (the same gathering
+the Save Flow does) and emits a standardized **handoff packet** that tells the
+user — and the next stage — exactly how to continue.
+
+Handoff = checkpoint + routing on top. It reuses Save Flow Steps 1-2 (Gather
+State, Gather Pipeline State) verbatim, then adds routing.
+
+### Mode A: return-only, no nesting (non-negotiable)
+
+The handoff agent ONLY RETURNS a handoff packet. It NEVER calls the next
+agent/skill itself, and it NEVER nests another agent. The real next step is
+ALWAYS triggered manually by the user.
+
+This is locked by design — it keeps control with the user and avoids nested-agent
+context blowup. Handoff mode therefore differs from Resume Flow Step 4
+(Auto-Resume), which DOES auto-invoke: Resume is a deliberate user-driven "pick up
+where I left off", Handoff is an end-of-stage emit that must not advance anything.
+
+```dot
+digraph handoff {
+  rankdir=LR;
+  node [shape=box];
+  stage   [label="pipeline skill\n(final step)"];
+  call    [label="auto-call\nwayne-checkpoint\n(handoff mode)"];
+  gather  [label="gather state\n(Save Flow 1-2)"];
+  route   [label="route to\nnext agent"];
+  emit    [label="emit packet\n(file + chat)"];
+  user    [label="USER reads packet\n+ manually triggers\nnext step", shape=oval];
+  next    [label="next pipeline skill", style=dashed];
+
+  stage -> call -> gather -> route -> emit -> user;
+  user -> next [label="manual: 下一步 / 继续 / go", style=dashed];
+  emit -> next [label="NEVER (no auto-advance)", style=dashed, color=red, constraint=false];
+}
+```
+
+### When it is called
+
+- **Auto:** the final step of every pipeline skill (wayne-mind-explode,
+  wayne-plan, wayne-work, wayne-code-review, wayne-verify, wayne-ship). Those
+  skills are edited separately to add the call; this skill defines what the call
+  DOES.
+- **Manual:** `/wayne-checkpoint handoff` when the user wants the packet on demand.
+
+### Step 1: Gather State
+
+Reuse **Save Flow → Step 1 (Gather State)** and **Step 2 (Gather Pipeline
+State)** exactly. No duplicate logic — the snapshot is the checkpoint snapshot.
+
+### Step 2: Route to Next Agent
+
+Determine the current pipeline stage (from the calling skill, or infer from
+artifacts as in Save Flow), then look up the next agent:
+
+| Current stage | Next agent |
+|---------------|------------|
+| `mind-explode` | `wayne-plan` |
+| `plan` | `wayne-work` |
+| `work` | `wayne-code-review` |
+| `code-review` | `wayne-verify` |
+| `verify` | `wayne-ship` |
+| `ship` | `wayne-compound` |
+
+### Step 3: Build the Packet
+
+Assemble the four required parts plus the optional goal:
+
+1. **snapshot** — current state: git branch/status, decision-log progress, plan
+   implementation-unit checkbox status, current pipeline stage. (Same fields the
+   checkpoint captures.)
+2. **next agent** — from the routing table above.
+3. **next prompt** — a SELF-CONTAINED prompt for the next step. The next agent has
+   NO prior context; the prompt must stand alone (name the branch, the plan/spec
+   paths, the units in scope, what "done" looks like). Do not write "continue from
+   before" — restate everything needed.
+4. **goal (OPTIONAL)** — a success-criteria / Goal-Driven block (per CLAUDE.md
+   "Goal-Driven Execution"). Include ONLY when concrete success criteria are
+   extractable. When present, the next step may loop autonomously toward the goal;
+   when absent, the next step follows its prompt/plan steps strictly.
+5. **trigger: manual** — ALWAYS. The packet states the user must manually fire the
+   next step (e.g. say "下一步" / "继续" / "go").
+
+**Optional-goal toggle.** When generating a packet, offer the user the choice to
+include or drop the goal block. Default: include it if concrete success criteria
+are extractable; otherwise omit it. (Use `AskUserQuestion`, Chinese, only when the
+goal is borderline — do not interrogate when the default is obvious.)
+
+### Step 4: Persist + Surface
+
+```bash
+mkdir -p .wayne/checkpoints
+
+# Self-contained gitignore (one-time setup) — same as Save Flow
+[ -f .wayne/.gitignore ] || echo "*" > .wayne/.gitignore
+
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+echo "TIMESTAMP=$TIMESTAMP"
+```
+
+Write the packet to `.wayne/checkpoints/{TIMESTAMP}-handoff-{stage}-to-{next}.md`
+(same directory as checkpoints, same gitignore).
+
+**Read first, then write:** `${HOME}/.claude/skills/wayne-checkpoint/templates/handoff-packet.md`
+
+The template is the canonical structure. It shares frontmatter and table
+conventions with `checkpoint-template.md` so formats flow between skills without
+re-parsing.
+
+**Surface in chat** so the user sees the next agent and can trigger it (in
+Chinese):
+
+```
+交接包已生成
+════════════════════════════
+当前阶段: {current stage}
+下一步:   {next agent}
+触发方式: 手动 — 说"下一步" / "继续" / "go"
+目标块:   {已包含 / 已省略}
+文件:     .wayne/checkpoints/{filename}
+════════════════════════════
+```
+
+### Step 5: Return — do NOT advance
+
+Return the packet and STOP. Do not invoke the next skill. Wait for the user to
+manually trigger the next step.
+
+---
+
 ## Auto-Suggest
 
 Proactively suggest saving a checkpoint when:
@@ -261,24 +396,58 @@ Proactively suggest saving a checkpoint when:
 
 ## Integration with Wayne Pipeline
 
-```
-wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-ship → wayne-compound
-                                      ↕                                              ↓
-                              wayne-checkpoint ←──────────────────────────────────────┘
-                           (save/resume at any point)
+Checkpoint has two relationships with the pipeline:
+
+1. **Orthogonal (save/resume):** it can save/resume at any stage.
+2. **Handoff conductor:** each pipeline skill auto-calls it as its final step to
+   emit a handoff packet that standardizes the transition to the next stage —
+   without advancing it (Mode A, return-only).
+
+```dot
+digraph pipeline {
+  rankdir=LR;
+  node [shape=box];
+  me [label="wayne-mind-explode"];
+  pl [label="wayne-plan"];
+  wk [label="wayne-work"];
+  cr [label="wayne-code-review"];
+  vf [label="wayne-verify"];
+  sh [label="wayne-ship"];
+  cp [label="wayne-compound"];
+  ck [label="wayne-checkpoint\n(save / resume / list\n+ handoff conductor)", shape=box, style=bold];
+
+  me -> pl -> wk -> cr -> vf -> sh -> cp;
+
+  // every stage auto-calls checkpoint in handoff mode as its final step
+  me -> ck [style=dashed, label="handoff"];
+  pl -> ck [style=dashed];
+  wk -> ck [style=dashed];
+  cr -> ck [style=dashed];
+  vf -> ck [style=dashed];
+  sh -> ck [style=dashed];
+
+  // checkpoint emits packet; user manually fires next stage (never auto-advance)
+  ck -> wk [style=dotted, label="save/resume\n(any stage)", constraint=false];
+}
 ```
 
-Checkpoint is **orthogonal** to the pipeline — it can save/resume at any stage.
-The `pipeline_stage` field in the checkpoint tells resume which skill to suggest.
+The `pipeline_stage` field tells **resume** which skill to suggest, and tells
+**handoff** which skill is the next agent (see Handoff Mode → Step 2 routing
+table). Note `wayne-verify` is a runtime-verification stage between
+`wayne-code-review` and `wayne-ship`.
 
-| Pipeline stage at save | Resume suggests |
-|----------------------|-----------------|
-| `brainstorm` | Invoke `wayne-mind-explode`, continue grilling |
-| `plan` | Invoke `wayne-plan`, continue from last phase |
-| `work` | Invoke `wayne-work`, resume from next pending unit |
-| `review` | Invoke `wayne-code-review` |
-| `ship` | Invoke `wayne-ship` |
-| `compound` | Invoke `wayne-compound` |
+| Pipeline stage | Resume suggests | Handoff routes to (next agent) |
+|----------------|-----------------|--------------------------------|
+| `brainstorm` / `mind-explode` | Invoke `wayne-mind-explode`, continue grilling | `wayne-plan` |
+| `plan` | Invoke `wayne-plan`, continue from last phase | `wayne-work` |
+| `work` | Invoke `wayne-work`, resume from next pending unit | `wayne-code-review` |
+| `review` / `code-review` | Invoke `wayne-code-review` | `wayne-verify` |
+| `verify` | Invoke `wayne-verify` | `wayne-ship` |
+| `ship` | Invoke `wayne-ship` | `wayne-compound` |
+| `compound` | Invoke `wayne-compound` | — (pipeline end) |
+
+**Resume vs Handoff:** Resume auto-invokes the next skill (user-driven "pick up");
+Handoff only emits a packet and waits for a manual trigger (end-of-stage emit).
 
 ---
 
@@ -289,4 +458,5 @@ The `pipeline_stage` field in the checkpoint tells resume which skill to suggest
 - **Read-only** — never modifies code, only reads state and writes checkpoint files
 - **Pipeline-aware** — captures which Wayne skill was active and what phase
 - **Infer, don't interrogate** — use git + pipeline artifacts + conversation to fill in context
+- **Handoff never advances** — handoff mode returns a packet only (Mode A, no nesting); the user always triggers the next step manually
 - **Chinese for output, English for files**

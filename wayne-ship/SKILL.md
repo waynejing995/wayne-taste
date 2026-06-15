@@ -9,8 +9,14 @@ Commit and ship changes with strict commit conventions.
 Every commit is atomic (1 feature / 1 fix / 1 request), signed-off, and Jira-tagged.
 
 <HARD-GATE>
-`wayne-code-review` MUST pass before any commit. If review hasn't run this session,
-invoke it first. No exceptions.
+BOTH gates MUST pass before any commit. No exceptions.
+
+1. `wayne-code-review` (static) MUST pass. If review hasn't run this session, invoke
+   it first.
+2. `wayne-verify` (runtime) MUST pass: the E2E Verification Contract table must be
+   all ✅ — no remaining ⬜ (unverified), no ❌ (broken) — OR the work legitimately
+   declared `E2E: none — <reason>` (no user-observable path to verify). If
+   wayne-verify hasn't run this session, invoke it first.
 </HARD-GATE>
 
 ## Inherits from ~/.claude/CLAUDE.md
@@ -32,7 +38,7 @@ commit messages, PR descriptions, code comments. Commit prefixes (`SWDEV-1234`, 
 
 ## Checklist
 
-1. **Pre-flight check** — verify wayne-code-review has passed
+1. **Pre-flight check** — verify wayne-code-review has passed AND wayne-verify has passed (E2E contract all ✅, or `E2E: none` declared)
 2. **Analyze changes** — group by feature/fix, identify Jira tickets
 3. **Present commit plan** — show user what will be committed and how
 4. **Commit per feature** — one atomic commit per logical change
@@ -46,6 +52,8 @@ digraph ship {
 
     "wayne-code-review\npassed?" [shape=diamond];
     "Run wayne-code-review" [shape=box];
+    "wayne-verify passed?\ncontract all ✅?" [shape=diamond];
+    "Run wayne-verify" [shape=box];
     "Analyze changes:\ngit status + git diff" [shape=box];
     "Group changes by\nfeature/fix" [shape=box];
     "Identify Jira tickets\nfor each group" [shape=box];
@@ -58,8 +66,11 @@ digraph ship {
     "Done" [shape=doublecircle];
 
     "wayne-code-review\npassed?" -> "Run wayne-code-review" [label="no"];
-    "wayne-code-review\npassed?" -> "Analyze changes:\ngit status + git diff" [label="yes"];
+    "wayne-code-review\npassed?" -> "wayne-verify passed?\ncontract all ✅?" [label="yes"];
     "Run wayne-code-review" -> "wayne-code-review\npassed?";
+    "wayne-verify passed?\ncontract all ✅?" -> "Run wayne-verify" [label="no"];
+    "wayne-verify passed?\ncontract all ✅?" -> "Analyze changes:\ngit status + git diff" [label="yes"];
+    "Run wayne-verify" -> "wayne-verify passed?\ncontract all ✅?";
     "Analyze changes:\ngit status + git diff" -> "Group changes by\nfeature/fix";
     "Group changes by\nfeature/fix" -> "Identify Jira tickets\nfor each group";
     "Identify Jira tickets\nfor each group" -> "Present commit plan\nto user (Chinese)";
@@ -229,16 +240,33 @@ EOF
 
 ---
 
+## Phase 8: Handoff
+
+As the final step, after the commit (and push/PR, if requested) succeeds, call
+**`wayne-checkpoint` in handoff mode** to emit a handoff packet pointing to
+`wayne-compound` as the next agent (the pipeline's lessons-capture stage). The
+handoff-packet mechanism is defined in `wayne-checkpoint` — this skill only invokes
+it; it does not implement or advance it.
+
+**Mode A — return-only.** The packet is returned/surfaced only; it does NOT
+auto-invoke `wayne-compound`. The user manually triggers the next step (say "下一步"
+/ "继续" / "go").
+
+---
+
 ## Integration with Wayne Workflow
 
 ```
-wayne-mind-explode  →  wayne-plan  →  wayne-work  →  wayne-code-review  →  wayne-ship
-     (WHAT)              (HOW)         (BUILD)         (GATE)              (COMMIT)
+wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-verify → wayne-ship → wayne-compound
+     (WHAT)            (HOW)        (BUILD)      (STATIC GATE)      (RUNTIME GATE)  (COMMIT)     (LESSONS)
 ```
 
-This is the final step. It only runs after:
+This is the commit step. It only runs after:
 1. Implementation is complete (`wayne-work`)
 2. Dual-voice review has passed (`wayne-code-review`)
+3. Runtime verification has passed (`wayne-verify` — E2E contract all ✅, or `E2E: none` declared)
+
+Its own final step hands off to `wayne-compound` (see Phase 8).
 
 ---
 
@@ -247,6 +275,6 @@ This is the final step. It only runs after:
 - **1 commit = 1 feature** — never bundle unrelated changes
 - **Always signed-off** — `git commit -s`, no exceptions
 - **Jira ticket first** — every commit traces to a ticket when possible
-- **Review before commit** — `wayne-code-review` is a hard gate
+- **Both gates before commit** — `wayne-code-review` (static) AND `wayne-verify` (runtime, contract all ✅) are hard gates
 - **User approves the plan** — never commit without showing the grouping first
 - **Chinese for discussion, English for commits**

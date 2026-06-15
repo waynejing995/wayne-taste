@@ -31,16 +31,16 @@ plans, specs, decision logs, code comments. Headers / severity tags / table head
 
 You MUST create a task for each and complete in order:
 
-1. **Find source inputs** — decision log, spec, or feature description
+1. **Find source inputs** — decision log, spec, or feature description; carry the spec's E2E Verification Contract forward verbatim
 2. **Recall lessons from KB** — see "Lesson Recall" section below; collect
    relevant lessons to inject into the plan's risk section
 3. **Gather context** — explore codebase, read existing plans/docs
 4. **Conflict review** — check ALL existing plans for contradictions
 5. **Resolve planning questions** — ask user only when answer is unknowable from code
-6. **Structure the plan** — break into implementation units
-7. **Write plan file** — save to `docs/plans/`, with relevant lessons cited in risk section
+6. **Structure the plan** — break into implementation units; tag each unit with the E2E contract row #s it advances
+7. **Write plan file** — save to `docs/plans/`, with relevant lessons cited in risk section and the carried E2E contract section (Status ⬜)
 8. **Dispatch plan reviews** — `/plan-ceo-review` + `/plan-eng-review`
-9. **Final plan** — incorporate review feedback, present to user
+9. **Final plan** — incorporate review feedback, present to user, then auto-call wayne-checkpoint in handoff mode to emit the handoff packet for wayne-work
 
 ## Lesson Recall (Step 2)
 
@@ -48,7 +48,7 @@ Before structuring the plan, scan the KB for past lessons with `type: lesson`
 whose `trigger` field matches the planned work.
 
 ```bash
-grep -rl "^type: lesson" /mnt/share/kb/ --include="*.md" 2>/dev/null
+grep -rl "^type: lesson" /mnt/share/wayne-note/ --include="*.md" 2>/dev/null
 ```
 
 For each candidate, read the `trigger` field. Use semantic matching (a quick
@@ -77,6 +77,7 @@ digraph plan {
     rankdir=TB;
 
     "Find source inputs\n(decision log / spec / description)" [shape=box];
+    "Carry E2E contract\nverbatim from spec" [shape=box];
     "Gather context\n(codebase + existing plans)" [shape=box];
     "Conflict review:\nread ALL existing plans" [shape=box];
     "Conflicts?" [shape=diamond];
@@ -88,9 +89,11 @@ digraph plan {
     "Dispatch /plan-ceo-review\n+ /plan-eng-review" [shape=box, style=bold];
     "Reviews pass?" [shape=diamond];
     "Revise plan from\nreview feedback" [shape=box];
-    "Present final plan\nto user" [shape=doublecircle];
+    "Present final plan\nto user" [shape=box];
+    "Auto-call wayne-checkpoint\n(handoff mode → wayne-work)" [shape=doublecircle];
 
-    "Find source inputs\n(decision log / spec / description)" -> "Gather context\n(codebase + existing plans)";
+    "Find source inputs\n(decision log / spec / description)" -> "Carry E2E contract\nverbatim from spec";
+    "Carry E2E contract\nverbatim from spec" -> "Gather context\n(codebase + existing plans)";
     "Gather context\n(codebase + existing plans)" -> "Conflict review:\nread ALL existing plans";
     "Conflict review:\nread ALL existing plans" -> "Conflicts?";
     "Conflicts?" -> "Back to wayne-mind-explode\nto resolve conflicts" [label="yes"];
@@ -103,6 +106,7 @@ digraph plan {
     "Reviews pass?" -> "Present final plan\nto user" [label="yes"];
     "Reviews pass?" -> "Revise plan from\nreview feedback" [label="no"];
     "Revise plan from\nreview feedback" -> "Dispatch /plan-ceo-review\n+ /plan-eng-review";
+    "Present final plan\nto user" -> "Auto-call wayne-checkpoint\n(handoff mode → wayne-work)";
 }
 ```
 
@@ -124,6 +128,14 @@ If a spec exists, carry forward:
 - Scope boundaries
 - Key decisions and rationale
 - Dependencies and assumptions
+- **The E2E Verification Contract** — copy it into the plan **verbatim**. This is an
+  input the plan must preserve, not author or modify. The spec carries either a contract
+  table (all Status ⬜, set by `wayne-mind-explode`) or a single `E2E: none — <reason>`
+  line; carry across whichever is present, byte-for-byte. wayne-plan never executes or
+  mutates the contract — Status stays ⬜ until `wayne-verify` runs it. Format SSoT:
+  `_shared/e2e-contract.md` (do not redeclare it). If the spec has no contract and no
+  `E2E: none` line, that is a Fail-Loud gap — flag it and recommend back to
+  `wayne-mind-explode` rather than inventing one.
 
 If neither exists, run a short bootstrap:
 - Establish problem frame, intended behavior, scope, success criteria
@@ -246,8 +258,16 @@ For each unit, include:
 | **Patterns to follow** | Yes | Existing code or conventions to mirror |
 | **Test scenarios** | Yes | Specific cases: input → action → expected outcome |
 | **Verification** | Yes | How to know the unit is complete |
+| **E2E contract rows** | Yes | Which carried contract row #s this unit advances (e.g. `#1, #3`), or `none — <reason>` |
 | **Technical design** | Optional | Pseudo-code or diagram when approach is non-obvious |
 | **Decision trace** | If available | Which decision log entries drive this unit |
+
+**Distinguish the two levels.** "Test scenarios" and "Verification" are unit/integration-level —
+they prove the unit's own logic in isolation, often with mocks. "E2E contract rows" point to the
+real-usage rows in the `## E2E Verification Contract` section that `wayne-verify` will actually RUN
+along the user path. Unit tests passing is **NOT** the e2e gate: the contract rows stay ⬜ no matter
+how green the unit tests are, and only flip when `wayne-verify` drives the real entrypoint. Tag each
+unit with the row #s it advances so the contract is fully covered by the time work completes.
 
 ### 6.3 Test Scenarios
 
@@ -290,7 +310,8 @@ The template is the canonical structure. Do not improvise sections. Required to 
 - `## Context` (subsections: Relevant Code and Patterns; Constraints from Existing Plans)
 - `## Key Technical Decisions`
 - `## Open Questions` (subsections: Resolved During Planning; Deferred to Implementation)
-- `## Implementation Units` (each with Goal, Requirements, Dependencies, Decision trace, Files, Approach, Patterns, Test scenarios, Verification)
+- `## Implementation Units` (each with Goal, Requirements, Dependencies, Decision trace, Files, Approach, Patterns, Test scenarios, Verification, E2E contract rows)
+- `## E2E Verification Contract` (the contract table carried verbatim from the spec, all Status ⬜ — or the `E2E: none — <reason>` line; references `_shared/e2e-contract.md` for format, never redeclares it)
 - `## Dead Code / Legacy Cleanup`
 - `## System-Wide Impact`
 - `## Risks & Dependencies` (table)
@@ -334,6 +355,12 @@ After reviews pass:
 1. Present the final plan to the user (in Chinese summary, English plan file)
 2. Update decision log status to `plan-complete`
 3. Link the plan file in the decision log
+4. **Auto-call `wayne-checkpoint` in handoff mode.** wayne-plan does not wait to be asked —
+   it invokes `wayne-checkpoint` (handoff mode) to emit a handoff packet whose `next agent`
+   is `wayne-work`, carrying the plan and the E2E Verification Contract (Status ⬜) forward.
+   The handoff mechanism itself is defined in `wayne-checkpoint`; this skill only triggers it.
+   **Mode A (return-only):** the packet is RETURNED to the user, it does **not** auto-advance
+   to wayne-work. The user manually triggers wayne-work when ready.
 
 The plan is now ready for implementation.
 
