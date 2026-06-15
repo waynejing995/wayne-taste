@@ -301,7 +301,7 @@ description: |
 
 | 层 | 寿命 | 触发 | 例 |
 |----|------|------|-----|
-| 战术层（lesson）| 单次任务 / 单次 bug | 解决后即写 | wayne-compound 写到 wayne-note/how-to/lessons/ |
+| 战术层（lesson）| 单次任务 / 单次 bug | 解决后即写 | wayne-compound 写到 wayne-note/how-to/（lesson 靠 frontmatter 区分，不单建目录）|
 | 战略层（skill / global insight）| 跨任务复用 | 同一 lesson 复现 ≥2 次 | hermes skill_manage(create) / KB global-level insight |
 
 写在战术层的过早提到战略层 → skill 膨胀；该提到战略层的留在战术层 → 反复重学。**跨次复现是分层的判据**，不是初次 lesson 就建 skill。

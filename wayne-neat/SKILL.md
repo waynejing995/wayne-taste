@@ -73,7 +73,7 @@ Test for any candidate line: **if the next AI writing code in this repo doesn't 
 | **wayne-neat** (this) | Persistent doc/memory alignment with code state | — |
 | `wayne-handoff` | One-shot Chinese chat message for a colleague — today's commits, push state, known issues | Don't write a handoff doc; that's chat-only |
 | `wayne-checkpoint` | Resumable working state for **this session's in-flight task** in `.wayne/checkpoints/` | Don't checkpoint inside neat — checkpoint is for paused work, neat is for completed reconciliation |
-| `wayne-compound` | Post-mortem KB entries in `/work/kb/` after a hard problem solved | Don't write incident lessons in CLAUDE.md or memory; route to compound |
+| `wayne-compound` | Post-mortem KB entries in `/mnt/share/wayne-note/` after a hard problem solved | Don't write incident lessons in CLAUDE.md or memory; route to compound |
 | `wayne-ship` | Commit + push the docs/memory edits this skill produced | Neat does not commit. End by handing off to wayne-ship |
 
 If a finding belongs to a sister skill's domain, mention it and stop — don't absorb it.
