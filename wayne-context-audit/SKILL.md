@@ -30,9 +30,15 @@ Reports:
 
 ### Data source (SSoT)
 
-`~/.claude/skill-usage.jsonl` — append-only, one event per Skill invocation:
-`{ts, skill, args, cwd, session}`. Written by the PreToolUse hook. Logs only
-going forward — no retroactive data; a 0-use skill may just predate the hook.
+`~/.claude/skill-usage.jsonl` — append-only, one event per skill invocation:
+`{ts, skill, args, cwd, session, source}`. Both agents write here:
+- `source: "claude"` — from Claude's first-class `Skill` tool (exact).
+- `source: "codex"` — inferred from Codex `Bash` calls that read a `SKILL.md`
+  or run a script inside a skill dir (heuristic; mirrors Codex's own
+  `detect_implicit_skill_invocation_for_command`). A mere file read counts as use.
+
+Written by the PreToolUse hook. Logs only going forward — no retroactive data;
+a 0-use skill may just predate the hook.
 
 ## Deciding what to cut
 
@@ -48,10 +54,13 @@ Always confirm the move list with the user before touching folders.
 
 ## Install the capture hook (prerequisite)
 
-The bundled `PreToolUse`/`Skill` hook appends one JSONL line per Skill call.
+The bundled `skill-usage-audit.py` handles BOTH agents (one script, `source`
+field distinguishes them). It is pure stdlib — no `uv`/deps needed.
 
-1. `cp hooks/skill-usage-audit.py ~/.claude/hooks/skill-usage-audit.py && chmod +x ~/.claude/hooks/skill-usage-audit.py`
-2. Register in `~/.claude/settings.json` under `hooks.PreToolUse`:
+### Claude
+
+1. `cp hooks/skill-usage-audit.py ~/.claude/hooks/ && chmod +x ~/.claude/hooks/skill-usage-audit.py`
+2. Register in `~/.claude/settings.json` under `hooks.PreToolUse` (matcher `Skill`):
    ```json
    {
      "matcher": "Skill",
@@ -61,4 +70,18 @@ The bundled `PreToolUse`/`Skill` hook appends one JSONL line per Skill call.
      ]
    }
    ```
-3. Fail-safe: malformed input or write errors never block the Skill call.
+
+### Codex
+
+Codex has no skill tool — it loads skills by `Bash`-reading `SKILL.md`, so the
+hook matches `Bash` and infers the skill from the command.
+
+1. `cp hooks/skill-usage-audit.py ~/.codex/hooks/ && chmod +x ~/.codex/hooks/skill-usage-audit.py`
+2. `cp hooks/codex-hooks.json ~/.codex/hooks.json` (bundled — matcher `Bash`,
+   command uses `/usr/bin/python3` because the hook PATH is minimal).
+3. **Trust the hook**: Codex skips untrusted hooks. Trust it via the in-app
+   `/hooks` command (interactive). `--dangerously-bypass-hook-trust` is NOT a
+   reliable substitute in `codex exec`. Trust is keyed by hook hash, so any edit
+   to `hooks.json` requires re-trusting.
+
+Fail-safe (both): malformed input or write errors never block the tool call.
