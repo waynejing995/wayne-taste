@@ -77,15 +77,47 @@ its routing/config:
 | Concern | Claude | Codex |
 |---|---|---|
 | Skills dir | `~/.claude/skills/` | `~/.codex/skills/` |
-| Skill tool name | `Skill` (uppercase) | `skill` (lowercase) |
+| How a skill is invoked | dedicated `Skill` tool | **no skill tool** — agent `Bash`-reads `SKILL.md` directly |
 | Hook config | `~/.claude/settings.json` (`hooks` key) | `~/.codex/hooks.json` (same JSON schema) |
-| Hook events | `PreToolUse`, `PostToolUse`, ... | identical event names; has a hook-trust gate |
+| Hook events | `PreToolUse`, `PostToolUse`, ... | identical event names |
+| Hook trust | none | each hook hash must be trusted (`[hooks.state]` in `config.toml`) |
+
+Codex hooks docs: https://developers.openai.com/codex/hooks
 
 ## Skill-usage audit hook
 
-- **Claude:** deployed. `PreToolUse` matcher `Skill` →
-  `~/.claude/hooks/skill-usage-audit.py` → appends JSONL to `~/.claude/skill-usage.jsonl`.
-- **Codex:** supported (same `hooks.json` schema, `PreToolUse` event), **not yet
-  deployed**. Caveats before deploying: skill tool name is lowercase `skill` (the
-  audit script matches `"Skill"`), the hook-trust gate may need a first-run trust,
-  and the PreToolUse payload field names need confirming against a real invocation.
+One script — `wayne-context-audit/hooks/skill-usage-audit.py` — handles **both**
+agents, writing to the same `~/.claude/skill-usage.jsonl` with a `source` field.
+Install steps for each agent: see `wayne-context-audit/SKILL.md`.
+
+**Claude — deployed and working.** `PreToolUse` matcher `Skill` → the script →
+`source: "claude"`. Fires because Claude invokes skills via a first-class
+`Skill` tool; skill name comes straight from `tool_input.skill`.
+
+**Codex — deployed and working (verified 2026-06-15).** Codex has no per-skill
+tool for file-based skills — it loads a skill by `Bash`-reading its `SKILL.md`
+(or running a script inside the skill dir). So the hook matches `Bash` and the
+script infers the skill name from the command, mirroring Codex's own
+`detect_implicit_skill_invocation_for_command` (doc-read + script-run signals).
+Output: `source: "codex"`. Heuristic by nature — a mere `SKILL.md` read counts
+as use. Bundled config: `wayne-context-audit/hooks/codex-hooks.json`.
+
+Verified end-to-end: `sed -n .../wayne-ship/SKILL.md` in `codex exec` produced
+`{"skill":"wayne-ship", ..., "source":"codex"}` in the log.
+
+### Codex hook gotchas (learned the hard way)
+
+- **Trust is the real gate.** Codex skips untrusted hooks. Trust via the in-app
+  `/hooks` command (interactive; there is no `codex hooks` CLI subcommand). Trust
+  is recorded as a hash under `[hooks.state]` in `~/.codex/config.toml`, keyed by
+  `"<abs path>/hooks.json:pre_tool_use:<group>:<hook>"`. **Any edit to hooks.json
+  changes the hash → must re-trust.** `--dangerously-bypass-hook-trust` proved
+  unreliable in `codex exec`.
+- **Feature flag** `hooks` must be enabled (default on — `codex features list`).
+- **Minimal PATH:** the hook command must use an absolute interpreter
+  (`/usr/bin/python3`), not `uv`/`python3` bare — the hook env's PATH lacks
+  `~/.local/bin`. The script is pure stdlib, so `/usr/bin/python3` suffices.
+- Config lives at `~/.codex/hooks.json` (user) or `<repo>/.codex/hooks.json`
+  (project); schema is identical to Claude's `hooks` block.
+- Payload fields: `tool_name`, `tool_input`, `cwd`, `session_id`,
+  `hook_event_name`, `turn_id`, `model`, `permission_mode`.

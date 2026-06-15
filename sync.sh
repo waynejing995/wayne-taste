@@ -70,3 +70,15 @@ for agentdir in "$CLAUDE_SKILLS" "$CODEX_SKILLS"; do
 done
 
 echo "Done. Verify with:  ls -la ${CLAUDE_SKILLS} ${CODEX_SKILLS} | grep wayne"
+
+# ── Skill-usage audit hook (informational; this script does NOT install it) ──
+# One script handles BOTH agents, bundled under wayne-context-audit/hooks/:
+#   skill-usage-audit.py   - dual-agent (source=claude|codex), writes
+#                            ~/.claude/skill-usage.jsonl
+#   codex-hooks.json       - Codex PreToolUse config (matcher Bash)
+# Claude:  install into ~/.claude/hooks/ + register in settings.json (matcher Skill).
+# Codex:   install into ~/.codex/hooks/ + ~/.codex/hooks.json, then TRUST via /hooks.
+# Full per-agent steps + gotchas: wayne-context-audit/SKILL.md and SYNC.md.
+echo
+echo "Hook note: dual-agent skill-audit hook bundled under wayne-context-audit/hooks/"
+echo "           (skill-usage-audit.py + codex-hooks.json). Install per its SKILL.md."
