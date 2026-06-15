@@ -1,15 +1,15 @@
 ---
 name: wayne-manner
-description: Manage and query Wayne's personal knowledge base in `/mnt/share/kb/`. Use when saving lessons, recalling prior decisions, searching the KB, updating existing notes, or ingesting new findings into the vault. Trigger on "save this to KB", "search KB", "what do we know about X", "recall X", or "update KB".
+description: Manage and query Wayne's personal knowledge base in `/mnt/share/wayne-note/`. Use when saving lessons, recalling prior decisions, searching the KB, updating existing notes, or ingesting new findings into the vault. Trigger on "save this to KB", "search KB", "what do we know about X", "recall X", or "update KB".
 ---
 
 # Knowledge Base
 
-Personal KB at `/mnt/share/kb/`. Obsidian-compatible markdown vault. Available from any session.
+Personal KB at `/mnt/share/wayne-note/`. Obsidian-compatible markdown vault. Available from any session.
 
 ## Single source of truth
 
-**Before writing anything to /mnt/share/kb, read `/mnt/share/kb/SCHEMA.md` first.** That
+**Before writing anything to /mnt/share/wayne-note, read `/mnt/share/wayne-note/SCHEMA.md` first.** That
 file defines the Write Protocol, frontmatter spec, tag taxonomy, folder layout,
 and lesson conventions. This skill defers to SCHEMA — do not re-implement those
 rules here.
@@ -39,10 +39,10 @@ Trigger phrases:
 
 ## How to add an entry
 
-1. **Read `/mnt/share/kb/SCHEMA.md`** (if not already read this session)
+1. **Read `/mnt/share/wayne-note/SCHEMA.md`** (if not already read this session)
 2. **Search for existing entries first** — don't duplicate:
    ```bash
-   grep -rl "<keyword>" /mnt/share/kb/ --include="*.md"
+   grep -rl "<keyword>" /mnt/share/wayne-note/ --include="*.md"
    ```
 3. **Write the file** with frontmatter per SCHEMA, in the right folder:
    - Research/tool findings → `kb/research/<kebab-title>.md`
@@ -65,7 +65,7 @@ related: [[folder/other-entry]]
 
 ## How to update an existing entry
 
-1. Find it: `grep -rl "<keyword>" /mnt/share/kb/ --include="*.md"`
+1. Find it: `grep -rl "<keyword>" /mnt/share/wayne-note/ --include="*.md"`
 2. Edit — append findings, update sections, bump `date` field
 3. Follow Write Protocol: reindex → append log.md → git commit
 
@@ -77,16 +77,16 @@ related: [[folder/other-entry]]
 
 ```bash
 # Full-text
-grep -r "keyword" /mnt/share/kb/ --include="*.md" -l
+grep -r "keyword" /mnt/share/wayne-note/ --include="*.md" -l
 
 # By tag
-grep -rl "tag-name" /mnt/share/kb/ --include="*.md"
+grep -rl "tag-name" /mnt/share/wayne-note/ --include="*.md"
 
 # All entries
-cat /mnt/share/kb/INDEX.md
+cat /mnt/share/wayne-note/INDEX.md
 
 # Recent activity (Write Protocol log)
-tail -50 /mnt/share/kb/log.md
+tail -50 /mnt/share/wayne-note/log.md
 ```
 
 ## Ingest a URL
@@ -95,6 +95,6 @@ For URL → KB ingestion, the `llm-wiki` skill (Hermes) handles the full pipelin
 (raw capture, summarization, cross-linking). On Claude side, do it manually:
 
 1. Fetch the page (Crawl4AI MCP if available, else manual)
-2. Save raw markdown to `/mnt/share/kb/raw/articles/<slug>.md`
+2. Save raw markdown to `/mnt/share/wayne-note/raw/articles/<slug>.md`
 3. Write a wiki entry referencing it via `source: raw/articles/<slug>.md`
 4. Follow Write Protocol
