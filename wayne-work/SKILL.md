@@ -56,6 +56,7 @@ digraph work {
     "Mark task done" [shape=box];
     "More tasks?" [shape=diamond];
     "Quality check:\nfull suite + lint" [shape=box];
+    "Emit handoff packet\n(wayne-checkpoint, Mode A)\nnext = wayne-code-review" [shape=box];
     "Hand off to\nwayne-code-review" [shape=doublecircle];
 
     "Find plan + decision log" -> "Setup: branch + environment";
@@ -73,7 +74,8 @@ digraph work {
     "Mark task done" -> "More tasks?";
     "More tasks?" -> "Pick next task\n(dependency order)" [label="yes"];
     "More tasks?" -> "Quality check:\nfull suite + lint" [label="no"];
-    "Quality check:\nfull suite + lint" -> "Hand off to\nwayne-code-review";
+    "Quality check:\nfull suite + lint" -> "Emit handoff packet\n(wayne-checkpoint, Mode A)\nnext = wayne-code-review";
+    "Emit handoff packet\n(wayne-checkpoint, Mode A)\nnext = wayne-code-review" -> "Hand off to\nwayne-code-review";
 }
 ```
 
@@ -578,18 +580,38 @@ Before handing off to review:
 This skill's job ends here. The next skills in the pipeline are:
 
 1. **`wayne-code-review`** — dual-voice review gate (must pass)
-2. **`wayne-ship`** — atomic commits with Jira prefix, `[why]/[how]`, `-s`
-3. **`wayne-compound`** — capture lessons learned
+2. **`wayne-verify`** — runtime verification gate (run the app, observe behavior)
+3. **`wayne-ship`** — atomic commits with Jira prefix, `[why]/[how]`, `-s`
+4. **`wayne-compound`** — capture lessons learned
 
 Suggest invoking `wayne-code-review` when Phase 3 passes.
+
+### Emit Handoff Packet (auto)
+
+When the Phase 3 quality check passes, wayne-work auto-calls **wayne-checkpoint in
+handoff mode** as its final step (`Skill(skill: "wayne-checkpoint", args: "handoff")`).
+This standardizes the transition to the next stage. The handoff packet contains:
+
+- **snapshot** — git branch/status + which implementation units are done (checkbox
+  status) + current pipeline stage (`work`)
+- **next agent** — `wayne-code-review`
+- **next prompt** — a self-contained prompt for the review stage (branch, plan/spec
+  paths, units in scope, what "done" looks like) so the next agent needs no prior context
+- **goal (optional)** — a success-criteria block, included only when concrete criteria
+  are extractable
+
+**Mode A — return-only.** The packet is emitted/surfaced only. It does NOT auto-invoke
+`wayne-code-review` and never nests another agent. The user manually triggers the next
+step (says "下一步" / "继续" / "go"). This standardizes the existing
+suggestion-to-invoke-code-review above via the packet — wayne-work itself stops here.
 
 ---
 
 ## Integration with Wayne Pipeline
 
 ```
-wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-ship → wayne-compound
-     (WHAT)            (HOW)       (BUILD)         (GATE)           (COMMIT)     (LEARN)
+wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-verify → wayne-ship → wayne-compound
+     (WHAT)            (HOW)       (BUILD)      (STATIC GATE)      (RUNTIME GATE)  (COMMIT)     (LEARN)
 ```
 
 ### What wayne-work reads

@@ -44,7 +44,7 @@ KB entries (`/work/kb/`), solution docs (`docs/solutions/<category>/`), decision
 3. **Classify** — bug fix, pattern, decision, how-to?
 4. **Check for duplicates** — MANDATORY before writing. Search KB and docs/solutions/ first. If anything similar exists, UPDATE or MERGE, do not create a new file. Specifically:
    - grep both the title AND the trigger keywords across `/mnt/share/wayne-note/`
-   - check `how-to/lessons/` (imported lessons from prior projects) — **read every existing lesson title + trigger before deciding to write new**
+   - list all lessons with `grep -rl "^type: lesson" /mnt/share/wayne-note/how-to/ --include="*.md"` — **read every existing lesson title + trigger before deciding to write new**
    - check the current repo's `docs/solutions/`
    - **Bias strongly toward update/merge over new file.** Default action when in doubt is "extend an existing lesson", not "write a new one". A KB with 30 sharp lessons beats one with 60 overlapping ones.
    - **Merge criteria** — collapse two lessons into one when ANY of these hold:
@@ -283,8 +283,8 @@ Link the two entries:
 ## Integration with Wayne Workflow
 
 ```
-wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-ship → wayne-compound
-     (WHAT)            (HOW)        (BUILD)        (GATE)            (COMMIT)     (LEARN)
+wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-verify → wayne-ship → wayne-compound
+     (WHAT)            (HOW)        (BUILD)      (STATIC GATE)      (RUNTIME GATE)  (COMMIT)     (LEARN)
 ```
 
 This is the closing step. It reads everything upstream produced and distills

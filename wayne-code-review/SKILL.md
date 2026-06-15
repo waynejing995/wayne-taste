@@ -21,6 +21,10 @@ This skill inherits the Wayne control-plane invariants and does not redeclare th
 
 This skill only specifies the dual-voice code review workflow.
 
+## Scope: Static Only
+
+This skill is **STATIC** — it reads and analyzes the diff to find issues; it **never runs the application**. Runtime / e2e verification — actually executing the feature along the real user path to confirm it works — is **`wayne-verify`'s** job, a separate sibling skill that runs AFTER this one and BEFORE `wayne-ship`. "Does the code look correct?" is answered here; "does the feature actually work?" is answered by `wayne-verify`. Passing this review is necessary but NOT sufficient to ship.
+
 ## Files Written
 
 review reports, finding logs, code comments. Severity tags `[CRITICAL]` / `[INFORMATIONAL]`, confidence scores, file:line references stay English in Chinese prose.
@@ -343,6 +347,14 @@ Remaining concerns: {list or "none"}
 
 ---
 
+## Phase 8: Handoff
+
+As the final step, auto-call **`wayne-checkpoint` in handoff mode** to emit a handoff packet with **next agent = `wayne-verify`**. The packet carries a self-contained next prompt (branch, plan/spec paths, what runtime "done" looks like), the current snapshot, and an optional goal block. The handoff-packet mechanism is fully defined in `wayne-checkpoint` — this skill only invokes it; it does not implement or advance it.
+
+This is **Mode A: return-only**. The packet is surfaced to the user; it does NOT auto-invoke `wayne-verify`. The user manually triggers the next step (e.g. says "下一步" / "继续" / "go").
+
+---
+
 ## Integration with Other Skills
 
 ### After wayne-mind-explode (brainstorming)
@@ -354,8 +366,14 @@ If a spec/plan exists from brainstorming, cross-reference the diff against it:
 
 ### Before shipping
 
-This skill reviews. It does NOT commit, push, or create PRs.
-After review passes, the user can invoke `/ship` or commit manually.
+This skill reviews statically. It does NOT run the app, commit, push, or create PRs.
+
+The ship chain is: **wayne-code-review (static)** → **wayne-verify (runtime gate)** → **wayne-ship (commit)**. Passing this review is necessary but NOT sufficient to ship — `wayne-verify` must also pass. After review passes, the next step is `wayne-verify`, which actually runs the feature along the user path and gates `wayne-ship`. Only once `wayne-verify` passes does the user invoke `/ship` or commit manually.
+
+```
+wayne-code-review → wayne-verify → wayne-ship
+   (static gate)    (runtime gate)   (commit)
+```
 
 ### With superpowers requesting-code-review
 

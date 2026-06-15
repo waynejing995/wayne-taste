@@ -51,6 +51,18 @@ Removing code / features / config has higher priority than adding.
 - A config option whose default is the right answer → delete the option.
 - Test: PR's net line count negative? 3 PRs in a row positive → time for a cleanup PR.
 
+### Novacula Occami (Occam's Razor)
+
+Entities must not be multiplied beyond necessity. The simplest explanation/solution that fits the facts wins.
+- Debugging: prefer the hypothesis requiring the fewest assumptions before reaching for exotic causes. Check the obvious first.
+- Design: fewer moving parts, fewer layers, fewer abstractions — unless complexity earns its keep.
+- When two solutions explain the same facts, pick the one with fewer entities (configs, services, branches, special cases).
+- Razor cuts assumptions, not requirements. Don't oversimplify away real constraints — cut speculation, not necessity.
+
+**RCA / root-cause work — the razor orders, it does not converge.** In debugging, Occam is a *search heuristic* (check the obvious / fewest-assumption hypothesis first), NOT a *stop condition*. Two traps:
+- "Simplest" ≠ "most likely". Real bugs are often multi-cause (race + bad fallback + tz). The simplest story fits the *symptom* but not the *full evidence chain*. Convergence threshold = explains ALL observations + reproduces + sibling paths grepped — not "this one story sounds plausible".
+- Grabbing the first sufficiently-simple explanation and jumping to a patch is exactly how sibling-miss / wrong-target-file bugs happen. In a real system, complexity is a requirement, not speculation — the razor must not cut it away.
+
 ## Behavior
 
 Bias toward caution over speed. Trivial tasks: use judgment.
@@ -112,7 +124,22 @@ Strong success criteria let you loop independently. Weak criteria force constant
 git commit -s
 ```
 
-1 commit = 1 feature / 1 fix / 1 request. No bundles.
+1 commit = 1 feature / 1 fix / 1 request / or 1 unit if a feature is really large. No bundles.
+
+**Large feature → commit per unit yourself.** When a feature spans multiple plan
+units, commit each unit (or each self-contained logical group, when units are
+atomically coupled) as you finish it — do not wait to be told. Each commit must be
+self-consistent. Where an ordering constraint forces units to land together, group
+exactly those and say so in the commit body.
+
+**Sign-off is the human, never the bot.** Commits MUST be signed off as
+`Jingwen Chen <Jingwen.Chen2@amd.com>`, not any `*Robot*` / `noreply` identity a
+repo-local `user.name`/`user.email` may impose. If the repo-local git identity is a
+bot, pass the human identity explicitly:
+`git commit -s --author="Jingwen Chen <Jingwen.Chen2@amd.com>"` and ensure the
+`Signed-off-by:` trailer names the human (use
+`-c user.name=... -c user.email=...` if needed). Do NOT add `Co-Authored-By`
+robot/Claude trailers. Never edit global git config to achieve this.
 
 ## Logging (Python)
 
@@ -170,6 +197,7 @@ Before `AskUserQuestion` on complex problems: explain in plain Chinese. No jargo
 | "make a plan" / "plan this feature" / spec → plan | `wayne-plan` |
 | "build it" / "implement the plan" / execute a plan | `wayne-work` |
 | "review my code" / pre-merge / post-feature review | `wayne-code-review` |
+| "verify" / "e2e" / "does it actually work" / "run the feature" / runtime verification before ship | `wayne-verify` |
 | "commit" / "ship" / "push" | `wayne-ship` |
 | "checkpoint" / "save state" / pause-and-resume across sessions | `wayne-checkpoint` |
 | "capture lesson" / "记一下" / post-mortem after solving | `wayne-compound` |
@@ -184,4 +212,4 @@ Never use `mcp__claude-in-chrome__*` tools.
 
 ## KB
 
-Personal knowledge base at `/work/kb/`. Obsidian-compatible markdown vault.
+Personal knowledge base at `/mnt/share/wayne-note/`. Obsidian-compatible markdown vault.

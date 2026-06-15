@@ -78,6 +78,19 @@ decisions: docs/decisions/YYYY-MM-DD-<topic>-decisions.md
   **Verification:**
   - [Outcome that holds when this unit is complete]
 
+  **E2E contract rows:** [#1, #3 — rows in the E2E Verification Contract this unit advances, or `none — <reason>`. Unit/integration tests above are NOT the e2e gate; these rows are run by wayne-verify.]
+
+## E2E Verification Contract
+
+> Carried verbatim from spec; Status mutated only by wayne-verify. See `_shared/e2e-contract.md` for the locked format.
+
+| # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
+|---|-----------|--------------|-----------|-----------------|----------------------|--------|
+| 1 | [what the user does end to end] | [process/server to start] | [data it runs against] | [where the user enters] | [real user-visible outcome that proves it works] | ⬜ |
+
+<!-- If the spec declares no user-observable path, replace the table with the single line below: -->
+<!-- E2E: none — <reason, e.g. "internal refactor of db.py, no behavior change"> -->
+
 ## Dead Code / Legacy Cleanup
 
 - [Dead] `path/to/old_file` — action: delete / decision log #N
