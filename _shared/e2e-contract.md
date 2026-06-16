@@ -3,9 +3,10 @@
 A reusable contract format that pins down, at design time, how each user-observable
 requirement will be **run the way a real user runs it** — concrete process, concrete
 data, concrete entrypoint, concrete observable outcome. It is the single source of
-truth (SSoT) for end-to-end verification: written once by `wayne-mind-explode`,
-carried unchanged by `wayne-plan`, executed only by `wayne-verify`, and gated on by
-`wayne-ship`. No other skill redeclares its format — they all link here.
+truth (SSoT) for end-to-end verification: written once by `wayne-test-design` (which
+`wayne-mind-explode` invokes at design time), carried unchanged by `wayne-plan`, executed
+only by `wayne-verify`, and gated on by `wayne-ship`. No other skill redeclares its format
+— they all link here.
 
 It exists to stop the silent degradation where "the feature works" quietly collapses
 into "the unit tests pass." Unit tests have **zero** bearing on this contract; the
@@ -63,7 +64,7 @@ A 200 OK proves the wire moved, not that the feature worked. Write what you must
 
 | Symbol | Meaning | Who may set it |
 |---|---|---|
-| ⬜ | Unverified — written, not yet run | `wayne-mind-explode` (initial state) |
+| ⬜ | Unverified — written, not yet run | `wayne-test-design` (initial state) |
 | ✅ | Ran along the user path, observed the outcome | `wayne-verify` only |
 | ❌ | Ran, the observable did not appear | `wayne-verify` only |
 
@@ -98,7 +99,8 @@ of a missing row is shipping un-verified behavior. Bias toward the row.
 
 | Skill | Role on the contract |
 |---|---|
-| `wayne-mind-explode` | **WRITES** the table into the spec at design time; all Status = ⬜ |
+| `wayne-test-design` | **WRITES** the table (as the e2e layer of the test matrix) at design time; all Status = ⬜ |
+| `wayne-mind-explode` | **INVOKES** `wayne-test-design` at the end of design; does not author the table itself |
 | `wayne-plan` | **CARRIES** it unchanged; each implementation unit notes which row #s it serves |
 | `wayne-work` | builds the units; does **not** touch the table |
 | `wayne-code-review` | **does NOT touch it** — code-review is pure-static |
