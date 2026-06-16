@@ -29,6 +29,7 @@ SKILLS=(
   wayne-mind-explode
   wayne-plan
   wayne-ship
+  wayne-test-design
   wayne-verify
   wayne-visual-synthesis
   wayne-work
