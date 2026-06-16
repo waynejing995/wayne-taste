@@ -31,14 +31,14 @@ plans, specs, decision logs, code comments. Headers / severity tags / table head
 
 You MUST create a task for each and complete in order:
 
-1. **Find source inputs** — decision log, spec, or feature description; carry the spec's E2E Verification Contract forward verbatim
+1. **Find source inputs** — decision log, spec, or feature description; carry the test matrix (authored by `wayne-test-design`, referenced by the spec) forward verbatim — both the unit-integration layer (`☐`) and the e2e layer (the E2E Verification Contract, `⬜`)
 2. **Recall lessons from KB** — see "Lesson Recall" section below; collect
    relevant lessons to inject into the plan's risk section
 3. **Gather context** — explore codebase, read existing plans/docs
 4. **Conflict review** — check ALL existing plans for contradictions
 5. **Resolve planning questions** — ask user only when answer is unknowable from code
-6. **Structure the plan** — break into implementation units; tag each unit with the E2E contract row #s it advances
-7. **Write plan file** — save to `docs/plans/`, with relevant lessons cited in risk section and the carried E2E contract section (Status ⬜)
+6. **Structure the plan** — break into implementation units; tag each unit with the matrix row #s it advances (unit `U#` and e2e `E#`)
+7. **Write plan file** — save to `docs/plans/`, with relevant lessons cited in risk section and the carried Test Matrix section (unit `☐`, e2e `⬜`)
 8. **Dispatch plan reviews** — `/plan-ceo-review` + `/plan-eng-review`
 9. **Final plan** — incorporate review feedback, present to user, then auto-call wayne-checkpoint in handoff mode to emit the handoff packet for wayne-work
 
@@ -77,7 +77,7 @@ digraph plan {
     rankdir=TB;
 
     "Find source inputs\n(decision log / spec / description)" [shape=box];
-    "Carry E2E contract\nverbatim from spec" [shape=box];
+    "Carry test matrix\nverbatim (unit + e2e)" [shape=box];
     "Gather context\n(codebase + existing plans)" [shape=box];
     "Conflict review:\nread ALL existing plans" [shape=box];
     "Conflicts?" [shape=diamond];
@@ -92,8 +92,8 @@ digraph plan {
     "Present final plan\nto user" [shape=box];
     "Auto-call wayne-checkpoint\n(handoff mode → wayne-work)" [shape=doublecircle];
 
-    "Find source inputs\n(decision log / spec / description)" -> "Carry E2E contract\nverbatim from spec";
-    "Carry E2E contract\nverbatim from spec" -> "Gather context\n(codebase + existing plans)";
+    "Find source inputs\n(decision log / spec / description)" -> "Carry test matrix\nverbatim (unit + e2e)";
+    "Carry test matrix\nverbatim (unit + e2e)" -> "Gather context\n(codebase + existing plans)";
     "Gather context\n(codebase + existing plans)" -> "Conflict review:\nread ALL existing plans";
     "Conflict review:\nread ALL existing plans" -> "Conflicts?";
     "Conflicts?" -> "Back to wayne-mind-explode\nto resolve conflicts" [label="yes"];
@@ -128,14 +128,15 @@ If a spec exists, carry forward:
 - Scope boundaries
 - Key decisions and rationale
 - Dependencies and assumptions
-- **The E2E Verification Contract** — copy it into the plan **verbatim**. This is an
-  input the plan must preserve, not author or modify. The spec carries either a contract
-  table (all Status ⬜, set by `wayne-mind-explode`) or a single `E2E: none — <reason>`
-  line; carry across whichever is present, byte-for-byte. wayne-plan never executes or
-  mutates the contract — Status stays ⬜ until `wayne-verify` runs it. Format SSoT:
-  `_shared/e2e-contract.md` (do not redeclare it). If the spec has no contract and no
-  `E2E: none` line, that is a Fail-Loud gap — flag it and recommend back to
-  `wayne-mind-explode` rather than inventing one.
+- **The Test Matrix** (authored by `wayne-test-design`, at `docs/test-matrix/...` — the
+  spec references it). Copy the whole matrix into the plan **verbatim** — both layers:
+  the unit-integration layer (Status `☐`) and the e2e layer (the E2E Verification Contract,
+  Status `⬜`). This is an input the plan must preserve, not author or modify. wayne-plan
+  never executes or mutates it — unit Status stays `☐` until `wayne-work` ticks it, e2e
+  Status stays `⬜` until `wayne-verify` runs it. Format SSoT for the e2e layer:
+  `_shared/e2e-contract.md` (do not redeclare it). If the spec references no matrix doc and
+  the matrix has no contract rows and no `E2E: none — <reason>` line, that is a Fail-Loud
+  gap — flag it and recommend back to `wayne-test-design` rather than inventing one.
 
 If neither exists, run a short bootstrap:
 - Establish problem frame, intended behavior, scope, success criteria
@@ -256,30 +257,29 @@ For each unit, include:
 | **Files** | Yes | Repo-relative paths to create/modify/test |
 | **Approach** | Yes | Key decisions, data flow, boundaries |
 | **Patterns to follow** | Yes | Existing code or conventions to mirror |
-| **Test scenarios** | Yes | Specific cases: input → action → expected outcome |
+| **Matrix rows** | Yes | Which carried matrix rows this unit satisfies — unit rows (e.g. `U2, U3`) AND e2e rows (e.g. `E1`), or `none — <reason>` |
 | **Verification** | Yes | How to know the unit is complete |
-| **E2E contract rows** | Yes | Which carried contract row #s this unit advances (e.g. `#1, #3`), or `none — <reason>` |
 | **Technical design** | Optional | Pseudo-code or diagram when approach is non-obvious |
 | **Decision trace** | If available | Which decision log entries drive this unit |
 
-**Distinguish the two levels.** "Test scenarios" and "Verification" are unit/integration-level —
-they prove the unit's own logic in isolation, often with mocks. "E2E contract rows" point to the
-real-usage rows in the `## E2E Verification Contract` section that `wayne-verify` will actually RUN
-along the user path. Unit tests passing is **NOT** the e2e gate: the contract rows stay ⬜ no matter
-how green the unit tests are, and only flip when `wayne-verify` drives the real entrypoint. Tag each
-unit with the row #s it advances so the contract is fully covered by the time work completes.
+**Distinguish the two layers (both come from the carried matrix, not re-authored here).**
+The unit-integration rows (`U#`, Status `☐`) prove the unit's own logic in isolation, often
+with mocks — `wayne-work` ticks them as tests pass. The e2e rows (`E#`, Status `⬜`) point to
+the real-usage rows in the `## Test Matrix` section that `wayne-verify` will actually RUN along
+the user path. Unit tests passing is **NOT** the e2e gate: e2e rows stay `⬜` no matter how green
+the unit tests are, and only flip when `wayne-verify` drives the real entrypoint. Tag each unit
+with the row #s it satisfies so the whole matrix is covered by the time work completes.
 
-### 6.3 Test Scenarios
+### 6.3 Test Scenarios — carried from the matrix, not re-authored
 
-For each feature-bearing unit, enumerate test cases from applicable categories:
+`wayne-test-design` already enumerated the test cases across dimensions (positive / negative /
+edge / invalid / boundary / concurrency / error-path / persistence) in the matrix doc. The plan
+does **NOT** re-derive them — that would be a second author and invite drift. Instead, each unit
+cites the matrix row #s it satisfies (the **Matrix rows** field above).
 
-- **Happy path** — core functionality with expected inputs/outputs
-- **Edge cases** — boundary values, empty inputs, null states
-- **Error paths** — invalid input, service failures, timeouts
-- **Integration** — cross-layer behaviors that mocks alone won't prove
-
-Each scenario should name the input, action, and expected outcome.
-For non-feature units (config, scaffolding): `Test expectation: none — [reason]`
+If, while planning, you find a behavior the matrix missed, do not silently invent a scenario in
+the plan — flag it and recommend back to `wayne-test-design` to add the row, then carry the
+updated matrix. The matrix stays the single author of test cases.
 
 ---
 
@@ -310,8 +310,8 @@ The template is the canonical structure. Do not improvise sections. Required to 
 - `## Context` (subsections: Relevant Code and Patterns; Constraints from Existing Plans)
 - `## Key Technical Decisions`
 - `## Open Questions` (subsections: Resolved During Planning; Deferred to Implementation)
-- `## Implementation Units` (each with Goal, Requirements, Dependencies, Decision trace, Files, Approach, Patterns, Test scenarios, Verification, E2E contract rows)
-- `## E2E Verification Contract` (the contract table carried verbatim from the spec, all Status ⬜ — or the `E2E: none — <reason>` line; references `_shared/e2e-contract.md` for format, never redeclares it)
+- `## Implementation Units` (each with Goal, Requirements, Dependencies, Decision trace, Files, Approach, Patterns, Matrix rows, Verification)
+- `## Test Matrix` (the matrix carried verbatim from the `wayne-test-design` doc — unit-integration layer Status `☐`, e2e layer Status `⬜`; the e2e layer is the E2E Verification Contract, format SSoT `_shared/e2e-contract.md`, never redeclared; or the `E2E: none — <reason>` line where declared)
 - `## Dead Code / Legacy Cleanup`
 - `## System-Wide Impact`
 - `## Risks & Dependencies` (table)
@@ -357,7 +357,7 @@ After reviews pass:
 3. Link the plan file in the decision log
 4. **Auto-call `wayne-checkpoint` in handoff mode.** wayne-plan does not wait to be asked —
    it invokes `wayne-checkpoint` (handoff mode) to emit a handoff packet whose `next agent`
-   is `wayne-work`, carrying the plan and the E2E Verification Contract (Status ⬜) forward.
+   is `wayne-work`, carrying the plan and the Test Matrix (unit `☐` + e2e `⬜`) forward.
    The handoff mechanism itself is defined in `wayne-checkpoint`; this skill only triggers it.
    **Mode A (return-only):** the packet is RETURNED to the user, it does **not** auto-advance
    to wayne-work. The user manually triggers wayne-work when ready.

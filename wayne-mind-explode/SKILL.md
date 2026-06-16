@@ -44,11 +44,11 @@ You MUST create a task for each of these items and complete them in order:
    **MUST apply Cybernetics Lens** when topic matches triggers (see Phase 3 §Cybernetics Lens).
 5. **Propose 2-3 approaches** — with trade-offs and your recommendation
 6. **Present design** — section by section, get user approval after each
-7. **E2E Verification Contract** — for each requirement, force "how would I SEE this working in real use?" → produce a contract row (or a forced `E2E: none — <reason>` line). MUST run before the spec is written (see Phase 7 §E2E Verification Contract). References `_shared/e2e-contract.md`.
+7. **Invoke wayne-test-design** — once the design is settled, call `wayne-test-design` to author the test matrix. Its e2e layer IS the E2E Verification Contract (all Status ⬜). mind-explode does NOT author the contract itself anymore — it delegates (see Phase 5 §Invoke wayne-test-design). References `_shared/e2e-contract.md` for the contract format the matrix embeds.
 8. **Conflict review** — read ALL existing plans/specs/docs, flag any contradictions
-9. **Write spec** — save design doc (including the E2E Contract section, all Status = ⬜), commit
+9. **Write spec** — save design doc; the spec REFERENCES the test-matrix doc as the e2e SSoT (does not inline a second copy of the contract table), commit
 10. **Plan review via gstack** — dispatch `/plan-ceo-review` and `/plan-eng-review` on the spec; iterate spec until both clean
-11. **Hand off to wayne-plan** — once the spec is approved + reviews are clean, the design phase is done. Tell the user: "Spec ready at <path>. Invoke `wayne-plan` to produce the implementation plan." Then auto-call **wayne-checkpoint in handoff mode** to emit a handoff packet (next agent = wayne-plan, carrying the E2E contract forward). Do NOT write the plan yourself — wayne-plan reads the decision log + spec and produces the plan as its own focused workflow.
+11. **Hand off to wayne-plan** — once the spec is approved + reviews are clean, the design phase is done. Tell the user: "Spec ready at <path>, test matrix at <path>. Invoke `wayne-plan` to produce the implementation plan." Then auto-call **wayne-checkpoint in handoff mode** to emit a handoff packet (next agent = wayne-plan, carrying the test matrix — whose e2e layer is the contract — forward). Do NOT write the plan yourself — wayne-plan reads the decision log + spec + test matrix and produces the plan as its own focused workflow.
 
 ## Lesson Recall (Step 1)
 
@@ -96,7 +96,7 @@ digraph brainstorming {
     "Propose 2-3 approaches" [shape=box];
     "Present design sections" [shape=box];
     "User approves?" [shape=diamond];
-    "E2E Verification Contract:\nrow per observable path,\nelse 'E2E: none — reason'" [shape=box, style=bold];
+    "Invoke wayne-test-design:\nauthor test matrix\n(e2e layer = the contract)" [shape=box, style=bold];
     "Conflict review:\nread ALL existing\nplans/specs/docs" [shape=box];
     "Conflicts found?" [shape=diamond];
     "Write spec + commit" [shape=box];
@@ -121,8 +121,8 @@ digraph brainstorming {
     "Propose 2-3 approaches" -> "Present design sections";
     "Present design sections" -> "User approves?";
     "User approves?" -> "Present design sections" [label="no, revise"];
-    "User approves?" -> "E2E Verification Contract:\nrow per observable path,\nelse 'E2E: none — reason'" [label="yes"];
-    "E2E Verification Contract:\nrow per observable path,\nelse 'E2E: none — reason'" -> "Conflict review:\nread ALL existing\nplans/specs/docs";
+    "User approves?" -> "Invoke wayne-test-design:\nauthor test matrix\n(e2e layer = the contract)" [label="yes"];
+    "Invoke wayne-test-design:\nauthor test matrix\n(e2e layer = the contract)" -> "Conflict review:\nread ALL existing\nplans/specs/docs";
     "Conflict review:\nread ALL existing\nplans/specs/docs" -> "Conflicts found?";
     "Conflicts found?" -> "Grill: pick next\nunresolved branch" [label="yes, re-grill"];
     "Conflicts found?" -> "Write spec + commit" [label="no"];
@@ -358,59 +358,36 @@ Present the design section by section. Scale each section to its complexity.
 - Where existing code has problems that affect this work, include targeted fixes in the design
 - Don't propose unrelated refactoring. Stay focused.
 
-### E2E Verification Contract (mandatory — runs once design is settled)
+### Invoke wayne-test-design (mandatory — runs once design is settled)
 
 Once the design is approved (sections agreed) and BEFORE the spec is written (Phase 7),
-build the **E2E Verification Contract**. This is the design-time SSoT for how each
-requirement will be proven to work *in real use* — it is written here, carried unchanged
-by wayne-plan, executed only by wayne-verify, and gated on by wayne-ship.
+hand off to **`wayne-test-design`** to author the test matrix. mind-explode **no longer
+authors the E2E Verification Contract itself** — the contract is the e2e layer of that
+matrix, and `wayne-test-design` is its sole author (single-author rule; two authors =
+drift).
 
-This stage runs in the same analogous slot as the Cybernetics Lens: a mandatory step
-that reads a shared doc and produces an artifact into the spec. It is **not optional**.
+This stage runs in the same analogous slot as the Cybernetics Lens: a mandatory step that
+produces a design-time verification artifact. It is **not optional**.
 
 **How to apply:**
 
-1. Read `_shared/e2e-contract.md` — it holds the LOCKED format, the three-column
-   environment rule, the observable rule, the status lifecycle, and the trigger rule.
-   Do NOT redeclare that format here; this skill only invokes it.
-2. Walk EVERY requirement in the settled design. For each one, force the question:
+1. Invoke `wayne-test-design` via the Skill tool, pointing it at the settled design /
+   decision log. It will:
+   - walk the dimension menu (positive / negative / edge / invalid / boundary /
+     concurrency / error-path / persistence), keeping only dimensions the behavior really
+     has (no over-design);
+   - build the unit-integration layer (`☐`) and the e2e layer (the LOCKED contract from
+     `_shared/e2e-contract.md`, all Status `⬜`);
+   - present the matrix to the user for confirmation and write it to `docs/test-matrix/`.
+2. The e2e layer satisfies the same intent this step used to do by hand: for every
+   user-observable requirement, "how would I SEE this working in real use?" → one contract
+   row; non-observable paths → the explicit `E2E: none — <reason>` line. That logic now
+   lives in `wayne-test-design`, not here — do not duplicate it.
+3. When `wayne-test-design` returns, you have a matrix doc path. Log a decision recording
+   that the matrix (incl. e2e contract) was produced and where.
 
-   > **"How would I SEE this working in real use?"**
-
-   Answer it concretely, then turn the answer into one contract row:
-
-   | Field | What you must commit to |
-   |---|---|
-   | User path | The human-level journey, end to end — not an internal call |
-   | Env: process | The concrete process/server to start (e.g. `uv run dashboard_server.py` on :8765) |
-   | Env: data | The concrete data it runs against (e.g. real `wayne.db`) |
-   | Env: entrypoint | Where the user enters (e.g. browser `/`, or `cli sync-now`) |
-   | Observable (pass = ?) | The real **user-visible** outcome that proves it works — NEVER a transport proxy like "200 OK" / "no exception" / "returned True" |
-   | Status | Always `⬜` at this stage (mind-explode writes it unverified; only wayne-verify flips it) |
-
-3. **Trigger rule (mandatory, forced declaration on skip):**
-   - User-observable path → a row is **required**.
-   - No user-observable path (pure refactor / pure algorithm / pure internal config) →
-     do NOT invent a row. Instead write the single explicit line beneath the table:
-     `E2E: none — <reason>`. Never silently omit a path — an unexplained absence is a
-     Fail-Loud violation a reviewer must be able to challenge.
-   - **When unsure, write the row.** A spurious row costs one extra check; a missing row
-     ships un-verified behavior.
-
-4. If you can't fill all three environment sub-columns with something runnable, you don't
-   yet have an e2e path — say so (`E2E: none — <reason>`) rather than hand-waving.
-
-5. Present the drafted contract to the user (in Chinese) for confirmation before it goes
-   into the spec:
-
-   ```
-   E2E 验证契约草稿如下，每个用户能看到的功能都有一行（pass 看真实可见结果，不是 200 OK）：
-   {render the table}
-   没有可观测路径的部分我标了 `E2E: none — <原因>`。这样对吗？
-   ```
-
-6. The confirmed contract is written **into the spec** (Phase 7) as its own section, with
-   ALL Status = `⬜`. Log a decision recording that the contract was produced.
+The confirmed matrix is **referenced by the spec** (Phase 7), not inlined — the matrix doc
+is the SSoT; the spec links to it.
 
 ---
 
@@ -471,19 +448,18 @@ Only proceed when there are zero unresolved conflicts AND all dead code decision
 
 Write the design doc to `docs/specs/YYYY-MM-DD-<topic>-design.md` (or user-preferred location).
 
-The spec MUST include an **E2E Verification Contract** section carrying the contract built
-in Phase 5 (§E2E Verification Contract). Requirements:
-- The contract table uses the LOCKED format from `_shared/e2e-contract.md` (do not redefine it).
-- EVERY Status cell is `⬜` (mind-explode writes it unverified — only wayne-verify flips Status).
-- Any requirement with no observable path appears as the explicit line `E2E: none — <reason>`,
-  never as a silent omission.
-- This section is the SSoT for e2e: wayne-plan carries it unchanged, wayne-verify executes it,
-  wayne-ship gates on it.
+The spec MUST include a **Test Matrix** section that **references** the test-matrix doc
+produced by `wayne-test-design` in Phase 5 — it does NOT inline a second copy of the
+contract table. Requirements:
+- Link the matrix doc path (`docs/test-matrix/...`); state that its e2e layer is the
+  E2E Verification Contract and the matrix is the SSoT for both layers.
+- Do NOT paste the contract table into the spec — a second authored copy is exactly the
+  drift this delegation removed. The spec points; the matrix owns.
+- The matrix's e2e Status cells are all `⬜` at this stage (only wayne-verify flips them).
 
 After writing:
 - Quick inline check: any TBD/TODO, contradictions, ambiguity? Fix them.
-- Confirm the E2E Contract section is present, all Status = `⬜`, and every requirement is
-  either a row or a declared `E2E: none — <reason>`.
+- Confirm the spec references the matrix doc and does not duplicate the contract table.
 - Ask user to review the written spec before proceeding.
 
 ---
@@ -512,13 +488,13 @@ Only proceed to plan creation once both reviews are satisfied.
 
 Design phase ends here. Plan creation is delegated.
 
-1. Update the decision log status from `in-progress` to `design-approved` and add a link to the spec.
-2. Tell the user (Chinese): "Spec 已落盘 at `<path>`，CEO + Eng review 都过。要做实现计划请调用 `wayne-plan`，它会读 decision log + spec 产出 plan。"
+1. Update the decision log status from `in-progress` to `design-approved` and add links to the spec + test matrix.
+2. Tell the user (Chinese): "Spec 已落盘 at `<path>`，测试矩阵 at `<path>`，CEO + Eng review 都过。要做实现计划请调用 `wayne-plan`，它会读 decision log + spec + 测试矩阵产出 plan。"
 3. **Emit a standardized handoff packet** — auto-call **wayne-checkpoint in handoff mode**.
    The handoff mechanism is defined in wayne-checkpoint; this skill only invokes it — do
    NOT implement it here. The packet's `next agent` is **wayne-plan**, and it carries the
-   **E2E Verification Contract forward** (the spec's contract section, all Status = ⬜) so
-   wayne-plan inherits it unchanged. **Mode A — the packet is RETURNED only; it does NOT
+   **test matrix forward** (whose e2e layer is the E2E Verification Contract, all Status = ⬜)
+   so wayne-plan inherits it unchanged. **Mode A — the packet is RETURNED only; it does NOT
    auto-advance.** The user manually triggers wayne-plan. This emission is additive on top
    of the hand-off message in step 2, not a replacement.
 4. **Do NOT write the implementation plan in this skill.** That's wayne-plan's job. Skill ends.

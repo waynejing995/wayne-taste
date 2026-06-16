@@ -70,26 +70,28 @@ decisions: docs/decisions/YYYY-MM-DD-<topic>-decisions.md
   **Patterns to follow:**
   - [Existing code or convention]
 
-  **Test scenarios:**
-  - Happy path: [input → action → expected outcome]
-  - Edge case: [boundary → action → expected outcome]
-  - Error path: [failure → action → expected outcome]
+  **Matrix rows:** [unit rows e.g. `U2, U3` (Status ☐, ticked by wayne-work) AND e2e rows e.g. `E1` (Status ⬜, run by wayne-verify) this unit satisfies, or `none — <reason>`. Test cases are authored in the carried matrix below, not re-derived here.]
 
   **Verification:**
   - [Outcome that holds when this unit is complete]
 
-  **E2E contract rows:** [#1, #3 — rows in the E2E Verification Contract this unit advances, or `none — <reason>`. Unit/integration tests above are NOT the e2e gate; these rows are run by wayne-verify.]
+## Test Matrix
 
-## E2E Verification Contract
+> Carried verbatim from the `wayne-test-design` doc (`docs/test-matrix/...`, referenced by the spec). Two layers. Unit-integration Status mutated by wayne-work (`☐ → ☑`); e2e Status mutated only by wayne-verify (`⬜ → ✅/❌`). E2e layer = the E2E Verification Contract; see `_shared/e2e-contract.md` for its locked format. Plan never re-authors test cases — flag gaps back to wayne-test-design.
 
-> Carried verbatim from spec; Status mutated only by wayne-verify. See `_shared/e2e-contract.md` for the locked format.
+### Layer 1: Unit / Integration
+
+| # | Unit | Dimension | Case (input → action → expected) | Layer | Status |
+|---|------|-----------|----------------------------------|-------|--------|
+| U1 | [unit] | positive | [input → action → expected] | unit | ☐ |
+
+### Layer 2: E2E Verification Contract
 
 | # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
 |---|-----------|--------------|-----------|-----------------|----------------------|--------|
-| 1 | [what the user does end to end] | [process/server to start] | [data it runs against] | [where the user enters] | [real user-visible outcome that proves it works] | ⬜ |
+| E1 | [what the user does end to end] | [process/server to start] | [data it runs against] | [where the user enters] | [real user-visible outcome that proves it works] | ⬜ |
 
-<!-- If the spec declares no user-observable path, replace the table with the single line below: -->
-<!-- E2E: none — <reason, e.g. "internal refactor of db.py, no behavior change"> -->
+<!-- Where a reviewer-expected dimension is deliberately excluded, declare it: e.g. `E2E: none — <reason>` or `U-x concurrency: none — <reason>`. Structurally-absent dimensions are omitted entirely. -->>
 
 ## Dead Code / Legacy Cleanup
 
