@@ -30,6 +30,7 @@ SKILLS=(
   wayne-plan
   wayne-ship
   wayne-verify
+  wayne-visual-synthesis
   wayne-work
 )
 
