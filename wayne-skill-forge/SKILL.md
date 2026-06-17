@@ -3,9 +3,12 @@ name: wayne-skill-forge
 description: |
   Forge a new SKILL.md in Wayne's house style. The single source of truth for
   "what a wayne-* skill looks like" — structure (frontmatter + triggers,
-  positioning epigraph, Inherits block, Boundary table, Flow dotgraph, phased
-  Process with verify checks, Anti-patterns) and voice (inherited from
-  waynejing). Takes an approved candidate / intent; outputs a conforming skill.
+  positioning epigraph, Inherits block, Boundary table, Anti-patterns, plus an
+  archetype-specific core: phased Process+verify for procedures, or Principles
+  Explain-the-Why + worked examples for lens/philosophy skills) and voice
+  (inherited from waynejing). Handles BOTH skill archetypes — fixed-sequence
+  workflows (low freedom) and judgment/lens skills (high freedom). Takes an
+  approved candidate / intent; outputs a conforming skill.
   Downstream of wayne-distill: distill writes the distilled *pattern* file,
   forge reads it and builds the skill. Format floor = Anthropic's skill-creator
   (anatomy / frontmatter / progressive disclosure); Wayne house style + voice
@@ -93,20 +96,49 @@ hand-authored intent, apply the same smell test. When in doubt, don't forge.
 is the hard ceiling**. Approaching it → move the detail to `references/` and
 leave a one-line pointer. Bloat in the always-loaded layer taxes every trigger.
 
+## Two archetypes — pick the freedom dial first
+
+Not every skill is a procedure. Anthropic frames the axis as **degrees of
+freedom** (best-practices: "match specificity to task fragility"). A wayne-* skill
+sits at one of two poles; the archetype decides the 6th required element and which
+template to start from. Decide this in Phase 1 — it changes the whole draft.
+
+| | **Procedure** (low freedom) | **Lens / philosophy** (high freedom) |
+|---|---|---|
+| Anthropic type | "encoded preference" — sequence steps the team's way | "capability uplift" — reproduce judgment prompting won't |
+| Use when | operation is fragile, consistency-critical, fixed sequence | multiple approaches valid, decisions depend on context |
+| Core body | `## Process` phased, each step `→ verify:` | `## Principles` written **Explain-the-Why** + worked examples |
+| Flow dotgraph | yes if ≥1 branch | usually none — no linear flow |
+| Teaching device | the steps + validation loops | **example reasoning chains** (not output samples) |
+| Gate | human gate before each side-effect | applicability boundary (when the lens does NOT apply) |
+| Anti-patterns | the corrected *mistakes* | the *misapplications* of the lens |
+| Corpus examples | skill-forge, plan, work, ship, distill, cybernetics | waynejing; the cybernetics-lens file itself |
+| Template | `templates/skill-template-procedure.md` | `templates/skill-template-lens.md` |
+
+**Explain-the-Why (the lens core):** state the rule, then *why* — the why becomes
+the rubric for cases the skill never spelled out. "Use constructor injection;
+field injection breaks testability because we can't mock without Spring context"
+beats "ALWAYS constructor, NEVER field." A high-freedom skill that's all rules and
+no why is a vague essay — it can't generalize.
+
+Most skills are procedures; reach for a lens only when the value is *judgment*,
+not a sequence. When unsure, it's probably a procedure.
+
 ## House style — the SSoT (what every wayne-* skill MUST carry)
 
-Mined from the 18-skill corpus. The first six are required; the rest are
-by-need. **A forged skill missing a required element is a defect.**
+Mined from the 18-skill corpus. **5 are always required; the 6th depends on the
+archetype above. A forged skill missing a required element is a defect.**
 
 | # | Element | Rule | Required |
 |---|---|---|---|
-| 1 | **Frontmatter** | `name` (kebab = the slash command) + dense `description`; description ENDS with bilingual trigger phrases ("MUST trigger on …", "do not under-trigger") | ✅ |
-| 2 | **Title + positioning** | `# Wayne X` then ONE line: a Chinese aphorism in `>` blockquote, or an English contrast vs a sister skill ("mind-explode defines WHAT, plan defines HOW"). Never a paragraph | ✅ |
-| 3 | **Inherits block** | `## Inherits from ~/.claude/CLAUDE.md`; list what's inherited + "MUST NOT repeat"; end with "This skill only specifies <X>" | ✅ |
-| 4 | **Boundary table** | name the closest sister skills, each row = Input / Output (or Owns / Don't double-do); define THIS skill by what it is NOT | ✅ |
-| 5 | **Process** | phased / numbered steps, each `→ verify: <check>`; human gates explicit; never auto-do a side-effect without a gate | ✅ |
-| 6 | **Anti-patterns** | the mistakes — ideally the ones the evidence sessions show being corrected | ✅ |
-| 7 | **Flow dotgraph** | `## Flow` with a `dot` digraph (11/18 carry it; see guide below). Add it whenever the flow has ≥1 decision branch | strong |
+| 1 | **Frontmatter** | `name` (kebab = the slash command) + dense `description`; description ENDS with bilingual trigger phrases ("MUST trigger on …", "do not under-trigger") | ✅ always |
+| 2 | **Title + positioning** | `# Wayne X` then ONE line: a Chinese aphorism in `>` blockquote, or an English contrast vs a sister skill ("mind-explode defines WHAT, plan defines HOW"). Never a paragraph | ✅ always |
+| 3 | **Inherits block** | `## Inherits from ~/.claude/CLAUDE.md`; list what's inherited + "MUST NOT repeat"; end with "This skill only specifies <X>" | ✅ always |
+| 4 | **Boundary table** | name the closest sister skills, each row = Input / Output (or Owns / Don't double-do); define THIS skill by what it is NOT | ✅ always |
+| 5 | **Anti-patterns** | procedure → the corrected *mistakes*; lens → the *misapplications* of the judgment | ✅ always |
+| 6a | **Process** (procedure only) | phased / numbered steps, each `→ verify: <check>`; human gates explicit; never auto-do a side-effect without a gate | ✅ if procedure |
+| 6b | **Principles + worked examples** (lens only) | `## Principles` in Explain-the-Why form (rule + why) + an applicability boundary (when it does NOT apply) + **≥2 example reasoning chains** (not output dumps) | ✅ if lens |
+| 7 | **Flow dotgraph** | `## Flow` with a `dot` digraph (11/18 carry it; see guide below). Add it whenever the flow has ≥1 decision branch — typical for procedures, rare for lenses | strong (procedure) |
 | 8 | **Origin / Files Written / Why this matters** | `## Origin` when adapted from someone (attribute, MIT); `## Files Written` when it writes artifacts; `templates/` + `scripts/` only when the workflow needs them | by-need |
 
 ## Voice — inherit from `waynejing`, don't re-derive
@@ -140,13 +172,15 @@ digraph forge {
     rankdir=TB;
 
     "Intake: candidate / intent\n(+ evidence if from distill)" [shape=box];
-    "Converged, repeatable\nprocedure?" [shape=diamond];
+    "Converged, repeatable\nthing?" [shape=diamond];
     "Send back to distill /\nmind-explode" [shape=box];
     "Read waynejing (voice) +\n2-3 nearest sibling skills" [shape=box];
     "Draft: frontmatter+triggers,\npositioning, Inherits, Boundary" [shape=box];
+    "Procedure or lens?\n(freedom dial)" [shape=diamond, style=bold];
     "Flow has a decision branch?" [shape=diamond];
     "Add ## Flow dotgraph" [shape=box];
     "Write Process (verify checks)\n+ Anti-patterns" [shape=box];
+    "Write Principles (why) +\nworked examples + Anti-patterns" [shape=box];
     "Self-check HARD-GATE\n(format + voice + resources)" [shape=box, style=bold];
     "Passes?" [shape=diamond];
     "Fix the defect" [shape=box];
@@ -155,15 +189,18 @@ digraph forge {
     "Write SKILL.md\n(+ templates/ scripts/ by need)" [shape=box];
     "Done: hand back to refine" [shape=doublecircle];
 
-    "Intake: candidate / intent\n(+ evidence if from distill)" -> "Converged, repeatable\nprocedure?";
-    "Converged, repeatable\nprocedure?" -> "Send back to distill /\nmind-explode" [label="no"];
-    "Converged, repeatable\nprocedure?" -> "Read waynejing (voice) +\n2-3 nearest sibling skills" [label="yes"];
+    "Intake: candidate / intent\n(+ evidence if from distill)" -> "Converged, repeatable\nthing?";
+    "Converged, repeatable\nthing?" -> "Send back to distill /\nmind-explode" [label="no"];
+    "Converged, repeatable\nthing?" -> "Read waynejing (voice) +\n2-3 nearest sibling skills" [label="yes"];
     "Read waynejing (voice) +\n2-3 nearest sibling skills" -> "Draft: frontmatter+triggers,\npositioning, Inherits, Boundary";
-    "Draft: frontmatter+triggers,\npositioning, Inherits, Boundary" -> "Flow has a decision branch?";
+    "Draft: frontmatter+triggers,\npositioning, Inherits, Boundary" -> "Procedure or lens?\n(freedom dial)";
+    "Procedure or lens?\n(freedom dial)" -> "Flow has a decision branch?" [label="procedure"];
+    "Procedure or lens?\n(freedom dial)" -> "Write Principles (why) +\nworked examples + Anti-patterns" [label="lens"];
     "Flow has a decision branch?" -> "Add ## Flow dotgraph" [label="yes"];
     "Flow has a decision branch?" -> "Write Process (verify checks)\n+ Anti-patterns" [label="no"];
     "Add ## Flow dotgraph" -> "Write Process (verify checks)\n+ Anti-patterns";
     "Write Process (verify checks)\n+ Anti-patterns" -> "Self-check HARD-GATE\n(format + voice + resources)";
+    "Write Principles (why) +\nworked examples + Anti-patterns" -> "Self-check HARD-GATE\n(format + voice + resources)";
     "Self-check HARD-GATE\n(format + voice + resources)" -> "Passes?";
     "Passes?" -> "Fix the defect" [label="no"];
     "Fix the defect" -> "Self-check HARD-GATE\n(format + voice + resources)";
@@ -187,9 +224,14 @@ Source the candidate one of two ways:
   rough step sequence, verdict.
 - **From the user:** a raw intent stated in conversation.
 
-- **Gate:** is it a *converged, repeatable procedure*? If not → back to
+- **Gate:** is it a *converged, repeatable thing*? If not → back to
   `wayne-distill` (needs recurrence proof) or `wayne-mind-explode` (needs
-  design). Do NOT forge a one-off. → verify: you can state it as "do X → Y → Z".
+  design). Do NOT forge a one-off.
+- **Archetype gate (decides the 6th required element + template):** is the value
+  a fixed *sequence* (procedure, low freedom) or a *judgment* (lens, high
+  freedom)? → verify: procedure = you can state it "do X → Y → Z"; lens = you can
+  state ≥2 principles each with a *why*, and name when it does NOT apply. When
+  unsure, it's a procedure.
 
 ### Phase 2 — Study the style
 
@@ -198,9 +240,11 @@ Source the candidate one of two ways:
   line that keeps the new skill separate from each (this seeds the Boundary
   table, and is why distill ruled it *New* not *Extend*).
 
-### Phase 3 — Draft (from the template)
+### Phase 3 — Draft (from the archetype's template)
 
-Start from `templates/skill-template.md`. Fill, in order:
+Start from the template the Phase-1 archetype chose:
+`templates/skill-template-procedure.md` or `templates/skill-template-lens.md`.
+Fill elements 1–4 the same way for both; element 5/6 branches.
 
 1. Frontmatter — `name`, dense `description`, **trigger phrases** (bilingual,
    mined from the evidence prompts). → verify: a stranger reading only the
@@ -209,12 +253,16 @@ Start from `templates/skill-template.md`. Fill, in order:
 3. Inherits block (don't redeclare invariants). → verify: ends with "only
    specifies X".
 4. Boundary table (carry the closest sibling from intake). → verify: each row
-   distinguishable by Input/Output.
-5. `## Flow` dotgraph if there's ≥1 decision branch (use the guide). → verify:
-   braces balance, every diamond has yes+no edges.
-6. Process (numbered, each `→ verify:`) + Anti-patterns. → verify: every step
-   has a check; human gates marked.
-7. Provenance line: `> Distilled from N sessions on <date> by wayne-distill,
+   distinguishable.
+5. **If procedure:** `## Flow` dotgraph if ≥1 decision branch (use the guide) →
+   verify: braces balance, every diamond has yes+no edges; then `## Process`
+   (numbered, each `→ verify:`) + Anti-patterns → verify: every step has a check,
+   human gates marked.
+   **If lens:** `## Principles` in Explain-the-Why form (rule + why) +
+   applicability boundary (when it does NOT apply) + **≥2 worked examples as
+   reasoning chains** + Anti-patterns (misapplications) → verify: every principle
+   carries a why; examples show judgment in motion, not output dumps.
+6. Provenance line: `> Distilled from N sessions on <date> by wayne-distill,
    forged by wayne-skill-forge.` (drop the distill clause for hand-authored).
 
 ### Phase 4 — Self-check (HARD-GATE, before showing the user)
@@ -234,8 +282,16 @@ Anthropic format floor:
 
 Wayne house style + voice:
 
-- [ ] All 6 required elements present (frontmatter+triggers, positioning,
-      Inherits, Boundary, Process-with-verify, Anti-patterns).
+- [ ] The 5 always-required present (frontmatter+triggers, positioning, Inherits,
+      Boundary, Anti-patterns) + the archetype's 6th:
+      procedure → `Process`-with-verify (+Flow if branching);
+      lens → `Principles` Explain-the-Why + applicability boundary + ≥2 reasoning-
+      chain examples.
+- [ ] Archetype fit: a procedure isn't masquerading as a vague lens, and a lens
+      isn't bolted onto a `→ verify:` Process it doesn't have. Anti-patterns match
+      the archetype (mistakes vs misapplications).
+- [ ] Lens only: every principle carries a *why* (the rubric), and ≥2 examples are
+      reasoning chains, not output samples.
 - [ ] Triggers are bilingual and mined from real evidence, not invented.
 - [ ] Boundary names the closest sibling — reader can tell this vs neighbor.
 - [ ] Voice gate: scan every `- ` / `1. ` line — any >120 chars (CJK) or ≥2
@@ -260,6 +316,10 @@ severity-tagged `references/skill-review-checklist.md`.
 - Re-deriving the voice here instead of citing `waynejing` (that's the SSoT).
 - Copying this house-style spec into another skill's template (one owner only).
 - Forging a one-off that never recurs — that's bloat (Delete>Add).
+- Forcing a judgment/lens skill into a fake `→ verify:` Process — high-freedom
+  value is principles + why, not steps (e.g. waynejing has no Process).
+- A lens whose principles are all rules and no *why* — it can't generalize, it's
+  a vague essay. Each rule states the reason that becomes its rubric.
 - Skipping the Phase-4 HARD-GATE because the draft "looks fine".
 - Auto-writing the SKILL.md without the Phase-5 user gate.
 - Trigger phrases invented rather than mined from the evidence sessions.

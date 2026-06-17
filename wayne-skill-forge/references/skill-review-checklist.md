@@ -69,9 +69,16 @@ The description is the PRIMARY mechanism that decides whether the skill fires.
 
 (See `waynejing` §表达 DNA + §输出格式硬约束 — the voice SSoT.)
 
-- **critical** — the 6 required house-style elements present: frontmatter+triggers,
-  positioning epigraph, Inherits block, Boundary table, Process-with-verify,
-  Anti-patterns.
+- **critical** — the 5 always-required elements present: frontmatter+triggers,
+  positioning epigraph, Inherits block, Boundary table, Anti-patterns. Plus the
+  archetype's 6th: **procedure** → `Process`-with-verify (+Flow if branching);
+  **lens** → `Principles` in Explain-the-Why form + applicability boundary + ≥2
+  worked examples.
+- **major** — archetype fit: a judgment skill isn't forced into a fake `→ verify:`
+  Process; a fragile procedure isn't left as a vague lens. Anti-patterns match the
+  archetype (corrected *mistakes* for procedure; *misapplications* for lens).
+- **major** — lens only: every principle states a *why* (the generalization
+  rubric); worked examples are *reasoning chains*, not output samples.
 - **major** — Boundary table names the closest sibling skill(s); a reader can
   tell this skill from each neighbor by Input/Output.
 - **major** — voice gate: scan every `- ` / `1. ` line — any >120 chars (CJK) or
