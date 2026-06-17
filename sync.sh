@@ -24,11 +24,13 @@ SKILLS=(
   wayne-code-review
   wayne-compound
   wayne-cybernetics
+  wayne-distill
   wayne-frontend-design
   wayne-manner
   wayne-mind-explode
   wayne-plan
   wayne-ship
+  wayne-skill-forge
   wayne-test-design
   wayne-verify
   wayne-visual-synthesis
