@@ -55,6 +55,25 @@ The two failure modes the evidence shows: §5 hand-waved ("run the tests") and
 
 Template + the golden exemplar live in `references/` — read before composing.
 
+## When a plan doc already exists — reference, don't restate
+
+If the work is already captured in a plan / spec / decision doc, that doc is the
+SSoT. The goal prompt **points at it and carries only the steering layer** — it
+must NOT re-paste the plan's step bodies, tables, or rationale. Duplication rots
+(two sources drift) and bloats the prompt.
+
+- §1/§2: name the doc path as the SSoT ("follow its §N exactly"); state only the
+  framing + red-lines a runner needs to not go off-rails.
+- §4 Tasks: one line per plan unit (the verb + where it lands), NOT the plan's
+  full sub-steps. The runner opens the doc for detail.
+- §5/§6: these stay concrete and self-contained — verification commands and
+  done-criteria are the steering contract, not plan detail, so they live in the
+  prompt in full.
+
+Rule of thumb: if a line is reconstructable by reading the named doc, cut it.
+Keep what the runner needs to *steer and verify*, drop what it can *look up*.
+A prompt that duplicates the plan is too long by definition.
+
 ## When to Run
 
 - **Manual:** `/wayne-goal-prompt <raw intent>`.
@@ -114,6 +133,10 @@ digraph goalprompt {
   (e.g. "call the CLI instead of driving the TUI") — kills the proof.
 - **Running it** — executing the goal instead of emitting it (runner's job).
 - **Plaintext secrets** — copying secret values in; pass an env-var name.
+- **Plan-restate** — re-pasting a plan doc's steps/tables/rationale into the
+  prompt when the doc is the SSoT. Reference it ("follow §N of <path>"); carry
+  only the steering layer + self-contained §5/§6. If it's reconstructable from
+  the doc, cut it.
 
 > Distilled from 15 sessions on 2026-06-17 by wayne-distill, forged by
 > wayne-skill-forge. Anatomy anchored on the Alfred-TUI golden exemplar.
