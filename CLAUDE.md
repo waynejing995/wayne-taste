@@ -196,6 +196,7 @@ Before `AskUserQuestion` on complex problems: explain in plain Chinese. No jargo
 | "brainstorm" / "design this" / "新功能想一下" / explore an idea | `wayne-mind-explode` |
 | "make a plan" / "plan this feature" / spec → plan | `wayne-plan` |
 | "build it" / "implement the plan" / execute a plan | `wayne-work` |
+| "goal prompt" / "写个 goal" / "把这句变成一条 goal" / sharpen a vague goal before an autonomous run | `wayne-goal-prompt` |
 | "review my code" / pre-merge / post-feature review | `wayne-code-review` |
 | "verify" / "e2e" / "does it actually work" / "run the feature" / runtime verification before ship | `wayne-verify` |
 | "commit" / "ship" / "push" | `wayne-ship` |

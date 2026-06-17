@@ -50,7 +50,8 @@ Safety properties:
 
 **Synced to BOTH agents** (the `SKILLS[]` array in `sync.sh`):
 `_shared`, `wayne-checkpoint`, `wayne-code-review`, `wayne-compound`,
-`wayne-cybernetics`, `wayne-distill`, `wayne-frontend-design`, `wayne-manner`,
+`wayne-cybernetics`, `wayne-distill`, `wayne-frontend-design`, `wayne-goal-prompt`,
+`wayne-manner`,
 `wayne-mind-explode`, `wayne-plan`, `wayne-ship`, `wayne-skill-forge`, `wayne-test-design`,
 `wayne-verify`, `wayne-visual-synthesis`, `wayne-work`.
 

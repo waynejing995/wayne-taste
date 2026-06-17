@@ -26,6 +26,7 @@ SKILLS=(
   wayne-cybernetics
   wayne-distill
   wayne-frontend-design
+  wayne-goal-prompt
   wayne-manner
   wayne-mind-explode
   wayne-plan
