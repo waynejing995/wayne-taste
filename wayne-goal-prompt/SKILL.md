@@ -5,7 +5,8 @@ description: |
   — a copy-paste string to feed Codex /goal or hand to another skill. Forces
   success criteria, exact verification commands, and real-path (no-fake-substitute)
   proof BEFORE an agent starts looping, so a terse "finish this" can't burn rounds
-  on clarification. Generates the prompt only; never runs it.
+  on clarification. Composes the prompt, then — after a confirm gate — dispatches
+  it to a chosen runner (Codex recommended); the /goal runner does the looping.
   Triggers: "goal prompt", "goal prompt generator", "写个 goal", "帮我把 goal 补好",
   "把这句变成一条 goal", "this goal is too vague / sharpen this goal", "/goal 怎么写".
   Reach for it whenever a goal is about to be handed to an autonomous run.
@@ -15,9 +16,10 @@ description: |
 
 > "弱标准逼着 agent 反复问你；强标准让它自己 loop 到验证通过。"
 
-This skill produces a goal prompt **string**. It does NOT write a plan doc
-(`wayne-plan`), does NOT build (`wayne-work`), and does NOT run the goal
-(Codex `/goal` is the runner). Generate only — emit the prompt, then STOP.
+This skill produces a goal prompt **string**, then hands it to a runner. It does
+NOT write a plan doc (`wayne-plan`) and does NOT build (`wayne-work`) — the
+`/goal` runner does the looping. Compose → confirm → dispatch; this skill never
+does the work the goal describes itself.
 
 ## Inherits from ~/.claude/CLAUDE.md
 
@@ -94,7 +96,11 @@ digraph goalprompt {
     "Ask MIN clarifying Qs (Chinese)\nnever invent criteria" [shape=box, style=bold];
     "Compose 6-section prompt\n(constraints inlined, real verify)" [shape=box];
     "Every §6 criterion maps\nto a §5 command?" [shape=diamond];
-    "Emit copy-paste block. STOP.\n(do not run, do not write files)" [shape=doublecircle];
+    "Emit copy-paste block +\nconfirm gate (Chinese)" [shape=box, style=bold];
+    "Goal confirmed? which runner?" [shape=diamond];
+    "Codex: /goal + prompt\n--dangerously-bypass-approvals-and-sandbox\n+ start monitor (recommended)" [shape=box];
+    "Claude: /goal + prompt\n--dangerously-skip-permissions" [shape=box];
+    "Run dispatched" [shape=doublecircle];
 
     "Capture raw intent" -> "Gap-scan the 6 sections";
     "Gap-scan the 6 sections" -> "All required sections fillable?";
@@ -103,7 +109,12 @@ digraph goalprompt {
     "Ask MIN clarifying Qs (Chinese)\nnever invent criteria" -> "Compose 6-section prompt\n(constraints inlined, real verify)";
     "Compose 6-section prompt\n(constraints inlined, real verify)" -> "Every §6 criterion maps\nto a §5 command?";
     "Every §6 criterion maps\nto a §5 command?" -> "Compose 6-section prompt\n(constraints inlined, real verify)" [label="no"];
-    "Every §6 criterion maps\nto a §5 command?" -> "Emit copy-paste block. STOP.\n(do not run, do not write files)" [label="yes"];
+    "Every §6 criterion maps\nto a §5 command?" -> "Emit copy-paste block +\nconfirm gate (Chinese)" [label="yes"];
+    "Emit copy-paste block +\nconfirm gate (Chinese)" -> "Goal confirmed? which runner?";
+    "Goal confirmed? which runner?" -> "Codex: /goal + prompt\n--dangerously-bypass-approvals-and-sandbox\n+ start monitor (recommended)" [label="codex"];
+    "Goal confirmed? which runner?" -> "Claude: /goal + prompt\n--dangerously-skip-permissions" [label="claude"];
+    "Codex: /goal + prompt\n--dangerously-bypass-approvals-and-sandbox\n+ start monitor (recommended)" -> "Run dispatched";
+    "Claude: /goal + prompt\n--dangerously-skip-permissions" -> "Run dispatched";
 }
 ```
 
@@ -120,8 +131,32 @@ digraph goalprompt {
 4. **Compose** — fill the 6 sections; inline each constraint at the task it
    governs; §5 names real commands + a real e2e path; §6 bullets are testable.
    → verify: every §6 criterion maps to a §5 command.
-5. **Emit + STOP** — output one copy-paste block. Do not execute, do not write
-   files. → verify: nothing ran; output is a prompt.
+5. **Emit + confirm gate** — output one copy-paste block; ask the user (Chinese)
+   "goal 对不对？对了发给谁去跑？" Do NOT dispatch before the goal is confirmed
+   correct. → verify: user confirmed the goal AND named a runner.
+6. **Dispatch** — on confirmation, hand the prompt to the chosen runner per the
+   table below. → verify: the right invocation form for that runner; for Codex,
+   a monitor is started.
+
+## Dispatch — who runs the goal
+
+After the goal is confirmed correct, ask which runner. **Recommend Codex.** The
+goal-prompt string is the same; only the invocation differs.
+
+| Runner | How to dispatch |
+|---|---|
+| **Codex** (recommended) | run `/goal <prompt>` with `--dangerously-bypass-approvals-and-sandbox`, then start a **monitor** to watch run status |
+| Claude | run `/goal <prompt>` with `--dangerously-skip-permissions` |
+
+- **Why Codex is the default:** it loops unattended under bypass and the monitor
+  gives a live status channel (push, not poll) — best fit for a hands-off run.
+- **The two flags are NOT interchangeable** — `--dangerously-skip-permissions`
+  is Claude's; `--dangerously-bypass-approvals-and-sandbox` is Codex's. Pair the
+  flag to the runner; never cross them.
+- **Codex only — start a monitor.** After dispatch, stand up a status monitor on
+  the run so progress surfaces without polling. Don't fire-and-forget.
+- **Confirm gate is mandatory.** Never dispatch a goal the user hasn't confirmed
+  correct — a wrong goal run under bypass burns rounds unsupervised.
 
 ## Anti-patterns
 
@@ -131,7 +166,13 @@ digraph goalprompt {
 - **Constraint dump** — red-lines pooled away from the task they govern.
 - **Fake substitute** — letting verify swap the real path for a stand-in
   (e.g. "call the CLI instead of driving the TUI") — kills the proof.
-- **Running it** — executing the goal instead of emitting it (runner's job).
+- **Dispatch before confirm** — handing the goal to a runner before the user
+  confirms it's correct; under bypass that burns rounds unsupervised.
+- **Doing the work here** — this skill composes + dispatches; it never performs
+  the task the goal describes (that's the `/goal` runner's job).
+- **Crossed flags** — `--dangerously-skip-permissions` is Claude's,
+  `--dangerously-bypass-approvals-and-sandbox` is Codex's; never swap them.
+- **Codex without a monitor** — fire-and-forget; always start a status monitor.
 - **Plaintext secrets** — copying secret values in; pass an env-var name.
 - **Plan-restate** — re-pasting a plan doc's steps/tables/rationale into the
   prompt when the doc is the SSoT. Reference it ("follow §N of <path>"); carry
