@@ -98,8 +98,8 @@ digraph goalprompt {
     "Every §6 criterion maps\nto a §5 command?" [shape=diamond];
     "Emit copy-paste block +\nconfirm gate (Chinese)" [shape=box, style=bold];
     "Goal confirmed? which runner?" [shape=diamond];
-    "Codex: /goal + prompt\n--dangerously-bypass-approvals-and-sandbox\n+ start monitor (recommended)" [shape=box];
-    "Claude: /goal + prompt\n--dangerously-skip-permissions" [shape=box];
+    "Codex: rmux session -c cwd\ncodex --dangerously-bypass-approvals-and-sandbox\nfeed /goal + start log monitor (recommended)" [shape=box];
+    "Claude: rmux session -c cwd\nclaude --dangerously-skip-permissions\nfeed /goal + start log monitor" [shape=box];
     "Run dispatched" [shape=doublecircle];
 
     "Capture raw intent" -> "Gap-scan the 6 sections";
@@ -111,10 +111,10 @@ digraph goalprompt {
     "Every §6 criterion maps\nto a §5 command?" -> "Compose 6-section prompt\n(constraints inlined, real verify)" [label="no"];
     "Every §6 criterion maps\nto a §5 command?" -> "Emit copy-paste block +\nconfirm gate (Chinese)" [label="yes"];
     "Emit copy-paste block +\nconfirm gate (Chinese)" -> "Goal confirmed? which runner?";
-    "Goal confirmed? which runner?" -> "Codex: /goal + prompt\n--dangerously-bypass-approvals-and-sandbox\n+ start monitor (recommended)" [label="codex"];
-    "Goal confirmed? which runner?" -> "Claude: /goal + prompt\n--dangerously-skip-permissions" [label="claude"];
-    "Codex: /goal + prompt\n--dangerously-bypass-approvals-and-sandbox\n+ start monitor (recommended)" -> "Run dispatched";
-    "Claude: /goal + prompt\n--dangerously-skip-permissions" -> "Run dispatched";
+    "Goal confirmed? which runner?" -> "Codex: rmux session -c cwd\ncodex --dangerously-bypass-approvals-and-sandbox\nfeed /goal + start log monitor (recommended)" [label="codex"];
+    "Goal confirmed? which runner?" -> "Claude: rmux session -c cwd\nclaude --dangerously-skip-permissions\nfeed /goal + start log monitor" [label="claude"];
+    "Codex: rmux session -c cwd\ncodex --dangerously-bypass-approvals-and-sandbox\nfeed /goal + start log monitor (recommended)" -> "Run dispatched";
+    "Claude: rmux session -c cwd\nclaude --dangerously-skip-permissions\nfeed /goal + start log monitor" -> "Run dispatched";
 }
 ```
 
@@ -134,29 +134,61 @@ digraph goalprompt {
 5. **Emit + confirm gate** — output one copy-paste block; ask the user (Chinese)
    "goal 对不对？对了发给谁去跑？" Do NOT dispatch before the goal is confirmed
    correct. → verify: user confirmed the goal AND named a runner.
-6. **Dispatch** — on confirmation, hand the prompt to the chosen runner per the
-   table below. → verify: the right invocation form for that runner; for Codex,
-   a monitor is started.
+6. **Dispatch** — on confirmation, write the prompt to a file, start a detached
+   `rmux` session at the goal's project root (`-c <cwd>`), pipe the pane to a log,
+   launch the chosen runner, feed it `/goal`, and start a log monitor (see
+   Mechanics). → verify: session started at the right cwd, runner+flag paired
+   correctly, log monitor running.
 
 ## Dispatch — who runs the goal
 
-After the goal is confirmed correct, ask which runner. **Recommend Codex.** The
-goal-prompt string is the same; only the invocation differs.
+After the goal is confirmed correct, ask which runner. **Recommend Codex.** Both
+runners launch the SAME goal-prompt string inside an **rmux/tmux** session, so the
+run is detached, survives this skill's session, and exposes a live pane to monitor.
+Only the binary + flag differ.
 
-| Runner | How to dispatch |
+### Mechanics — same five steps for both runners
+
+1. **Write the prompt to a file.** Never inline a long, multi-line, quoted prompt
+   into `send-keys` (shell-quoting hell). Save it, e.g. `/tmp/goal-<slug>.md`.
+2. **Start a detached session at the RIGHT cwd.** `-c <project-root>` is the cd —
+   the run must start in the repo the goal targets, not where this skill runs.
+   ```bash
+   SESS="goal-<slug>"
+   rmux new-session -d -s "$SESS" -c "<project-root>"
+   ```
+3. **Pipe the pane to a logfile** — this is the monitor's push source (the runner
+   streams its own output to the log; the monitor reads the log, never polls the
+   live UI):
+   ```bash
+   rmux pipe-pane -O -t "$SESS" 'cat >> /tmp/goal-<slug>.log'
+   ```
+4. **Launch the runner, then feed it the goal.** Boot the TUI, then send `/goal`
+   with the prompt loaded from the file (paste-buffer avoids re-quoting):
+   ```bash
+   rmux send-keys -t "$SESS" '<runner-launch-line>' Enter   # see table
+   rmux load-buffer -b goal -t "$SESS" /tmp/goal-<slug>.md
+   rmux send-keys  -t "$SESS" '/goal ' ; rmux paste-buffer -b goal -t "$SESS"
+   rmux send-keys  -t "$SESS" Enter
+   ```
+5. **Start the monitor.** Surface progress FROM the logfile on a cadence
+   (`tail -n40 /tmp/goal-<slug>.log` or `rmux capture-pane -p -t "$SESS"`) and
+   report status back. Don't fire-and-forget.
+
+| Runner | `<runner-launch-line>` |
 |---|---|
-| **Codex** (recommended) | run `/goal <prompt>` with `--dangerously-bypass-approvals-and-sandbox`, then start a **monitor** to watch run status |
-| Claude | run `/goal <prompt>` with `--dangerously-skip-permissions` |
+| **Codex** (recommended) | `codex --dangerously-bypass-approvals-and-sandbox` |
+| Claude | `claude --dangerously-skip-permissions` |
 
-- **Why Codex is the default:** it loops unattended under bypass and the monitor
-  gives a live status channel (push, not poll) — best fit for a hands-off run.
+- **Why Codex is the default:** it loops unattended under bypass and the piped log
+  gives a status channel (push, not poll) — best fit for a hands-off run.
 - **The two flags are NOT interchangeable** — `--dangerously-skip-permissions`
   is Claude's; `--dangerously-bypass-approvals-and-sandbox` is Codex's. Pair the
   flag to the runner; never cross them.
-- **Codex only — start a monitor.** After dispatch, stand up a status monitor on
-  the run so progress surfaces without polling. Don't fire-and-forget.
-- **Confirm gate is mandatory.** Never dispatch a goal the user hasn't confirmed
-  correct — a wrong goal run under bypass burns rounds unsupervised.
+- **Always start a monitor.** After dispatch, stand up the logfile monitor so
+  progress surfaces without polling the live pane. Don't fire-and-forget.
+- **Confirm both the goal AND the cwd before launch.** A wrong goal — or the right
+  goal in the wrong directory — run under bypass burns rounds unsupervised.
 
 ## Anti-patterns
 
@@ -172,7 +204,14 @@ goal-prompt string is the same; only the invocation differs.
   the task the goal describes (that's the `/goal` runner's job).
 - **Crossed flags** — `--dangerously-skip-permissions` is Claude's,
   `--dangerously-bypass-approvals-and-sandbox` is Codex's; never swap them.
-- **Codex without a monitor** — fire-and-forget; always start a status monitor.
+- **No monitor** — fire-and-forget after launch; always pipe the pane to a log
+  and start a monitor on it.
+- **Inlined prompt** — pasting a long/multi-line goal straight into `send-keys`
+  (quoting hell); write it to a file and `load-buffer`/`paste-buffer` it in.
+- **Wrong cwd** — launching the runner where the skill runs instead of the goal's
+  project root; always pass `rmux new-session -c <project-root>`.
+- **Polling the live pane** — repeatedly `capture-pane`-ing the TUI instead of
+  reading the piped logfile the runner streams to.
 - **Plaintext secrets** — copying secret values in; pass an env-var name.
 - **Plan-restate** — re-pasting a plan doc's steps/tables/rationale into the
   prompt when the doc is the SSoT. Reference it ("follow §N of <path>"); carry
