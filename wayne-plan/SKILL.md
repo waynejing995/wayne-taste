@@ -31,15 +31,15 @@ plans, specs, decision logs, code comments. Headers / severity tags / table head
 
 You MUST create a task for each and complete in order:
 
-1. **Find source inputs** — decision log, spec, or feature description; carry the test matrix (authored by `wayne-test-design`, referenced by the spec) forward verbatim — both the unit-integration layer (`☐`) and the e2e layer (the E2E Verification Contract, `⬜`)
+1. **Find source inputs** — decision log, spec, or feature description; from the test matrix (referenced by the spec): carry the **e2e layer (E rows, `⬜`) verbatim**, and take the **U-layer SEED as input to re-author** (U rows are plan-owned — see step 6)
 2. **Recall lessons from KB** — see "Lesson Recall" section below; collect
    relevant lessons to inject into the plan's risk section
 3. **Gather context** — explore codebase, read existing plans/docs
 4. **Conflict review** — check ALL existing plans for contradictions
 5. **Resolve planning questions** — ask user only when answer is unknowable from code
-6. **Structure the plan** — break into implementation units; tag each unit with the matrix row #s it advances (unit `U#` and e2e `E#`)
-7. **Write plan file** — save to `docs/plans/`, with relevant lessons cited in risk section and the carried Test Matrix section (unit `☐`, e2e `⬜`)
-8. **Dispatch plan reviews** — `/plan-ceo-review` + `/plan-eng-review`
+6. **Structure the plan** — break into implementation units; for each unit author its **Interfaces** (Consumes/Produces), concrete **Approach**, **Files-with-symbol**, and **U rows** (re-authored from the seed against the unit's real surface, locked to this unit); tag the **E rows** (`E#`) it advances
+7. **Write plan file** — save to `docs/plans/`, with relevant lessons cited in risk section; E rows carried verbatim (`⬜`), U rows authored & locked here (`☐`)
+8. **Dispatch plan reviews** — the drift review (SSoT fidelity) + the U-lock closure gate (both independent agents) FIRST, then `/plan-ceo-review` + `/plan-eng-review`
 9. **Final plan** — incorporate review feedback, present to user, then auto-call wayne-checkpoint in handoff mode to emit the handoff packet for wayne-work
 
 ## Lesson Recall (Step 2)
@@ -77,7 +77,7 @@ digraph plan {
     rankdir=TB;
 
     "Find source inputs\n(decision log / spec / description)" [shape=box];
-    "Carry test matrix\nverbatim (unit + e2e)" [shape=box];
+    "Carry E rows verbatim;\ntake U-SEED as input" [shape=box];
     "Gather context\n(codebase + existing plans)" [shape=box];
     "Conflict review:\nread ALL existing plans" [shape=box];
     "Conflicts?" [shape=diamond];
@@ -86,14 +86,17 @@ digraph plan {
     "Classify depth\n(lightweight / standard / deep)" [shape=box];
     "Structure: break into\nimplementation units" [shape=box];
     "Write plan file\nto docs/plans/" [shape=box];
+    "Drift + U-lock review (independent agents):\nSSoT fidelity + U-row closure" [shape=box, style=bold];
+    "Drift found?" [shape=diamond];
+    "Realign plan to SSoT\nOR flag decision gap upstream" [shape=box];
     "Dispatch /plan-ceo-review\n+ /plan-eng-review" [shape=box, style=bold];
     "Reviews pass?" [shape=diamond];
     "Revise plan from\nreview feedback" [shape=box];
     "Present final plan\nto user" [shape=box];
     "Auto-call wayne-checkpoint\n(handoff mode → wayne-work)" [shape=doublecircle];
 
-    "Find source inputs\n(decision log / spec / description)" -> "Carry test matrix\nverbatim (unit + e2e)";
-    "Carry test matrix\nverbatim (unit + e2e)" -> "Gather context\n(codebase + existing plans)";
+    "Find source inputs\n(decision log / spec / description)" -> "Carry E rows verbatim;\ntake U-SEED as input";
+    "Carry E rows verbatim;\ntake U-SEED as input" -> "Gather context\n(codebase + existing plans)";
     "Gather context\n(codebase + existing plans)" -> "Conflict review:\nread ALL existing plans";
     "Conflict review:\nread ALL existing plans" -> "Conflicts?";
     "Conflicts?" -> "Back to wayne-mind-explode\nto resolve conflicts" [label="yes"];
@@ -101,7 +104,11 @@ digraph plan {
     "Resolve planning questions\n(codebase first, then ask)" -> "Classify depth\n(lightweight / standard / deep)";
     "Classify depth\n(lightweight / standard / deep)" -> "Structure: break into\nimplementation units";
     "Structure: break into\nimplementation units" -> "Write plan file\nto docs/plans/";
-    "Write plan file\nto docs/plans/" -> "Dispatch /plan-ceo-review\n+ /plan-eng-review";
+    "Write plan file\nto docs/plans/" -> "Drift + U-lock review (independent agents):\nSSoT fidelity + U-row closure";
+    "Drift + U-lock review (independent agents):\nSSoT fidelity + U-row closure" -> "Drift found?";
+    "Drift found?" -> "Realign plan to SSoT\nOR flag decision gap upstream" [label="yes"];
+    "Drift found?" -> "Dispatch /plan-ceo-review\n+ /plan-eng-review" [label="no"];
+    "Realign plan to SSoT\nOR flag decision gap upstream" -> "Drift + U-lock review (independent agents):\nSSoT fidelity + U-row closure";
     "Dispatch /plan-ceo-review\n+ /plan-eng-review" -> "Reviews pass?";
     "Reviews pass?" -> "Present final plan\nto user" [label="yes"];
     "Reviews pass?" -> "Revise plan from\nreview feedback" [label="no"];
@@ -128,15 +135,18 @@ If a spec exists, carry forward:
 - Scope boundaries
 - Key decisions and rationale
 - Dependencies and assumptions
-- **The Test Matrix** (authored by `wayne-test-design`, at `docs/test-matrix/...` — the
-  spec references it). Copy the whole matrix into the plan **verbatim** — both layers:
-  the unit-integration layer (Status `☐`) and the e2e layer (the E2E Verification Contract,
-  Status `⬜`). This is an input the plan must preserve, not author or modify. wayne-plan
-  never executes or mutates it — unit Status stays `☐` until `wayne-work` ticks it, e2e
-  Status stays `⬜` until `wayne-verify` runs it. Format SSoT for the e2e layer:
-  `_shared/e2e-contract.md` (do not redeclare it). If the spec references no matrix doc and
-  the matrix has no contract rows and no `E2E: none — <reason>` line, that is a Fail-Loud
-  gap — flag it and recommend back to `wayne-test-design` rather than inventing one.
+- **The Test Matrix** (at `docs/test-matrix/...` — the spec references it). The two layers
+  are handled differently because they were authored against different structure:
+  - **E layer (E rows, the E2E Verification Contract) — carry VERBATIM.** Copy unchanged,
+    Status `⬜`. The plan must preserve it, not author or modify it; e2e Status stays `⬜`
+    until `wayne-verify` runs it. Format SSoT: `_shared/e2e-contract.md` (do not redeclare).
+  - **U layer (U rows) — the SEED is INPUT, the plan re-authors.** `wayne-test-design` could
+    only seed behavior-level candidates because units didn't exist yet. wayne-plan re-expresses
+    each against its unit's real files/functions, locks it to exactly one owning unit, and adds
+    rows for unit behaviors the seed missed. Status `☐` until `wayne-work` ticks it.
+  - If the spec references no matrix doc and the matrix has no E rows and no `E2E: none —
+    <reason>` line, that is a Fail-Loud gap — flag it and recommend back to `wayne-test-design`
+    rather than inventing the E contract here (U rows the plan may author; the E contract it may not).
 
 If neither exists, run a short bootstrap:
 - Establish problem frame, intended behavior, scope, success criteria
@@ -254,32 +264,38 @@ For each unit, include:
 | **Goal** | Yes | What this unit accomplishes |
 | **Requirements** | Yes | Which requirements it advances |
 | **Dependencies** | Yes | What must exist first |
-| **Files** | Yes | Repo-relative paths to create/modify/test |
-| **Approach** | Yes | Key decisions, data flow, boundaries |
+| **Interfaces** | Yes | `Consumes:` exact signatures/types this unit takes from earlier units; `Produces:` function names + param/return types later units rely on. This is how a unit's implementer learns its neighbours' surface without seeing their code |
+| **Files** | Yes | Repo-relative paths, each as `path → which symbol / what changes` (not bare paths). Include the test file path |
+| **Approach** | Yes | Concrete: control logic, branches, data flow, boundaries. Multi-paragraph when the logic warrants. NOT a single hand-wave bullet |
+| **Technical design** | Yes when non-obvious | Pseudo-code or diagram when prose alone leaves the shape ambiguous (DSL→grammar, multi-component→mermaid, state→state diagram). Frame as directional guidance |
 | **Patterns to follow** | Yes | Existing code or conventions to mirror |
-| **Matrix rows** | Yes | Which carried matrix rows this unit satisfies — unit rows (e.g. `U2, U3`) AND e2e rows (e.g. `E1`), or `none — <reason>` |
+| **Test scenarios (U rows)** | Yes for feature units | Plan-authored, locked to this unit, written against its **real** inputs/functions. Categorized: Happy / Edge / Error / Integration. Feature-bearing unit left blank = incomplete (rejected by lock gate). Pure config/scaffolding/styling → `none — <reason>` |
+| **E rows** | Yes | Which carried e2e rows (e.g. `E1`) this unit advances, or `none — <reason>`. Carried verbatim, never authored here |
 | **Verification** | Yes | How to know the unit is complete |
-| **Technical design** | Optional | Pseudo-code or diagram when approach is non-obvious |
-| **Decision trace** | If available | Which decision log entries drive this unit |
+| **Decision trace** | If available | Which decision log entries drive this unit (WHAT-level; HOW detail needs no decision) |
 
-**Distinguish the two layers (both come from the carried matrix, not re-authored here).**
-The unit-integration rows (`U#`, Status `☐`) prove the unit's own logic in isolation, often
-with mocks — `wayne-work` ticks them as tests pass. The e2e rows (`E#`, Status `⬜`) point to
-the real-usage rows in the `## Test Matrix` section that `wayne-verify` will actually RUN along
-the user path. Unit tests passing is **NOT** the e2e gate: e2e rows stay `⬜` no matter how green
-the unit tests are, and only flip when `wayne-verify` drives the real entrypoint. Tag each unit
-with the row #s it satisfies so the whole matrix is covered by the time work completes.
+**Two layers, two authorships.** The U rows (`Status ☐`) prove the unit's own logic in
+isolation — **the plan authors them** against the unit's real surface (re-expressing the
+`wayne-test-design` U-SEED and adding what the seed missed), and `wayne-work` ticks them as
+tests pass. The E rows (`E#`, Status `⬜`) are **carried verbatim** and point to the real-usage
+rows in `## Test Matrix` that `wayne-verify` will RUN along the user path. A green unit suite
+ticks `☑` U boxes and has **zero** bearing on the `⬜` E rows — only `wayne-verify` flips those.
 
-### 6.3 Test Scenarios — carried from the matrix, not re-authored
+### 6.3 U rows — authored here, locked to units (the lock three-piece)
 
-`wayne-test-design` already enumerated the test cases across dimensions (positive / negative /
-edge / invalid / boundary / concurrency / error-path / persistence) in the matrix doc. The plan
-does **NOT** re-derive them — that would be a second author and invite drift. Instead, each unit
-cites the matrix row #s it satisfies (the **Matrix rows** field above).
+Because implementation units do not exist until this skill runs, the plan is the only place
+U rows can be bound to real code. wayne-plan **authors** the U layer (seed-in, locked-out):
 
-If, while planning, you find a behavior the matrix missed, do not silently invent a scenario in
-the plan — flag it and recommend back to `wayne-test-design` to add the row, then carry the
-updated matrix. The matrix stays the single author of test cases.
+1. **Bidirectional coverage** — every U row has exactly one owning unit (no orphan rows);
+   every feature-bearing unit has ≥1 U row (no untested feature unit).
+2. **Expressed against the unit's surface** — each U row names the unit's real file/function
+   and concrete input → action → expected, not a generic behavior-level placeholder.
+3. **Seed completeness** — every `wayne-test-design` U-SEED candidate is either re-authored
+   into an owning unit or explicitly dropped with a reason (so the seed isn't silently lost).
+
+The E layer is **not** authored here — if planning reveals an e2e gap, flag it back to
+`wayne-test-design`; do not add an E row in the plan. (U-level gaps, by contrast, the plan
+fills directly — it is the U author.)
 
 ---
 
@@ -310,8 +326,9 @@ The template is the canonical structure. Do not improvise sections. Required to 
 - `## Context` (subsections: Relevant Code and Patterns; Constraints from Existing Plans)
 - `## Key Technical Decisions`
 - `## Open Questions` (subsections: Resolved During Planning; Deferred to Implementation)
-- `## Implementation Units` (each with Goal, Requirements, Dependencies, Decision trace, Files, Approach, Patterns, Matrix rows, Verification)
-- `## Test Matrix` (the matrix carried verbatim from the `wayne-test-design` doc — unit-integration layer Status `☐`, e2e layer Status `⬜`; the e2e layer is the E2E Verification Contract, format SSoT `_shared/e2e-contract.md`, never redeclared; or the `E2E: none — <reason>` line where declared)
+- `## File Structure` (every file the plan creates/modifies, one line each: `path — responsibility`)
+- `## Implementation Units` (each with Goal, Requirements, Dependencies, Interfaces, Files-with-symbol, Approach, Technical design when non-obvious, Patterns, Test scenarios (U rows), E rows, Verification, Decision trace)
+- `## Test Matrix` (E layer carried verbatim from the `wayne-test-design` doc, Status `⬜`, the E2E Verification Contract, format SSoT `_shared/e2e-contract.md`, never redeclared, or `E2E: none — <reason>`; U layer authored & locked here, Status `☐`)
 - `## Dead Code / Legacy Cleanup`
 - `## System-Wide Impact`
 - `## Risks & Dependencies` (table)
@@ -322,17 +339,82 @@ Use the template verbatim — do not invent new sections. If the template feels 
 ### 7.3 Planning Rules
 
 - **All file paths repo-relative** — never absolute paths
-- **No implementation code** — no imports, exact signatures, framework syntax
+- **No framework code** — no imports, exact runnable signatures, framework syntax. But logic,
+  interfaces (names + types), and test scenarios MUST be concrete (see No-Placeholders below)
 - Pseudo-code sketches OK when they communicate design direction (frame as "directional guidance")
 - Mermaid diagrams encouraged for multi-component relationships
 - No git commands, commit messages, or test command recipes
 - Don't pretend execution-time unknowns are settled
 
+**No-Placeholders ban (hard rule — a placeholder is a plan failure, rejected by the lock gate):**
+The following must NEVER appear in a unit's Approach, Interfaces, or Test scenarios:
+- `TBD`, `TODO`, "implement later", "fill in details"
+- "add error handling" / "add validation" / "handle edge cases" (name the actual case)
+- "write tests for the above" (without the actual scenario: input → action → expected)
+- "similar to Unit N" (state it explicitly — units may be read out of order)
+- referencing a type, function, or method not defined in any unit's Interfaces
+A vague bullet that *technically* fills a required field still counts as a placeholder.
+
 ---
 
-## Phase 8: Plan Review via gstack
+## Phase 8: Plan Review
 
-After the plan file is written and committed:
+After the plan file is written, run reviews in two stages. The **drift review runs
+first** — no point asking CEO/Eng to critique a plan that doesn't faithfully
+implement the decisions it claims to descend from.
+
+### 8.0 Drift review — plan vs decision log + spec (independent agent, runs FIRST)
+
+The CEO/Eng/design reviews judge whether the plan is *good*. None of them check the
+prior question: does the plan still match the **decision log and spec it was built
+from**? A plan silently diverges — a logged decision dropped, scope crept past the
+spec's boundaries, a unit with no decision trace, a test-matrix row lost in the
+carry. That drift is the bug class Wayne cares about most (SSoT): the upstream
+artifact and the plan now disagree, and nobody noticed.
+
+Run this as an **independent agent** (fresh eyes — not the same context that wrote
+the plan, which is blind to its own omissions). Dispatch via the Agent tool with a
+self-contained brief; it reads the three artifacts and reports drift only.
+
+The agent checks, in both directions:
+
+| Drift class | Question |
+|---|---|
+| **Dropped decision** | every logged decision (`docs/decisions/...`) is reflected in some unit, or explicitly noted as deferred/dropped with reason |
+| **Untraced WHAT-scope** | every unit's *WHAT-level scope* traces to a decision — a unit doing undecided product/behavior work is creep. HOW detail (logic, Interfaces, U rows) needs NO decision and is **not** flagged — it is the plan's own job |
+| **Scope creep** | the plan stays inside the spec's Scope Boundaries; nothing added beyond what was decided |
+| **Requirement loss** | every spec requirement (R1-Rn) maps to ≥1 unit |
+| **E-row drift** | the carried **E layer** matches the `wayne-test-design` doc verbatim — no E row added, dropped, or status-mutated. (The **U layer** is plan-authored; it is NOT checked for verbatim match — it is checked by the 8.0b lock gate instead) |
+| **Rationale contradiction** | no unit's Approach contradicts the rationale logged for its decision |
+
+Output: a drift report tagged per finding — **drift** (plan disagrees with SSoT,
+must realign) vs **gap** (the SSoT itself is missing/wrong, flag upstream). On any
+drift: realign the plan to the SSoT and re-run. On a gap: do NOT paper over it in
+the plan — recommend back to `wayne-mind-explode` / `wayne-test-design` to fix the
+upstream artifact, then re-carry. Loop until the agent reports clean.
+
+→ verify: agent returns zero **drift** findings (gaps may remain, flagged upstream).
+
+### 8.0b U-lock closure gate (independent agent, runs with 8.0)
+
+The drift agent checks the plan against its upstream SSoT. This gate checks the one thing the
+plan itself authors — the U layer — for closure. The plan owns U rows, so nothing upstream can
+catch a U row that floats free of any unit or a feature unit with no test. Run as an
+independent agent (fresh eyes); it reads the plan only and checks the lock three-piece:
+
+| Lock check | Question |
+|---|---|
+| **Bidirectional coverage** | every U row has exactly one owning unit (no orphan); every feature-bearing unit has ≥1 U row (no untested feature unit) |
+| **Expressed against surface** | every U row names its owning unit's real file/function + concrete input → action → expected — no generic behavior-level placeholder |
+| **Seed completeness** | every `wayne-test-design` U-SEED candidate is re-authored into a unit OR explicitly dropped with reason |
+| **No-placeholder** | no unit field contains a banned placeholder (see Phase 7.3 ban list) |
+| **E-row coverage preserved** | every carried E row is pointed at by ≥1 unit's `E rows` field |
+
+Output: per-finding **unlocked** (must fix in the plan before proceeding). Loop until clean.
+
+→ verify: agent returns zero **unlocked** findings.
+
+### 8.1 Quality reviews via gstack (after drift + lock are clean)
 
 1. **Invoke `/plan-ceo-review`** — challenges premises, looks for the 10-star version, questions scope
 2. **Invoke `/plan-eng-review`** — locks in architecture, data flow, edge cases, test coverage
@@ -343,6 +425,8 @@ Process:
 - Present combined feedback to user (in Chinese)
 - If either review surfaces issues requiring plan changes:
   - Revise the plan
+  - **Re-run the 8.0 drift review** if the revision touched units/scope/matrix — a
+    quality fix can itself introduce drift
   - Re-run reviews until both pass
 - Update the decision log with review outcomes
 
@@ -414,9 +498,17 @@ Can be used without `wayne-mind-explode` when:
 
 ## Key Principles
 
-- **Decisions, not code** — capture approach, boundaries, risks. Don't pre-write implementation
+- **Decisions traceable, detail required** — WHAT-level scope traces to the decision log;
+  HOW-level detail (control logic, Interfaces, Files-with-symbol, U rows) is plan-authored
+  and mandatory, NOT scope creep. No framework code, but logic/interfaces/scenarios concrete
+  enough to execute blind (No-Placeholders ban)
 - **Research before structuring** — explore codebase and existing plans before writing
 - **Right-size the artifact** — small work gets compact plans, large work gets more structure
-- **Every unit traces to a decision** — if it wasn't decided, why is it in the plan?
+- **WHAT traces to a decision; HOW is the plan's job** — a unit doing undecided *product* work
+  is creep; a unit adding *implementation detail* is doing exactly what a plan is for
+- **The plan owns U rows; test-design owns E rows** — U rows are authored & locked here against
+  real units (units don't exist until now); the E contract is carried verbatim, never authored here
+- **No drift from the SSoT** — the plan must match the decision log + spec + E contract it
+  descends from; independent drift + U-lock agents gate this before quality review
 - **Conflict-free by design** — no plan ships contradicting existing plans
 - **Chinese for discussion, English for artifacts**

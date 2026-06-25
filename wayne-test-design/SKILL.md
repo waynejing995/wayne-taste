@@ -63,16 +63,25 @@ A green unit suite ticks `☑` boxes and has **zero** bearing on the `⬜` e2e r
 the whole point of the wrapper: it keeps "code is tested" and "feature actually works in
 real use" as two separate, non-substitutable facts.
 
-## SSoT: this skill is the sole author of the matrix + e2e contract
+## SSoT: split authorship — E layer owned here, U layer seeded here and locked in wayne-plan
 
-Once `wayne-test-design` runs, it **owns** the test matrix AND the e2e contract inside it.
+Authorship is split by layer, because the two layers bind to structure that exists at
+different times:
 
-- If a spec from `wayne-mind-explode` already contains an E2E Verification Contract draft,
-  this skill **absorbs and extends** it — it does not create a parallel copy. The matrix
-  doc becomes the single source; the spec's draft is now superseded by it.
-- `wayne-plan` carries the matrix **verbatim** (like it carries the e2e contract today).
-- Never let the e2e contract live in two authored places. Two authors = drift = the exact
-  bug class CLAUDE.md forbids.
+- **E layer (e2e contract) — `wayne-test-design` owns it outright.** It is user-path /
+  behavior level and does not depend on implementation units, so it can (and must) be
+  authored here. If a spec from `wayne-mind-explode` already contains an E2E Verification
+  Contract draft, this skill **absorbs and extends** it — never a parallel copy. The matrix
+  doc becomes the single source for E rows; the spec's draft is superseded. `wayne-plan`
+  carries E rows **verbatim** and may not add, drop, or status-mutate them.
+- **U layer (unit-integration) — `wayne-test-design` authors only SEED candidates.** The
+  implementation units a U row binds to **do not exist until `wayne-plan`**. So this skill
+  cannot lock U rows to units; it only proposes behavior-level candidates. **`wayne-plan` is
+  the final author/owner of U rows** — it re-expresses each against its unit's real
+  files/functions and locks it to exactly one owning unit (bidirectional-coverage gate).
+- Never let the E contract live in two authored places. Two authors = drift = the exact
+  bug class CLAUDE.md forbids. (U rows have one author too — wayne-plan — after the seed
+  handoff.)
 
 ---
 
@@ -138,11 +147,13 @@ You MUST create a task for each and complete in order:
    lesson often names a dimension that bit us before (a missed error-path, a race)
 3. **Absorb any existing e2e contract** — if the spec has an E2E Verification Contract
    draft, pull it in as the seed of the e2e layer (do not duplicate it)
-4. **Decompose into units of behavior** — align to the plan's implementation units if a
-   plan exists; otherwise to the spec's requirements
-5. **Walk the dimension menu per unit** — keep only real dimensions; apply the
+4. **Decompose into units of *behavior*** — NOT implementation units (those don't exist
+   until `wayne-plan`). Decompose against the spec's requirements / behaviors.
+5. **Walk the dimension menu per behavior** — keep only real dimensions; apply the
    no-over-design constraint; declare reviewer-surprising gaps as `none — reason`
-6. **Build the unit-integration layer** — checkbox rows (`☐`), input → action → expected
+6. **Build the U-layer SEED** — behavior-level checkbox candidates (`☐`), input → action →
+   expected, **NOT yet bound to units**. Label the block `U-SEED (wayne-plan re-authors + locks)`.
+   Skip if no behavior decomposition is stable yet — wayne-plan will author U rows from scratch.
 7. **Build the e2e layer** — reproduce the LOCKED contract format from
    `_shared/e2e-contract.md`, all Status `⬜`; absorb the spec draft if present
 8. **Cross-check coverage** — every spec requirement maps to ≥1 row in some layer; every
