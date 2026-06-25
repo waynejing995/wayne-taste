@@ -50,6 +50,12 @@ decisions: docs/decisions/YYYY-MM-DD-<topic>-decisions.md
 
 - [Question]: [Why deferred]
 
+## File Structure
+
+[Every file this plan creates or modifies, one line each — the changed-area map.]
+
+- `path/to/file` — [responsibility / what changes here]
+
 ## Implementation Units
 
 - [ ] **Unit 1: [Name]**
@@ -57,35 +63,47 @@ decisions: docs/decisions/YYYY-MM-DD-<topic>-decisions.md
   **Goal:** [What this accomplishes]
   **Requirements:** [R1, R2]
   **Dependencies:** [None / Unit N / external]
-  **Decision trace:** [Decision log #N, #M]
+  **Decision trace:** [Decision log #N, #M — WHAT-level only; HOW detail needs no decision]
+
+  **Interfaces:**
+  - Consumes: [exact signatures/types this unit takes from earlier units, or None]
+  - Produces: [function names + param/return types later units rely on, or None]
 
   **Files:**
-  - Create: `path/to/new_file`
-  - Modify: `path/to/existing_file`
-  - Test: `path/to/test_file`
+  - Create: `path/to/new_file` → [which symbol / what it does]
+  - Modify: `path/to/existing_file` → [which symbol / what changes]
+  - Test: `path/to/test_file` → [what it covers]
 
   **Approach:**
-  - [Key design or sequencing decision]
+  - [Concrete control logic, branches, data flow, boundaries — multi-paragraph when warranted, not a hand-wave bullet]
+
+  **Technical design:** *(when non-obvious — pseudo-code or diagram, directional guidance not implementation spec)*
 
   **Patterns to follow:**
   - [Existing code or convention]
 
-  **Matrix rows:** [unit rows e.g. `U2, U3` (Status ☐, ticked by wayne-work) AND e2e rows e.g. `E1` (Status ⬜, run by wayne-verify) this unit satisfies, or `none — <reason>`. Test cases are authored in the carried matrix below, not re-derived here.]
+  **Test scenarios (U rows):** [plan-authored, locked to this unit, against its REAL inputs/functions. Status ☐, ticked by wayne-work. Feature unit blank = incomplete; pure config/scaffolding → `none — <reason>`]
+  - [Happy] [input → action → expected]  (U#)
+  - [Edge] [input → action → expected]  (U#)
+  - [Error] [input → action → expected]  (U#)
+  - [Integration] [input → action → expected]  (U#)
+
+  **E rows:** [carried e2e rows this unit advances e.g. `E1` (Status ⬜, run by wayne-verify), or `none — <reason>`. Carried verbatim, never authored here.]
 
   **Verification:**
   - [Outcome that holds when this unit is complete]
 
 ## Test Matrix
 
-> Carried verbatim from the `wayne-test-design` doc (`docs/test-matrix/...`, referenced by the spec). Two layers. Unit-integration Status mutated by wayne-work (`☐ → ☑`); e2e Status mutated only by wayne-verify (`⬜ → ✅/❌`). E2e layer = the E2E Verification Contract; see `_shared/e2e-contract.md` for its locked format. Plan never re-authors test cases — flag gaps back to wayne-test-design.
+> Two layers, two authorships. **Layer 2 (E2E)** is carried **verbatim** from the `wayne-test-design` doc (`docs/test-matrix/...`); the plan never adds/drops/mutates it — flag e2e gaps back to wayne-test-design. Status mutated only by wayne-verify (`⬜ → ✅/❌`); see `_shared/e2e-contract.md` for the locked format. **Layer 1 (Unit/Integration)** is **authored & locked here** by wayne-plan (re-expressed from the test-design U-SEED against real units, gaps filled directly); Status mutated by wayne-work (`☐ → ☑`).
 
-### Layer 1: Unit / Integration
+### Layer 1: Unit / Integration  *(authored & locked by wayne-plan)*
 
 | # | Unit | Dimension | Case (input → action → expected) | Layer | Status |
 |---|------|-----------|----------------------------------|-------|--------|
 | U1 | [unit] | positive | [input → action → expected] | unit | ☐ |
 
-### Layer 2: E2E Verification Contract
+### Layer 2: E2E Verification Contract  *(carried verbatim from wayne-test-design)*
 
 | # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
 |---|-----------|--------------|-----------|-----------------|----------------------|--------|

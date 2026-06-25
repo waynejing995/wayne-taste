@@ -46,7 +46,7 @@ digraph work {
     "Setup: branch + environment" [shape=box];
     "Create task list from\nimplementation units" [shape=box];
     "Pick next task\n(dependency order)" [shape=box];
-    "Read plan unit:\nGoal, Files, Approach,\nPatterns, Matrix rows" [shape=box];
+    "Read plan unit:\nGoal, Interfaces, Files,\nApproach, Patterns, U rows" [shape=box];
     "Find existing test files\n(Test Discovery)" [shape=box];
     "Implement following\nexisting patterns" [shape=box];
     "Write/update tests" [shape=box];
@@ -62,8 +62,8 @@ digraph work {
     "Find plan + decision log" -> "Setup: branch + environment";
     "Setup: branch + environment" -> "Create task list from\nimplementation units";
     "Create task list from\nimplementation units" -> "Pick next task\n(dependency order)";
-    "Pick next task\n(dependency order)" -> "Read plan unit:\nGoal, Files, Approach,\nPatterns, Matrix rows";
-    "Read plan unit:\nGoal, Files, Approach,\nPatterns, Matrix rows" -> "Find existing test files\n(Test Discovery)";
+    "Pick next task\n(dependency order)" -> "Read plan unit:\nGoal, Interfaces, Files,\nApproach, Patterns, U rows";
+    "Read plan unit:\nGoal, Interfaces, Files,\nApproach, Patterns, U rows" -> "Find existing test files\n(Test Discovery)";
     "Find existing test files\n(Test Discovery)" -> "Implement following\nexisting patterns";
     "Implement following\nexisting patterns" -> "Write/update tests";
     "Write/update tests" -> "Run tests";
@@ -192,16 +192,19 @@ Decision log: <decisions_path>
 
 Your unit:
 - Goal: <goal>
-- Files: <files>
+- Interfaces: <interfaces>  (Consumes: signatures from earlier units; Produces: what later units rely on — implement exactly these names/types)
+- Files: <files>  (each as `path → symbol/what changes`)
 - Approach: <approach>
 - Patterns to follow: <patterns>
-- Matrix rows: <matrix_rows>  (unit rows `U#` Status ☐ — you build these and tick ☐ → ☑; e2e rows `E#` Status ⬜ — leave for wayne-verify)
+- Test scenarios (U rows): <u_rows>  (Status ☐ — you build these and tick ☐ → ☑; authored by the plan against this unit's real surface)
+- E rows: <e_rows>  (Status ⬜ — leave for wayne-verify)
 - Verification: <verification>
 
 Rules:
 - Follow existing code patterns. Read before writing.
-- Write/update tests for every behavioral change. The test cases are authored in the carried Test Matrix — implement the unit rows (`U#`) this unit cites; do not re-invent cases.
-- Tick each unit row `☐ → ☑` in the matrix as its test passes. NEVER touch the e2e `⬜` column — that is wayne-verify's sole authority.
+- Honour the Interfaces block — produce the exact function names / param & return types later units depend on.
+- Write/update tests for every behavioral change. The U rows are authored by the plan, locked to this unit and written against its real inputs/functions — implement exactly those; do not re-invent cases.
+- Tick each U row `☐ → ☑` in the matrix as its test passes. NEVER touch the e2e `⬜` column — that is wayne-verify's sole authority.
 - Run tests after each change — fix failures immediately.
 - Do NOT commit (wayne-ship handles that).
 - Report when done: what was built, what tests pass, any concerns.
@@ -234,7 +237,7 @@ After parallel agents complete (whether Agent Teams or parallel subagents):
 from the plan. Subagents never read the plan file — you provide everything they need.
 
 For each task, prepare:
-- Full task text from plan (Goal, Files, Approach, Patterns, Matrix rows, Verification)
+- Full task text from plan (Goal, Interfaces, Files-with-symbol, Approach, Technical design, Patterns, Test scenarios (U rows), E rows, Verification)
 - Decision log entries relevant to this task
 - Scene-setting context (where this fits in the overall design, dependencies)
 - Execution note (test-first, characterization-first, etc.)
@@ -387,7 +390,7 @@ Wave 3: [Task F]                  ← depends on Wave 2
 
 Before changing a file, find its test files:
 - Search for test/spec files that import, reference, or share names with the implementation file
-- The unit's cited matrix rows (`U#`) are the test cases — start there
+- The unit's `Test scenarios (U rows)` field holds the test cases — start there
 - Supplement gaps from the unit's context
 
 ### 2.7 System-Wide Check
@@ -620,8 +623,8 @@ wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne
 | Artifact | What it provides |
 |----------|-----------------|
 | **Decision log** | Why decisions were made — constrains implementation choices |
-| **Plan** | Implementation units, files, approach, matrix rows (unit + e2e), verification |
-| **Test Matrix** | The test cases (carried in the plan) — unit rows `U#` you build + tick `☐→☑`; e2e rows `E#` left for wayne-verify |
+| **Plan** | Implementation units — Goal, Interfaces, Files-with-symbol, Approach, Patterns, Test scenarios (U rows), E rows, Verification |
+| **Test Matrix** | Layer 1 (U rows, plan-authored & locked to your unit) — you build + tick `☐→☑`; Layer 2 (E rows, carried) left for wayne-verify |
 | **Existing code** | Patterns to follow, conventions to match |
 
 ### What wayne-work does NOT do
