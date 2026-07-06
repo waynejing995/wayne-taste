@@ -163,14 +163,33 @@ Only the binary + flag differ.
    ```bash
    rmux pipe-pane -O -t "$SESS" 'cat >> /tmp/goal-<slug>.log'
    ```
-4. **Launch the runner, then feed it the goal.** Boot the TUI, then send `/goal`
-   with the prompt loaded from the file (paste-buffer avoids re-quoting):
+4. **Launch the runner, then feed it the goal.** Boot the TUI, load the prompt via
+   paste-buffer, then submit Enter **as a separate, delayed key** — never in the
+   same `send-keys` as the paste. The TUI receives a multi-line paste as one
+   *bracketed-paste* block; an Enter chained onto it (or fired immediately after)
+   lands as a newline INSIDE the input box, not a submit. Wait for the paste to
+   settle, send Enter alone, then **verify by capture-pane** that the box emptied —
+   if the prompt is still sitting there, send Enter again (and again to clear any
+   post-submit overlay, e.g. Codex's "Create a plan?").
    ```bash
    rmux send-keys -t "$SESS" '<runner-launch-line>' Enter   # see table
-   rmux load-buffer -b goal -t "$SESS" /tmp/goal-<slug>.md
-   rmux send-keys  -t "$SESS" '/goal ' ; rmux paste-buffer -b goal -t "$SESS"
-   rmux send-keys  -t "$SESS" Enter
+   sleep 3                                                   # let the TUI boot
+   rmux load-buffer  -b goal -t "$SESS" /tmp/goal-<slug>.md
+   rmux send-keys    -t "$SESS" '/goal '                     # prefix only, no Enter
+   rmux paste-buffer -b goal -t "$SESS"
+   sleep 1                                                   # let the paste settle
+   rmux send-keys    -t "$SESS" Enter                        # submit — ALONE
+   sleep 2; rmux capture-pane -p -t "$SESS" | tail -5        # did it submit?
+   # box still shows the prompt? it's queued, not sent — send Enter again:
+   rmux send-keys    -t "$SESS" Enter
    ```
+   - **Prefer a single-line prompt for the paste.** A goal with embedded newlines
+     is the worst case for bracketed-paste submit. If the file is multi-line and
+     submit keeps failing, collapse it to one line (or keep the durable detail in
+     a plan doc the prompt *references*, per "When a plan doc already exists").
+   - **On submit failure, send ONLY Enter — never re-paste.** Re-running
+     `paste-buffer` stacks a second copy of the prompt into the box; the fix for a
+     swallowed Enter is another Enter, not another paste.
 5. **Start the monitor.** Surface progress FROM the logfile on a cadence
    (`tail -n40 /tmp/goal-<slug>.log` or `rmux capture-pane -p -t "$SESS"`) and
    report status back. Don't fire-and-forget.
@@ -208,6 +227,14 @@ Only the binary + flag differ.
   and start a monitor on it.
 - **Inlined prompt** — pasting a long/multi-line goal straight into `send-keys`
   (quoting hell); write it to a file and `load-buffer`/`paste-buffer` it in.
+- **Enter chained to the paste** — `send-keys '...' Enter` or an Enter fired in the
+  same breath as `paste-buffer`; the TUI swallows it into the bracketed-paste block
+  as a newline. Send Enter ALONE, after a `sleep`, then verify with capture-pane.
+- **Re-paste on swallowed Enter** — re-running `paste-buffer` when submit didn't
+  take; it stacks a duplicate prompt in the box. The fix for a missed Enter is
+  another Enter, never another paste.
+- **Assuming dispatch landed** — calling the run started without capture-pane
+  confirming the input box emptied and the runner is "Working"/"Pursuing goal".
 - **Wrong cwd** — launching the runner where the skill runs instead of the goal's
   project root; always pass `rmux new-session -c <project-root>`.
 - **Polling the live pane** — repeatedly `capture-pane`-ing the TUI instead of
