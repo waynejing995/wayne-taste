@@ -160,6 +160,64 @@ new redundancy points / drift sources (Principle #4 + #7).
 Skip for pure logic/bugfix diffs (no structural surface). Findings from the lens
 go into the Critical or Informational categories per severity.
 
+### Optional: Dataflow Lens (producer / consumer)
+
+If the diff adds, moves, or rewires a piece of state — a field, config slot,
+registry entry, extractor, event, cache key — trace it end to end. Every producer
+needs a consumer and every consumer needs a producer; a mismatch is a bug or dead
+weight.
+
+Look for:
+
+- **Orphan producer** — value is written / declared / registered but nothing reads
+  it. Verify by grepping for readers, not by assuming. A field with only a `def` /
+  assignment and zero call sites is false coverage. (`delete > add`: wire it or
+  remove it.)
+- **Dead consumer** — code reads / resolves / dispatches on state that no producer
+  ever populates. Consumer guards silently no-op (`if x is None: return`), so the
+  path is permanently unreachable — looks wired, never runs.
+- **Producer/consumer semantic drift** — same logical state produced in one place
+  and consumed in another with *different semantics* (different default, different
+  units, different enum encoding, hardcoded literal on one side vs resolved value
+  on the other). This is the SSoT drift bug class: two encodings of one concept
+  that will disagree.
+- **Dual path to the same state** — consumer reads the state directly (e.g. via
+  `getattr`) while a dedicated resolver/accessor for that same state exists and is
+  bypassed. Two read paths drift independently.
+
+**Severity by consequence, not by category:**
+
+- CRITICAL when a real consumer gets a *wrong value* at runtime — e.g. a hardcoded
+  literal in shared code so a second caller/tenant/team hits the wrong behavior the
+  moment it exercises the path, or a default that silently misroutes.
+- INFORMATIONAL when the finding is pure dead surface (orphan producer, unreachable
+  consumer) with no wrong-result path today — a `delete > add` candidate.
+
+Verify every dataflow claim by grep before filing it: "produced at X, consumed at
+Y (or: no consumer found)". A dataflow finding without both endpoints named is not
+yet a finding. Findings land in the Critical or Informational categories per the
+consequence rule above.
+
+**Re-arch check (when the diff rewires an existing flow).** If Phase 2 intent shows
+this is a re-architecture — moving state to a new owner, routing a value through a
+new seam, replacing a hardcoded literal with a resolved lookup — the diff must make
+the dataflow flow the way the re-arch *intends*, end to end. Half-migrations are the
+CRITICAL bug here:
+
+- Old path left live alongside the new one → two producers, drift (the thing the
+  re-arch was supposed to eliminate is still there).
+- New path wired at the producer but a consumer still reads the old source (or vice
+  versa) → the re-arch silently doesn't take effect on that path.
+- New seam declared but zero consumers routed through it → orphan seam, false
+  "done".
+
+Concrete shape (TRACE example): moving a team-specific value out of shared core into
+a team plugin slot means every consumer must read it via `resolve_*(ctx)` against
+the bound team — a diff that adds the slot but leaves any consumer on the old
+shared-core constant/YAML literal has NOT completed the re-arch, and the second team
+still hits the wrong value. Check every sibling consumer, not just the one the diff
+touched.
+
 ### Finding Format
 
 ```
@@ -179,6 +237,8 @@ Confidence calibration:
 
 Both reviewers get the **exact same prompt** — same question, same diff command, same output format. They are independent and see nothing from each other or from your structured review. This is how you get genuine dual-voice coverage.
 
+**When the diff is a re-arch** (Phase 2 intent shows a flow being rewired), append the 1-line intent summary to the shared prompt for BOTH voices — so the "does the dataflow flow the way the architecture intends" probe has something to check against. Append the same text to both; keep them identical. For a pure logic/bugfix diff, leave the prompt as-is.
+
 ### The Shared Prompt
 
 ```
@@ -196,6 +256,12 @@ Think like an attacker and a chaos engineer. Find every way this code will fail 
 - Error handling that swallows failures
 - Missing validations on inputs
 - Assumptions that will break under load
+- Orphan producers: state written/declared/registered that nothing reads (grep for readers to confirm)
+- Dead consumers: code that reads/dispatches on state no producer ever populates (silent no-op)
+- Producer/consumer drift: same state produced and consumed with different semantics (default, units, enum, hardcoded-vs-resolved)
+- Dual read paths to one state (direct getattr vs a bypassed resolver) that will drift apart
+
+If a plan/spec/design intent is provided below, additionally check whether the dataflow actually flows the way the intended architecture wants — a re-arch that leaves the old path live, or wires the new path only halfway, is a finding even if each endpoint individually type-checks.
 
 For each finding, output exactly this format:
 SEVERITY: CRITICAL or INFORMATIONAL
