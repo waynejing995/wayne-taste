@@ -1,14 +1,14 @@
 ---
 name: wayne-visual-synthesis
 description: >
-  Wayne-style exhaustive image reading and visual element extraction. Use when the user asks to describe an image, read a screenshot, extract all visible UI elements, transcribe visible text, inventory objects, parse charts/tables/diagrams/documents, or produce structured visual evidence from one or more images. The mandatory mechanism is a Visual Element Ledger: every meaningful visible region, text item, control, icon, media item, object, relationship, and quality issue must be accounted for before any summary.
+  Wayne-style exhaustive image reading and visual element extraction. Use when the user asks to describe an image, read a screenshot, extract all visible UI elements, transcribe visible text, inventory objects, parse charts/tables/diagrams/documents, or produce structured visual evidence from one or more images. Also handles two-level image comparison (pixel-level diff + ledger-level semantic diff) in an explicit `compare` mode — for render regression tests, A/B render checks, and noise-vs-real-change classification. The mandatory mechanism is a Visual Element Ledger: every meaningful visible region, text item, control, icon, media item, object, relationship, and quality issue must be accounted for before any summary.
 ---
 
 # Wayne Visual Synthesis
 
-Read images into structured visual evidence and semantic equivalents. Do not compare images. Do not issue acceptance verdicts.
+Read images into structured visual evidence and semantic equivalents. The default job is single-image reading and does not compare. Comparison happens ONLY in `compare` mode, which the user must explicitly request.
 
-This skill produces a complete Visual Element Ledger (VEL) for each image, then derives concise descriptions, targetable structures, and complex text equivalents from that ledger. Downstream workflows may compare ledgers, but comparison is not this skill's responsibility.
+This skill produces a complete Visual Element Ledger (VEL) for each image, then derives concise descriptions, targetable structures, and complex text equivalents from that ledger. In `compare` mode it runs a two-level comparison — pixel level and ledger level — over two VELs. The VEL remains the source of truth for the ledger-level comparison.
 
 ## Inherits from ~/.claude/CLAUDE.md
 
@@ -49,13 +49,14 @@ For visual information carriers, an element ledger is not enough. A chart, table
 
 ## Non-Goals
 
-- No image comparison.
-- No semantic diff.
-- No visual regression verdict.
-- No design acceptance verdict.
-- No pixel-diff interpretation.
+Default (non-compare) modes never compare — produce one VEL per image and stop:
 
-If the user asks to compare images, produce one VEL per image and stop there unless another skill or explicit user instruction handles the comparison.
+- No image comparison outside `compare` mode.
+- No semantic diff outside `compare` mode.
+- No design acceptance verdict, ever. This skill measures and classifies; it does not rule on whether a design is "good enough".
+- No pass/fail regression verdict unless the user gave or approved an explicit tolerance (see Compare Mode).
+
+If the user asks to compare and has NOT invoked `compare` mode, produce one VEL per image and ask whether to run `compare` mode — do not silently diff.
 
 ## Coverage Contract
 
@@ -111,8 +112,9 @@ If an image contains object/layer/source handles, masks, DOM boxes, SVG nodes, c
 | document scan | `document-ledger` |
 | addressable objects/elements/layers | `targetable-structure` |
 | multiple images without comparison | `multi-image-ledger` |
+| "compare", "diff", "regression test", render A vs B | `compare` |
 
-Pick the mode from context. Ask only if the image type or output detail level is unknowable.
+Pick the mode from context. Ask only if the image type or output detail level is unknowable. `compare` mode is never auto-selected from a single image — it needs two (or more) explicit inputs and an explicit compare request.
 
 ## Backend Policy
 
@@ -272,6 +274,20 @@ Build the ledger in this order.
 
 Identify image type, orientation, approximate dimensions if available, theme/state, density, and any obvious crop/blur/occlusion limits.
 
+**Always run the synthesis probes here** — for every image, never conditionally. See
+[references/synthesis-probes.md](references/synthesis-probes.md). You cannot tell from the
+composite whether an image hides content; the only way to know is to probe:
+
+- `references/channel_probe.py IMG` — content hidden in a channel (shape in alpha, mark in one
+  color plane, CMYK K plate). Reads native channel model, not flattened. Reports `hidden_content_channels`.
+- `references/hidden_probe.py IMG` — content hidden within a channel: LSB steganography
+  (bit-plane) and periodic/frequency watermarks (FFT). Reports `flags`.
+
+If any probe flags something, dump it (`--dump-dir`) and read that channel/plane/spectrum as its
+own image — hidden content earns its own region/element entries, not a footnote. A clean hidden-
+signal probe does NOT mean "no watermark"; DCT/DWT-coefficient and deep/generative (SynthID)
+watermarks are not covered — say so.
+
 ### Pass 2: Region Map
 
 Divide the image into top-level regions before describing details.
@@ -352,6 +368,201 @@ Before writing the final answer, check:
 - Is confidence justified?
 
 If not, inspect again or mark the coverage verdict accordingly.
+
+## Compare Mode
+
+Runs only when explicitly requested with two or more images. Comparison is TWO-LEVEL:
+pixel level (mechanical, exact) and ledger level (semantic, VEL-based). Both are required
+unless the user scopes to one. Read [references/compare-methods.md](references/compare-methods.md)
+before emitting any comparison — pick methods by what the diff must separate, and name the
+method behind every number.
+
+### Intake Gate (run BEFORE any diff)
+
+Compare mode fails loud on an unresolved or invalid image set. Do not diff until all five
+checks pass. Never diff a set you had to guess.
+
+**Blocking rule: scenario (check 3) and tolerance (check 5) must both be RESOLVED before any
+Level-1 tool runs.** "Resolved" means either unambiguously determined from explicit user
+statement / filename convention / md5 evidence, OR asked and answered. If either is still
+open, STOP and ask — do NOT run the diff first and ask afterward. Running Level 1 then asking
+for scenario/tolerance is the exact anti-pattern this gate exists to prevent.
+
+1. **Resolve the set.** Every referenced image (attachment, path, `#N`) must map to exactly
+   one file on disk. If the count of refs ≠ count of resolvable files, STOP and reconcile
+   with the user — do NOT silently drop the missing one or diff the survivors. (Witnessed:
+   3 refs given, 2 files on disk; the 2 were unrelated pages, not a compare set.) Search
+   likely output dirs (`test-results/`, `*render*`, `*golden*`, `*snapshot*`, drop dirs)
+   before declaring a ref unresolvable.
+2. **Validate the set is comparable.** The images must plausibly be renders/captures of the
+   SAME target. Two different screens/scenes are not a compare set — diffing them yields a
+   meaningless map. If they are not the same target, STOP and say so; offer to VEL each
+   separately instead. Dimension mismatch is reported by the dimension gate, not here (differing
+   sizes of the same target ARE the diff); wholly different subjects are caught here.
+3. **Classify the compare type — golden-baseline vs symmetric.** This changes the semantics
+   of every downstream number and the verdict:
+
+   | | Golden-baseline | Symmetric A/B |
+   |---|---|---|
+   | Privileged image | one image is authoritative truth | none — neither wins |
+   | Delta framing | regression of `cur` *against* golden | neutral "A differs from B" |
+   | Direction / signed bias | matters (did cur drift up/down from truth) | descriptive only |
+   | Verdict | pass/fail **against golden** (tolerance still required) | describe + classify, no verdict |
+   | Added/removed facets | "cur added/lost X vs golden" | "present in B not A" |
+
+   Determine golden from explicit user statement ("#5 is golden", "baseline", "expected",
+   "reference", "render test"), or from filename convention (`*golden*`, `*_ref*`, `*expected*`,
+   `*_base*` vs `*_cur*`/`*_actual*`/`*_out*`). If two-plus images are byte-identical (equal
+   md5) and one more differs, the identical set is the reference and the odd one is `cur` —
+   state this inference. If none of these resolve it, ASK; do not default to symmetric silently.
+4. **Verify golden integrity when claimed.** If a golden has a declared copy/duplicate, confirm
+   they are byte-identical (md5). A golden that disagrees with its own copy is a broken baseline —
+   report it before comparing anything to it.
+5. **Resolve the tolerance BEFORE diffing.** A verdict needs a tolerance, and the tolerance
+   must be fixed up front so it governs which methods Level 1 runs — not chosen after the
+   numbers are in (post-hoc tolerance-picking is verdict-fitting). Resolve it from an explicit
+   user statement, a project render-test config, or by asking. Do NOT default to a tolerance
+   silently. When asking, pin down the FORM as well as the value — these are different gates:
+   - **Byte-identity ("1:1", "exact", "identical")** → satisfied ONLY by md5 hash equality.
+     Any hash difference is FAIL regardless of how cosmetic the pixels are. Never quietly
+     reinterpret "1:1" as "visually identical" — if the user means perceptual, make them say so.
+   - **Raw-pixel gate** (e.g. `max L1 ≤ N`, `changed% ≤ P`, `no component ≥ K px`) → judged on
+     the L1 map / connected components.
+   - **Perceptual gate** (e.g. `SSIM ≥ 0.99`, `FLIP ≤ t`) → judged on the structural metric,
+     which Level 1 must then compute.
+   - **No verdict** → the user explicitly wants measure-and-classify only; skip pass/fail.
+
+   It is legitimate to run Level 1 first ONLY when the user has pre-declared "no verdict" — in
+   every other case the tolerance is a precondition, not a follow-up.
+
+Record the resolved set, the compare type, which file is golden, AND the tolerance (form +
+value) in the output header before any diff numbers appear.
+
+### What compare owns vs what it reuses
+
+Everything that reads a SINGLE image — the VEL, all probes (channel / LSB / frequency) — is
+synthesis, not compare. Compare runs synthesis on each image first, then adds the things that
+only exist BETWEEN two images. These are compare-exclusive; synthesis has none of them:
+
+| Compare-only capability | Why it needs two images |
+|---|---|
+| Pixel diff (L1 map, changed %, strong-diff bbox/centroid, connected components, signed bias) | there is no "diff" of one image |
+| Noise-vs-real classification (`sub-lsb-blend-noise` / `geometry-camera-change` / `real-change`) | a classification of what changed between A and B |
+| Cross-image channel diff (`diff_only_in_channels`) | reuses the synthesis channel probe in its pair form; the "A differs from B in this channel" relation is the compare part |
+| Ledger diff (matched/added/removed/changed across all facets) | aligns two VELs by id |
+| Read-noise vs real-change reconciliation | a delta is read-noise only relative to the other read + pixel evidence |
+| Verdict against a tolerance | pass/fail is a statement about A-vs-B distance |
+
+Rule of thumb: if the operation is defined on one image, it is synthesis and compare must not
+re-own it; if it is defined only on a pair, it is compare-exclusive.
+
+### Level 1: Pixel Comparison
+
+Mechanical, tool-computed. Never eyeball a pixel verdict. Run the Render Regression Triage
+Pipeline from `compare-methods.md`:
+
+1. **Dimension gate** — different sizes ARE the diff. Report and stop; do not resize-then-diff unless asked.
+2. **Exact hash** — identical bytes → PASS/identical, done.
+3. **Per-pixel L1 map** — report changed-px %, max L1, `L1>threshold` count, strong-diff bbox + centroid.
+4. **Diff-region characterization** (the noise-vs-real discriminator): magnitude, color family, spatial pattern (connected components), signed bias.
+5. **Structural cross-check** when step 4 is ambiguous: SSIM / edge-diff / FLIP.
+
+Compute with `uv run python` (numpy/Pillow floor; scipy for connected components; opencv/skimage/
+imagehash/piq as the method requires). Save a diff mask/heatmap when it aids localization. Fail
+loud if a required lib is missing — do not silently fall back to a weaker metric.
+
+**Add the per-channel diff to every comparison.** Each image was already channel/hidden probed
+during its own synthesis pass (those are synthesis tools, see
+[references/synthesis-probes.md](references/synthesis-probes.md)). What compare adds is the
+cross-image channel diff: `references/channel_probe.py A B` reports `diff_only_in_channels` —
+any channel that differs while the visible composite does not (identical-RGB/alpha-differ pairs
+that an RGB diff scores as 0; chroma/K-plate changes). An RGB-only diff misses these. See
+`references/compare-methods.md` → Per-Channel Diff.
+
+### Level 2: Ledger Comparison
+
+Build one VEL per image via the full Sweep Protocol first — no VEL, no ledger comparison.
+Then diff the ledgers by stable id.
+
+**Completeness rule: every synthesis output is compared — no facet is skipped.** The VEL has
+eight facets plus two probe outputs; each gets its own matched / added / removed / changed
+diff. If a facet is empty in both images, say so (`0/0`); do not silently omit it.
+
+| Synthesis output | What the diff must catch |
+|---|---|
+| Regions | region added/removed, role or coverage changed |
+| Elements | element added/removed, label/state/style/location changed |
+| Text | text added/removed, string changed, readability changed |
+| Targetable structures | geometry/z-order/occlusion changed, object moved |
+| Groups | count changed, membership changed |
+| Semantic equivalents | carrier values/structure/takeaway changed (chart series, table cells, transcript, node-edge list) |
+| Relationships | relation added/removed, type changed (containment, sequence, overlay, hierarchy) |
+| Quality issues | defect appeared/resolved, severity changed |
+| Channel probe (`channel_probe.py A B`) | `diff_only_in_channels` — a channel differs while the composite does not |
+| Hidden-signal probe | a watermark/LSB/periodic signal appeared, vanished, or changed between A and B |
+
+For each delta:
+
+- Classify as `real-change` (content differs) or `read-noise` (same pixels, my two reads disagreed).
+- Cross-check against Level-1 pixel + channel evidence. A ledger delta with ZERO pixel/channel support in its region is `read-noise` — correct it, do not report it as a difference. A delta WITH support is `real-change`.
+
+Ledger comparison catches semantic drift pixels miss (a relabeled axis at identical layout);
+pixel comparison catches sub-perceptual drift the ledger misses (rounding noise). Neither alone
+is sufficient — that is why both levels run.
+
+### Verdict Policy
+
+- Emit pass/fail ONLY against a tolerance the user gave or approved. State the tolerance AND the method that produced the number.
+- No tolerance given → report measured diff + noise-vs-real classification, and state that no pass/fail was requested. Do not invent a tolerance.
+- "Identical" may be claimed ONLY from exact/hash equality, never from a perceptual metric alone. A user saying "1:1 match" does NOT override a hash that differs — report the byte-level truth AND the semantic-level result separately; "1:1 in tolerance" and "byte-identical" are different claims.
+- Golden-baseline framing (from the intake gate): frame every delta as `cur` drifting FROM golden, verdict is against golden. Symmetric framing: neutral A-vs-B description, no verdict without tolerance regardless.
+- One shared conclusion reconciling both levels; if they disagree, say so and explain which evidence dominates and why.
+
+### Compare Output Format
+
+```markdown
+## Comparison: {A} vs {B}
+
+Compare type: {golden-baseline | symmetric} · Golden: {file or "n/a"} · Set resolved: {n refs → n files} · Tolerance: {byte-identity | raw-pixel <expr> | perceptual <expr> | none}
+
+### Level 1 — Pixel
+
+| Metric | Value |
+|--------|-------|
+| Dimensions | {A size} / {B size} |
+| Exact hash | match / differ |
+| Changed px | {n} ({pct}%) |
+| Max L1 | {v} |
+| Strong diff (L1>{t}) | {n} |
+| Diff bbox / centroid | {box} / {pt} |
+| Diff color family | {families} |
+| Connected components | {n}, largest {px} |
+| Signed bias | {sym / +dir / -dir} |
+| Method(s) run | {list} |
+
+### Level 2 — Ledger
+
+| Facet | Matched | Added | Removed | Changed |
+|-------|---------|-------|---------|---------|
+| Regions | | | | |
+| Elements | | | | |
+| Text | | | | |
+| Targetable structures | | | | |
+| Groups | | | | |
+| Semantic equivalents | | | | |
+| Relationships | | | | |
+| Quality issues | | | | |
+| Channel-diff | | | | |
+| Hidden-signal | | | | |
+
+| Ledger delta | Pixel/channel support | Class |
+|--------------|-----------------------|-------|
+| {ref: what changed} | yes/no @ region | real-change / read-noise |
+
+### Conclusion
+
+{Reconcile both levels. Noise vs real. Verdict ONLY if tolerance was given, with the method named.}
+```
 
 ## Output Formats
 
@@ -461,8 +672,12 @@ Read this UI screenshot into a Visual Element Ledger. Identify regions, controls
 ## Rules
 
 - Ledger first. Summary second.
-- Do not compare images.
-- Do not provide pass/fail acceptance verdicts.
+- Compare only in `compare` mode; default modes never diff.
+- In `compare` mode, run the intake gate first: resolve the set 1:1, validate same-target, classify golden-baseline vs symmetric, verify golden integrity, resolve the tolerance. Never diff a guessed or mismatched set.
+- In `compare` mode, scenario (golden-baseline vs symmetric) and tolerance are BLOCKING preconditions. If the user did not provide the scenario, you MUST ask — never default to symmetric or golden-baseline silently. If the user did not provide the tolerance, you MUST ask (unless they said "no verdict"). Both must be resolved BEFORE Level 1 runs; running the diff then asking afterward is a defect.
+- In `compare` mode, run both pixel and ledger levels; compute pixel numbers with a tool, never by eye.
+- Pass/fail verdict only against a stated tolerance, with the producing method named. No design acceptance verdict, ever.
+- Never claim "identical" from a perceptual metric alone — only exact/hash proves byte-identity.
 - Describe function for functional UI/image elements.
 - Transcribe image text exactly when text is the content.
 - For text-heavy images, put original text in the semantic equivalent; do not use a paraphrase as the equivalent.
@@ -489,3 +704,4 @@ Read this UI screenshot into a Visual Element Ledger. Identify regions, controls
 - Meaningful relationships are listed.
 - Quality issues and uncertainty are explicit.
 - The final synthesis is derived from ledger entries only.
+- In `compare` mode: both pixel and ledger levels ran; every pixel number names its method; every ledger delta is cross-checked against pixel evidence and classified real-change vs read-noise; a pass/fail verdict appears only when a tolerance was stated.
