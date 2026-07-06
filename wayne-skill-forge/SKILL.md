@@ -4,11 +4,12 @@ description: |
   Forge a new SKILL.md in Wayne's house style. The single source of truth for
   "what a wayne-* skill looks like" — structure (frontmatter + triggers,
   positioning epigraph, Inherits block, Boundary table, Anti-patterns, plus an
-  archetype-specific core: phased Process+verify for procedures, or Principles
-  Explain-the-Why + worked examples for lens/philosophy skills) and voice
-  (inherited from waynejing). Handles BOTH skill archetypes — fixed-sequence
-  workflows (low freedom) and judgment/lens skills (high freedom). Takes an
-  approved candidate / intent; outputs a conforming skill.
+  archetype-specific core: phased Process+verify for procedures, Principles
+  Explain-the-Why + worked examples for lens/philosophy skills, or a Playbooks
+  selection table for routers) and voice (inherited from waynejing). Handles
+  THREE skill archetypes — procedure (low freedom), lens/judgment (high freedom),
+  and router (dispatch to ≥3 playbooks). Takes an approved candidate / intent;
+  outputs a conforming skill.
   Downstream of wayne-distill: distill writes the distilled *pattern* file,
   forge reads it and builds the skill. Format floor = Anthropic's skill-creator
   (anatomy / frontmatter / progressive disclosure); Wayne house style + voice
@@ -75,6 +76,34 @@ Wayne path — no benchmark/eval machinery (no wayne-* skill carries one; YAGNI)
 When the user wants quantitative trigger-eval / description optimization, invoke
 the Anthropic `skill-creator` directly; don't reimplement it here.
 
+## Authoring science — superpowers:writing-skills (inherited, not copied)
+
+The *format* floor is Anthropic's (above); the *what-guidance-form-actually-works*
+floor is `superpowers:writing-skills`. Cite it, don't re-derive it. Two findings are
+load-bearing for forge:
+
+**Match the form to the failure.** Before writing any guidance line, name the
+baseline failure it targets — the form that fixes one type backfires on another:
+
+| Baseline failure | Right form | Wrong form |
+|---|---|---|
+| Knows the rule, skips it under pressure | prohibition + rationalization table + red-flags | soft "prefer / consider" |
+| Complies, but output is wrong-shaped (bloated / buried / restated) | positive recipe: state what the output IS, in order | prohibition list ("don't restate") |
+| Omits a required element it already produces | structural REQUIRED slot in the template | prose reminder near the template |
+| Behavior should depend on a condition | conditional keyed to an observable predicate | unconditional rule + exemption clauses |
+
+Prohibitions measurably BACKFIRE on wrong-shape problems (agents negotiate with
+"don't X"); a recipe leaves nothing to negotiate. So Wayne's high-`MUST` voice is
+right for discipline gates, wrong for shaping — pick the form per failure, not per
+habit. No nuance clauses ("don't X unless…") — express a real exception as its own
+predicate.
+
+**Baseline before guidance (cheap version).** No guidance line earns its place
+until you've seen the failure it prevents. From distill, the evidence sessions ARE
+the baseline. Hand-authored → micro-test the core wording against a no-guidance
+control (5+ reps, read every flagged match) before shipping. Forge stays
+lightweight — this is NOT the Anthropic eval harness; it's one sanity pass.
+
 ## Resource & complexity decisions
 
 Where content lives is a design choice, not an afterthought. Decide per the
@@ -96,24 +125,24 @@ hand-authored intent, apply the same smell test. When in doubt, don't forge.
 is the hard ceiling**. Approaching it → move the detail to `references/` and
 leave a one-line pointer. Bloat in the always-loaded layer taxes every trigger.
 
-## Two archetypes — pick the freedom dial first
+## Three archetypes — pick the freedom dial + dispatch first
 
 Not every skill is a procedure. Anthropic frames the axis as **degrees of
 freedom** (best-practices: "match specificity to task fragility"). A wayne-* skill
-sits at one of two poles; the archetype decides the 6th required element and which
+sits at one of three poles; the archetype decides the 6th required element and which
 template to start from. Decide this in Phase 1 — it changes the whole draft.
 
-| | **Procedure** (low freedom) | **Lens / philosophy** (high freedom) |
-|---|---|---|
-| Anthropic type | "encoded preference" — sequence steps the team's way | "capability uplift" — reproduce judgment prompting won't |
-| Use when | operation is fragile, consistency-critical, fixed sequence | multiple approaches valid, decisions depend on context |
-| Core body | `## Process` phased, each step `→ verify:` | `## Principles` written **Explain-the-Why** + worked examples |
-| Flow dotgraph | yes if ≥1 branch | usually none — no linear flow |
-| Teaching device | the steps + validation loops | **example reasoning chains** (not output samples) |
-| Gate | human gate before each side-effect | applicability boundary (when the lens does NOT apply) |
-| Anti-patterns | the corrected *mistakes* | the *misapplications* of the lens |
-| Corpus examples | skill-forge, plan, work, ship, distill, cybernetics | waynejing; the cybernetics-lens file itself |
-| Template | `templates/skill-template-procedure.md` | `templates/skill-template-lens.md` |
+| | **Procedure** (low freedom) | **Lens / philosophy** (high freedom) | **Router** (dispatch) |
+|---|---|---|---|
+| Anthropic type | "encoded preference" — sequence steps the team's way | "capability uplift" — reproduce judgment prompting won't | "conditional details" — index routes to the right playbook |
+| Use when | operation is fragile, consistency-critical, fixed sequence | multiple approaches valid, decisions depend on context | ≥3 divergent playbooks selected by an observable situation |
+| Core body | `## Process` phased, each step `→ verify:` | `## Principles` written **Explain-the-Why** + worked examples | `## Playbooks` selection table → thin dispatch; each playbook in `references/` |
+| Flow dotgraph | yes if ≥1 branch | usually none — no linear flow | yes — diamonds are routing decisions, terminals read `references/X` |
+| Teaching device | the steps + validation loops | **example reasoning chains** (not output samples) | the selection signals (what tells you which playbook) |
+| Gate | human gate before each side-effect | applicability boundary (when the lens does NOT apply) | "no playbook fits" → fail loud, stop |
+| Anti-patterns | the corrected *mistakes* | the *misapplications* of the lens | routing on vibes not signal; playbook internals in the index |
+| Corpus examples | skill-forge, plan, work, ship, distill, cybernetics | waynejing; the cybernetics-lens file itself | Anthropic bigquery-skill is the reference shape |
+| Template | `templates/skill-template-procedure.md` | `templates/skill-template-lens.md` | `templates/skill-template-router.md` |
 
 **Explain-the-Why (the lens core):** state the rule, then *why* — the why becomes
 the rubric for cases the skill never spelled out. "Use constructor injection;
@@ -123,6 +152,14 @@ no why is a vague essay — it can't generalize.
 
 Most skills are procedures; reach for a lens only when the value is *judgment*,
 not a sequence. When unsure, it's probably a procedure.
+
+**Router is a real third pole, not a procedure with an `if`.** It earns its own
+archetype ONLY at ≥3 playbooks chosen by situation — below that, use a procedure
+with a branch. The index has ONE job (route), zero playbook internals; each
+playbook is one file in `references/`, exactly ONE level deep (nested refs get
+partial-read by agents). Route on an observable signal, never on vibes; if nothing
+matches, fail loud and stop. Reference shape: Anthropic's bigquery-skill (a nav
+table → per-domain reference files).
 
 ## House style — the SSoT (what every wayne-* skill MUST carry)
 
@@ -138,7 +175,8 @@ archetype above. A forged skill missing a required element is a defect.**
 | 5 | **Anti-patterns** | procedure → the corrected *mistakes*; lens → the *misapplications* of the judgment | ✅ always |
 | 6a | **Process** (procedure only) | phased / numbered steps, each `→ verify: <check>`; human gates explicit; never auto-do a side-effect without a gate | ✅ if procedure |
 | 6b | **Principles + worked examples** (lens only) | `## Principles` in Explain-the-Why form (rule + why) + an applicability boundary (when it does NOT apply) + **≥2 example reasoning chains** (not output dumps) | ✅ if lens |
-| 7 | **Flow dotgraph** | `## Flow` with a `dot` digraph (11/18 carry it; see guide below). Add it whenever the flow has ≥1 decision branch — typical for procedures, rare for lenses | strong (procedure) |
+| 6c | **Playbooks selection table** (router only) | `## Playbooks` table keyed on an observable signal → one `references/<x>.md` per playbook (≥3, one level deep) + a no-match escape (fail loud) | ✅ if router |
+| 7 | **Flow dotgraph** | `## Flow` with a `dot` digraph (11/18 carry it; see guide below). Add it whenever the flow has ≥1 decision branch — typical for procedures and routers, rare for lenses | strong (procedure/router) |
 | 8 | **Origin / Files Written / Why this matters** | `## Origin` when adapted from someone (attribute, MIT); `## Files Written` when it writes artifacts; `templates/` + `scripts/` only when the workflow needs them | by-need |
 
 ## Voice — inherit from `waynejing`, don't re-derive
@@ -228,10 +266,12 @@ Source the candidate one of two ways:
   `wayne-distill` (needs recurrence proof) or `wayne-mind-explode` (needs
   design). Do NOT forge a one-off.
 - **Archetype gate (decides the 6th required element + template):** is the value
-  a fixed *sequence* (procedure, low freedom) or a *judgment* (lens, high
-  freedom)? → verify: procedure = you can state it "do X → Y → Z"; lens = you can
-  state ≥2 principles each with a *why*, and name when it does NOT apply. When
-  unsure, it's a procedure.
+  a fixed *sequence* (procedure), a *judgment* (lens), or *selecting among ≥3
+  situation-specific playbooks* (router)? → verify: procedure = you can state it
+  "do X → Y → Z"; lens = you can state ≥2 principles each with a *why*, and name
+  when it does NOT apply; router = a selection table keyed on an observable
+  signal, ≥3 playbooks, a no-match escape. When unsure between procedure and
+  router, it's a procedure (router needs ≥3 divergent playbooks).
 
 ### Phase 2 — Study the style
 
@@ -262,6 +302,11 @@ Fill elements 1–4 the same way for both; element 5/6 branches.
    applicability boundary (when it does NOT apply) + **≥2 worked examples as
    reasoning chains** + Anti-patterns (misapplications) → verify: every principle
    carries a why; examples show judgment in motion, not output dumps.
+   **If router:** `## Playbooks` selection table keyed on an observable signal +
+   one `references/<x>.md` per playbook (≥3, one level deep) + a no-match escape;
+   `## Flow` dotgraph whose diamonds are the routing decisions; Anti-patterns
+   (routing failures) → verify: signals are checkable not vibes, references one
+   level deep, no-match branch fails loud.
 6. Provenance line: `> Distilled from N sessions on <date> by wayne-distill,
    forged by wayne-skill-forge.` (drop the distill clause for hand-authored).
 
@@ -286,12 +331,25 @@ Wayne house style + voice:
       Boundary, Anti-patterns) + the archetype's 6th:
       procedure → `Process`-with-verify (+Flow if branching);
       lens → `Principles` Explain-the-Why + applicability boundary + ≥2 reasoning-
-      chain examples.
-- [ ] Archetype fit: a procedure isn't masquerading as a vague lens, and a lens
-      isn't bolted onto a `→ verify:` Process it doesn't have. Anti-patterns match
-      the archetype (mistakes vs misapplications).
+      chain examples;
+      router → `Playbooks` selection table + ≥3 one-level-deep references + no-match escape.
+- [ ] Archetype fit: a procedure isn't masquerading as a vague lens, a lens isn't
+      bolted onto a `→ verify:` Process it doesn't have, and a router isn't a
+      procedure-with-an-`if` (<3 playbooks). Anti-patterns match the archetype
+      (mistakes vs misapplications vs routing failures).
 - [ ] Lens only: every principle carries a *why* (the rubric), and ≥2 examples are
       reasoning chains, not output samples.
+- [ ] Router only: selection table keyed on an observable signal (not vibes);
+      ≥3 playbooks or it's a procedure; references one level deep; no-match escape
+      fails loud.
+- [ ] Guidance form matches the failure type (Match the Form to the Failure):
+      discipline miss → prohibition+table; wrong-shape → positive recipe; omitted
+      element → REQUIRED slot; conditional → predicate. No prohibition on a
+      shaping problem; no nuance clauses.
+- [ ] Baseline named: every load-bearing guidance line traces to an observed
+      failure (distill evidence, or a micro-test vs no-guidance control).
+- [ ] `description` carries triggers / when-to-use only — does NOT summarize the
+      workflow (a workflow-summary description makes agents skip the body).
 - [ ] Triggers are bilingual and mined from real evidence, not invented.
 - [ ] Boundary names the closest sibling — reader can tell this vs neighbor.
 - [ ] Voice gate: scan every `- ` / `1. ` line — any >120 chars (CJK) or ≥2
