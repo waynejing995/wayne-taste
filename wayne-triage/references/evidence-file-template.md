@@ -1,7 +1,7 @@
 # Evidence File Template
 
 The single source of truth for one triage. Copy this shape to
-`<cwd>/.triage/<date>-<slug>.md`. These are **structured landing fields, not an
+`<cwd>/.wayne/triage/<date>-<slug>.md`. These are **structured landing fields, not an
 essay** — structured artifacts survive context compression and stay stable across
 re-reads; free prose does not. Every subagent writes back into these fields, and
 the main agent reads only these fields (never the raw logs the subagent saw).
@@ -20,7 +20,7 @@ the main agent reads only these fields (never the raw logs the subagent saw).
 
 Unmarked claims are treated as OBSERVED — so if you didn't observe it, mark it.
 
-## Frontmatter (required — makes `.triage/` indexable + seen-before checkable)
+## Frontmatter (required — makes `.wayne/triage/` indexable + seen-before checkable)
 
 Every evidence file opens with YAML frontmatter. The seen-before check (Phase 1)
 matches new failures against prior entries by these structured fields — concept,

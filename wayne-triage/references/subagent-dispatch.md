@@ -35,7 +35,7 @@ the main agent reads the merged file, not the individual transcripts.
 
 1. **Subagents gather evidence; the MAIN agent decides the route.** A subagent returns an evidence-level verdict about its ONE piece (`ELIMINATED/SURVIVES`, `PASS/BREAK-HERE`) — it MUST NOT emit a route verdict (`fix-now`, `needs-plan`, …) or an attribution. Routing and attribution are the main agent's exclusive job: it alone sees the whole matrix and applies the Phase-5 hard gates. Reason (from autoresearch-x): the agent that gathers evidence must not judge where it goes — that splits the decision across contexts and invites confirmation bias.
 2. **Return ONLY the structured fields below — never raw log excerpts, never narrative.** The main agent's context must not absorb the log the subagent read.
-3. **Write findings into the evidence file, and also return them.** The evidence file (`<cwd>/.triage/<date>-<slug>.md`) is the SSoT; the returned fields are the summary the main agent acts on. State flows through the file, not the prompt chain.
+3. **Write findings into the evidence file, and also return them.** The evidence file (`<cwd>/.wayne/triage/<date>-<slug>.md`) is the SSoT; the returned fields are the summary the main agent acts on. State flows through the file, not the prompt chain.
 
 Every returned claim carries an evidence marker: `[OBSERVED]` (verbatim in a
 log/artifact, cite `file:line`) / `[INFERRED]` / `[UNCERTAIN]`.

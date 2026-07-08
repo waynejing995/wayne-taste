@@ -8,7 +8,7 @@ Handoff artifact. Two uses:
   (2) the "next prompt" payload inside a wayne-checkpoint handoff packet for a
       pipeline-INTERNAL route.
 It is the reader-facing summary distilled FROM the evidence file
-(.triage/<date>-<slug>.md); every claim here is already cited there — adds no new
+(.wayne/triage/<date>-<slug>.md); every claim here is already cited there — adds no new
 findings. Under two screens.
 
 DURABILITY RULE (§6 especially): the brief may sit for days while the codebase
@@ -64,4 +64,4 @@ line 42 of skill.ts".
 
 ## 7. Evidence file
 
-`<cwd>/.triage/<date>-<slug>.md` — full symptom / matrix / attribution chain.
+`<cwd>/.wayne/triage/<date>-<slug>.md` — full symptom / matrix / attribution chain.
