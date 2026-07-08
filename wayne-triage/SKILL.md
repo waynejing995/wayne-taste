@@ -126,7 +126,7 @@ digraph wayne_triage {
     "Data in hand or fetch-how given?" [shape=diamond];
     "Ask: where is the data /\nhow to fetch? (do not guess source)" [shape=box];
     "Open evidence file (SSoT)\n+ frontmatter" [shape=box];
-    "Known already? (KB +\nprior .triage/, concept match)" [shape=diamond];
+    "Known already? (KB +\nprior .wayne/triage/, concept match)" [shape=diamond];
     "Surface the prior verdict" [shape=box];
     "Reproduce / verify the claim" [shape=box];
     "Reproducible?" [shape=diamond];
@@ -143,9 +143,9 @@ digraph wayne_triage {
     "Data in hand or fetch-how given?" -> "Ask: where is the data /\nhow to fetch? (do not guess source)" [label="no"];
     "Data in hand or fetch-how given?" -> "Open evidence file (SSoT)\n+ frontmatter" [label="yes"];
     "Ask: where is the data /\nhow to fetch? (do not guess source)" -> "Open evidence file (SSoT)\n+ frontmatter";
-    "Open evidence file (SSoT)\n+ frontmatter" -> "Known already? (KB +\nprior .triage/, concept match)";
-    "Known already? (KB +\nprior .triage/, concept match)" -> "Surface the prior verdict" [label="yes"];
-    "Known already? (KB +\nprior .triage/, concept match)" -> "Reproduce / verify the claim" [label="no"];
+    "Open evidence file (SSoT)\n+ frontmatter" -> "Known already? (KB +\nprior .wayne/triage/, concept match)";
+    "Known already? (KB +\nprior .wayne/triage/, concept match)" -> "Surface the prior verdict" [label="yes"];
+    "Known already? (KB +\nprior .wayne/triage/, concept match)" -> "Reproduce / verify the claim" [label="no"];
     "Surface the prior verdict" -> "Reproduce / verify the claim";
     "Reproduce / verify the claim" -> "Reproducible?";
     "Reproducible?" -> "needs-info / gather more\n(mark non-deterministic)" [label="no"];
@@ -171,7 +171,7 @@ digraph wayne_triage {
   - User told you HOW to fetch ("pull SWDEV-123 with cvs-jira-workflow", "`gh issue view 42`", "log is at /path") → do exactly that, then proceed.
   - Data not in hand AND no fetch method given → **do NOT assume a source or auto-call an API.** Ask the one question: "where is the data / how should I fetch it?" Then follow the answer.
 - **Open ONE evidence file** — the SSoT for this triage. Fill `references/evidence-file-template.md` including its frontmatter.
-  - Path: `<cwd>/.triage/<date>-<slug>.md` (gitignored). Findings live here, not in the prompt chain — structured artifacts on disk are recoverable, auditable, and far more stable than prose held in context.
+  - Path: `<cwd>/.wayne/triage/<date>-<slug>.md` (gitignored). Findings live here, not in the prompt chain — structured artifacts on disk are recoverable, auditable, and far more stable than prose held in context.
 - Capture: symptom as ONE **verbatim** line (quote log/error + `file:line`), when it started, artifact paths. Tag every claim `[OBSERVED]` / `[INFERRED]` / `[UNCERTAIN]`.
 - → verify: surface chosen; data obtained the way the user specified; evidence file exists with frontmatter; symptom verbatim.
 
@@ -182,10 +182,10 @@ cause is already known — reading knowledge is triage's job; only *writing* it 
 routed out (Delete>Add: don't re-derive a cause the KB already holds).
 
 - **Read the KB first (concept, not keyword).** Grep the personal KB (`/work/kb/` — `how-to/`, `decisions/`, prior lessons) by concept: symptom class + component + cause. A hit → surface the known cause/fix. This may short-circuit the whole matrix: known root cause + a known ≤10-line fix → go straight to a `fix-now` route (still gated by Phase 5). Reading the KB never writes it.
-- **Seen-before in `.triage/` (concept, not keyword).** Read the frontmatter of prior `.triage/*.md` entries; match by `symptom_class` + `cause_category` + `component`. A prior match → surface its verdict ("we triaged this on <date> → <route>"), bump `repro_count`, confirm it still holds before redoing work.
+- **Seen-before in `.wayne/triage/` (concept, not keyword).** Read the frontmatter of prior `.wayne/triage/*.md` entries; match by `symptom_class` + `cause_category` + `component`. A prior match → surface its verdict ("we triaged this on <date> → <route>"), bump `repro_count`, confirm it still holds before redoing work.
 - **Reproduce / verify the claim.** Failure surface: reproduce from the steps. Tracker surface: reproduce the bug, or (PR) check out the diff and run its tests — see `references/tracker-triage.md`.
   - Not reproducible → mark `non-deterministic` (candidate flaky — see the flaky playbook); on the tracker surface this is a strong `needs-info` signal. Do NOT guess.
-- → verify: KB + `.triage/` both consulted; a repro command in the evidence file, OR an explicit non-deterministic note + data-gathering plan.
+- → verify: KB + `.wayne/triage/` both consulted; a repro command in the evidence file, OR an explicit non-deterministic note + data-gathering plan.
 
 ### Phase 2 — Classify on two axes → set the landing fields
 
@@ -271,7 +271,7 @@ the route to the user and STOP (never auto-execute). On approval, auto-call
 
 ## Files Written
 
-- `<cwd>/.triage/<date>-<slug>.md` — the evidence file (SSoT for one triage), with frontmatter for indexing / seen-before. Gitignored.
-- A handoff packet via `wayne-checkpoint handoff` (pipeline-internal), or a `templates/triage-report.md` report (pipeline-external owner / incident / Jira).
+- `<cwd>/.wayne/triage/<date>-<slug>.md` — the evidence file (SSoT for one triage), with frontmatter for indexing / seen-before. Under `.wayne/` so it is already gitignored (project convention: `.wayne/.gitignore` = `*`); `mkdir -p .wayne/triage` on first write.
+- A handoff packet via `wayne-checkpoint handoff` → `.wayne/checkpoints/` (pipeline-internal), or a rendered `templates/triage-report.md` (pipeline-external owner / incident / Jira).
 
 > Distilled 2026-07-08 from the local triage-agent pipeline, the autoresearch-x debug engine, superpowers systematic-debugging, mattpocock/skills triage, the Wayne KB schema, and Google SRE incident practice; forged by wayne-skill-forge.
