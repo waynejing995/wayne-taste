@@ -109,6 +109,9 @@ For multi-step tasks, brief plan with verify check per step:
 
 Strong success criteria let you loop independently. Weak criteria force constant clarification.
 
+## Web Search
+
+Default `WebSearch` is unreliable (backend errors). Use the `searxng` MCP server instead of `WebSearch`/`WebFetch`.
 ## Commit Format
 
 ```

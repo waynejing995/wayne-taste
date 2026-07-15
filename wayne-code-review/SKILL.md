@@ -291,7 +291,7 @@ which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 If available, dispatch via Bash (same prompt):
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel)
-codex exec "{THE_SHARED_PROMPT}" -C "$_REPO_ROOT" -s read-only 2>/tmp/codex-review-err.txt
+codex exec "{THE_SHARED_PROMPT}" -C "$_REPO_ROOT" 2>/tmp/codex-review-err.txt
 ```
 
 Timeout: 3600000ms (60 min).

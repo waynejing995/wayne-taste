@@ -1,116 +1,149 @@
 # Skill review checklist
 
-The deep review. Run it on a freshly-forged skill before the user gate, OR
-standalone on any existing `SKILL.md` the user asks you to check. Distilled from
-Anthropic's `skill-reviewer` agent + `skill-development` skill (the format
-authority) and layered with Wayne house-style + voice checks.
+Use this for a deep review after the deterministic validator. Report findings by
+severity: `critical` blocks use, `major` should be fixed, `minor` is optional.
 
-Tag every finding **critical** (blocks ship) / **major** (fix before merge) /
-**minor** (nice-to-have). Report by severity, not by file order.
+## Contents
 
-## Table of contents
+1. Trigger contract
+2. Net-new information
+3. Size and progressive disclosure
+4. Archetype fit
+5. Flowchart contract
+6. Reliability and permissions
+7. Evaluation evidence
+8. Contract protection
 
-1. Structure & frontmatter
-2. Description (the trigger) — most critical
-3. Content quality & sizing
-4. Progressive disclosure & resources
-5. Wayne house style + voice
-6. Anti-duplication & SSoT
-7. Output format
+## 1. Trigger contract
 
----
+- **critical** — YAML is valid; `name` and `description` exist; name matches directory.
+- **critical** — description is at most 1,024 characters.
+- **major** — description states what the skill does and when to use it.
+- **major** — description includes real user language, not invented keyword stuffing.
+- **major** — closest do-not-trigger boundary is clear when overlap is plausible.
+- **major** — no body `When to Run` section duplicates routing metadata.
+- **minor** — description is normally 180–400 characters and front-loads the key use case.
 
-## 1. Structure & frontmatter
+## 2. Net-new information
 
-- **critical** — `SKILL.md` exists; YAML frontmatter is valid (between `---`).
-- **critical** — frontmatter has `name` + `description`, nothing speculative.
-- **critical** — `name` is kebab-case AND equals the directory name.
-- **major** — referenced files (`references/`, `scripts/`, `templates/`,
-  `assets/`) actually exist on disk. Broken pointers = report with the path.
-- **minor** — no deprecated fields (`when_to_use` is dead; put it in description).
+- **critical** — the skill adds specialized workflow, local knowledge, or a hard contract.
+- **critical** — global `AGENTS.md` / `CLAUDE.md` rules are not copied into the skill.
+- **major** — every load-bearing instruction maps to a local fact, observed failure,
+  approval boundary, output contract, or verification need.
+- **major** — generic advice the strongest-model baseline already follows is removed.
+- **major** — the skill earns a new file rather than extending an existing owner.
+- **minor** — decorative sections exist only when they carry task information.
 
-## 2. Description (the trigger) — most critical
+## 3. Size and progressive disclosure
 
-The description is the PRIMARY mechanism that decides whether the skill fires.
+- **critical** — `SKILL.md` is under 500 lines.
+- **major** — 80–180 lines and 800–1,500 words is the normal target; excess is
+  justified by behavioral eval evidence.
+- **major** — detailed schemas, variants, examples, and long checklists live in
+  direct references, not the always-loaded body.
+- **major** — repeated or deterministic work is a script, not generated code.
+- **major** — every shipped resource is linked directly from `SKILL.md`.
+- **major** — no fact is duplicated between body, reference, template, or sibling skill.
+- **minor** — references above 100 lines have a table of contents.
 
-- **critical** — carries ALL the "when to use"; none hidden in the body.
-- **major** — includes specific trigger *phrases* a real user would type, not a
-  vague summary. Wayne: bilingual (中文 + English), mined from real evidence.
-- **major** — slightly pushy against undertriggering (Anthropic: Claude tends to
-  under-fire skills). State the non-obvious contexts explicitly.
-- **minor** — length sane: not <50 chars, not a wall; ~1024 chars is the ceiling.
-- **minor** — third-person / imperative framing ("…used when the user asks to X"),
-  not "Load this when you…".
+## 4. Archetype fit
 
-## 3. Content quality & sizing
+- **major** — procedure: order/gates/retries matter; process checks observable outcomes.
+- **major** — lens: principles carry reasons; applicability boundary is explicit.
+- **major** — router: at least three playbooks; routing uses observable signals;
+  no-match fails loud.
+- **major** — a two-way branch is not inflated into a router.
+- **major** — examples remain only when the baseline needs them.
+- **minor** — anti-patterns remain only when evidence shows a recurring mistake.
 
-- **critical** — body < 5k words / < 500 lines (hard ceiling). Over → split.
-- **major** — body lean: 1,500–2,000 words ideal, <3,000 good. Trim anything not
-  pulling its weight.
-- **major** — imperative / infinitive voice ("To do X, do Y"), not second person.
-- **minor** — concrete guidance over vague advice; every step has a verify check;
-  human gates marked explicitly.
+## 5. Flowchart contract
 
-## 4. Progressive disclosure & resources
+- **critical** — decisions, loops, routes, approval gates, and multiple terminals
+  are represented when they materially control behavior.
+- **critical** — the Flowchart and process do not disagree.
+- **major** — Flowchart is the only owner of sequence and branching.
+- **major** — process headings expand stable node IDs instead of restating edges.
+- **major** — every decision edge is labelled, including failure/no-match.
+- **major** — commands, schemas, and essays are absent from node labels.
+- **major** — no Checklist or second phase list duplicates the Flowchart.
+- **minor** — one main Flowchart; mode-specific flows live in direct references.
+- **minor** — linear workflows omit Flow unless the user explicitly values it as
+  a navigation aid and eval shows no context penalty.
 
-- **major** — detail that isn't the always-loaded core lives in `references/`,
-  not inline (schemas, API docs, edge cases, long checklists, domain variants).
-- **major** — `scripts/` exists for any code the skill would otherwise rewrite
-  every run, or that needs deterministic reliability. Script is executable +
-  documented + (if it must run anywhere) stdlib-only.
-- **minor** — `references/` file > 300 lines has a TOC; > 10k words → SKILL.md
-  gives grep patterns into it.
-- **minor** — `assets/` / `templates/` used for files that go INTO the output,
-  not for docs.
-- **major** — SKILL.md actually *points* to every resource it ships (an
-  unreferenced reference file is invisible to the model).
+## 6. Reliability and permissions
 
-## 5. Wayne house style + voice
+- **critical** — state owner and allowed mutation are unambiguous.
+- **critical** — destructive, external, costly, or scope-expanding actions have gates.
+- **critical** — failure is visible; missing configuration does not silently degrade.
+- **major** — exact verification matches the real user path where behavior is user-visible.
+- **major** — cross-agent skills avoid one agent's hardcoded home path or tool name,
+  or isolate those details in direct agent-specific references.
 
-(See `waynejing` §表达 DNA + §输出格式硬约束 — the voice SSoT.)
+## 7. Evaluation evidence
 
-- **critical** — the 5 always-required elements present: frontmatter+triggers,
-  positioning epigraph, Inherits block, Boundary table, Anti-patterns. Plus the
-  archetype's 6th: **procedure** → `Process`-with-verify (+Flow if branching);
-  **lens** → `Principles` in Explain-the-Why form + applicability boundary + ≥2
-  worked examples.
-- **major** — archetype fit: a judgment skill isn't forced into a fake `→ verify:`
-  Process; a fragile procedure isn't left as a vague lens. Anti-patterns match the
-  archetype (corrected *mistakes* for procedure; *misapplications* for lens).
-- **major** — lens only: every principle states a *why* (the generalization
-  rubric); worked examples are *reasoning chains*, not output samples.
-- **major** — Boundary table names the closest sibling skill(s); a reader can
-  tell this skill from each neighbor by Input/Output.
-- **major** — voice gate: scan every `- ` / `1. ` line — any >120 chars (CJK) or
-  ≥2 sentence-stops → split into title-bullet + sub-bullets, a table, or a
-  `####` subsection.
-- **major** — no 禁忌词: 客服开场 / 鸡汤结尾 / 网络称谓 / 商业黑话
-  (全方位·赋能·抓手) / 削弱词三连 (其实·不过·嗯).
-- **minor** — HARD-GATE reserved for the load-bearing gates (user-approval,
-  self-check); explain the *why* elsewhere rather than caps-MUST every line.
-- **minor** — Flow dotgraph (if present): braces balance, shapes correct
-  (box/diamond/doublecircle), every diamond has yes+no edges.
+- **critical** — static validator passes.
+- **major** — new skill: candidate beats or matches strongest-model no-skill baseline.
+- **major** — existing skill: candidate does not regress against current skill.
+- **major** — control and candidate use the same model, effort, task, tools, and artifacts.
+- **major** — fresh agents receive raw task artifacts, not the intended diagnosis.
+- **major** — at least three cases cover common, boundary, and failure behavior;
+  trigger-sensitive or high-risk skills use five or more.
+- **critical** — generator skills are evaluated through their generated artifact:
+  old/candidate generator → paired child skills → fresh downstream task execution.
+- **major** — downstream agents and judges are blind to generator identity.
+- **critical** — each deterministic finding traces to a published intent/task
+  clause; evaluator-only expectations are not scored against a candidate.
+- **major** — provider, timeout, and tool-boundary terminations are recorded as
+  invalid trials and rerun, not converted into behavioral losses.
+- **minor** — token/context reduction is measured, but never substitutes for correctness.
 
-## 6. Anti-duplication & SSoT
+## 8. Contract protection
 
-- **critical** — no fact stored in two places (body AND a reference, or copied
-  from another skill). One owner. This is the bug class Wayne cares about most.
-- **major** — doesn't re-derive what a sibling owns (voice → `waynejing`; format
-  floor → Anthropic `skill-creator`). Cite, don't copy.
-- **major** — net value: the skill earns its file against its closest sibling
-  (Delete>Add). If it mostly overlaps, it should have been an *Extend*.
+- **critical** — every approved requirement was mapped to one body/resource/eval
+  owner before compression; no clause was dropped only to hit a size target.
+- **critical** — quoted grammar, headers, sentinels, cardinalities, verbatim clauses,
+  and forbidden alternatives match the approved intent without normalization.
+- **critical** — contradictory approved clauses were returned upstream; the forged
+  contract did not silently choose one.
+- **critical** — outputs with at least two low-freedom signals (exact grammar,
+  cross-field reference, unique owner, verbatim carry, order, machine terminal)
+  have one schema reference, one aligned template, and a deterministic validator.
+- **critical** — every bundled validator passed a valid fixture, rejected one
+  minimal mutation per independent invariant with the expected finding, tested
+  both directions of cross-record rules, passed lint/static checks, and was
+  challenged by a frozen external acceptance check.
+- **major** — the body states when the contract resource must be read and when the
+  validator must run.
+- **major** — schema facts have one owner; the body, template, and validator do not
+  define competing shapes.
+- **major** — schema/template/validator agreement was traced back to the intent;
+  self-consistency alone was not accepted as fidelity.
+- **critical** — every source-relative claim names and reads its oracle inputs;
+  artifact-only validation is not reported as source-fidelity proof.
+- **critical** — when exact content is supplied only at runtime, the forged skill
+  rebuilds a temporary source ledger and traces each literal, owner, and
+  relationship into the output and its proof.
+- **major** — semantic judgment uses behavioral cases rather than a fake keyword
+  validator.
 
-## 7. Output format
+## Output
 
-Report like the `skill-reviewer` agent:
-
-```
+```markdown
 ## Skill Review: <name>
-### Summary            — overall + word/line counts
-### Description        — current / issues / suggested rewrite
-### Content & sizing   — counts + assessment
-### Progressive disclosure — structure + is it effective?
-### Findings by severity   — Critical (n) / Major (n) / Minor (n), each: location → fix
-### Positive aspects
-### Verdict            — Pass / Needs improvement / Needs major revision
+
+### Verdict
+Pass / Needs improvement / Needs major revision
+
+### Evidence
+- Static: <result>
+- Behavioral: <control vs candidate>
+- Size: <description chars, lines, words>
+
+### Findings
+- critical: <location → failure → smallest fix>
+- major: <location → failure → smallest fix>
+- minor: <location → optional improvement>
+
+### Residual uncertainty
+- <what the eval did not cover>
 ```

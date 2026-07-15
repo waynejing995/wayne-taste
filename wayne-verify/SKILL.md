@@ -170,6 +170,13 @@ cd <project-dir> && nohup uv run python scripts/dashboard_server.py > /tmp/verif
 startup log as evidence of the failure and move to teardown for that row. "Couldn't
 start it" is a verification result, not a reason to omit the check.
 
+**Run env is the contract's, not yours.** Stand up exactly the `Env: process` /
+`Env: data` the contract row specifies — including the concrete host/worktree it names
+(the contract is the SSoT for run env; test-design pinned it). Do NOT substitute your
+own cwd or a subagent worktree. If the row's env can't be stood up from where you are,
+that's the contract's location — go there; never silently verify against a different
+env, which passes on a stale or absent build.
+
 Wait for readiness with a real signal (port open / health line in the log / DB
 reachable) — do not poll blindly; watch for the readiness event.
 
@@ -287,6 +294,8 @@ wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne
   a result, not an omission.
 - **Observable, not transport** — pass means the real user-visible outcome happened, not
   `200 OK` / no-exception / returned-True.
+- **Run the contract's env, not your cwd** — stand up the exact host/process/data the
+  contract row pins; a subagent worktree that differs from it tests the wrong env.
 - **Sole mutator of Status** — no other skill touches the contract's Status column.
 - **Don't invent verification** — a legitimate `E2E: none` is recorded as such; a missing
   contract stops the gate rather than being faked.

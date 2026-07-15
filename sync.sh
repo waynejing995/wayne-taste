@@ -30,6 +30,7 @@ SKILLS=(
   wayne-manner
   wayne-mind-explode
   wayne-plan
+  wayne-rescue-boot
   wayne-ship
   wayne-skill-forge
   wayne-test-design
