@@ -222,9 +222,34 @@ Only if user explicitly asks to push or create PR.
 git push origin <branch>
 ```
 
-For PR creation:
+### Determine the base branch — NEVER hardcode `main`
+
+The PR target (and the branch a fix is cut from / rebased onto) is often a
+long-lived integration branch, **not** `main`. Detect it; do not assume.
+
+Resolution order (first hit wins):
+
+1. **User said it** — honor an explicit "target/base `feature/backend-integration`"
+   verbatim. This overrides everything below.
+2. **This branch's upstream** — `git rev-parse --abbrev-ref --symbolic-full-name @{u}`
+   gives `origin/<base>` when the working branch was cut from a remote branch.
+3. **Fork point** — the remote branch this one diverged from:
+   ```bash
+   git log --decorate --oneline --first-parent -20   # eyeball the branch it forked off
+   # or the repo's configured default target:
+   gh repo view --json defaultBranchRef -q .defaultBranchRef.name
+   ```
+4. **Only then** fall back to the repo default — and say so out loud so the user
+   can correct it.
+
+State the resolved base in the commit plan (Phase 5) and confirm before opening
+the PR. When in doubt, ask — a PR opened against the wrong base is a visible,
+annoying mistake to unwind.
+
+For PR creation, pass the resolved base explicitly — do not let `gh` default it:
 ```bash
-gh pr create --title "<same as commit title>" --body "$(cat <<'EOF'
+gh pr create --base "<resolved-base-branch>" \
+  --title "<same as commit title>" --body "$(cat <<'EOF'
 ## Summary
 - <bullet points from commit [why] and [how]>
 
@@ -237,6 +262,22 @@ gh pr create --title "<same as commit title>" --body "$(cat <<'EOF'
 EOF
 )"
 ```
+
+### Cutting / rebasing a fix branch off a non-main base
+
+When the request is "checkout a branch based on remote `<base>` and fix it" or
+"rebase to latest remote":
+
+```bash
+git fetch origin
+git switch -c <fix-branch> origin/<resolved-base>   # cut from the REMOTE tip, not local stale
+# … work …
+git fetch origin && git rebase origin/<resolved-base>   # rebase onto latest remote before PR
+```
+
+Rebase onto the remote base (not a local copy) so the PR is against the current
+tip. Cherry-picking a specific PR onto this branch is the same base discipline:
+`git cherry-pick <sha>` after confirming the branch is current.
 
 ---
 

@@ -1,85 +1,54 @@
 ---
 name: <kebab-name>
-description: |
-  <one dense paragraph: what judgment / lens / technique this skill encodes and
-  when to reach for it. A lens skill is "capability uplift" — it reproduces a way
-  of THINKING that plain prompting won't, NOT a fixed sequence of steps.>
-  Triggers: <recurring phrases mined from the evidence sessions — the actual
-  words used when re-running this by hand, BILINGUAL (中文 + English)>.
+description: <180-400 characters: what judgment this lens adds, when it applies, concrete trigger phrases, and when not to invoke it.>
 ---
 
-# Wayne <Title>
+# <Skill title>
 
-> <ONE line: a Chinese aphorism in this blockquote, OR an English contrast vs a
-> sister skill. Never a paragraph.>
+<One sentence: the decision this lens makes more reliable.>
 
-<one-line statement of what judgment this lens reproduces / what it lets the
-reader decide that they couldn't reliably decide before.>
+<!-- Judgment usually stays high-freedom: use contrasting cases and behavioral
+     eval. Add a validator only for a genuinely deterministic output surface, not
+     for keywords that approximate reasoning quality. -->
 
-## Inherits from ~/.claude/CLAUDE.md
+<!-- Add a Boundary section only when a neighboring lens owns a similar decision.
+     Do not add an Inherits block or a body When-to-Run section. -->
 
-Inherits the Wayne control-plane invariants; does NOT redeclare them
-(Language / Engineering Principles / Code Standards / Behavior / proportional
-effort). This skill only specifies <the lens / judgment> below.
+## Applicability
 
-## Boundary vs neighbors
+- Apply when: <observable situation where the judgment pays off>.
+- Do not apply when: <clear boundary or cheaper direct path>.
 
-<Name the closest sibling skill(s) and the one line that keeps THIS skill
-separate. A lens defines itself by the DECISIONS it owns, not the steps it runs.>
+## Principles
 
-| Skill | Owns (the judgment) | Does NOT |
-|---|---|---|
-| **<kebab-name>** | <the call it makes> | <what it leaves to neighbors> |
-| <closest neighbor> | <its judgment> | <…> |
+### <Principle 1>
 
-## When this lens applies — and when it doesn't
+- Rule: <the call>.
+- Why: <the reason that generalizes to unseen cases>.
+- Evidence: <local fact or observed failure that earns this instruction>.
 
-- **Apply when:** <the contexts where this judgment pays off>.
-- **Does NOT apply when:** <the red-line cases — a high-freedom skill that never
-  says "no" is a vague essay. Name where the lens is the wrong tool>.
+### <Principle 2>
 
-## Principles (Explain-the-Why)
+- Rule: <the call>.
+- Why: <the generalization rubric>.
+- Evidence: <local fact or observed failure>.
 
-<The core of a lens skill. State each rule, then WHY — the why becomes the rubric
-for cases this skill never spelled out. "Use X. Y breaks Z because …" beats
-"ALWAYS use X, NEVER use Y." The reasoning is what lets the reader generalize.>
+## Contrasting cases
 
-### <Principle 1 — short imperative title>
+<!-- Keep only examples that teach a decision the strongest-model baseline gets
+     wrong. Prefer two contrasting cases over a catalogue of ordinary examples. -->
 
-- **Rule:** <the call>.
-- **Why:** <the reason — this is the rubric for unanticipated cases>.
+### Case A — lens applies
 
-### <Principle 2 — …>
+- Situation: <input>.
+- Reasoning: <principles that fire and why>.
+- Call: <decision>.
 
-- **Rule:** <…>.
-- **Why:** <…>.
+### Case B — lens does not apply
 
-<Repeat. If the principle set is large / multi-domain, move the full corpus to
-`references/<lens>.md` and keep the headline rules + why here, with a pointer.>
+- Situation: <contrasting input>.
+- Reasoning: <boundary that wins>.
+- Call: <direct alternative>.
 
-## Worked examples (reasoning chains, NOT output samples)
-
-<REQUIRED for a lens skill — ≥2. Show the JUDGMENT in motion: a real input, the
-principles fired against it, the reasoning, the call. These act as few-shot
-prompts — they teach the lens better than any prose. Pick examples that land on
-DIFFERENT principles, ideally including one where the lens says "does not apply".>
-
-### Example A — <input in one line>
-
-- **Situation:** <the case>.
-- **Lens applied:** <which principles fire, and the reasoning chain>.
-- **Call:** <the verdict the lens produces>.
-
-### Example B — <a contrasting input, different principle / a "no" case>
-
-- **Situation:** <…>.
-- **Lens applied:** <…>.
-- **Call:** <…>.
-
-## Anti-patterns
-
-<For a lens, anti-patterns are MISAPPLICATIONS — applying the judgment where it
-doesn't fit, or cargo-culting a rule without its why. Not "skipped a step".>
-
-- <misapplying the lens out of its scope>
-- <citing a rule while ignoring the why it generalizes from>
+<!-- Add Red lines or Anti-patterns only for observed misapplications. Add a Flow
+     only if applying the lens itself has a real decision/loop; most lenses do not. -->

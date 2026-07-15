@@ -325,6 +325,14 @@ All Status start `⬜`. Only `wayne-verify` ever flips them.
 - **Observable is a real outcome**, never "200 OK" / "no exception".
 - The e2e layer can (and should) include negative / error-path user journeys when they're
   observable (e.g. "submit invalid team name → inline error shown, nothing saved").
+- **`Env: process` pins WHERE it runs, not just what to start.** When the stack is only
+  live in a specific location — a docker stack built in the mainworktree, a fixed
+  host/port, a prod-backup db — name it in the cell (e.g. "`make dev` :8006 **in
+  mainworktree** — docker built there", "prod-backup `trace_dev` on :8007"). verify
+  stands up exactly what this cell says; a cell that omits the location lets verify run
+  against its own cwd/worktree, where the stack may be stale or absent — a silent pass.
+  If a subagent will build in an isolated worktree, the run env is still the
+  mainworktree stack — say so here.
 
 ---
 
