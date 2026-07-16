@@ -1,0 +1,6 @@
+2026-07-16T03:12:10Z runner=ci image=python-3.14 SERVICE_REGION=<unset>
+Traceback (most recent call last):
+  File "job.py", line 1, in <module>
+  File "src/config.py", line 7, in service_region
+    return os.environ["SERVICE_REGION"]
+KeyError: 'SERVICE_REGION'
