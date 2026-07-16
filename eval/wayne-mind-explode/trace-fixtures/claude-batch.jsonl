@@ -1,0 +1,1 @@
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/workspace/repo/docs/decisions/topic-decisions.md","content":"| 1 | First | A | reason | user |\n| 2 | Second | B | reason | user |"}}]}}

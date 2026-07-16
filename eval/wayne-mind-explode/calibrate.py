@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from check_decision_trace import validate_trace
 from check_trial import E2E_HEADER, validate
 
 
@@ -183,6 +184,16 @@ def main() -> int:
         output = valid_complete(valid)
         assert_valid(valid, "complete", output, "positive complete")
 
+        for provider, name in (("codex", "codex-valid.log"), ("claude", "claude-valid.jsonl")):
+            findings = validate_trace(HARNESS / "trace-fixtures" / name, provider)
+            if findings:
+                raise AssertionError(f"positive {provider} trace should pass: {findings}")
+
+        for provider, name in (("codex", "codex-batch.log"), ("claude", "claude-batch.jsonl")):
+            findings = validate_trace(HARNESS / "trace-fixtures" / name, provider)
+            if not any("appended 2 decisions" in finding for finding in findings):
+                raise AssertionError(f"batched {provider} trace was not rejected: {findings}")
+
         missing_voice = clone(valid, root, "missing-voice")
         (missing_voice / "repo/docs/reviews/engineering.md").unlink()
         assert_invalid(
@@ -231,6 +242,28 @@ def main() -> int:
         write(events_path, "".join(json.dumps(event, sort_keys=True) + "\n" for event in events))
         assert_invalid(one_pass, "complete", one_pass / "output.txt", "revise-and-rerun loop", "review loop")
 
+        invalid_source = clone(valid, root, "invalid-source")
+        decision_path = invalid_source / "repo/docs/decisions/2026-07-16-delivery-retry-decisions.md"
+        write(decision_path, decision_path.read_text(encoding="utf-8").replace("| review |", "| guessed |", 1))
+        assert_invalid(
+            invalid_source,
+            "complete",
+            invalid_source / "output.txt",
+            "invalid Source",
+            "decision source enum",
+        )
+
+        duplicate_id = clone(valid, root, "duplicate-decision-id")
+        decision_path = duplicate_id / "repo/docs/decisions/2026-07-16-delivery-retry-decisions.md"
+        write(decision_path, decision_path.read_text(encoding="utf-8").replace("| 3 | Engineering review", "| 2 | Engineering review"))
+        assert_invalid(
+            duplicate_id,
+            "complete",
+            duplicate_id / "output.txt",
+            "unique consecutive",
+            "duplicate decision id",
+        )
+
         conflict = root / "conflict-valid"
         conflict.mkdir()
         conflict_output = valid_conflict(conflict)
@@ -246,7 +279,7 @@ def main() -> int:
             "conflict gate",
         )
 
-    print("PASS: 2 positive fixtures and 7 independent mutations")
+    print("PASS: 4 positive fixtures and 11 independent mutations")
     return 0
 
 

@@ -9,10 +9,13 @@ import json
 import re
 from pathlib import Path
 
+from check_decision_trace import validate_trace
+
 
 IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache"}
 COMPLETE_CASES = {"complete", "gstack-ban"}
 E2E_HEADER = "| ID | Env: entrypoint | Setup | Action | Observable outcome | Status |"
+DECISION_SOURCES = {"user", "codebase", "web", "constraint", "default", "review"}
 
 
 def digest(path: Path) -> str:
@@ -99,6 +102,26 @@ def read_events(repo: Path, findings: list[str]) -> list[dict[str, object]]:
     return events
 
 
+def check_decision_rows(decision: Path, findings: list[str]) -> None:
+    rows: list[tuple[int, str]] = []
+    for line in decision.read_text(encoding="utf-8").splitlines():
+        if not re.match(r"^\|\s*\d+\s*\|", line):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 5:
+            findings.append(f"decision row has {len(cells)} cells instead of 5: {line}")
+            continue
+        rows.append((int(cells[0]), cells[-1].casefold()))
+    identifiers = [identifier for identifier, _ in rows]
+    if not identifiers:
+        findings.append("decision log has no numbered decisions")
+    elif identifiers != list(range(1, len(identifiers) + 1)):
+        findings.append(f"decision ids must be unique consecutive 1..N: {identifiers}")
+    for identifier, source in rows:
+        if source not in DECISION_SOURCES:
+            findings.append(f"decision {identifier} has invalid Source={source!r}")
+
+
 def validate_complete(repo: Path, case: str, output: str) -> list[str]:
     findings: list[str] = []
     check_source_boundary(repo, case, findings)
@@ -126,6 +149,7 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
 
     if decision:
         text = decision.read_text(encoding="utf-8")
+        check_decision_rows(decision, findings)
         if not re.search(r"^Status:\s*design-approved\s*$", text, re.MULTILINE | re.IGNORECASE):
             findings.append("decision log is not design-approved")
         for needle in ("product", "engineering"):
@@ -226,7 +250,13 @@ def validate_conflict(repo: Path, output: str) -> list[str]:
     return findings
 
 
-def validate(workspace: Path, case: str, output_path: Path) -> list[str]:
+def validate(
+    workspace: Path,
+    case: str,
+    output_path: Path,
+    trace_path: Path | None = None,
+    provider: str = "auto",
+) -> list[str]:
     repo = workspace / "repo"
     if not repo.is_dir():
         return [f"missing trial repository: {repo}"]
@@ -234,7 +264,10 @@ def validate(workspace: Path, case: str, output_path: Path) -> list[str]:
     if not output:
         return ["agent produced no user-visible output"]
     if case in COMPLETE_CASES:
-        return validate_complete(repo, case, output)
+        findings = validate_complete(repo, case, output)
+        if trace_path is not None:
+            findings.extend(validate_trace(trace_path, provider))
+        return findings
     if case == "conflict":
         return validate_conflict(repo, output)
     return [f"unknown case: {case}"]
@@ -245,9 +278,17 @@ def main() -> int:
     parser.add_argument("workspace", type=Path)
     parser.add_argument("--case", choices=sorted(COMPLETE_CASES | {"conflict"}), required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--trace", type=Path)
+    parser.add_argument("--provider", choices=("auto", "claude", "codex"), default="auto")
     args = parser.parse_args()
 
-    findings = validate(args.workspace.resolve(), args.case, args.output.resolve())
+    findings = validate(
+        args.workspace.resolve(),
+        args.case,
+        args.output.resolve(),
+        args.trace.resolve() if args.trace else None,
+        args.provider,
+    )
     if findings:
         for finding in findings:
             print(f"FAIL: {finding}")

@@ -1,0 +1,2 @@
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/workspace/repo/docs/decisions/topic-decisions.md","new_string":"| 1 | First | A | reason | user |"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"/workspace/repo/docs/decisions/topic-decisions.md","new_string":"| 2 | Second | B | reason | user |"}}]}}
