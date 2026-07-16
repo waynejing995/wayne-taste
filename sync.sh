@@ -34,6 +34,7 @@ SKILLS=(
   wayne-ship
   wayne-skill-forge
   wayne-test-design
+  wayne-triage
   wayne-verify
   wayne-visual-synthesis
   wayne-work

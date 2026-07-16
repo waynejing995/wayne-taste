@@ -52,7 +52,7 @@ Safety properties:
 `_shared`, `wayne-checkpoint`, `wayne-code-review`, `wayne-compound`,
 `wayne-cybernetics`, `wayne-distill`, `wayne-frontend-design`, `wayne-goal-prompt`,
 `wayne-manner`,
-`wayne-mind-explode`, `wayne-plan`, `wayne-ship`, `wayne-skill-forge`, `wayne-test-design`,
+`wayne-mind-explode`, `wayne-plan`, `wayne-ship`, `wayne-skill-forge`, `wayne-test-design`, `wayne-triage`,
 `wayne-verify`, `wayne-visual-synthesis`, `wayne-work`.
 
 **Intentionally NOT synced:**

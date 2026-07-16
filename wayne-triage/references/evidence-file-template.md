@@ -31,7 +31,7 @@ not keyword. Keep them filled.
 slug: <kebab-slug>
 date: YYYY-MM-DD
 surface: <failure | tracker>
-symptom_class: <crash | hang | wrong-output | perf-regression | flaky | config-env | bug | enhancement>
+symptom_class: <crash | hang | wrong-output | perf-regression | flaky | config-env | bug | enhancement | unknown>
 cause_category: <logic | config | dependency | environment | infra-hardware | test-artifact | architecture | unknown>
 component: <where the cause was attributed, or unknown>
 est_lines: <rough fix size, int>
@@ -57,7 +57,7 @@ repro_count: <how many times this exact root cause has been seen, int>
 - recent_changes: <git log / new deps / config since last-good>   [OBSERVED]
 
 ## Classify
-- symptom_axis:  <crash | hang | wrong-output | perf-regression | flaky | config-env>
+- symptom_axis:  <crash | hang | wrong-output | perf-regression | flaky | config-env | bug | enhancement | unknown>
 - cause_axis:    <logic | config | dependency | environment | infra-hardware | test-artifact | architecture>
 - contributing:  [<other factors — root cause is rarely singular>]
 
@@ -90,7 +90,7 @@ legend: ++ strongly consistent · + weakly · -- inconsistent (disproves) · n/a
   - step: <claim>   observation: <fact>   source: <file:line>
 
 ## Route              # the deliverable — present, then STOP for the user
-- verdict:    <fix-now | iterate-in-a-loop | escalate-architecture | escalate-incident | route-to-owner | UNCERTAIN>
+- verdict:    <fix-now | test-then-fix | iterate-in-a-loop | needs-plan | escalate-architecture | escalate-incident | route-to-owner | uncertain | needs-info>
 - justified_by: <the citation that forces this route>
 - handoff:    <target: owner / loop eval command / incident channel / follow-up issue>
 ```

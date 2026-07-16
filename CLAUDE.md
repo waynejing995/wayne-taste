@@ -197,6 +197,7 @@ Before `AskUserQuestion` on complex problems: explain in plain Chinese. No jargo
 | Trigger | Skill |
 |---------|-------|
 | "brainstorm" / "design this" / "新功能想一下" / explore an idea | `wayne-mind-explode` |
+| "triage" / "root cause" / "why is this failing" / "分诊" / "查根因" | `wayne-triage` |
 | "make a plan" / "plan this feature" / spec → plan | `wayne-plan` |
 | "build it" / "implement the plan" / execute a plan | `wayne-work` |
 | "goal prompt" / "写个 goal" / "把这句变成一条 goal" / sharpen a vague goal before an autonomous run | `wayne-goal-prompt` |
