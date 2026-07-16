@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 3 ]]; then
-    echo "usage: $0 <complete|gstack-ban|conflict> <skill-dir> <workspace>" >&2
+    echo "usage: $0 <case> <skill-dir> <workspace>" >&2
     exit 2
 fi
 
@@ -28,7 +28,11 @@ mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/support"
 cp -a "$harness/fixture/." "$workspace/repo/"
 cp "$harness/cases/$case_name/case.md" "$workspace/repo/case.md"
 cp "$skill_dir/SKILL.md" "$workspace/skill/SKILL.md"
-cp "$harness/trial-task.md" "$workspace/task.md"
+if [[ -f "$harness/cases/$case_name/task.md" ]]; then
+    cp "$harness/cases/$case_name/task.md" "$workspace/task.md"
+else
+    cp "$harness/trial-task.md" "$workspace/task.md"
+fi
 cp -a "$harness/support/." "$workspace/support/"
 
 git -C "$workspace/repo" init -q

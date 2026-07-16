@@ -1,52 +1,63 @@
 # Approved intent: Wayne Mind Explode
 
-The skill turns a sufficiently resolved feature idea into durable design artifacts.
-It owns design convergence, not implementation or implementation planning.
+The skill turns an unresolved idea into durable, user-approved design inputs for
+`wayne-plan`. It owns convergence and review, never implementation or planning.
 
-## Required behavior
+## Intent coverage matrix
 
-1. Inspect the repository, existing decisions, specs, plans, and relevant knowledge
-   before asking anything the sources can answer.
-2. Create the decision log immediately and record each discovered or user-made
-   decision once, with its source.
-3. Ask at most one question per user turn, always with a recommended answer. Stop
-   when a required decision or conflict remains unresolved.
-4. After convergence, compare 2-3 viable approaches and record the approved choice.
-5. Apply the cybernetics lens only to state, control, multi-writer, streaming,
-   observability, drift, feedback, or workflow designs; record its relevant findings.
-6. Obtain user approval before writing the final design.
-7. Use `wayne-test-design` as the single owner of the test matrix. The spec links
-   that matrix and does not duplicate its E2E contract.
-8. Recheck existing artifacts for conflicts before finalizing the spec.
-9. Run two independent design reviews: one challenges product assumptions and
-   scope, the other challenges engineering readiness and execution detail. Discover
-   the provider-neutral independent-agent mechanism available in the environment.
-   Never require gstack or the legacy `plan-ceo-review` / `plan-eng-review` names.
-   If two independent reviews cannot run, fail loud and do not claim review success.
-10. Resolve review findings and rerun the affected review until both pass.
-11. Mark the decision log `design-approved`, then hand off the decision log, spec,
-    and matrix to `wayne-plan` through `wayne-checkpoint` without auto-advancing.
+| ID | Recovered behavior | Source | Oracle |
+|---|---|---|---|
+| I01 | Create one `in-progress` decision log before research or the first question. | pre-slim Skill, Phase 1 | final artifact + first write event |
+| I02 | Discover one repository/KB/web fact or obtain one user decision, append exactly one row durably, then advance to the next branch. Never reconstruct or batch the log later. | pre-slim Flow `Log decision`; user correction; current trace | external decision-write event oracle |
+| I03 | Use unique consecutive decision IDs and source values `user`, `codebase`, `web`, `constraint`, `default`, or `review`. | decision-log contract + review outcome requirement | deterministic decision-row checker |
+| I04 | Read repository instructions, code, docs, history, active plans/specs, prior decisions, relevant KB lessons/research/how-tos/project notes, and decision-changing current web facts before asking discoverable questions. | pre-slim Phases 2.1–2.3 | research/no-handwave held-out |
+| I05 | Walk the dependency-ordered decision tree; ask one recommended question and wait. Reject `whatever`/`I don't care` as unresolved instead of inventing a default. | pre-slim Phase 3; grilling commit `170ad4865582` | one-question and vague-answer case |
+| I06 | Compare 2–3 viable approaches, record the choice, and obtain approval for every material design section. | pre-slim Phases 4–5 | complete design case |
+| I07 | For triggered state/control designs, record Plant, Controller, Setpoint, Disturbance, Feedback, severity, and proposed interventions; the user selects interventions before matrix/spec work. | pre-slim cybernetics contract | cybernetics-choice held-out |
+| I08 | Delegate the test matrix exactly once to `wayne-test-design`; it alone writes the matrix and E2E contract. Mind Explode only links it. | commit `636c81e`; pre-slim Phase 5 | matrix shape + invocation ownership |
+| I09 | Recheck plans/specs/architecture, trace direct callers and indirect consumers of replaced functionality, classify Dead/Legacy/Shared, and obtain migration/deletion decisions. | pre-slim Phase 6 | conflict and legacy held-out |
+| I10 | Write the canonical spec only after design convergence, then obtain explicit user approval of the written spec bytes before launching reviews. | pre-slim Phase 7 | written-spec approval gate |
+| I11 | Product review challenges premise, necessity, whether this is the right problem, the 10-star alternative, user value, assumptions, scope, and non-goals. | pre-slim CEO/founder review contract | product playbook case |
+| I12 | Engineering review challenges architecture, ownership, interfaces, data/control flow, failures, edge/concurrency paths, tests, performance/capacity, observability, rollback, and execution readiness. | pre-slim engineering review contract | engineering playbook case |
+| I13 | Run two genuinely independent heterogeneous reviewer executions on identical spec bytes. Missing either voice fails loud; no same-context simulation or single-review fallback. | pre-slim dual review intent; repository policy | review events + unavailable case |
+| I14 | A `REVISE` updates the spec and decision log, invalidates both stale reviews, and reruns both. Both must pass the exact final bytes. | pre-slim Phase 8 | review hash/event oracle |
+| I15 | Review reports are immutable evidence under `docs/reviews/`; the decision log solely owns resolutions and final review outcomes. | current harness + state-owner rule | artifact and outcome checker |
+| I16 | Mark `design-approved`, return a checkpoint handoff to real `wayne-plan`, and never invoke or auto-advance planning. | pre-slim Phase 9 + checkpoint contract | handoff + planner trap |
+| I17 | Keep units/interfaces bounded, follow existing patterns, and avoid unrelated refactors in the design. | pre-slim Design for Isolation | spec boundary held-out |
+
+Every intended clause maps to an executable or held-out oracle. A candidate cannot
+be accepted while any row is `UNVERIFIED`.
+
+## Exact reproduced failure
+
+The accepted slim version still says “append immediately”, but its Flow removed
+the `Log decision` transition. In the preserved Codex complete-case trace, one
+write created decisions 1–10, the next added 11–19, then later writes added 20–23
+and 24–25. The final file passed the old checker, proving final-state equality is
+not timing evidence.
+
+The frozen trace checker rejects any write event that makes more than one new
+decision durable. A positive trace has:
+
+```text
+decision 1 ready → append row 1 → verify durable → next branch
+decision 2 ready → append row 2 → verify durable → next branch
+```
 
 ## Hard boundaries
 
-- Do not write implementation code or an implementation plan.
-- Do not commit, branch, push, or publish unless the user separately asks.
-- Do not ask the user for facts discoverable from the repository or supplied sources.
-- Do not maintain a second checklist that duplicates the Flowchart.
-- Keep runtime paths and reviewer dispatch provider-neutral across Claude and Codex.
+- No implementation code, implementation plan, unrequested commit, branch, push,
+  publish, or automatic next-stage execution.
+- Do not read, load, invoke, or restore gstack or its legacy review names. Replace
+  the two review capabilities with self-contained playbooks and real reviewers.
+- `wayne-test-design` remains the only matrix/E2E author.
+- Runtime paths and review dispatch stay provider-neutral across Claude and Codex.
+- User-facing language remains owned by repository instructions, not duplicated in
+  this Skill.
 
 ## Optimization classification
 
-The control hard-codes gstack and two legacy review skill names. Both strongest
-models nevertheless completed the frozen prohibition case by applying higher-
-priority repository rules and discovering its neutral review interface. This is
-therefore a portability repair plus pure slimming, not a reproduced behavioral
-failure. The candidate must retain control parity, remove the forbidden static
-dependency, and preserve the unresolved-conflict stop behavior.
-
-## Interview-style input
-
-The grilling primitive follows Matt Pocock's latest public `grilling` skill at
-commit `170ad4865582` (2026-07-13): walk every decision-tree branch in dependency
-order, ask one question and wait, look up facts from the environment, put decisions
-to the human, and do not act until the human confirms shared understanding.
+Restore behavioral state transitions and dense playbook intent, not the old 513-line
+checklist, provider-specific tools, unconditional web search, automatic commit, or
+duplicated matrix authoring. The target is a bounded procedure revision, not a
+revert.

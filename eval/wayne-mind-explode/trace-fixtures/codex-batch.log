@@ -1,0 +1,7 @@
+apply patch
+patch: completed
+/workspace/repo/docs/decisions/topic-decisions.md
+diff --git a/repo/docs/decisions/topic-decisions.md b/repo/docs/decisions/topic-decisions.md
++++ b/repo/docs/decisions/topic-decisions.md
++| 1 | First | A | reason | user |
++| 2 | Second | B | reason | user |
