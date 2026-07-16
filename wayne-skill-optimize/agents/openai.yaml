@@ -1,0 +1,4 @@
+interface:
+  display_name: "Wayne Skill Optimize"
+  short_description: "Optimize existing skills with frozen behavioral evals"
+  default_prompt: "Use $wayne-skill-optimize to improve this existing skill from observed failures without regressing behavior."
