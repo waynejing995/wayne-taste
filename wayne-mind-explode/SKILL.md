@@ -1,513 +1,170 @@
 ---
 name: wayne-mind-explode
-description: Turn ideas into fully formed designs through relentless interview-style questioning. Logs every decision, explores codebase before asking, and checks for conflicts with existing plans. Use when starting any feature, design, or architecture work. Trigger on "brainstorm", "mind explode", "let's design", or "grill me".
+description: Converges a feature, system, or architecture idea through repository-grounded questioning into an approved decision log, test matrix, and design spec, then runs two independent design reviews and hands off to wayne-plan. Use for “brainstorm”, “mind explode”, “let's design”, “grill me”, or equivalent Chinese design requests; never use it to implement or write the implementation plan.
 ---
 
-# Brainstorming Ideas Into Designs
+# Wayne Mind Explode
 
-Turn ideas into fully formed designs through collaborative but relentless dialogue.
-Every decision is logged. Every branch of the design tree is explored. No handwaving allowed.
+Turn an unresolved idea into approved design inputs for `wayne-plan`.
 
-## Inherits from ~/.claude/CLAUDE.md
+## Boundary
 
-This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
+Own discovery, decision convergence, design approval, test-design delegation,
+conflict resolution, spec writing, independent design review, and handoff. Never
+implement code or write an implementation plan. Do not commit, branch, push, or
+publish unless separately requested.
 
-- Language Rules (Chinese to user, English to files)
-- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
-- Code Standards (uv run python, markdown tables)
-- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
-- Skill invocation rule (proportional effort)
+Create only design artifacts:
 
-This skill only specifies the brainstorming / design / decision-log workflow.
+- `docs/decisions/YYYY-MM-DD-<topic>-decisions.md`
+- `docs/test-matrix/YYYY-MM-DD-<topic>-test-matrix.md` through `wayne-test-design`
+- `docs/specs/YYYY-MM-DD-<topic>-design.md`
+- the handoff packet owned by `wayne-checkpoint`
 
-## Files Written
-
-decision logs, specs, code comments, commit messages, KB entries, solution docs.
-
-**This skill does NOT write implementation plans.** Plans are wayne-plan's job. wayne-mind-explode's terminal artifact is the spec; wayne-plan reads the spec + decision log to produce the plan as a separate, focused step.
-
-Structural labels stay English even in Chinese prose: `Q3:`, `My recommendation:`, severity tags, table headers.
-
-<HARD-GATE>
-Do NOT write any code, scaffold any project, or take any implementation action until the design is approved by the user. This applies to EVERY project regardless of perceived simplicity. Plan creation is delegated to wayne-plan and is out of scope here.
-</HARD-GATE>
-
-## Checklist
-
-You MUST create a task for each of these items and complete them in order:
-
-1. **Recall lessons from KB** — see "Lesson Recall" section below. Surface any
-   prior lessons relevant to the topic before brainstorming starts.
-2. **Init decision log** — create `docs/decisions/YYYY-MM-DD-<topic>-decisions.md`
-3. **Explore project context** — check files, docs, recent commits, existing plans
-4. **Grill the user** — relentless branch-by-branch interview, logging every decision.
-   **MUST apply Cybernetics Lens** when topic matches triggers (see Phase 3 §Cybernetics Lens).
-5. **Propose 2-3 approaches** — with trade-offs and your recommendation
-6. **Present design** — section by section, get user approval after each
-7. **Invoke wayne-test-design** — once the design is settled, call `wayne-test-design` to author the test matrix. Its e2e layer IS the E2E Verification Contract (all Status ⬜). mind-explode does NOT author the contract itself anymore — it delegates (see Phase 5 §Invoke wayne-test-design). References `_shared/e2e-contract.md` for the contract format the matrix embeds.
-8. **Conflict review** — read ALL existing plans/specs/docs, flag any contradictions
-9. **Write spec** — save design doc; the spec REFERENCES the test-matrix doc as the e2e SSoT (does not inline a second copy of the contract table), commit
-10. **Plan review via gstack** — dispatch `/plan-ceo-review` and `/plan-eng-review` on the spec; iterate spec until both clean
-11. **Hand off to wayne-plan** — once the spec is approved + reviews are clean, the design phase is done. Tell the user: "Spec ready at <path>, test matrix at <path>. Invoke `wayne-plan` to produce the implementation plan." Then auto-call **wayne-checkpoint in handoff mode** to emit a handoff packet (next agent = wayne-plan, carrying the test matrix — whose e2e layer is the contract — forward). Do NOT write the plan yourself — wayne-plan reads the decision log + spec + test matrix and produces the plan as its own focused workflow.
-
-## Lesson Recall (Step 1)
-
-Before grilling the user, scan the KB for past lessons that may apply to the
-topic. Lessons are KB pages with `type: lesson` and a `trigger` field describing
-when they should be recalled.
-
-**Quick scan:**
-```bash
-grep -rl "^type: lesson" /mnt/share/wayne-note/ --include="*.md" 2>/dev/null
-```
-
-For each candidate file, read its `trigger` field and decide if it matches the
-user's topic. Use a quick LLM judgment if grep alone is ambiguous — match
-semantically, not just by keyword.
-
-**If matches found**, before any other questions, ask the user:
-> 之前有 N 条 lesson 可能跟这次设计相关：
-> - <lesson 1 title> — trigger: <一句话>
-> - <lesson 2 title> — trigger: <一句话>
-> 要先看一下吗？(yes / skip / 看具体哪条)
-
-**If skipped**: log in decision log under the first decision row:
-`| 0 | Lesson recall skipped by user | N candidates: [files] | — | — |`
-
-**If reviewed**: include the lessons' anti-patterns and prevention sections
-as constraints in the subsequent grilling. Reference them in the decision log
-when a design choice comes from a lesson.
-
-## Process Flow
+## Flow
 
 ```dot
-digraph brainstorming {
+digraph mind_explode {
     rankdir=TB;
+    A [label="Open decision log", shape=box];
+    B [label="Research project and lessons", shape=box];
+    C [label="Unresolved decision?", shape=diamond];
+    D [label="Ask one recommended question", shape=box];
+    E [label="Converge and approve design", shape=box];
+    F [label="Create test matrix", shape=box];
+    G [label="Conflict and legacy review", shape=box];
+    H [label="Conflict remains?", shape=diamond];
+    I [label="Write spec", shape=box];
+    J [label="Run two independent reviews", shape=box];
+    K [label="Both pass final revision?", shape=diamond];
+    R [label="Revise from findings", shape=box];
+    U [label="Review mechanism available?", shape=diamond];
+    X [label="Stop: review unavailable", shape=doublecircle];
+    L [label="Handoff to wayne-plan", shape=doublecircle];
 
-    "Init decision log" [shape=box];
-    "Explore project context" [shape=box];
-    "Scan existing plans/docs\nfor prior decisions" [shape=box];
-    "Grill: pick next\nunresolved branch" [shape=box];
-    "Can codebase answer it?" [shape=diamond];
-    "Explore codebase,\nlog finding" [shape=box];
-    "Ask user ONE question\n(with recommendation)" [shape=box];
-    "Log decision" [shape=box];
-    "More branches?" [shape=diamond];
-    "Propose 2-3 approaches" [shape=box];
-    "Present design sections" [shape=box];
-    "User approves?" [shape=diamond];
-    "Invoke wayne-test-design:\nauthor test matrix\n(e2e layer = the contract)" [shape=box, style=bold];
-    "Conflict review:\nread ALL existing\nplans/specs/docs" [shape=box];
-    "Conflicts found?" [shape=diamond];
-    "Write spec + commit" [shape=box];
-    "Dispatch /plan-ceo-review\n+ /plan-eng-review" [shape=box, style=bold];
-    "Review passes?" [shape=diamond];
-    "Revise spec from\nreview feedback" [shape=box];
-    "Hand off: tell user\n'Spec ready, invoke wayne-plan'\n+ wayne-checkpoint handoff packet" [shape=doublecircle];
-
-    "Web research:\nsearch latest best practices\n+ references" [shape=box];
-
-    "Init decision log" -> "Explore project context";
-    "Explore project context" -> "Scan existing plans/docs\nfor prior decisions";
-    "Scan existing plans/docs\nfor prior decisions" -> "Web research:\nsearch latest best practices\n+ references";
-    "Web research:\nsearch latest best practices\n+ references" -> "Grill: pick next\nunresolved branch";
-    "Grill: pick next\nunresolved branch" -> "Can codebase answer it?";
-    "Can codebase answer it?" -> "Explore codebase,\nlog finding" [label="yes"];
-    "Can codebase answer it?" -> "Ask user ONE question\n(with recommendation)" [label="no"];
-    "Explore codebase,\nlog finding" -> "More branches?";
-    "Ask user ONE question\n(with recommendation)" -> "Log decision" -> "More branches?";
-    "More branches?" -> "Grill: pick next\nunresolved branch" [label="yes"];
-    "More branches?" -> "Propose 2-3 approaches" [label="no"];
-    "Propose 2-3 approaches" -> "Present design sections";
-    "Present design sections" -> "User approves?";
-    "User approves?" -> "Present design sections" [label="no, revise"];
-    "User approves?" -> "Invoke wayne-test-design:\nauthor test matrix\n(e2e layer = the contract)" [label="yes"];
-    "Invoke wayne-test-design:\nauthor test matrix\n(e2e layer = the contract)" -> "Conflict review:\nread ALL existing\nplans/specs/docs";
-    "Conflict review:\nread ALL existing\nplans/specs/docs" -> "Conflicts found?";
-    "Conflicts found?" -> "Grill: pick next\nunresolved branch" [label="yes, re-grill"];
-    "Conflicts found?" -> "Write spec + commit" [label="no"];
-    "Write spec + commit" -> "Dispatch /plan-ceo-review\n+ /plan-eng-review";
-    "Dispatch /plan-ceo-review\n+ /plan-eng-review" -> "Review passes?";
-    "Review passes?" -> "Hand off: tell user\n'Spec ready, invoke wayne-plan'\n+ wayne-checkpoint handoff packet" [label="yes"];
-    "Review passes?" -> "Revise spec from\nreview feedback" [label="no"];
-    "Revise spec from\nreview feedback" -> "Dispatch /plan-ceo-review\n+ /plan-eng-review";
+    A -> B;
+    B -> C;
+    C -> D [label="yes"];
+    D -> B;
+    C -> E [label="no"];
+    E -> F;
+    F -> G;
+    G -> H;
+    H -> D [label="yes"];
+    H -> I [label="no"];
+    I -> U;
+    U -> J [label="yes"];
+    U -> X [label="no"];
+    J -> K;
+    K -> R [label="no"];
+    R -> J;
+    K -> L [label="yes"];
 }
 ```
 
----
+## Process
 
-## Phase 1: Init Decision Log
+### A. Open decision log
 
-Create the decision log file immediately when brainstorming starts:
+Create the log immediately with `Status: in-progress` and this table:
 
-**Path:** `docs/decisions/YYYY-MM-DD-<topic>-decisions.md`
-
-**Template:**
 ```markdown
-# Decision Log: <Topic>
-
-Started: YYYY-MM-DD HH:MM
-Status: in-progress
-
-## Decisions
-
 | # | Question | Decision | Rationale | Source |
-|---|----------|----------|-----------|--------|
+|---|---|---|---|---|
 ```
 
-**Source** column values:
-- `user` — user made the call
-- `codebase` — answered by exploring code
-- `web` — informed by web research (include URL)
-- `constraint` — forced by existing architecture/dependency
-- `default` — used the recommended default
+Use source values `user`, `codebase`, `web`, `constraint`, or `default`. Append
+every discovered or user-made decision before continuing; never reconstruct the
+log at the end.
 
-Log EVERY decision — no exceptions. This log is the input for plan creation.
+### B. Research project and lessons
 
----
-
-## Phase 2: Explore Project Context + Web Research
+Read repository instructions, relevant code, docs, architecture, active plans,
+specs, and recent history. Scan Wayne's KB for semantically matching `type: lesson`
+entries and their `trigger`; surface matches and log whether the user applies or
+skips them. Search the web only when current external facts could change a design
+choice, and preserve the source URL in the log.
 
-Before asking the user anything:
+Answer discoverable questions from those sources. Ask the user only for intent,
+priority, risk, or trade-off choices the sources cannot decide.
 
-### 2.1 Local Research
+### D. Ask one recommended question
 
-1. Read project files, docs, recent git history
-2. **Scan ALL existing plans and specs** in `docs/` (or wherever the project stores them)
-3. Note any prior decisions, architectural constraints, or patterns that will affect this work
-4. Log findings as `constraint` or `codebase` decisions
-
-### 2.2 KB Search (Always Run)
-
-Search the personal KB at `/mnt/share/wayne-note/` for prior knowledge relevant to this topic:
-
-```bash
-grep -r "<topic keywords>" /mnt/share/wayne-note/ --include="*.md" -l 2>/dev/null | head -10
-```
-
-Check for:
-- **Prior decisions** in `kb/decisions/` — have we decided something about this area before?
-- **Research notes** in `kb/research/` — past evaluations of tools, patterns, approaches
-- **How-tos** in `kb/how-to/` — existing runbooks for related workflows
-- **Project notes** in `kb/projects/` — context from related projects
-
-If relevant entries found:
-- Read them
-- Log as `constraint` or `codebase` decisions in the decision log
-- Present to user (in Chinese): "KB 里有相关记录: {summary}"
-- Use KB knowledge to inform your recommendations during grilling
-
-If nothing relevant, skip silently.
-
-### 2.3 Web Research (Always Run)
-
-Search the web for latest best practices, patterns, and references relevant to the topic.
-This runs **before** grilling so you can make informed recommendations.
-
-**What to search for:**
-- Current best practices for the technology/pattern being discussed
-- Common pitfalls others have encountered with similar approaches
-- Latest framework/library documentation if relevant
-- Alternative approaches others have used for similar problems
-- Recent blog posts, discussions, or case studies
-
-**How to search:**
-- Use WebSearch with targeted queries (include the current year for freshness)
-- Use WebFetch to read promising results in detail
-- Run 2-3 searches in parallel covering different angles
-
-**Example searches for "add real-time notifications":**
-```
-WebSearch: "real-time notifications best practices 2026"
-WebSearch: "SSE vs WebSocket vs polling tradeoffs"
-WebSearch: "<framework name> notification system architecture"
-```
-
-**Log findings:**
-- Add relevant findings to the decision log with source = `web`
-- Include URLs for key references
-- Note any industry consensus or strong recommendations
-- Flag any conflicting advice found across sources
+Interview the user relentlessly until both sides share the same design. Walk every
+branch of the decision tree in dependency order. Ask exactly one question, give
+`My recommendation:` and its reason, then wait for the user's answer before moving
+on. Look up facts in the environment; put decisions to the user. Log each answer
+immediately. Never infer precedence between conflicting inputs.
 
-**Present to user (in Chinese):**
-After web research, briefly summarize what you found before starting the grill:
-```
-我搜了一下最新的做法，发现几个有用的参考:
-1. [finding 1 + URL]
-2. [finding 2 + URL]
-3. [finding 3 + URL]
+### E. Converge and approve design
 
-这些会影响我接下来问你的问题。开始吧。
-```
+Only converge after the user confirms shared understanding. Compare 2-3 viable
+approaches against the log, lead with the recommendation, and record the choice.
+Present architecture, components, state/data ownership, flows, failure behavior,
+boundaries, and verification in reviewable sections. Wait for approval of each
+material section and log every revision. Do not advance on assumed approval.
 
----
+Apply a cybernetics lens when the design involves state/lifecycle, a control plane,
+multiple readers or writers, streaming, observability, source-of-truth drift,
+feedback/retry, or workflow orchestration. Name Plant, Controller, Setpoint,
+Disturbance, and Feedback; record only relevant observability, controllability,
+ownership, stability, and minimum-control-effort findings. Skip it for a small
+single-file pure-logic change with no persistent state or integration.
 
-## Phase 3: Grill the User
+### F. Create test matrix
 
-This is the core of the skill. Interview the user relentlessly about every aspect of the idea.
+After design approval, invoke `wayne-test-design` with the decision log and settled
+design. It solely owns the unit/integration matrix and E2E Verification Contract.
+All design-stage E statuses remain `⬜`. Record the returned matrix path.
 
-### Rules
+### G. Conflict and legacy review
 
-1. **One question per message.** Never batch questions.
-2. **Always provide your recommended answer.** Don't just ask — lead with what you'd pick and why, then ask if they agree or want different.
-3. **Explore codebase + web first.** If a question CAN be answered by reading code, reading docs, checking existing patterns, or referencing web research findings — do that instead of asking. Log the finding with appropriate source (`codebase` or `web`). Only ask the user when you genuinely need their input.
-4. **Walk the decision tree.** Each answer opens new branches. Track them. Don't leave branches unresolved.
-5. **Challenge weak answers.** If the user says "whatever" or "I don't care", push back: "You will care when X happens. Here's what I recommend and why."
-6. **Resolve dependencies.** Some decisions depend on others. Identify and resolve in the right order.
-7. **Log immediately.** After each decision, append to the decision log before asking the next question.
+Re-read all existing plans, specs, architecture, and repository instructions
+against the settled design. Route any contradiction to D and repeat this review.
+Trace replaced functionality and classify it `Dead`, `Legacy`, or `Shared`; obtain
+and log a user decision for every deletion, deprecation, or migration. Proceed only
+with zero unresolved conflicts.
 
-### What to Grill On
+### I. Write spec
 
-- **Purpose:** What problem does this solve? Who is it for? What does success look like?
-- **Scope:** What's in? What's explicitly out? What's deferred to later?
-- **Architecture:** Where does this live? What does it touch? What patterns does it follow?
-- **Data:** What's the shape? Where's it stored? How does it flow?
-- **Edge cases:** What happens when X fails? What about empty state? Concurrent access?
-- **Integration:** What existing code does this interact with? Any conflicts?
-- **Testing:** How do we know it works? What's the test strategy?
-- **Rollback:** If this goes wrong, how do we undo it?
+Write the approved design to the canonical spec path. Include scope/non-goals,
+architecture and ownership, data/control flow, failure and concurrency semantics,
+observability, rollback, legacy decisions, and requirement trace. Link the test
+matrix as the single source of truth; do not copy either matrix or author a second
+E2E contract. Remove every unresolved TBD/TODO before review.
 
-### Cybernetics Lens (mandatory when triggers match)
+### U. Require an independent-review mechanism
 
-**Trigger check (run BEFORE grilling).** If ANY of the following are true, the lens
-is mandatory — not optional, not skippable. Default to applying it; only the explicit
-skip list below excuses you.
+Discover the provider-neutral mechanism available to the current agent and
+repository for launching isolated reviewers. Do not hardcode one agent product's
+skill names, tools, or home paths. If two independent executions cannot be started,
+return `REVIEW_UNAVAILABLE` with the missing capability and stop. Never simulate
+two voices in one local analysis or silently downgrade to a single review.
 
-| Trigger | Match if topic involves... |
-|---|---|
-| State / lifecycle | new state machine, state transitions, status fields, persistence shape |
-| Control plane | who decides what, who writes what, dispatch / routing / scheduling |
-| Multi-writer / multi-reader | ≥2 components touch the same state, multi-replica, multi-tab, multi-process |
-| Real-time / streaming | WebSocket / SSE / pub-sub / NOTIFY / event broadcast |
-| Observability | health checks, metrics, dashboards, tail / streaming logs |
-| Drift / SoT risk | "single source of truth", config in multiple places, derived vs source data |
-| Feedback loops | reconciliation, retry, redeploy, healing, polling vs push |
-| Process / workflow | pipeline stages, approval flow, orchestration, agents |
+### J. Run two independent reviews
 
-**Skip list (lens NOT required).** Only skip if ALL of these hold:
-- Pure-logic / pure-algorithm problem (sort, parser, formula)
-- No persistent state introduced
-- No new component talks to any other component
-- ≤ ~50 LOC change, single file
+Dispatch the same spec revision to two separate reviewer executions:
 
-If you're unsure whether to skip, **apply the lens**. The cost is one Read + one
-mental walkthrough; the cost of missing a SoT or feedback violation in spec is
-re-architecture later.
+- product voice: challenge premise, user value, assumptions, scope, and non-goals;
+- engineering voice: challenge ownership, interfaces, failure paths, concurrency,
+  observability, rollback, testability, and execution readiness.
 
-**How to apply:**
+Preserve both findings and verdicts. Resolve findings in the spec and decision log,
+then rerun. Both voices must pass the same final spec bytes; any later edit makes
+both prior passes stale. After both pass, record their outcome only in the decision
+log and handoff; if the spec changes even to add review notes, rerun both voices.
 
-1. Read `~/.claude/skills/_shared/cybernetics-lens.md` (8 principles + diagnostic questions)
-2. Step 1: name Plant / Controller / Setpoint / Disturbance / Feedback (if you can't, stop and ask)
-3. Step 2: walk principles #2–#8 as a checklist against your current design (use the table at end of lens doc)
-4. Step 3: each violation becomes a finding with severity (HIGH / MEDIUM / LOW) and a recommended intervention
-5. Present findings to the user as a table; user picks which to apply
-6. Apply approved findings as new decisions in the log; revise spec if already written
+### L. Handoff to wayne-plan
 
-**When to run.** Run the lens BEFORE writing the spec (Phase 7) — ideally during
-or right after grilling (Phase 3). If you discover you skipped the lens after spec
-is written, run it then and iterate.
+Set the decision log to `Status: design-approved` and link the spec and matrix.
+Tell the user their paths and that `wayne-plan` is the next agent. Invoke
+`wayne-checkpoint` in handoff mode with those artifacts and `next agent:
+wayne-plan`; return the packet without auto-advancing. End here.
 
-**The lens distills** 8 principles from Qian Xuesen's *Engineering Cybernetics* (1954):
-system identification, observability, controllability, single SoT, hierarchical
-control, signal-to-noise, minimum control effort, feedback stability.
+## Red lines
 
-### Question Format
-
-```
-**Q{N}: {Question in Chinese}**
-
-My recommendation: {your recommended answer and reasoning — in Chinese}
-
-{If relevant: "我查了代码库，发现: {finding in Chinese}"}
-
-你同意吗？还是想走别的方向？
-```
-
----
-
-## Phase 4: Propose Approaches
-
-After all branches are resolved:
-
-1. Read the full decision log
-2. Propose 2-3 approaches that satisfy all logged decisions
-3. Lead with your recommendation and explain why
-4. Include trade-offs for each approach
-5. Log the chosen approach as a decision
-
----
-
-## Phase 5: Present Design
-
-Present the design section by section. Scale each section to its complexity.
-
-- Ask after each section whether it looks right
-- Be ready to revise — new decisions get logged too
-- Cover: architecture, components, data flow, error handling, testing
-
-### Design for Isolation
-
-- Break the system into units with one clear purpose
-- Each unit: what does it do, how do you use it, what does it depend on?
-- Can someone understand a unit without reading its internals?
-- Smaller, well-bounded units are easier to reason about and edit reliably
-
-### Working in Existing Codebases
-
-- Follow existing patterns. Don't invent new conventions.
-- Where existing code has problems that affect this work, include targeted fixes in the design
-- Don't propose unrelated refactoring. Stay focused.
-
-### Invoke wayne-test-design (mandatory — runs once design is settled)
-
-Once the design is approved (sections agreed) and BEFORE the spec is written (Phase 7),
-hand off to **`wayne-test-design`** to author the test matrix. mind-explode **no longer
-authors the E2E Verification Contract itself** — the contract is the e2e layer of that
-matrix, and `wayne-test-design` is its sole author (single-author rule; two authors =
-drift).
-
-This stage runs in the same analogous slot as the Cybernetics Lens: a mandatory step that
-produces a design-time verification artifact. It is **not optional**.
-
-**How to apply:**
-
-1. Invoke `wayne-test-design` via the Skill tool, pointing it at the settled design /
-   decision log. It will:
-   - walk the dimension menu (positive / negative / edge / invalid / boundary /
-     concurrency / error-path / persistence), keeping only dimensions the behavior really
-     has (no over-design);
-   - build the unit-integration layer (`☐`) and the e2e layer (the LOCKED contract from
-     `_shared/e2e-contract.md`, all Status `⬜`);
-   - present the matrix to the user for confirmation and write it to `docs/test-matrix/`.
-2. The e2e layer satisfies the same intent this step used to do by hand: for every
-   user-observable requirement, "how would I SEE this working in real use?" → one contract
-   row; non-observable paths → the explicit `E2E: none — <reason>` line. That logic now
-   lives in `wayne-test-design`, not here — do not duplicate it.
-3. When `wayne-test-design` returns, you have a matrix doc path. Log a decision recording
-   that the matrix (incl. e2e contract) was produced and where.
-
-The confirmed matrix is **referenced by the spec** (Phase 7), not inlined — the matrix doc
-is the SSoT; the spec links to it.
-
----
-
-## Phase 6: Conflict Review + Dead Code Scan
-
-**Before writing the spec**, read ALL existing plans, specs, and architectural docs:
-
-### 6.1 Conflict Check
-
-1. Glob for `docs/**/*.md`, project CLAUDE.md, any architecture docs
-2. Read each one
-3. Check for contradictions with the proposed design:
-   - Does this design break assumptions made in other plans?
-   - Does it duplicate functionality already planned elsewhere?
-   - Does it conflict with stated architectural decisions?
-   - Does it change interfaces that other plans depend on?
-4. If conflicts found: **go back to Phase 3 (Grill)**. Frame each conflict as a new decision branch — grill the user on it, log the resolution, then re-run conflict review.
-
-### 6.2 Dead Code Scan
-
-Scan the codebase for code that would become **dead, obsolete, or superseded** by this design:
-
-1. **Identify replaced functionality** — if this design replaces an existing feature, find all code
-   that implements the old version (functions, classes, routes, configs, tests, migrations)
-2. **Trace callers** — for each candidate dead code, grep for references. If nothing else calls it
-   after the new design ships, it's dead.
-3. **Check for indirect consumers** — APIs, scheduled jobs, external scripts, other repos that
-   might still depend on the old code
-4. **Classify each candidate:**
-
-   | Status | Meaning |
-   |--------|---------|
-   | **Dead** | No callers after new design ships. Safe to delete. |
-   | **Legacy** | Still has callers, but the new design supersedes it. Needs migration path. |
-   | **Shared** | Used by both old and new code paths. Keep. |
-
-5. **Ask the user (in Chinese) for each Dead or Legacy item:**
-
-   ```
-   这个设计会让以下代码变成死代码:
-
-   1. [Dead] `src/old_handler.py` — 旧的处理逻辑，新设计完全替代
-      → A) 删除  B) 保留做 legacy 支持  C) 先标记 deprecated，后续再删
-
-   2. [Legacy] `api/v1/old_endpoint.py` — 还有外部调用者
-      → A) 加 deprecation warning + 设迁移期限  B) 保持不动  C) 同时支持新旧
-   ```
-
-6. **Log each decision** in the decision log with rationale
-7. **Include in spec** — the spec's scope section should explicitly list what gets deleted,
-   deprecated, or kept for legacy support
-
-Only proceed when there are zero unresolved conflicts AND all dead code decisions are logged.
-
----
-
-## Phase 7: Write Spec
-
-Write the design doc to `docs/specs/YYYY-MM-DD-<topic>-design.md` (or user-preferred location).
-
-The spec MUST include a **Test Matrix** section that **references** the test-matrix doc
-produced by `wayne-test-design` in Phase 5 — it does NOT inline a second copy of the
-contract table. Requirements:
-- Link the matrix doc path (`docs/test-matrix/...`); state that its e2e layer is the
-  E2E Verification Contract and the matrix is the SSoT for both layers.
-- Do NOT paste the contract table into the spec — a second authored copy is exactly the
-  drift this delegation removed. The spec points; the matrix owns.
-- The matrix's e2e Status cells are all `⬜` at this stage (only wayne-verify flips them).
-
-After writing:
-- Quick inline check: any TBD/TODO, contradictions, ambiguity? Fix them.
-- Confirm the spec references the matrix doc and does not duplicate the contract table.
-- Ask user to review the written spec before proceeding.
-
----
-
-## Phase 8: Plan Review via gstack
-
-After the spec is written and committed, run two gstack review skills on it:
-
-1. **Invoke `/plan-ceo-review`** — CEO/founder-mode review on the spec. Challenges premises, looks for the 10-star version, questions scope.
-2. **Invoke `/plan-eng-review`** — Eng manager-mode review on the spec. Locks in architecture, data flow, edge cases, test coverage, performance.
-
-**Process:**
-- Invoke each skill via the Skill tool, passing the spec path
-- Collect feedback from both reviews
-- Present combined feedback to the user (in Chinese)
-- If either review surfaces issues that require spec changes:
-  - Revise the spec
-  - Re-run the reviews until both pass clean
-- Log review outcomes in the decision log
-
-Only proceed to plan creation once both reviews are satisfied.
-
----
-
-## Phase 9: Hand off to wayne-plan
-
-Design phase ends here. Plan creation is delegated.
-
-1. Update the decision log status from `in-progress` to `design-approved` and add links to the spec + test matrix.
-2. Tell the user (Chinese): "Spec 已落盘 at `<path>`，测试矩阵 at `<path>`，CEO + Eng review 都过。要做实现计划请调用 `wayne-plan`，它会读 decision log + spec + 测试矩阵产出 plan。"
-3. **Emit a standardized handoff packet** — auto-call **wayne-checkpoint in handoff mode**.
-   The handoff mechanism is defined in wayne-checkpoint; this skill only invokes it — do
-   NOT implement it here. The packet's `next agent` is **wayne-plan**, and it carries the
-   **test matrix forward** (whose e2e layer is the E2E Verification Contract, all Status = ⬜)
-   so wayne-plan inherits it unchanged. **Mode A — the packet is RETURNED only; it does NOT
-   auto-advance.** The user manually triggers wayne-plan. This emission is additive on top
-   of the hand-off message in step 2, not a replacement.
-4. **Do NOT write the implementation plan in this skill.** That's wayne-plan's job. Skill ends.
-
-Why split: wayne-mind-explode owns "design + decisions + spec + reviews". wayne-plan owns "plan from spec". Each is a focused workflow with its own quality bar. Bundling them in one skill bloats both and makes interruption / resumption messy. SSoT for plan creation = wayne-plan.
-
----
-
-## Key Principles
-
-- **Log everything** — if it wasn't logged, it didn't happen
-- **Codebase over questions** — explore before asking
-- **One question, one recommendation** — never leave the user without guidance
-- **Challenge weakness** — "I don't care" is not a valid decision
-- **Conflict-free by design** — no spec ships with unresolved contradictions
-- **YAGNI ruthlessly** — remove unnecessary features from all designs
+- No code, scaffolding, implementation plan, or unrequested commit.
+- No question whose answer exists in the repository or approved sources.
+- No spec before all required decisions and conflicts are resolved.
+- No duplicated E2E contract or second test-matrix owner.
+- No claimed dual review without two real executions on the final revision.
