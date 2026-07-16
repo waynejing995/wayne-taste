@@ -1,697 +1,164 @@
 ---
 name: wayne-work
-description: Execute implementation plans systematically. Reads wayne-plan, follows decision log, builds task-by-task with test-as-you-go. Hands off to wayne-code-review then wayne-ship. Use when you have a plan and need to build it. Trigger on "build this", "implement", "start working", "execute the plan", "let's build".
+description: "Executes an approved Wayne plan unit by unit: validates inputs and scope, establishes requested RED evidence, implements and verifies each unit, checks owned U rows while preserving E rows, proves the full diff, and hands off to wayne-code-review. Use for ‘build this’, ‘implement/execute the plan’, ‘start working’, ‘let's build’, or equivalent Chinese implementation requests with a durable plan."
 ---
 
 # Wayne Work
 
-Execute a plan systematically. Ship complete features, not 80% progress.
+Execute one approved implementation plan to a verified, review-ready diff.
 
-This skill takes a plan from `wayne-plan` (or a bare prompt) and builds it
-task by task, testing as it goes. It does NOT commit or create PRs — that's
-`wayne-ship`'s job after `wayne-code-review` passes.
+## Boundary
 
-## Inherits from ~/.claude/CLAUDE.md
+Own implementation, plan-unit tracking, test-as-you-go, integration, U status
+updates, and the final work handoff. Do not redesign approved behavior, author a
+new plan/test matrix, change E status, commit, branch, push, open a PR, run runtime
+verification, invoke code review, or ship.
 
-This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
+The plan, decision log, and test matrix are source contracts. Existing repository
+instructions and unrelated dirty files remain untouched.
 
-- Language Rules (Chinese to user, English to files)
-- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
-- Code Standards (uv run python, markdown tables)
-- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
-- Skill invocation rule (proportional effort)
-
-This skill only specifies the implementation / per-task execution / build workflow.
-
-## Files Written
-
-source code, tests, configs, code comments, task updates. Task names / phase headers / status markers stay English in Chinese prose.
-
-## Checklist
-
-1. **Find the plan** — locate wayne-plan + decision log
-2. **Setup environment** — branch, deps, verify tools
-3. **Create task list** — derive from plan's implementation units
-4. **Execute loop** — build each task, test, mark done
-5. **Quality check** — full test suite, lint, pattern compliance
-6. **Hand off** — to `wayne-code-review` then `wayne-ship`
-
-## Process Flow
+## Flow
 
 ```dot
 digraph work {
     rankdir=TB;
+    A [label="Load approved inputs", shape=box];
+    B [label="Complete and consistent?", shape=diamond];
+    X [label="Return exact blocker", shape=doublecircle];
+    C [label="Freeze baseline and unit graph", shape=box];
+    D [label="Pick ready unit", shape=box];
+    E [label="Test-first unit?", shape=diamond];
+    R [label="Establish relevant RED", shape=box];
+    F [label="Implement unit", shape=box];
+    G [label="Unit verification passes?", shape=diamond];
+    T [label="Fix observed failure", shape=box];
+    H [label="Audit diff and tick U rows", shape=box];
+    I [label="More units?", shape=diamond];
+    J [label="Run full verification and scope audit", shape=box];
+    K [label="All gates pass?", shape=diamond];
+    L [label="Checkpoint for code review", shape=doublecircle];
 
-    "Find plan + decision log" [shape=box];
-    "Setup: branch + environment" [shape=box];
-    "Create task list from\nimplementation units" [shape=box];
-    "Pick next task\n(dependency order)" [shape=box];
-    "Read plan unit:\nGoal, Interfaces, Files,\nApproach, Patterns, U rows" [shape=box];
-    "Find existing test files\n(Test Discovery)" [shape=box];
-    "Implement following\nexisting patterns" [shape=box];
-    "Write/update tests" [shape=box];
-    "Run tests" [shape=box];
-    "Tests pass?" [shape=diamond];
-    "Fix failures" [shape=box];
-    "Mark task done" [shape=box];
-    "More tasks?" [shape=diamond];
-    "Quality check:\nfull suite + lint" [shape=box];
-    "Emit handoff packet\n(wayne-checkpoint, Mode A)\nnext = wayne-code-review" [shape=box];
-    "Hand off to\nwayne-code-review" [shape=doublecircle];
-
-    "Find plan + decision log" -> "Setup: branch + environment";
-    "Setup: branch + environment" -> "Create task list from\nimplementation units";
-    "Create task list from\nimplementation units" -> "Pick next task\n(dependency order)";
-    "Pick next task\n(dependency order)" -> "Read plan unit:\nGoal, Interfaces, Files,\nApproach, Patterns, U rows";
-    "Read plan unit:\nGoal, Interfaces, Files,\nApproach, Patterns, U rows" -> "Find existing test files\n(Test Discovery)";
-    "Find existing test files\n(Test Discovery)" -> "Implement following\nexisting patterns";
-    "Implement following\nexisting patterns" -> "Write/update tests";
-    "Write/update tests" -> "Run tests";
-    "Run tests" -> "Tests pass?";
-    "Tests pass?" -> "Mark task done" [label="yes"];
-    "Tests pass?" -> "Fix failures" [label="no"];
-    "Fix failures" -> "Run tests";
-    "Mark task done" -> "More tasks?";
-    "More tasks?" -> "Pick next task\n(dependency order)" [label="yes"];
-    "More tasks?" -> "Quality check:\nfull suite + lint" [label="no"];
-    "Quality check:\nfull suite + lint" -> "Emit handoff packet\n(wayne-checkpoint, Mode A)\nnext = wayne-code-review";
-    "Emit handoff packet\n(wayne-checkpoint, Mode A)\nnext = wayne-code-review" -> "Hand off to\nwayne-code-review";
+    A -> B;
+    B -> X [label="no"];
+    B -> C [label="yes"];
+    C -> D;
+    D -> E;
+    E -> R [label="yes"];
+    E -> F [label="no"];
+    R -> F;
+    F -> G;
+    G -> T [label="no"];
+    T -> G;
+    G -> H [label="yes"];
+    H -> I;
+    I -> D [label="yes"];
+    I -> J [label="no"];
+    J -> K;
+    K -> T [label="no"];
+    K -> L [label="yes"];
 }
 ```
 
----
+## Process
 
-## Phase 0: Input Triage
+### A. Load and validate inputs
 
-Determine what you're working from:
+Read repository instructions first, then the active plan, decision log, test
+matrix, and referenced spec completely. Validate before editing:
 
-| Input | Action |
-|-------|--------|
-| **Plan file** (`docs/plans/*.md`) | Read it, go to Phase 1 |
-| **Bare prompt** ("add X to Y") | Scan affected files, assess complexity, build task list |
+- plan status is approved and no other active plan conflicts;
+- each implementation unit has goal, dependencies, consumes/produces, files,
+  approach/design, patterns, test scenarios, U/E ownership, and verification;
+- every referenced U and E row exists once in the authoritative matrix;
+- unit file writes fit repository and plan scope boundaries;
+- no unresolved decision changes the implementation shape.
 
-### Bare prompt complexity routing
+Do not invent a missing row, choose precedence between conflicting sources, or
+partially implement around a protected file. Return the task's blocker contract.
+When the caller requires a five-line blocker, emit exactly those five non-empty
+lines with no preamble, Markdown fence, explanation outside line 5, or postscript.
 
-| Complexity | Signals | Action |
-|-----------|---------|--------|
-| **Trivial** | 1-2 files, no behavioral change | Implement directly, skip task list |
-| **Small/Medium** | Clear scope, <10 files | Build task list, proceed |
-| **Large** | Cross-cutting, 10+ files, auth/payments | 建议先跑 `wayne-mind-explode` + `wayne-plan`。如果用户坚持直接做，那就建任务列表继续 |
+### C. Freeze baseline and task graph
 
----
+Capture branch, status, existing dirty paths, and the source/input manifest without
+changing them. Do not create a feature branch or commit. Convert plan units into a
+dependency graph and track their status with whatever task mechanism the current
+runtime provides; no provider-specific task/team tool is required.
 
-## Phase 1: Quick Start
+For each unit, extract its full text and relevant decisions before dispatch. A
+worker must receive the unit contract directly, not rediscover or reinterpret the
+whole plan. Parallelize only units whose writes do not overlap and whose inputs do
+not depend on another unit's outputs. The main agent remains owner of scope, matrix
+status, integration, and completion.
 
-### 1.1 Read Plan + Decision Log
+### D. Start one ready unit
 
-If a plan exists:
-- Read it completely
-- Check for `Execution note` on each implementation unit (test-first, characterization-first, etc.)
-- Check `Deferred to Implementation` section — questions left for you to resolve
-- Check `Scope Boundaries` — explicit non-goals, refer back if scope creep starts
-- Read `Patterns to follow` for each unit before implementing
+Read the unit's real source and existing tests before writing. Confirm its expected
+inputs/outputs and discover all callers or consumers named by the plan. If the
+current code contradicts a plan assumption, stop and return the conflict to the
+planning owner; do not silently redesign.
 
-If a decision log exists (`docs/decisions/*.md`):
-- Read it — understand WHY decisions were made
-- Each decision constrains your implementation choices
-- If you need to deviate from a logged decision, flag it to the user
+### R. Establish RED when required
 
-**如果有不清楚的地方，现在问。做错了再返工比问一个问题贵得多。**
+Follow the unit execution note. For test-first work, run the exact unit command
+before implementation and preserve the non-zero result. The RED must fail for the
+missing behavior, not environment or tooling. An unexpected failure is a blocker
+to diagnose, not permission to start coding. Never edit, delete, skip, or weaken a
+locked test to manufacture GREEN.
 
-### 1.2 Setup Environment
+### F. Implement the unit
 
-```bash
-current_branch=$(git branch --show-current)
-default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-[ -z "$default_branch" ] && default_branch=$(git rev-parse --verify origin/main >/dev/null 2>&1 && echo "main" || echo "master")
-echo "BRANCH: $current_branch"
-echo "DEFAULT: $default_branch"
-```
+Change only plan-owned files and implement the named interfaces exactly. Preserve
+decision semantics, state ownership, error behavior, and existing repository
+patterns. Add tests only when the plan assigns test authorship to this stage; when
+tests are locked, treat them as immutable acceptance inputs.
 
-If on default branch, ask user (in Chinese) whether to create a feature branch.
-If on a feature branch already, confirm and continue.
+Use the current runtime's inline, delegated, or parallel execution mechanism as
+appropriate. Every implementer reports actual paths changed and commands run; no
+implementer commits or updates matrix/E ownership independently.
 
-### 1.3 Create Task List
+### G. Verify and repair from evidence
 
-Derive tasks from the plan's implementation units. For each unit, create a task with:
-- Goal from the unit
-- Files to create/modify/test
-- Dependencies on other tasks
-- Execution note (if any)
-- Verification criteria from the unit
+Run the unit's exact verification command. If it fails, connect the failure to the
+smallest source correction, apply it, and rerun the same command. Do not broaden
+scope, add speculative fallback, or swap in an easier check. A provider/tool
+failure is not a behavioral test result.
 
-Use TaskCreate to track each one. Mark dependencies with addBlockedBy.
+### H. Audit the unit and update U status
 
-### 1.4 Choose Execution Strategy
+Inspect the actual diff rather than trusting a worker summary. Compare every unit
+requirement and decision with code and tests; reject missing, extra, or changed
+behavior. Check names, ownership, error paths, integration points, and unnecessary
+complexity. Only after the real test passes, change that unit's owned U rows from
+`☐` to `☑`. Never edit the U scenario text or any E row/status `⬜`.
 
-**Default bias: maximize parallelism.** If tasks can run in parallel, they should.
+### J. Prove integrated completion
 
-| Strategy | When | Priority |
-|----------|------|----------|
-| **Agent Teams** | 3+ tasks, Agent Teams available, complex coordination needed | **Preferred** |
-| **Parallel subagents** | 3+ tasks where units touch non-overlapping files | Default for independent tasks |
-| **Serial subagents** | 3+ tasks with hard dependencies between them | Only when parallel isn't possible |
-| **Inline** | 1-2 tasks, or bare prompt work | Smallest work only |
+After dependency waves finish, run the plan's full verification and lint commands.
+Then audit:
 
-### 1.4.1 Dependency Analysis
+- every unit is DONE with its produces consumed where planned;
+- all requirements and decisions have implementation evidence;
+- the diff contains only plan-owned source, authorized U status changes, and work
+  state; unrelated dirty files and locked inputs are byte-identical;
+- every U row is `☑`, every E row remains `⬜`;
+- no TODO, partial implementation, staged file, commit, branch, or downstream
+  action was introduced.
 
-Before choosing strategy, build the dependency graph from the task list:
+Do not call the feature complete while any command, unit, U row, decision, or scope
+gate is unresolved.
 
-```
-For each task pair (A, B):
-  - Do they touch overlapping files? → B depends on A (or vice versa)
-  - Does B's input require A's output? → B depends on A
-  - Are they independent? → Can run in parallel
-```
+### L. Handoff to wayne-code-review
 
-Group tasks into **waves** — each wave contains tasks that can run in parallel:
+Invoke `wayne-checkpoint` in return-only handoff mode. Include the plan and matrix
+paths, completed units, exact passing commands, changed paths, preserved scope,
+and residual risks; set the next agent to `wayne-code-review`. Tell the user tests
+passed and explicitly name `wayne-code-review` as the next stage. Do not invoke it.
 
-```
-Wave 1: [Task 1, Task 3, Task 5]  ← no dependencies between them
-Wave 2: [Task 2, Task 4]          ← depend on Wave 1 outputs
-Wave 3: [Task 6]                  ← depends on Wave 2
-```
+## Red lines
 
-### 1.4.2 Agent Teams (Preferred when available)
-
-If TeamCreate is available and there are 3+ tasks:
-
-1. **Create team** via TeamCreate
-2. **Create tasks** via TaskCreate with dependency relationships
-3. **Spawn teammates** via Agent tool with `team_name` — one per parallel wave or specialized role:
-   - **Implementer agents** — one per independent task or task group
-   - **Tester agent** (optional) — runs tests continuously as implementers finish
-4. **Coordinate** — monitor task completion, unblock dependent tasks, reassign if stuck
-5. **Merge results** — after all tasks complete, verify no conflicts between parallel work
-6. **Cleanup** — shutdown teammates, delete team
-
-**Agent team dispatch prompt for each teammate:**
-```
-You are implementing Unit N from the plan at <plan_path>.
-Decision log: <decisions_path>
-
-Your unit:
-- Goal: <goal>
-- Interfaces: <interfaces>  (Consumes: signatures from earlier units; Produces: what later units rely on — implement exactly these names/types)
-- Files: <files>  (each as `path → symbol/what changes`)
-- Approach: <approach>
-- Patterns to follow: <patterns>
-- Test scenarios (U rows): <u_rows>  (Status ☐ — you build these and tick ☐ → ☑; authored by the plan against this unit's real surface)
-- E rows: <e_rows>  (Status ⬜ — leave for wayne-verify)
-- Verification: <verification>
-
-Rules:
-- Follow existing code patterns. Read before writing.
-- Honour the Interfaces block — produce the exact function names / param & return types later units depend on.
-- Write/update tests for every behavioral change. The U rows are authored by the plan, locked to this unit and written against its real inputs/functions — implement exactly those; do not re-invent cases.
-- Tick each U row `☐ → ☑` in the matrix as its test passes. NEVER touch the e2e `⬜` column — that is wayne-verify's sole authority.
-- Run tests after each change — fix failures immediately.
-- Do NOT commit (wayne-ship handles that).
-- Report when done: what was built, what tests pass, any concerns.
-```
-
-### 1.4.3 Parallel Subagents (Fallback)
-
-If Agent Teams unavailable, dispatch independent tasks as parallel subagents:
-
-- Launch all independent tasks in a **single message** with multiple Agent tool calls
-- After Wave 1 completes, launch Wave 2, etc.
-- Give each agent the same context as Agent Teams (plan, unit, decision log)
-
-### 1.4.4 Conflict Resolution After Parallel Work
-
-After parallel agents complete (whether Agent Teams or parallel subagents):
-
-1. **Check for merge conflicts** — did agents edit overlapping code?
-2. **Run full test suite** — parallel changes may break each other
-3. **Review integration points** — where parallel units interact, verify they connect correctly
-4. If conflicts or failures: fix them before proceeding to the next wave
-
----
-
-## Phase 2: Execute
-
-### 2.0 Extract All Task Context Upfront
-
-**Before dispatching any subagent**, the controller (you) extracts FULL text for every task
-from the plan. Subagents never read the plan file — you provide everything they need.
-
-For each task, prepare:
-- Full task text from plan (Goal, Interfaces, Files-with-symbol, Approach, Technical design, Patterns, Test scenarios (U rows), E rows, Verification)
-- Decision log entries relevant to this task
-- Scene-setting context (where this fits in the overall design, dependencies)
-- Execution note (test-first, characterization-first, etc.)
-
-### 2.1 Per-Task Execution Cycle
-
-Each task goes through this cycle, whether inline, subagent, or agent team member:
-
-```dot
-digraph task_cycle {
-    rankdir=TB;
-    "Dispatch implementer\n(full task text + context)" [shape=box];
-    "Implementer status?" [shape=diamond];
-    "Answer questions,\nre-dispatch" [shape=box];
-    "Provide context,\nre-dispatch" [shape=box];
-    "Assess blocker:\nmore context? stronger model?\nbreak task?" [shape=box];
-    "Spec compliance review" [shape=box];
-    "Spec passes?" [shape=diamond];
-    "Implementer fixes\nspec gaps" [shape=box];
-    "Code quality review" [shape=box];
-    "Quality passes?" [shape=diamond];
-    "Implementer fixes\nquality issues" [shape=box];
-    "Mark task done" [shape=doublecircle];
-
-    "Dispatch implementer\n(full task text + context)" -> "Implementer status?";
-    "Implementer status?" -> "Spec compliance review" [label="DONE"];
-    "Implementer status?" -> "Spec compliance review" [label="DONE_WITH_CONCERNS\n(note concerns)"];
-    "Implementer status?" -> "Answer questions,\nre-dispatch" [label="NEEDS_CONTEXT"];
-    "Implementer status?" -> "Assess blocker:\nmore context? stronger model?\nbreak task?" [label="BLOCKED"];
-    "Answer questions,\nre-dispatch" -> "Implementer status?";
-    "Assess blocker:\nmore context? stronger model?\nbreak task?" -> "Dispatch implementer\n(full task text + context)";
-    "Spec compliance review" -> "Spec passes?";
-    "Spec passes?" -> "Code quality review" [label="yes"];
-    "Spec passes?" -> "Implementer fixes\nspec gaps" [label="no"];
-    "Implementer fixes\nspec gaps" -> "Spec compliance review";
-    "Code quality review" -> "Quality passes?";
-    "Quality passes?" -> "Mark task done" [label="yes"];
-    "Quality passes?" -> "Implementer fixes\nquality issues" [label="no"];
-    "Implementer fixes\nquality issues" -> "Code quality review";
-}
-```
-
-### 2.2 Implementer Dispatch
-
-Dispatch via Agent tool. **Provide full task text — never make subagent read the plan file.**
-
-```
-Agent(description: "Implement Task N: [name]", prompt: |
-  You are implementing Task N: [name]
-
-  ## Task Description
-  [FULL TEXT of task from plan — pasted here]
-
-  ## Context
-  [Where this fits, dependencies, what was decided and why (from decision log)]
-
-  ## Before You Begin
-  If you have questions about requirements, approach, or dependencies — ask now.
-
-  ## Your Job
-  1. Implement exactly what the task specifies
-  2. Write tests (follow Execution note if present)
-  3. Verify implementation works — run tests
-  4. Self-review: completeness, quality, YAGNI
-  5. Report back
-
-  Do NOT commit (wayne-ship handles that).
-
-  ## Report Format
-  - **Status:** DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
-  - What you implemented
-  - Files changed
-  - Test results
-  - Self-review findings
-  - Any concerns
-)
-```
-
-### 2.3 Implementer Status Handling
-
-| Status | Action |
-|--------|--------|
-| **DONE** | Proceed to spec compliance review |
-| **DONE_WITH_CONCERNS** | Read concerns. If correctness/scope issue → address first. If observation → note and proceed to review |
-| **NEEDS_CONTEXT** | Provide missing context, re-dispatch same agent via SendMessage |
-| **BLOCKED** | 1) Context problem → provide more context. 2) Task too hard → re-dispatch with `model: "opus"`. 3) Task too large → break into subtasks. 4) Plan is wrong → flag to user |
-
-**Never** ignore an escalation or force retry without changes.
-
-### 2.4 Two-Stage Per-Task Review (Main Agent)
-
-The **main agent (you)** runs both review stages directly — no separate reviewer subagents.
-This keeps the review loop tight and avoids context fragmentation.
-
-**Stage 1: Spec Compliance** — Did they build what was requested? Nothing more, nothing less.
-
-When implementer reports DONE:
-1. Read the ACTUAL CODE they changed (do NOT trust the report)
-2. Compare to the task requirements line by line
-3. Check for:
-   - **Missing:** requirements skipped or not implemented
-   - **Extra:** features not requested (YAGNI violation)
-   - **Misunderstood:** right feature, wrong interpretation
-4. Verdict: ✅ Spec compliant OR ❌ Issues (list with file:line)
-
-If ❌ → send fix instructions to implementer via SendMessage → implementer fixes →
-you review again → repeat until ✅
-
-**Stage 2: Code Quality** — Is the implementation well-built? (Only after spec passes)
-
-1. Read the diff for this task's files
-2. Check:
-   - Code follows existing patterns?
-   - Names clear and accurate?
-   - Tests verify behavior (not just mock behavior)?
-   - Each file has one clear responsibility?
-   - No unnecessary complexity?
-3. Verdict: ✅ Approved OR ❌ Issues (list with file:line + recommended fix)
-
-If ❌ → send fix instructions to implementer → implementer fixes → you review again →
-repeat until approved.
-
-**Why main agent reviews:** In Agent Teams, the lead has full context — the plan,
-the decision log, all prior task results. Dispatching separate reviewer subagents
-would lose this context. The lead reviews faster and catches cross-task consistency
-issues that isolated reviewers would miss.
-
-### 2.5 Parallel Wave Execution
-
-When using Agent Teams or parallel subagents, apply the per-task cycle in waves:
-
-```
-Wave 1: [Task A, Task C, Task E]  ← dispatch implementers in parallel
-  → Each completes → spec review each → quality review each
-  → Conflict resolution (merge check + full test suite)
-
-Wave 2: [Task B, Task D]          ← depend on Wave 1
-  → Same cycle
-  → Conflict resolution
-
-Wave 3: [Task F]                  ← depends on Wave 2
-  → Same cycle
-```
-
-**Within a wave:** implementers run in parallel (independent tasks, non-overlapping files).
-**Between waves:** conflict resolution before starting next wave.
-**Reviews:** can run in parallel across tasks within the same wave.
-
-### 2.6 Test Discovery
-
-Before changing a file, find its test files:
-- Search for test/spec files that import, reference, or share names with the implementation file
-- The unit's `Test scenarios (U rows)` field holds the test cases — start there
-- Supplement gaps from the unit's context
-
-### 2.7 System-Wide Check
-
-Before marking a task done:
-
-| Question | Action |
-|----------|--------|
-| What fires when this runs? (callbacks, observers, hooks) | Read actual code 2 levels out |
-| Do tests exercise the real chain, not just mocks? | Write at least one integration test |
-| Can failure leave orphaned state? | Test the failure path |
-| What other interfaces expose this? | Grep for the behavior in related classes |
-
-Skip for leaf-node changes with no callbacks or state persistence.
-
-### 2.8 No Commits During Build
-
-**Do NOT run `git commit` during this phase.** Committing is `wayne-ship`'s job.
-
-Track which files belong to which logical unit so `wayne-ship` can commit per-feature.
-
----
-
-## External Delegate Mode (Optional)
-
-For pure code implementation tasks where token conservation matters, delegate to
-Codex CLI while keeping planning, review, and git operations in Claude.
-
-### When to Use
-
-| Delegate | Standard |
-|----------|----------|
-| Pure code implementation | Research or exploration needed |
-| Plan has clear acceptance criteria | Ambiguous, needs iteration |
-| Token conservation matters | Small task, unlimited context |
-| Well-scoped file changes | Many interconnected files |
-
-### Activation
-
-- User says "delegate to codex" or "delegate mode"
-- Plan unit has `Execution target: external-delegate` in its Execution note
-
-### Environment Guard
-
-Before delegating, check if already inside a sandbox:
-```bash
-[ -n "$CODEX_SANDBOX" ] || [ -n "$CODEX_SESSION_ID" ] && echo "INSIDE_SANDBOX" || echo "SAFE"
-```
-If inside sandbox: skip delegation, use standard mode.
-
-### Workflow per Task
-
-1. **Check:** `which codex 2>/dev/null` — if not found, use standard mode
-2. **Build prompt:** Goal, Files, Approach from plan unit + project conventions. Include:
-   "No git commits, no PRs. Run `git status` and `git diff --stat` when done."
-3. **Write prompt to temp file** (avoid shell quoting issues)
-4. **Run:** `cat /tmp/task-prompt.md | codex exec -s read-only`
-5. **Review diff:** Verify non-empty and in-scope. Run tests/lint.
-6. **Fall back** on any failure. After 3 consecutive failures, disable delegation.
-
-Claude handles all git operations — Codex sandbox blocks `.git/` writes.
-
----
-
-## Phase 2.9: Plan Alignment Check (Subagent)
-
-After ALL tasks complete, before quality check, dispatch a **plan alignment subagent**
-to verify the implementation matches the plan holistically — not just per-task, but
-the full picture.
-
-```
-Agent(description: "Plan alignment audit", prompt: |
-  You are auditing whether an implementation matches its plan.
-
-  ## The Plan
-  [Read the plan file at: <plan_path>]
-
-  ## The Decision Log
-  [Read the decision log at: <decisions_path>]
-
-  ## Your Job
-
-  Run `git diff origin/<base>` to see what was actually built.
-  Run `git log origin/<base>..HEAD --oneline` for commit history.
-
-  Cross-reference the diff against the plan. For EACH implementation unit in the plan:
-
-  1. **DONE** — clear evidence in the diff that this unit was implemented. Cite files.
-  2. **PARTIAL** — some work exists but incomplete.
-  3. **NOT DONE** — no evidence in the diff.
-  4. **CHANGED** — implemented differently than planned. Note the difference.
-
-  Then check for scope drift:
-  5. **EXTRA** — files or features in the diff that are NOT in any plan unit.
-
-  Then check decision compliance:
-  6. For each decision in the decision log, verify the implementation honors it.
-     Flag any decision that was contradicted.
-
-  Then check dead code cleanup:
-  7. If the plan has a "Dead Code / Legacy Cleanup" section, verify those
-     deletions/deprecations actually happened.
-
-  ## Output Format
-
-  PLAN ALIGNMENT AUDIT
-  ═══════════════════
-  Plan: <path>
-  Decision log: <path>
-
-  ## Unit Status
-  [DONE]      Unit 1: ... — files: ...
-  [DONE]      Unit 2: ... — files: ...
-  [PARTIAL]   Unit 3: ... — missing: ...
-  [NOT DONE]  Unit 4: ...
-  [CHANGED]   Unit 5: ... — planned X, built Y
-
-  ## Scope Drift
-  [EXTRA] path/to/unplanned_file — not in any plan unit
-  [CLEAN] no unplanned changes
-
-  ## Decision Compliance
-  [OK]        Decision #1: ...
-  [VIOLATED]  Decision #3: planned X but implemented Y
-
-  ## Dead Code Cleanup
-  [DONE]      Deleted old_handler.py
-  [NOT DONE]  Legacy endpoint still exists
-
-  ─────────────────────
-  COMPLETION: N/M DONE, X PARTIAL, Y NOT DONE, Z CHANGED
-  DRIFT: [CLEAN / N unplanned items]
-  DECISIONS: [ALL HONORED / N violations]
-  VERDICT: ALIGNED / GAPS FOUND
-  ─────────────────────
-)
-```
-
-### Handle Alignment Results
-
-| Verdict | Action |
-|---------|--------|
-| **ALIGNED** | 继续 Phase 3 质量检查 |
-| **GAPS FOUND — PARTIAL/NOT DONE** | 告诉用户哪些计划项没完成，问要不要补做还是标记为 deferred |
-| **GAPS FOUND — SCOPE DRIFT** | 告诉用户有未计划的改动，问要不要保留还是回退 |
-| **GAPS FOUND — DECISION VIOLATED** | 这是严重问题。告诉用户哪个决策被违反了，必须修复后才能继续 |
-
-Decision violations are **blocking** — fix before proceeding.
-PARTIAL/NOT DONE and EXTRA are **user's call** — present and let them decide.
-
----
-
-## Phase 3: Quality Check
-
-Before handing off to review:
-
-```bash
-# Run full test suite (project's test command)
-# Run linting (project's lint command)
-```
-
-### Verification Checklist
-
-- [ ] All tasks marked completed
-- [ ] Plan alignment audit passed (Phase 2.9)
-- [ ] Tests pass — new/changed behavior has corresponding test coverage
-- [ ] Linting passes
-- [ ] Code follows existing patterns (read Patterns to follow from plan)
-- [ ] No console errors or warnings
-- [ ] If plan has `Requirements Trace`, verify each requirement is satisfied
-- [ ] If any `Deferred to Implementation` questions existed, confirm they were resolved
-- [ ] Scope boundaries respected — no unplanned work crept in
-
-### Tell the user (in Chinese)
-
-```
-实现完成。所有任务已完成，测试通过，lint 通过。
-
-接下来：
-1. 运行 wayne-code-review (双声道审查)
-2. 审查通过后运行 wayne-ship (提交)
-3. 提交后运行 wayne-compound (记录经验)
-
-要现在开始审查吗？
-```
-
----
-
-## Phase 4: Hand Off
-
-This skill's job ends here. The next skills in the pipeline are:
-
-1. **`wayne-code-review`** — dual-voice review gate (must pass)
-2. **`wayne-verify`** — runtime verification gate (run the app, observe behavior)
-3. **`wayne-ship`** — atomic commits with Jira prefix, `[why]/[how]`, `-s`
-4. **`wayne-compound`** — capture lessons learned
-
-Suggest invoking `wayne-code-review` when Phase 3 passes.
-
-### Emit Handoff Packet (auto)
-
-When the Phase 3 quality check passes, wayne-work auto-calls **wayne-checkpoint in
-handoff mode** as its final step (`Skill(skill: "wayne-checkpoint", args: "handoff")`).
-This standardizes the transition to the next stage. The handoff packet contains:
-
-- **snapshot** — git branch/status + which implementation units are done (checkbox
-  status) + current pipeline stage (`work`)
-- **next agent** — `wayne-code-review`
-- **next prompt** — a self-contained prompt for the review stage (branch, plan/spec
-  paths, units in scope, what "done" looks like) so the next agent needs no prior context
-- **goal (optional)** — a success-criteria block, included only when concrete criteria
-  are extractable
-
-**Mode A — return-only.** The packet is emitted/surfaced only. It does NOT auto-invoke
-`wayne-code-review` and never nests another agent. The user manually triggers the next
-step (says "下一步" / "继续" / "go"). This standardizes the existing
-suggestion-to-invoke-code-review above via the packet — wayne-work itself stops here.
-
----
-
-## Integration with Wayne Pipeline
-
-```
-wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-verify → wayne-ship → wayne-compound
-     (WHAT)            (HOW)       (BUILD)      (STATIC GATE)      (RUNTIME GATE)  (COMMIT)     (LEARN)
-```
-
-### What wayne-work reads
-
-| Artifact | What it provides |
-|----------|-----------------|
-| **Decision log** | Why decisions were made — constrains implementation choices |
-| **Plan** | Implementation units — Goal, Interfaces, Files-with-symbol, Approach, Patterns, Test scenarios (U rows), E rows, Verification |
-| **Test Matrix** | Layer 1 (U rows, plan-authored & locked to your unit) — you build + tick `☐→☑`; Layer 2 (E rows, carried) left for wayne-verify |
-| **Existing code** | Patterns to follow, conventions to match |
-
-### What wayne-work does NOT do
-
-- **Does NOT commit** — that's `wayne-ship`
-- **Does NOT review** — that's `wayne-code-review`
-- **Does NOT create PRs** — that's `wayne-ship`
-- **Does NOT capture learnings** — that's `wayne-compound`
-
----
-
-## Logging Standard
-
-All code produced by wayne-work MUST include proper logging. This is a non-negotiable quality gate.
-
-### Required Levels
-
-| Level | When |
-|-------|------|
-| `DEBUG` | Internal state, variable dumps, trace-level detail |
-| `INFO` | Normal operation milestones (started, completed, counts) |
-| `WARNING` | Recoverable issues, fallbacks, deprecation notices |
-| `ERROR` | Failures that prevent expected outcome |
-
-### Verbosity Control
-
-- **Default (no `-v`):** show `INFO`, `WARNING`, `ERROR`. Hide `DEBUG`.
-- **`-v` flag:** show all levels including `DEBUG`.
-
-### Implementation Rules
-
-1. **Every script entry point** must accept `-v`/`--verbose` and configure loguru level accordingly
-2. **Never use bare `print()`** for operational output — use `logger.info()`. `print()` is only for stdout data output
-3. **Prefer `click`** over `argparse` for CLI argument parsing
-4. **Prefer `loguru`** over stdlib `logging`
-
-### Setup Pattern
-
-```python
-import click
-from loguru import logger
-import sys
-
-@click.command()
-@click.option("-v", "--verbose", is_flag=True, help="Show debug logs")
-def main(verbose):
-    logger.remove()
-    logger.add(sys.stderr, level="DEBUG" if verbose else "INFO")
-    logger.info("started")
-```
-
-### Quality Check Integration
-
-During Phase 3 quality check, verify:
-- [ ] All scripts have `-v` flag support
-- [ ] No bare `print()` for operational output
-- [ ] Appropriate log levels used (not everything is INFO)
-- [ ] `DEBUG` logs present for non-trivial logic paths
-- [ ] `ERROR` logs include actionable context (what failed, why, what to do)
-
----
-
-## Key Principles
-
-- **读了再写** — read existing patterns before implementing
-- **边做边测** — test after each change, not at the end
-- **决策可追溯** — every implementation choice traces to a plan unit or decision log entry
-- **不越界** — respect scope boundaries, don't add unplanned work
-- **做完再走** — finish the feature, don't leave it 80% done
-- **Chinese for discussion, English for code**
+- No implementation with incomplete/conflicting source contracts.
+- No provider-specific task tool, forced delegation, or fake parallelism.
+- No test weakening, hidden substitute command, unchecked U row, or changed E row.
+- No completion claim without full verification and actual scope-diff proof.
+- No commit, branch, stage, push, review, verify, ship, or auto-advance.
