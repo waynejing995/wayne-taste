@@ -129,7 +129,7 @@ def probe(path: str, dump_dir: str | None) -> dict:
     out["fft"] = fft
     if dump_dir:
         spec = np.log1p(np.abs(np.fft.fftshift(np.fft.fft2(gray - gray.mean()))))
-        spec = (255 * (spec - spec.min()) / (spec.ptp() + 1e-9)).astype(np.uint8)
+        spec = (255 * (spec - spec.min()) / (np.ptp(spec) + 1e-9)).astype(np.uint8)
         Image.fromarray(spec, "L").save(str(Path(dump_dir) / f"{Path(path).stem}_spectrum.png"))
 
     flags = []
