@@ -3,9 +3,11 @@ title: {title}
 status: handoff
 branch: {branch}
 timestamp: {ISO-8601}
-pipeline_stage: {brainstorm|plan|work|review|verify|ship}
+pipeline_stage: {triage|brainstorm|plan|work|review|verify|ship}
 pipeline_phase: {specific phase within the calling skill, e.g. "Wave 2 done"}
-next_agent: {wayne-plan|wayne-work|wayne-code-review|wayne-verify|wayne-ship|wayne-compound}
+route: {caller route verdict | none for a linear stage}
+snapshot: {primary repository-relative artifact}
+next_agent: {one available wayne-* Skill slug}
 trigger: manual
 goal_included: {true|false}
 decision_log: docs/decisions/{file}.md
@@ -26,6 +28,8 @@ The user must manually trigger the next step (say "下一步" / "继续" / "go")
 Current state at the moment of handoff (same fields a checkpoint captures).
 
 - **Pipeline stage:** {current stage}
+- **Route:** {caller route verdict | linear stage adjacency}
+- **Primary snapshot:** `{snapshot path}`
 - **Branch:** {branch}
 - **Git status:** {clean | N files modified, M staged}
 - **Decision log:** {N} decisions logged, status {in-progress/completed} — `{decision_log path}`
@@ -72,7 +76,8 @@ Plan: `{plan path}`. Spec: `{spec path}`. Decision log: `{decision_log path}`.
 Scope: {units / files / area in scope}.
 Already done: {what previous stages produced}.
 Do: {concrete instruction for this stage}.
-Done when: {what "done" looks like for this stage}.
+Acceptance criteria: {observable conditions that prove this stage is done}.
+Out of scope: {explicit exclusions carried from the caller}.
 ```
 
 ### Goal (optional)

@@ -294,9 +294,10 @@ digraph handoff {
 ### When it is called
 
 - **Auto:** the final step of every pipeline skill (wayne-mind-explode,
-  wayne-plan, wayne-work, wayne-code-review, wayne-verify, wayne-ship). Those
-  skills are edited separately to add the call; this skill defines what the call
-  DOES.
+  wayne-plan, wayne-work, wayne-code-review, wayne-verify, wayne-ship), plus a
+  caller-approved route from a non-linear front door such as `wayne-triage`.
+  Those skills are edited separately to add the call; this skill defines what
+  the call DOES.
 - **Manual:** `/wayne-checkpoint handoff` when the user wants the packet on demand.
 
 ### Step 1: Gather State
@@ -318,18 +319,26 @@ artifacts as in Save Flow), then look up the next agent:
 | `verify` | `wayne-ship` |
 | `ship` | `wayne-compound` |
 
+For a non-linear caller such as `wayne-triage`, do not reinterpret its verdict.
+Require the caller to supply `pipeline_stage`, `route`, one repository-relative
+`snapshot`, and exactly one `next_agent`. The target must be one available
+`wayne-*` Skill slug, never a verdict, chain, or external owner. If no internal
+target applies or validation fails, write no packet and return
+`NO_WAYNE_HANDOFF: <route> — <reason>`.
+
 ### Step 3: Build the Packet
 
 Assemble the four required parts plus the optional goal:
 
 1. **snapshot** — current state: git branch/status, decision-log progress, plan
-   implementation-unit checkbox status, current pipeline stage. (Same fields the
+   implementation-unit checkbox status, current pipeline stage, and the primary
+   repository-relative artifact supplied by the caller. (Same fields the
    checkpoint captures.)
 2. **next agent** — from the routing table above.
 3. **next prompt** — a SELF-CONTAINED prompt for the next step. The next agent has
-   NO prior context; the prompt must stand alone (name the branch, the plan/spec
-   paths, the units in scope, what "done" looks like). Do not write "continue from
-   before" — restate everything needed.
+   NO prior context; the prompt must stand alone (name the branch, snapshot and
+   plan/spec paths, scope, acceptance criteria, and out-of-scope). Do not write
+   "continue from before" — restate everything needed.
 4. **goal (OPTIONAL)** — a success-criteria / Goal-Driven block (per CLAUDE.md
    "Goal-Driven Execution"). Include ONLY when concrete success criteria are
    extractable. When present, the next step may loop autonomously toward the goal;
