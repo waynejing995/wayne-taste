@@ -19,6 +19,25 @@ discovery are adapter concerns, not separate instruction candidates.
 | GI11 | Python CLIs use the local `uv run python`, loguru, and intentional stdout boundary | `CLAUDE.md:9-15,159-179` | static candidate contract retains exact local tooling facts | candidate-static |
 | GI12 | Frontend work reads the named VoltAgent design source first | `CLAUDE.md:181-183` | static candidate contract retains the exact source URL and mandatory gate | candidate-static |
 | GI13 | State has one owner; derived views are reconstructible | `CLAUDE.md:19-27` | static candidate contract retains ownership and reconstructibility | candidate-static |
+| GI14 | Prefer deletion over added code, config, features, and speculative abstraction | `CLAUDE.md:51-57` | static candidate contract retains `Delete > Add` | candidate-static |
+| GI15 | Occam orders investigation but never ends RCA before all observations, reproduction, and sibling paths converge | `CLAUDE.md:59-74` | static candidate contract retains heuristic/not-stop and convergence clauses | candidate-static |
+| GI16 | Before a complex blocking question, explain the decision in plain Chinese | `CLAUDE.md:181-183` | static candidate contract retains the decision-point boundary | candidate-static |
+| GI17 | Never invoke the deprecated Claude-in-Chrome MCP surface | `CLAUDE.md:217` | static candidate contract retains the exact forbidden tool family | candidate-static |
+| GI18 | The personal KB has one fixed Obsidian vault path | `CLAUDE.md:219-220` | static candidate contract retains `/mnt/share/wayne-note/` | candidate-static |
+
+## Reverse source audit
+
+| Control clause family | Disposition |
+|---|---|
+| Language, tables, commit authorization/grammar/identity, logging, frontend source, state ownership, fail-loud, push, delete, surgical scope, and verification | Frozen by GI01-GI14. |
+| Occam and RCA convergence | Frozen by GI15; this is not generic brevity advice because it prevents early-stop root-cause failures. |
+| Decision-point Chinese explanation | Frozen by GI16. |
+| Named-skill invocation and proportional effort | Frozen by GI09-GI10 and the static skill contract. |
+| Full trigger-to-skill routing table | Derived from installed skill metadata and allowed to compress; the named-skill and medium-plus routing behavior remains frozen. |
+| `humanizer-zh` special route | Not frozen: the referenced skill is absent from the supported shared skill set. Re-approval is required before restoring it. |
+| `searxng` replacement for WebSearch/WebFetch | Not frozen: environment-specific and unavailable in the current shared harness. Tool selection must follow the live host. |
+| Claude-in-Chrome ban and KB path | Frozen local facts by GI17-GI18. |
+| Examples, anecdotes, repeated explanations, workflow diagrams, and generic read/think/KISS prose | Candidate-eligible compression; they earn retention only through a failed behavioral or owned-contract case. |
 
 Generic software advice may be shortened or deleted only after these owned
 behaviors remain green on both lanes. File length is a tie-breaker after parity.
