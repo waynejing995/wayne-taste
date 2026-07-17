@@ -1,0 +1,1 @@
+print("VISIBLE_GREETING")
