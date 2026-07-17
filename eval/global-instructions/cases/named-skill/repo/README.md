@@ -1,0 +1,1 @@
+# Named skill fixture

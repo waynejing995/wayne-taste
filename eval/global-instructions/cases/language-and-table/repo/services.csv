@@ -1,0 +1,3 @@
+service,owner,status
+api,platform,healthy
+worker,data,degraded
