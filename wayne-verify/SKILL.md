@@ -1,303 +1,128 @@
 ---
 name: wayne-verify
-description: Runtime end-to-end verification — the ONLY skill that actually RUNS the feature the way a real user runs it. Starts the real process, loads real data, drives the real entrypoint along each E2E contract row, observes the real user-visible outcome, and flips the contract Status column. Unit tests passing has zero bearing on this gate. The runtime gate between wayne-code-review (static) and wayne-ship (commit). Trigger on "verify", "e2e", "run the feature", "does it actually work", "runtime verification", "/wayne-verify".
+description: "Executes a carried E2E Verification Contract through the real process, data, entrypoint, and user path; captures fresh observable evidence; mutates only E2E Status; and gates shipping. Use for verify, e2e, run the feature, does it actually work, runtime verification, or /wayne-verify; never substitute unit tests or static review."
 ---
 
 # Wayne Verify
 
-Runtime end-to-end verification. The pipeline never otherwise RUNS the feature —
-`wayne-code-review` reads the diff and never starts the app. This skill is the only
-one that stands up the real environment, drives the real user path, and confirms the
-feature works in actual use.
+Run the feature as its user runs it and decide the runtime gate from fresh evidence.
 
-It executes the **E2E Verification Contract** — the e2e layer of the test matrix,
-carried into the plan (or in the standalone `docs/test-matrix/` doc) — and is the sole
-mutator of that layer's `Status` column (`⬜ → ✅/❌`). It never touches the
-unit-integration layer's `☐/☑` — that belongs to wayne-work.
+## Boundary and contract owner
 
-<HARD-GATE>
-Every contract row must be ✅ before `wayne-ship` may commit. A row that was never
-run, a process that won't start, or an observable that didn't appear blocks shipping.
-Unit tests passing does NOT satisfy this gate — it has zero bearing here.
-</HARD-GATE>
+Read `_shared/e2e-contract.md` completely. It owns
+the locked table, `E2E: none` declaration, and Status lifecycle. Locate the carried
+E2E layer in `docs/plans/` or `docs/test-matrix/`; do not author or repair it.
 
-## Inherits from ~/.claude/CLAUDE.md
+This skill alone may change the E2E `Status` cells (`⬜/✅/❌`). Never change a
+unit-integration status, another contract cell, or product code. Unit tests and
+static review have zero bearing on this gate.
 
-This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
-
-- Language Rules (Chinese to user, English to files)
-- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
-- Code Standards (uv run python, markdown tables)
-- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
-- Skill invocation rule (proportional effort)
-
-This skill only specifies the runtime verification workflow.
-
-## Contract Format — Single Source of Truth
-
-The contract format is **not** redeclared here. Read it once:
-
-**`_shared/e2e-contract.md`** — the locked column format
-(`| # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |`),
-the three fixed environment sub-columns, the Observable-must-be-a-real-outcome rule,
-the `E2E: none — <reason>` skip line, and the Status lifecycle.
-
-`wayne-test-design` WRITES it (as the e2e layer of the matrix; `wayne-mind-explode`
-invokes test-design to author it), `wayne-plan` CARRIES it, `wayne-work` BUILDS against
-it, `wayne-code-review` ignores it, **this skill EXECUTES it**, `wayne-ship` GATES on
-it.
-
-## Files Written
-
-Updates the `Status` column of the e2e layer table in-place (the plan's `## Test Matrix`
-section, or the standalone `docs/test-matrix/` doc — whichever the run carries).
-Writes evidence artifacts (captured output, response bodies, DB-state dumps,
-screenshots, logs) under a run scratch dir. Status symbols (⬜/✅/❌), file:line
-references, command output stay English in Chinese prose.
-
-## Checklist
-
-You MUST create a task for each and complete in order:
-
-1. **Locate the contract** — find the e2e layer table in the plan's `## Test Matrix` section (or the `docs/test-matrix/` doc)
-2. **Validate skip declarations** — confirm any `E2E: none` reason is legitimate
-3. **Per row: start the environment** — launch `Env: process`, load `Env: data`
-4. **Per row: drive the user path** — go through `Env: entrypoint`, do `User path` for real
-5. **Per row: check the observable** — confirm `Observable` happened, capture evidence
-6. **Per row: flip Status + tear down** — ⬜ → ✅/❌ with fresh evidence, stop the process
-7. **Gate + handoff** — any ❌ → not ready, offer wayne-work; all ✅ → handoff to wayne-ship
-
-## Process Flow
+## Flow
 
 ```dot
 digraph verify {
     rankdir=TB;
+    A [label="Locate and validate contract", shape=box];
+    B [label="Runnable contract row?", shape=diamond];
+    X [label="BLOCKED: return to test design", shape=doublecircle];
+    C [label="Prepare exact row environment", shape=box];
+    D [label="Start and observe readiness", shape=box];
+    E [label="Process ready?", shape=diamond];
+    F [label="Drive real user entrypoint", shape=box];
+    G [label="Capture real observable", shape=box];
+    H [label="Observable occurred?", shape=diamond];
+    P [label="Set fresh Status ✅", shape=box];
+    N [label="Set fresh Status ❌", shape=box];
+    T [label="Tear down and preserve evidence", shape=box];
+    M [label="More rows?", shape=diamond];
+    Q [label="Any ❌ or cleanup failure?", shape=diamond];
+    W [label="FAILED: return rows to wayne-work", shape=doublecircle];
+    S [label="PASSED: checkpoint handoff to wayne-ship", shape=doublecircle];
 
-    "Locate e2e layer\nin plan / matrix doc" [shape=box];
-    "Contract found?" [shape=diamond];
-    "STOP: no contract —\nask design to write one" [shape=box];
-    "Row is 'E2E: none'?" [shape=diamond];
-    "Confirm skip reason\nlegitimate; record\n'no runtime verif.'" [shape=box];
-    "Start Env: process\n+ load Env: data" [shape=box];
-    "Process started?" [shape=diamond];
-    "Status = ❌\n(Fail-Loud: not skipped)" [shape=box];
-    "Drive Env: entrypoint\nalong User path (real)" [shape=box];
-    "Observe Observable\n+ capture evidence" [shape=box];
-    "Observable occurred?" [shape=diamond];
-    "Status = ✅\n(fresh evidence)" [shape=box];
-    "Tear down process" [shape=box];
-    "More rows?" [shape=diamond];
-    "Any ❌ ?" [shape=diamond];
-    "Report failures —\nNOT ready to ship;\noffer wayne-work" [shape=box];
-    "All ✅ — call\nwayne-checkpoint handoff\n→ wayne-ship" [shape=doublecircle];
-
-    "Locate E2E contract\nin spec/plan" -> "Contract found?";
-    "Contract found?" -> "STOP: no contract —\nask design to write one" [label="no"];
-    "Contract found?" -> "Row is 'E2E: none'?" [label="yes"];
-    "Row is 'E2E: none'?" -> "Confirm skip reason\nlegitimate; record\n'no runtime verif.'" [label="yes"];
-    "Confirm skip reason\nlegitimate; record\n'no runtime verif.'" -> "More rows?";
-    "Row is 'E2E: none'?" -> "Start Env: process\n+ load Env: data" [label="no"];
-    "Start Env: process\n+ load Env: data" -> "Process started?";
-    "Process started?" -> "Status = ❌\n(Fail-Loud: not skipped)" [label="no"];
-    "Status = ❌\n(Fail-Loud: not skipped)" -> "Tear down process";
-    "Process started?" -> "Drive Env: entrypoint\nalong User path (real)" [label="yes"];
-    "Drive Env: entrypoint\nalong User path (real)" -> "Observe Observable\n+ capture evidence";
-    "Observe Observable\n+ capture evidence" -> "Observable occurred?";
-    "Observable occurred?" -> "Status = ✅\n(fresh evidence)" [label="yes"];
-    "Observable occurred?" -> "Status = ❌\n(Fail-Loud: not skipped)" [label="no"];
-    "Status = ✅\n(fresh evidence)" -> "Tear down process";
-    "Tear down process" -> "More rows?";
-    "More rows?" -> "Start Env: process\n+ load Env: data" [label="yes (next row)"];
-    "More rows?" -> "Any ❌ ?" [label="no"];
-    "Any ❌ ?" -> "Report failures —\nNOT ready to ship;\noffer wayne-work" [label="yes"];
-    "Any ❌ ?" -> "All ✅ — call\nwayne-checkpoint handoff\n→ wayne-ship" [label="no"];
+    A -> B;
+    B -> X [label="missing / invalid skip"];
+    B -> C [label="yes"];
+    C -> D;
+    D -> E;
+    E -> N [label="no"];
+    E -> F [label="yes"];
+    F -> G;
+    G -> H;
+    H -> P [label="yes"];
+    H -> N [label="no"];
+    P -> T;
+    N -> T;
+    T -> M;
+    M -> C [label="yes"];
+    M -> Q [label="no"];
+    Q -> W [label="yes"];
+    Q -> S [label="no"];
 }
 ```
 
----
+## Process
 
-## Phase 1: Locate the Contract
+### A. Locate and validate the contract
 
-Find the e2e layer table in the carried matrix — the plan's `## Test Matrix` section, or
-the standalone `docs/test-matrix/` doc.
+Select the carried matrix for this run and read its E2E layer plus relevant
+requirements. If no contract exists, stop without running or editing anything;
+route to `wayne-test-design`. Never invent verification.
 
-```bash
-ls -t docs/plans/*.md docs/test-matrix/*.md 2>/dev/null
-grep -rln "Env: process" docs/plans/ docs/test-matrix/ 2>/dev/null
-```
+Validate each `E2E: none — <reason>` against the actual requirement. Accept a skip
+only when no user-observable path exists. If it hides a real path, reject it and
+require test design to author a row; do not write or execute a replacement yourself.
 
-Read the matching file and extract the e2e layer table plus any `E2E: none — <reason>`
-lines beneath it.
+### C. Prepare the exact row environment
 
-**Fail-Loud:** if no contract exists, do NOT invent verification and do NOT pass the
-gate. Stop and report: "No E2E contract found — design (`wayne-test-design`, invoked by
-`wayne-mind-explode`) must author one before runtime verification can run." A feature with
-no contract is unverifiable, not verified.
+Run every row in table order, including incoming `✅` or `❌`: those statuses are
+historical, not evidence for this session. Create a run scratch directory and
+capture the pre-run contract. Use the exact host/worktree, process, data, and
+entrypoint named by the row; never substitute your cwd, another worktree, a mock,
+or a convenient environment.
 
----
+### D. Start and observe readiness
 
-## Phase 2: Validate Skip Declarations
+Start the declared process against the declared data. Wait for its real readiness
+event—port, health event, log line, or DB signal—not blind sleeps. Preserve startup
+logs. If the process exits or cannot become ready, record fresh `❌`; do not skip it
+or drive a dependent entrypoint as proof.
 
-For each `E2E: none — <reason>` line, confirm the reason is legitimately un-observable
-(pure refactor, pure algorithm, pure internal config — no user-visible path).
+### F. Drive the real user entrypoint
 
-- Legitimate → record "no runtime verification applicable" for that item and move on.
-- Suspect (the "refactor" actually changes user-visible behavior) → reject the skip,
-  flag it, and require a real contract row before proceeding.
+Perform the row's `User path` through its declared entrypoint exactly as a user
+would: browser interaction for UI, real client requests for HTTP, or the real CLI
+command. A unit test, internal function, helper, mock, or direct API shortcut is not
+an E2E substitute.
 
-Never invent verification for a legitimate skip. Never accept a skip that hides a real
-user path.
+### G. Capture the real observable
 
----
+Capture the declared user-visible result in the scratch directory: rendered UI,
+response/artifact, or actual external/file/DB state. `200 OK`, no exception, and a
+true return value are transport signals, not proof. Compare the observed value with
+the contract literally and retain both expected and actual evidence.
 
-## Phase 3: Execute Each Row
+### P/N. Mutate only fresh Status
 
-This is the core loop. Run it **per contract row**, in order. Nothing here is a unit
-test, a mock, or a stub — it is the real environment driven the real way.
+Set `✅` only after the observable appears in this session. Set `❌` when startup,
+the user path, or the observable fails. Change only the row's Status cell; preserve
+the unit layer and every other contract cell byte-for-byte.
 
-### 3a. Start the environment
+### T. Tear down and preserve evidence
 
-Launch `Env: process` against `Env: data`.
+Stop the exact process after every row, including failure paths, and prove it no
+longer owns its port/process/resource. Preserve readiness, drive, observable,
+failure, and teardown evidence. Cleanup failure keeps the gate failed; never report
+ship-ready while the verification process remains live.
 
-```bash
-# Example shapes — use the row's actual process/data/entrypoint.
-# Server:
-cd <project-dir> && nohup uv run python scripts/dashboard_server.py > /tmp/verify-proc.log 2>&1 &
-# CLI: nothing to start as a daemon; the entrypoint IS the invocation in 3b.
-```
+### Q. Gate and route
 
-**Fail-Loud rule:** a process that will not start is `❌`, never skipped. Capture the
-startup log as evidence of the failure and move to teardown for that row. "Couldn't
-start it" is a verification result, not a reason to omit the check.
+- Missing contract or invalid skip: `RUNTIME VERIFICATION: BLOCKED`; route to
+  `wayne-test-design` without a fabricated row.
+- Any `❌` or cleanup failure: `RUNTIME VERIFICATION: FAILED`; report expected vs
+  actual evidence and return failing row IDs to `wayne-work`. No ship handoff.
+- All rows freshly `✅` and legitimate skips confirmed: `RUNTIME VERIFICATION:
+  PASSED`; report evidence, then call `wayne-checkpoint` in handoff mode with
+  `wayne-ship` as the next stage.
 
-**Run env is the contract's, not yours.** Stand up exactly the `Env: process` /
-`Env: data` the contract row specifies — including the concrete host/worktree it names
-(the contract is the SSoT for run env; test-design pinned it). Do NOT substitute your
-own cwd or a subagent worktree. If the row's env can't be stood up from where you are,
-that's the contract's location — go there; never silently verify against a different
-env, which passes on a stale or absent build.
-
-Wait for readiness with a real signal (port open / health line in the log / DB
-reachable) — do not poll blindly; watch for the readiness event.
-
-### 3b. Drive the user path
-
-Go through `Env: entrypoint` and perform `User path` the way a real user would:
-
-| Entrypoint kind | How to drive it (real) |
-|-----------------|------------------------|
-| Browser `/` (UI) | Use the local `verify` / `run` skill capability or available browser-driving tools to click/type along the user path. Real DOM interaction, not an API shortcut. |
-| HTTP API | Issue the real request(s) a client would send, in sequence. |
-| CLI command | Invoke the real command with real args, as the user would type it. |
-
-Do NOT substitute a unit test, a mocked dependency, or an internal function call for
-the user path. If the user clicks a button, something must click the button.
-
-### 3c. Check the observable
-
-Confirm the `Observable (pass = ?)` actually happened — the real user-visible outcome,
-never a transport proxy. **Evidence before claims.** Capture concrete proof:
-
-| Observable kind | Evidence to capture |
-|-----------------|---------------------|
-| State change (DB/Jira/file) | Query the actual state and show the new value (e.g. ticket status now `Analyzed`) |
-| UI change | Screenshot or rendered-DOM snapshot showing the new state |
-| Output/artifact | The captured response body, generated file, or downloaded artifact |
-| Disappearance/removal | Before/after listing showing the item is gone |
-
-A `200 OK`, "no exception thrown", or "function returned True" is NOT evidence the
-feature worked — it proves the wire moved. Record what you actually saw.
-
-### 3d. Flip Status + tear down
-
-- Observable occurred, with fresh evidence captured **this session** → `⬜ → ✅`.
-- Observable did not occur (or process wouldn't start) → `⬜ → ❌`, attach the failure
-  evidence.
-
-Never claim `✅` from memory, from a prior run, or because the code "looks right" — only
-from having driven it just now. Then tear down the process cleanly:
-
-```bash
-ps aux | grep verify-proc | grep -v grep | awk '{print $2}' | xargs -r kill -9 2>/dev/null
-```
-
-Update the `Status` cell in the e2e layer table (the plan's `## Test Matrix` section or the
-`docs/test-matrix/` doc). **This skill is the only mutator of the e2e `⬜/✅/❌` column** —
-never touch the unit-integration `☐/☑` column.
-
----
-
-## Phase 4: Gate + Handoff
-
-After all rows have run:
-
-### If any ❌
-
-The work is **NOT ready to ship**. Report (in Chinese discussion, English artifacts):
-
-```
-RUNTIME VERIFICATION: FAILED
-═══════════════════════════════
-Rows run: N   ✅ M   ❌ K
-失败行:
-  #3 — Observable 没出现: <what was expected> vs <what happened>
-       证据: /tmp/verify-...  (log / screenshot / state dump)
-下一步: 把失败行交回 wayne-work 修复，修完再跑 wayne-verify。
-```
-
-Offer to hand back to `wayne-work` to fix the failing rows. Do NOT emit a ship handoff
-while any row is ❌.
-
-### If all ✅
-
-```
-RUNTIME VERIFICATION: PASSED
-═══════════════════════════════
-All N contract rows ✅ (driven this session, evidence captured).
-E2E: none rows confirmed legitimate: <list or none>
-准备好 ship。
-```
-
-Then, as the final step, call **`wayne-checkpoint` in handoff mode** to emit a handoff
-packet pointing to `wayne-ship` as the next agent. The handoff-packet mechanism is
-defined in `wayne-checkpoint` — this skill only invokes it; it does not implement or
-advance it.
-
----
-
-## Integration with Other Skills
-
-```
-wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-verify → wayne-ship
-     (WHAT)            (HOW)        (BUILD)      (STATIC GATE)      (RUNTIME GATE)  (COMMIT)
-```
-
-- **After `wayne-code-review`** — code-review is pure-static (reads the diff, never
-  runs anything). This skill is the runtime counterpart: it is the first and only step
-  that actually executes the feature.
-- **Reads from `wayne-test-design` / `wayne-plan`** — the e2e layer of the matrix in
-  `docs/plans/` (carried into the plan) or `docs/test-matrix/`. It does not author the
-  contract; it executes it.
-- **Hands back to `wayne-work`** — on any ❌, the failing rows return to build.
-- **Gates `wayne-ship`** — ship's hard gate requires a fully-✅ contract (no ⬜, no ❌).
-  This skill produces that state and the handoff packet to ship.
-
----
-
-## Key Principles
-
-- **Unit tests have zero bearing on this gate** — passing tests never flip ⬜; only a
-  driven user path with a captured observable does.
-- **Evidence before claims** — `✅` requires fresh, captured proof from this session;
-  never claim it from memory or because the code looks right.
-- **Fail-Loud** — a process that won't start is `❌`, not skipped. "Couldn't run it" is
-  a result, not an omission.
-- **Observable, not transport** — pass means the real user-visible outcome happened, not
-  `200 OK` / no-exception / returned-True.
-- **Run the contract's env, not your cwd** — stand up the exact host/process/data the
-  contract row pins; a subagent worktree that differs from it tests the wrong env.
-- **Sole mutator of Status** — no other skill touches the contract's Status column.
-- **Don't invent verification** — a legitimate `E2E: none` is recorded as such; a missing
-  contract stops the gate rather than being faked.
-- **Chinese for discussion, English for artifacts** — reports discussed in Chinese, the
-  contract and evidence stay English.
+Never turn inability to run, stale status, prior evidence, or provider/tool failure
+into a pass.
