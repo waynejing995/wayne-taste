@@ -55,6 +55,16 @@ CONTRACTS: dict[str, tuple[str, ...]] = {
         r"trivial[^\n]{0,40}no skill",
         r"always invoke[^\n]{0,50}user names a skill",
     ),
+    "Occam RCA convergence": (
+        r"Occam",
+        r"search heuristic[^\n]{0,100}(?:NOT|not)[^\n]{0,30}stop condition",
+        r"explains ALL observations[^\n]{0,80}reproduces[^\n]{0,80}sibling paths",
+    ),
+    "decision question language": (
+        r"Before `AskUserQuestion`[^\n]{0,100}plain Chinese",
+    ),
+    "forbidden browser surface": (r"Never use `mcp__claude-in-chrome__\*`",),
+    "personal KB path": (r"/mnt/share/wayne-note/",),
 }
 
 

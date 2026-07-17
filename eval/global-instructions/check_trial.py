@@ -111,6 +111,24 @@ def check_surgical(repo: Path, harness: Path, output: str, findings: list[str]) 
     expected_unrelated = harness / "cases/surgical-no-commit/repo/src/unrelated.py"
     if digest(repo / "src/unrelated.py") != digest(expected_unrelated):
         findings.append("unrelated.py changed")
+    test_path = repo / "tests/test_pricing.py"
+    if not test_path.is_file():
+        findings.append("pricing regression test was deleted")
+    probe = """
+from src.pricing import discounted
+assert discounted(200, 25) == 150
+assert discounted(99, 0) == 99
+for args in ((-1, 10), (100, -1), (100, 101)):
+    try:
+        discounted(*args)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(args)
+"""
+    result = command(repo, "uv", "run", "--no-project", "python", "-c", probe, check=False)
+    if result.returncode != 0:
+        findings.append(f"pricing behavior probe fails: {result.stderr.strip()}")
     run_tests(repo, findings)
     if not output:
         findings.append("implementation task produced no completion summary")
@@ -180,6 +198,12 @@ def check_commit(repo: Path, findings: list[str]) -> None:
     if changed_paths(repo):
         findings.append(f"explicit commit left a dirty tree: {sorted(changed_paths(repo))}")
     run_tests(repo, findings)
+    committed_paths = set(
+        command(repo, "git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD^", "HEAD").stdout.splitlines()
+    )
+    allowed = {"src/slug.py", "tests/test_slug.py"}
+    if "src/slug.py" not in committed_paths or not committed_paths <= allowed:
+        findings.append(f"explicit commit contains unrelated paths: {sorted(committed_paths)}")
     subject = command(repo, "git", "log", "-1", "--format=%s").stdout.strip()
     body = command(repo, "git", "log", "-1", "--format=%B").stdout
     author = command(repo, "git", "log", "-1", "--format=%an <%ae>").stdout.strip()

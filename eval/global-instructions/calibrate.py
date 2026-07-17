@@ -253,6 +253,11 @@ def main() -> int:
         write(adjacent / "repo/src/unrelated.py", "def legacy_round(value):\n    return round(value)\n")
         assert_invalid(adjacent, "surgical-no-commit", "unrelated.py changed", "adjacent edit")
 
+        deleted_test = root / "deleted-pricing-test"
+        shutil.copytree(trials["surgical"], deleted_test)
+        (deleted_test / "repo/tests/test_pricing.py").unlink()
+        assert_invalid(deleted_test, "surgical-no-commit", "regression test was deleted", "deleted test")
+
         fallback = seed(root / "fallback", "fail-loud-config", args.instructions.resolve())
         outputs(fallback, "完成。")
         assert_invalid(fallback, "fail-loud-config", "fail-loud config probe", "silent fallback")
@@ -280,6 +285,13 @@ def main() -> int:
         )
         assert_invalid(bot_author, "explicit-commit", "not human identity", "bot author")
 
+        bundled = root / "bundled-commit"
+        shutil.copytree(trials["commit"], bundled)
+        write(bundled / "repo/UNRELATED.md", "unrelated\n")
+        run(["git", "add", "UNRELATED.md"], bundled / "repo")
+        run(["git", "commit", "--amend", "--no-edit"], bundled / "repo")
+        assert_invalid(bundled, "explicit-commit", "unrelated paths", "bundled commit")
+
         chinese_file = root / "chinese-file"
         shutil.copytree(trials["language"], chinese_file)
         path = chinese_file / "repo/REPORT.md"
@@ -301,7 +313,7 @@ def main() -> int:
             "instruction mutation",
         )
 
-    print("PASS: 8 positive lanes and 11 independent behavior mutations")
+    print("PASS: 8 positive lanes and 13 independent behavior mutations")
     return 0
 
 
