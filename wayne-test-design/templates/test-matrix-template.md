@@ -36,17 +36,22 @@ gaps appear as `none — reason` under their unit.
 
 ## Layer 1: Unit / Integration
 
+### U-SEED (wayne-plan re-authors + locks)
+
 Developer / `wayne-work` ticks `☐ → ☑` when the test passes. These do **not** gate
 `wayne-verify` or `wayne-ship`'s e2e check.
 
 `unit` = isolated, mocks OK. `integration` = crosses a real seam (real DB / real service),
 mocks discouraged.
 
-| # | Unit | Dimension | Case (input → action → expected) | Layer | Status |
+| # | Behavior seed | Dimension | Case (input → action → expected) | Layer | Status |
 |---|------|-----------|----------------------------------|-------|--------|
 | U1 | [unit] | positive | [input → action → expected] | unit | ☐ |
 | U2 | [unit] | invalid | [input → action → expected] | unit | ☐ |
 | U3 | [unit] | persistence | [input → action → expected] | integration | ☐ |
+
+[If no U-SEED row is sound, keep the heading and table header, omit example rows,
+then write `U-SEED: none — <reason>`.]
 
 Declared gaps (reviewer-surprising dimensions deliberately excluded):
 
@@ -59,6 +64,18 @@ Declared gaps (reviewer-surprising dimensions deliberately excluded):
 This layer **is** the E2E Verification Contract. Format is LOCKED by
 `_shared/e2e-contract.md` — do not redefine columns. All Status start `⬜`. **Only
 `wayne-verify` flips `⬜ → ✅ / ❌`.** A passing unit suite never touches this layer.
+
+### E2E Proof-Axis Audit
+
+- Functional rows (provider-specific): [provider → row #s]
+- Attestation rows (provider-specific): [provider → row #s → native runtime evidence]
+- Aggregate rows: [row #s → cross-provider behavior that requires aggregation]
+- Resilience/cleanup rows (provider-specific): [provider → row #s]
+- Explicit weaker/unverified rows: [row #s → supported public mode → `POLICY UNVERIFIED` observable]
+- Capability conflicts requiring scope resolution: [requirement → missing native proof, or "none"]
+
+Each row below has one primary proof axis. A prerequisite that can fail before the target
+behavior has its own row. Flags, argv, and help text show intent, not effective capability.
 
 | # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
 |---|-----------|--------------|-----------|-----------------|----------------------|--------|
