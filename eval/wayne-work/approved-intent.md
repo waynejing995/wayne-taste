@@ -1,34 +1,24 @@
-# Approved intent: Wayne Work
+# Approved intent and coverage matrix: Wayne Work
 
-`wayne-work` executes an approved plan; it does not redesign it, weaken its tests,
-commit it, or claim completion from prose.
+`wayne-work` executes one approved plan to a verified, review-ready diff. It does
+not redesign, weaken tests, steal E ownership, commit, or auto-advance.
 
-## Required behavior
+| ID | Intended behavior | Source | Class | Owner | Exact oracle | Case | Status |
+|---|---|---|---|---|---|---|---|
+| W1 | Validate complete, non-conflicting plan/decision/matrix/spec before editing | `wayne-work/SKILL.md@cbe9307`, Inputs; current A | intended | main | exact blocker and zero mutation | protected, missing-u | VERIFIED |
+| W2 | Build dependency, consumes-produces, and file-overlap graph before scheduling | `wayne-work/SKILL.md@0888631:141-167`; current C | intended | main | source clause plus two independent fixture units | parallel-disjoint | VERIFIED |
+| W3 | At least two ready, dependency-free, write-disjoint units trigger a native parallel-subagent attempt | `wayne-work/SKILL.md@0888631:141-167`; user correction 2026-07-16 | control regression | main scheduler | Claude: two unit Agent calls before either result; Codex: externally visible native attempt | parallel-disjoint | VERIFIED |
+| W4 | Tool/capability failure is not parallel success; report exact reason and explicitly fall back serial | global fail-loud policy; capability probe in `eval/.runs/wayne-work-capability-probe` | control defect | main scheduler | Codex trace contains spawn failure; output reports failure plus serial fallback | parallel-disjoint | VERIFIED |
+| W5 | Dependent or overlapping units remain serial and name the dependency/conflicting path | `wayne-work/SKILL.md@cbe9307:147-173,213-228` | intended | main scheduler | current dependent normal plan remains correct; static clause | normal | VERIFIED |
+| W6 | Each worker receives one full unit contract, allowed paths, exact verify, no-commit, and no-matrix/shared-owner boundary | `wayne-work/SKILL.md@cbe9307:188-210,234-243` | intended | main dispatch | external trace prompt checks and one mutation per field family | parallel-disjoint | VERIFIED |
+| W7 | Main alone owns shared paths, actual-diff review, matrix U status, integration/full verification, and handoff | `wayne-work/SKILL.md@cbe9307:213-228,330-387`; current C/H/J | intended | main | worker prompts exclude matrix; final scope/matrix/full/handoff checks | parallel-disjoint, normal | VERIFIED |
+| W8 | Test-first units establish relevant RED before implementation; no locked-test weakening | current R and Red lines | intended | unit executor | verification event and locked-path mutations | normal | VERIFIED |
+| W9 | Unit exact verification must pass before its U rows change `☐→☑`; E stays `⬜` | `wayne-work/SKILL.md@636c81e,cbe9307`; current G/H | intended | main owns status | matrix/content and real test checks | normal, parallel-disjoint | VERIFIED |
+| W10 | Wave/integration failure blocks later work and completion until repaired and full verify passes | `wayne-work/SKILL.md@cbe9307:213-228,368-387`; current J | intended | main | full verify and no handoff on failure; static wave barrier | normal; deterministic mutation | VERIFIED |
+| W11 | Final completion proves all units/decisions, scope diff, exact full commands, no TODO/stage/commit/branch | current J and Red lines | intended | main | hidden tests, manifest, git, full verify | normal, parallel-disjoint | VERIFIED |
+| W12 | Success emits return-only checkpoint to `wayne-code-review` and never invokes it | `wayne-work/SKILL.md@fe578b0`; current L | intended | checkpoint packet | plan/matrix/units/verify/scope/next stage | normal, parallel-disjoint | VERIFIED |
 
-1. Require a complete, non-conflicting plan, decision log, and test matrix before
-   editing. Missing referenced U rows or a repository/plan scope conflict blocks.
-2. Treat plan implementation units as the task graph. Use the current runtime's
-   task mechanism if useful; never require one provider's `TaskCreate`, team, or
-   subagent tool names.
-3. Read each unit's goal, dependencies, consumes/produces, files, design, patterns,
-   U rows, E rows, execution note, and verification before implementation.
-4. Respect dependency order. Parallelize only units with non-overlapping writes
-   and no producer/consumer dependency.
-5. Establish the unit's requested RED evidence before implementation when its
-   execution note is test-first. Do not edit locked tests to manufacture GREEN.
-6. Implement only plan-owned files and behavior. Re-run the unit verification
-   until green, then run full verification after integration.
-7. Tick a U row `☐ → ☑` only after its real test passes. Never alter E status `⬜`;
-   only `wayne-verify` owns E completion.
-8. Prove scope with the actual diff, prove behavior with exact commands, and audit
-   every plan unit and decision before claiming done.
-9. Do not commit, branch, push, open a PR, invoke code review, or auto-advance.
-10. On success, return a `wayne-checkpoint` handoff to `wayne-code-review` with the
-    plan, completed units, verification evidence, diff scope, and residual risks.
-
-## Acceptance
-
-The same normal plan must pass with Claude and Codex. The frozen checker requires:
-visible tests, post-run hidden tests, source scope, no locked-test edits, initial
-RED and final GREEN verify events, all U rows checked, every E row untouched, no
-new commit/branch, and a complete review handoff.
+Reverse audit: provider-specific `TaskCreate`, `TeamCreate`, `Agent`, `SendMessage`,
+fixed model names, and a fixed “3+ tasks” threshold are incidental mechanisms and
+must not return. The behavior owner is native-capability scheduling with observable
+success or an explicit failure path.

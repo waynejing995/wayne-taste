@@ -111,6 +111,19 @@ from relay.store import InMemoryStore
 __all__ = ["Delivery", "DeliveryService", "DeliveryStatus", "InMemoryStore", "RetryPolicy"]
 '''
 
+FORMATTER = '''def format_destination(value: str) -> str:
+    normalized = value.strip().lower()
+    if not normalized:
+        raise ValueError("destination must not be empty")
+    return normalized
+'''
+
+LIMITS = '''def clamp_attempts(requested: int, maximum: int) -> int:
+    if requested < 1 or maximum < 1:
+        raise ValueError("attempt counts must be positive")
+    return min(requested, maximum)
+'''
+
 
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -152,18 +165,18 @@ def valid_normal(workspace: Path) -> Path:
         raise AssertionError("calibration implementation did not turn GREEN")
     write(
         repo / ".wayne/checkpoints/handoff.md",
-        f"""status: built
+        f"""# Implementation Handoff
 next_agent: wayne-code-review
 plan: {PLAN}
 matrix: {MATRIX}
 completed_units: I1, I2
 verification: uv run --no-project python scripts/verify.py full — PASS
 changed: src/relay/models.py; src/relay/service.py; src/relay/__init__.py
-out of scope: tests, E rows, commits, branches, and downstream review.
+preserved_scope: tests, E rows, commits, branches, and downstream review.
 """,
     )
     output = workspace / "output.txt"
-    write(output, "实现完成，tests 通过；下一步 wayne-code-review。")
+    write(output, "VERIFICATION: unit PASS; full PASS; NEXT: wayne-code-review。")
     return output
 
 
@@ -179,14 +192,108 @@ def valid_blocked(workspace: Path, case: str) -> Path:
     return output
 
 
-def assert_valid(workspace: Path, case: str, output: Path) -> None:
-    findings = validate(workspace, case, output)
+def claude_trace(
+    serial: bool = False,
+    omit_path: bool = False,
+    omit_command: bool = False,
+    omit_commit: bool = False,
+    omit_matrix: bool = False,
+) -> str:
+    prompt1 = (
+        "Unit I1. Goal and approach from the plan. Allowed path "
+        + ("only its assigned file" if omit_path else "src/relay/formatter.py")
+        + ". Run exactly: uv run --no-project python scripts/verify_parallel.py unit-formatter. "
+        "Do not commit. Do not edit matrices or checkpoint."
+    )
+    prompt2 = (
+        "Unit I2. Goal and approach from the plan. Allowed path src/relay/limits.py. "
+        "Run exactly: uv run --no-project python scripts/verify_parallel.py unit-limits. "
+        "Do not commit. Do not edit matrices or checkpoint."
+    )
+    if omit_command:
+        prompt1 = prompt1.replace(
+            "Run exactly: uv run --no-project python scripts/verify_parallel.py unit-formatter. ", ""
+        )
+        prompt2 = prompt2.replace(
+            "Run exactly: uv run --no-project python scripts/verify_parallel.py unit-limits. ", ""
+        )
+    if omit_commit:
+        prompt1 = prompt1.replace("Do not commit. ", "")
+        prompt2 = prompt2.replace("Do not commit. ", "")
+    if omit_matrix:
+        prompt1 = prompt1.replace("Do not edit matrices or checkpoint.", "")
+        prompt2 = prompt2.replace("Do not edit matrices or checkpoint.", "")
+    events = [
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "a", "name": "Agent", "input": {"prompt": prompt1}}]}},
+    ]
+    if serial:
+        events.append({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "a", "content": "done"}]}})
+    events.append({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "b", "name": "Agent", "input": {"prompt": prompt2}}]}})
+    if not serial:
+        events.append({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "a", "content": "done"}]}})
+    events.append({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "b", "content": "done"}]}})
+    return "\n".join(json.dumps(event) for event in events) + "\n"
+
+
+def valid_parallel(workspace: Path, provider: str) -> tuple[Path, Path]:
+    repo = seed(workspace, "parallel-disjoint")
+    write(repo / "src/relay/formatter.py", FORMATTER)
+    write(repo / "src/relay/limits.py", LIMITS)
+    matrix = repo / "docs/test-matrix/2026-07-17-parallel-units-matrix.md"
+    write(matrix, matrix.read_text(encoding="utf-8").replace("☐", "☑"))
+    if subprocess.run(
+        ["uv", "run", "--no-project", "python", "scripts/verify_parallel.py", "full"],
+        cwd=repo,
+        env={**os.environ, "PYTHONPATH": "src"},
+    ).returncode != 0:
+        raise AssertionError("parallel calibration implementation is not green")
+    write(
+        repo / ".wayne/checkpoints/handoff.md",
+        """status: built
+next_agent: wayne-code-review
+plan: docs/plans/2026-07-17-001-feat-parallel-units-plan.md
+matrix: docs/test-matrix/2026-07-17-parallel-units-matrix.md
+completed_units: I1, I2
+verification: uv run --no-project python scripts/verify_parallel.py full — PASS
+out of scope: locked tests, E1, commits, and downstream review.
+""",
+    )
+    output = workspace / "output.txt"
+    trace = workspace / ("claude-trace.jsonl" if provider == "claude" else "codex-trace.log")
+    if provider == "claude":
+        write(output, "并行 workers 完成，tests 通过；下一步 wayne-code-review。")
+        write(trace, claude_trace())
+    else:
+        write(
+            output,
+            "native subagent unavailable: collab spawn failed: no thread with id; serial fallback 完成；VERIFICATION: commands 全部通过；下一步 wayne-code-review。",
+        )
+        write(trace, "ERROR collab spawn failed: no thread with id: calibration\n")
+    return output, trace
+
+
+def assert_valid(
+    workspace: Path,
+    case: str,
+    output: Path,
+    trace: Path | None = None,
+    provider: str = "auto",
+) -> None:
+    findings = validate(workspace, case, output, trace, provider)
     if findings:
         raise AssertionError(f"valid {case} failed: {findings}")
 
 
 def assert_invalid(workspace: Path, output: Path, needle: str, label: str) -> None:
     findings = validate(workspace, "normal", output)
+    if not any(needle in finding for finding in findings):
+        raise AssertionError(f"{label} missing {needle!r}: {json.dumps(findings, ensure_ascii=False)}")
+
+
+def assert_parallel_invalid(
+    workspace: Path, output: Path, trace: Path | None, provider: str, needle: str, label: str
+) -> None:
+    findings = validate(workspace, "parallel-disjoint", output, trace, provider)
     if not any(needle in finding for finding in findings):
         raise AssertionError(f"{label} missing {needle!r}: {json.dumps(findings, ensure_ascii=False)}")
 
@@ -210,6 +317,14 @@ def main() -> int:
             workspace.mkdir()
             output = valid_blocked(workspace, case)
             assert_valid(workspace, case, output)
+
+        parallel_valids: dict[str, tuple[Path, Path, Path]] = {}
+        for provider in ("claude", "codex"):
+            workspace = root / f"parallel-{provider}"
+            workspace.mkdir()
+            output, trace = valid_parallel(workspace, provider)
+            assert_valid(workspace, "parallel-disjoint", output, trace, provider)
+            parallel_valids[provider] = (workspace, output, trace)
 
         test_edit = clone(normal, root, "test-edit")
         with (test_edit / "repo/tests/test_retry_contract.py").open("a", encoding="utf-8") as handle:
@@ -241,7 +356,68 @@ def main() -> int:
         subprocess.run(["git", "commit", "-q", "-m", "forbidden"], cwd=committed / "repo", check=True)
         assert_invalid(committed, committed / "output.txt", "created commits", "commit boundary")
 
-    print("PASS: 3 positive cases and 6 independent mutations")
+        claude_workspace, _, _ = parallel_valids["claude"]
+        serial = clone(claude_workspace, root, "parallel-serial")
+        write(serial / "claude-trace.jsonl", claude_trace(serial=True))
+        assert_parallel_invalid(
+            serial,
+            serial / "output.txt",
+            serial / "claude-trace.jsonl",
+            "claude",
+            "did not overlap",
+            "serial workers",
+        )
+
+        prompt_gap = clone(claude_workspace, root, "parallel-prompt-gap")
+        write(prompt_gap / "claude-trace.jsonl", claude_trace(omit_path=True))
+        assert_parallel_invalid(
+            prompt_gap,
+            prompt_gap / "output.txt",
+            prompt_gap / "claude-trace.jsonl",
+            "claude",
+            "omits allowed path",
+            "worker contract",
+        )
+
+        for name, kwargs, needle in (
+            ("command", {"omit_command": True}, "omits exact verification"),
+            ("commit", {"omit_commit": True}, "omits commit prohibition"),
+            ("matrix", {"omit_matrix": True}, "omits main-owned matrix boundary"),
+        ):
+            prompt_gap = clone(claude_workspace, root, f"parallel-prompt-gap-{name}")
+            write(prompt_gap / "claude-trace.jsonl", claude_trace(**kwargs))
+            assert_parallel_invalid(
+                prompt_gap,
+                prompt_gap / "output.txt",
+                prompt_gap / "claude-trace.jsonl",
+                "claude",
+                needle,
+                f"worker {name} contract",
+            )
+
+        codex_workspace, _, _ = parallel_valids["codex"]
+        hidden_failure = clone(codex_workspace, root, "codex-hidden-failure")
+        write(hidden_failure / "output.txt", "Parallel delegation available: Yes; tests pass; wayne-code-review next.")
+        assert_parallel_invalid(
+            hidden_failure,
+            hidden_failure / "output.txt",
+            hidden_failure / "codex-trace.log",
+            "codex",
+            "did not report serial fallback",
+            "unavailable fallback",
+        )
+
+        no_trace = clone(claude_workspace, root, "parallel-no-trace")
+        assert_parallel_invalid(
+            no_trace,
+            no_trace / "output.txt",
+            None,
+            "claude",
+            "missing external agent trace",
+            "fake event absence",
+        )
+
+    print("PASS: 5 positive cells and 13 independent mutations")
     return 0
 
 
