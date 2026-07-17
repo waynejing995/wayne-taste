@@ -128,25 +128,38 @@ decide, keep both candidates and select `uncertain`; never rank one away silentl
 
 `route.justified_by` must name the checkable landing field that forces the verdict:
 
-| Verdict | Predicate |
-|---|---|
-| `fix-now` | cause certain; failing repro exists; ≤10 lines; one file; internal |
-| `test-then-fix` | small certain bug but failing test is still missing |
-| `iterate-in-a-loop` | internal; ≤100 lines; pass/fail eval exists |
-| `needs-plan` | >100 lines or shared blast radius |
-| `escalate-architecture` | 3+ failed fixes or each fix creates another break |
-| `escalate-incident` | customer-visible, cross-team, or unsolved about one hour |
-| `route-to-owner` | confirmed cause belongs to another owner |
-| `uncertain` | symptom and cause candidates remain unresolved |
-| `needs-info` | data/repro insufficient or no signal matches |
+| Verdict | Predicate | First next action |
+|---|---|---|
+| `fix-now` | cause certain; failing repro exists; ≤10 lines; one file; internal | `wayne-test-design` |
+| `test-then-fix` | small certain bug but failing test is still missing | `wayne-test-design` |
+| `iterate-in-a-loop` | internal; ≤100 lines; pass/fail eval exists | `wayne-test-design` |
+| `needs-plan` | >100 lines or shared blast radius | `wayne-test-design` |
+| `escalate-architecture` | 3+ failed fixes or each fix creates another break | `wayne-mind-explode` |
+| `escalate-incident` | customer-visible, cross-team, or unsolved about one hour | external report; no Wayne handoff |
+| `route-to-owner` | confirmed cause belongs to another owner | external report; no Wayne handoff |
+| `uncertain` | symptom and cause candidates remain unresolved | ask for discriminating evidence; no handoff |
+| `needs-info` | data/repro insufficient or no signal matches | ask for missing observable; no handoff |
 
 ### I. Gate and hand off
 
-Present the route and stop for approval. On approval, invoke `wayne-checkpoint`
-handoff with the evidence file as snapshot and the selected next stage. The next
-prompt is behavioral, names interfaces/contracts and acceptance criteria, excludes
-stale line numbers, and states out-of-scope. For an external owner/incident/tracker,
-render [the triage report](templates/triage-report.md). Never auto-run the next stage.
+Present the route and stop for approval. Denial writes no checkpoint and invokes
+nothing downstream. For an approved internal route, take the exact first Skill
+from the table and invoke `wayne-checkpoint` handoff with `pipeline_stage: triage`,
+the verdict as `route`, the evidence path as `snapshot`, that one real Skill as
+`next_agent`, and `trigger: manual`. The next prompt is behavioral, names
+interfaces/contracts and acceptance criteria, excludes stale line numbers, and
+states out-of-scope. Never pass a verdict, stage chain, or external owner as an
+agent, and never auto-run the next stage.
+Surface the selected `next_agent` and manual trigger in the user-visible result.
+
+For `escalate-incident` or `route-to-owner`, render
+[the triage report](templates/triage-report.md) and create no checkpoint. Preserve
+its seven sections without renaming or omission: Executive summary, Symptom,
+Reproduction, Root-cause analysis, Attribution, Recommended next action, and
+Evidence file. Within Recommended next action, retain Route, Desired behavior,
+Key interfaces/contracts, Acceptance criteria, Out of scope, and Handoff target.
+For `uncertain` or `needs-info`, ask for the smallest discriminating observable
+and create no report or checkpoint.
 
 ## Red lines
 

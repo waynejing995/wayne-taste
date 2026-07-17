@@ -105,4 +105,4 @@ packet (SKILL.md Phase 5).
 ## Enhancement vs bug — different downstream
 
 - **bug** → repro/failing test required → `test-then-fix` / `iterate-in-a-loop` / `needs-plan` per blast radius.
-- **enhancement** → no repro test (nothing's broken); acceptance criteria come from grilling → `needs-plan` → wayne-plan → wayne-work (normal TDD, not a reproduction test).
+- **enhancement** → no repro test (nothing's broken); acceptance criteria come from grilling → `needs-plan` → wayne-test-design → wayne-plan → wayne-work (normal TDD, not a reproduction test).

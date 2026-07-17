@@ -2,43 +2,60 @@
 
 ## Versions
 
-| Side | Skill SHA-256 | Lines | Words | Forge static |
-|---|---|---:|---:|---|
-| Control | `c644a362f0741a313efa0c3fd23e65a6cd13330ae5c08a5e3275379669bb3c18` | 277 | 3033 | 5 errors, 2 warnings |
-| Candidate | `7db5ec2dee878fbbf31321748203a33ac0c942f7ecceef09b90a61bba9c1b759` | 156 | 1083 | 0 errors, 0 warnings |
+| Side | Tree SHA-256 | SKILL.md | Forge static |
+|---|---|---:|---|
+| Control | `9841fbaccd11c8a56acf6261225e7a92890b39209a985795c0e3afab35384252` | 156 lines / 1083 words | 0 errors, 0 warnings |
+| Candidate | `d0df1dbd7111e3a6d0d2ff4d0af890a8cec2b386ecf13c57323d3f86ad2a8163` | 169 lines / 1236 words | 0 errors, 0 warnings |
 
-The complete control tree is frozen by `control.sha256`. Trials used Claude Opus
-4.8 at high effort and `dvue-aoai-001-gpt-5.6-sol` at high effort.
+Trials used Claude Opus 4.8 and `dvue-aoai-001-gpt-5.6-sol`, both at high
+effort, in fresh isolated workspaces. `checkpoint.sha256` pins the real handoff
+dependency; `harness.sha256` pins the final evaluator.
 
-## Results
+## Paired result
 
 | Case | Claude control | Codex control | Claude candidate | Codex candidate |
 |---|---|---|---|---|
-| `failure` | PASS | PASS | PASS | PASS |
-| `tracker` | PASS | PASS | PASS | PASS |
+| `failure` | FAIL: routed to `wayne-work` | FAIL: routed to `wayne-work` | PASS | PASS |
+| `tracker` | FAIL: routed to `wayne-plan` | FAIL: routed to `wayne-plan` | PASS | PASS |
 | `missing-data` | PASS | PASS | PASS | PASS |
-| `multiple-signal` | PASS | PASS | PASS | PASS |
-| `no-match` | FAIL: no evidence SSoT | FAIL: no evidence and no `needs-info` | PASS | PASS |
+| `multiple-signal` | FAIL: routed to `wayne-plan` | FAIL: routed to `wayne-plan` | PASS | PASS |
+| `no-match` | PASS | PASS | PASS | PASS |
+| `approval-denied` | PASS | PASS | PASS | PASS |
+| `architecture` | PASS | PASS | PASS | PASS |
+| `external-owner` | FAIL: incomplete report | FAIL: incomplete report | PASS | PASS |
 
-The targeted no-match failure flips on both agents. The candidate records weak but
-real input as evidence of what is missing, sets symptom/cause to `unknown`, leaves
-all signals false, and selects `needs-info` instead of guessing a nearby playbook.
+The candidate restores triage as the verdict-to-first-capability owner. Internal
+implementation routes enter `wayne-test-design`; architecture returns to
+`wayne-mind-explode`; external and unresolved routes create no Wayne checkpoint.
 
-During calibration, two fixture ambiguities were corrected before candidate
-acceptance: failure ownership is explicitly internal, and the multi-signal tracker
-now carries an executable `global`-default contract. Checker-only corrections accept
-an enhancement without a fake hypothesis matrix, `config-env` as a valid combined
-signal class, harmless `.wayne/**/.gitignore` state, and a no-match result without
-invented hypotheses. Candidate missing-data wording was revised after one trial
-returned an imperative instead of a direct question; the failed case and no-match
-neighbor were rerun on both agents.
+## Iterations and evaluator corrections
+
+- The architecture fixture originally named a repro that passed. That cell was
+  invalidated, given a real failing repro, and rerun; control then passed on both
+  agents and remains a regression gate.
+- The evaluator initially rejected a backticked route and required only `config`
+  for a config/logic boundary. Those untraceable restrictions were removed and the
+  affected cells were rerun under the re-frozen harness.
+- Candidate v1 passed 14/16 but compressed the external report.
+- Candidate v2 preserved seven sections but one Claude run omitted acceptance
+  criteria. The final candidate names the template-owned fields explicitly.
+- Chinese `验收标准` and `范围外` are accepted as the user-visible equivalents of
+  the English template labels; calibration includes that positive fixture.
+
+## Validation
+
+- Calibration: PASS, 8 valid routes and 12 independent mutations.
+- Final candidate behavior: 16/16 PASS; no invalid final cells.
+- Live-path smoke: `failure` PASS on Claude and Codex.
+- Live tree equals the evaluated final candidate byte-for-byte.
+- Forge static and `git diff --check`: PASS.
 
 ## Verdict
 
-Accept. All ten candidate cells pass, the exact control failure flips on both
-agents, and the main router shrinks by 121 lines and 1950 words while retaining the
-existing symptom, tracker, subagent, evidence, and report resources.
+Accept. Every targeted routing/report failure flips on both models, and every
+control-pass approval, missing-data, no-match, and architecture case remains
+passing.
 
-Residual uncertainty: fixtures are intentionally small. The harness does not run a
-real 10k-line-log fan-out or mutate a live tracker, so those bundled contracts remain
-covered statically and by boundary checks rather than production integration.
+Residual uncertainty: the harness does not execute a real 10k-line parallel
+fan-out or mutate a live tracker. Those boundaries remain protected by the
+unchanged dispatch reference and source-manifest checks.

@@ -8,6 +8,12 @@ This harness freezes all front-door routes claimed by `wayne-triage`:
 - `multiple-signal`: tracker bug plus crash and environment skew → combine the
   tracker, crash, and config paths; shared blast radius → `needs-plan`.
 - `no-match`: a vague artifact with no supported symptom signal → `needs-info`.
+- `approval-denied`: route is established but no checkpoint may be written.
+- `architecture`: three failed fixes → `wayne-mind-explode`.
+- `external-owner`: render a report and create no Wayne checkpoint.
+
+Internal handoffs are checked against the repository's real `wayne-checkpoint`
+Skill and canonical packet template, not a local substitute.
 
 ## Calibrate
 

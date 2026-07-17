@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibrate Wayne Triage routes and hard boundaries."""
+"""Calibrate Wayne Triage routes, handoffs, and hard boundaries."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from check_trial import validate
+from check_trial import CASES, INTERNAL, validate
 
 
 HARNESS = Path(__file__).resolve().parent
@@ -26,34 +26,43 @@ def seed(workspace: Path, case: str) -> Path:
     return repo
 
 
-def evidence_text(case: str) -> str:
+def evidence_values(case: str) -> tuple[str, str, str, str, str, str, str, int]:
     values = {
-        "failure": ("failure", "wrong-output", "logic", "tokenizer", "1", "internal", "fix-now"),
-        "tracker": ("tracker", "enhancement", "architecture", "dispatcher", "140", "shared", "needs-plan"),
-        "multiple-signal": ("tracker", "bug", "config", "config", "12", "shared", "needs-plan"),
-        "no-match": ("failure", "unknown", "unknown", "unknown", "0", "internal", "needs-info"),
+        "failure": ("failure", "wrong-output", "logic", "tokenizer", "1", "internal", "fix-now", 1),
+        "approval-denied": ("failure", "wrong-output", "logic", "tokenizer", "1", "internal", "fix-now", 1),
+        "tracker": ("tracker", "enhancement", "architecture", "dispatcher", "140", "shared", "needs-plan", 1),
+        "multiple-signal": ("tracker", "bug", "config", "config", "12", "shared", "needs-plan", 1),
+        "no-match": ("failure", "unknown", "unknown", "unknown", "0", "internal", "needs-info", 1),
+        "architecture": ("failure", "wrong-output", "architecture", "retry-controller", "80", "shared", "escalate-architecture", 3),
+        "external-owner": ("failure", "config-env", "environment", "external-network", "0", "shared", "route-to-owner", 1),
     }
-    surface, symptom, cause, component, lines, blast, route = values[case]
+    return values[case]
+
+
+def evidence_text(case: str) -> str:
+    surface, symptom, cause, component, lines, blast, route, count = evidence_values(case)
     signals = {
         "stack_trace": case == "multiple-signal",
         "deadlock_hang": False,
         "flaky_pattern": False,
         "perf_delta": False,
-        "env_skew": case == "multiple-signal",
+        "env_skew": case in {"multiple-signal", "external-owner"},
     }
-    repro = (
-        "uv run --no-project python -m unittest tests.test_tokenizer — FAIL observed"
-        if case == "failure"
-        else "not applicable to approved enhancement"
-    )
-    if case == "multiple-signal":
-        repro = "env -u SERVICE_REGION uv run --no-project python -c ... — KeyError observed"
-    if case == "no-match":
-        repro = "non-deterministic: no observable supplied; request exact expected vs actual"
+    repro = "uv run --no-project python -m unittest tests.test_tokenizer — FAIL observed"
+    if case == "tracker":
+        repro = "not applicable to approved enhancement"
+    elif case == "multiple-signal":
+        repro = "tests.test_region_contract — KeyError observed"
+    elif case == "no-match":
+        repro = "non-deterministic: request exact expected vs actual"
+    elif case == "architecture":
+        repro = "tests.test_config — FAIL after three attempted fixes"
+    elif case == "external-owner":
+        repro = "5 of 5 captured requests returned provider 503"
     signal_lines = "\n".join(f"- {key}: {str(value).lower()}" for key, value in signals.items())
     return f"""---
 slug: {case}
-date: 2026-07-16
+date: 2026-07-17
 surface: {surface}
 symptom_class: {symptom}
 cause_category: {cause}
@@ -61,7 +70,7 @@ component: {component}
 est_lines: {lines}
 blast_radius: {blast}
 route: {route}
-repro_count: 1
+repro_count: {count}
 ---
 
 # Triage: {case}
@@ -92,8 +101,41 @@ repro_count: 1
 
 ## Route
 - verdict: {route}
-- justified_by: blast_radius={blast}; est_lines={lines}; repro=case.md:1
-- handoff: next stage
+- justified_by: blast_radius={blast}; est_lines={lines}; repro_count={count}
+- handoff: next action
+"""
+
+
+def packet_text(evidence: Path, route: str, agent: str, repo: Path) -> str:
+    snapshot = evidence.relative_to(repo).as_posix()
+    return f"""---
+title: triage handoff
+status: handoff
+branch: main
+timestamp: 2026-07-17T00:00:00+08:00
+pipeline_stage: triage
+pipeline_phase: route approved
+route: {route}
+snapshot: {snapshot}
+next_agent: {agent}
+trigger: manual
+goal_included: true
+---
+
+## Handoff: triage to {agent}
+
+### Snapshot
+- Primary snapshot: `{snapshot}`
+
+### Next Agent
+| Field | Value |
+|---|---|
+| Next agent | `{agent}` |
+| Trigger | manual |
+| Auto-advance | NO |
+
+### Next Prompt
+Read the snapshot. Preserve acceptance criteria and out of scope boundaries.
 """
 
 
@@ -103,28 +145,36 @@ def valid(workspace: Path, case: str) -> Path:
     if case == "missing-data":
         write(output, "缺少工单内容和拉取方式。应该从哪里、用什么命令获取 SWDEV-123？")
         return output
-
-    evidence = repo / ".wayne" / "triage" / f"2026-07-16-{case}.md"
+    evidence = repo / ".wayne/triage" / f"2026-07-17-{case}.md"
     write(evidence, evidence_text(case))
+    route = evidence_values(case)[6]
     if case == "no-match":
         write(output, "route: needs-info。请提供最小的 expected vs actual 或可复现的可观察症状？")
         return output
+    if case == "approval-denied":
+        write(output, "route=fix-now；handoff approval denied，未生成交接包。")
+        return output
+    if case == "external-owner":
+        write(output, """route-to-owner
 
-    route = "fix-now" if case == "failure" else "needs-plan"
-    state = "" if case == "failure" else " category=enhancement state=ready-for-agent"
-    if case == "multiple-signal":
+## 执行摘要
+The external network owner owns the confirmed cause.
+
+## 建议的下一步
+Send NET-88 to that owner.
+
+验收标准：provider service is restored.
+范围外：local adapter changes.
+""")
+        return output
+    agent = INTERNAL[case][1]
+    write(repo / ".wayne/checkpoints/handoff.md", packet_text(evidence, route, agent, repo))
+    state = ""
+    if case == "tracker":
+        state = " category=enhancement state=ready-for-agent"
+    elif case == "multiple-signal":
         state = " category=bug state=ready-for-agent"
-    write(
-        repo / ".wayne" / "checkpoints" / "handoff.md",
-        f"""status: triaged
-next_agent: wayne-plan
-snapshot: {evidence.relative_to(repo).as_posix()}
-route: {route}
-next_prompt: Deliver the accepted behavior and tests.
-out of scope: unrelated source and tracker state.
-""",
-    )
-    write(output, f"route={route}{state}; evidence={evidence.relative_to(repo).as_posix()}")
+    write(output, f"route={route}{state}; next={agent}; trigger=manual")
     return output
 
 
@@ -150,7 +200,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="triage-calibration-") as temp:
         root = Path(temp)
         valids: dict[str, Path] = {}
-        for case in ("failure", "tracker", "missing-data", "multiple-signal", "no-match"):
+        for case in sorted(CASES):
             workspace = root / f"valid-{case}"
             workspace.mkdir()
             output = valid(workspace, case)
@@ -163,38 +213,56 @@ def main() -> int:
 
         wrong_route = clone(valids["failure"], root, "wrong-route")
         evidence = next((wrong_route / "repo/.wayne/triage").glob("*.md"))
-        write(evidence, evidence.read_text(encoding="utf-8").replace("route: fix-now", "route: needs-plan"))
-        assert_invalid(wrong_route, "failure", wrong_route / "output.txt", "route must be 'fix-now'", "wrong route")
+        write(evidence, evidence.read_text(encoding="utf-8").replace("route: fix-now", "route: needs-plan", 1))
+        assert_invalid(wrong_route, "failure", wrong_route / "output.txt", "route must be", "wrong route")
 
-        tracker_mutation = clone(valids["tracker"], root, "tracker-mutation")
-        write(tracker_mutation / "repo/tracker-state.json", '{"state":"closed"}\n')
-        assert_invalid(tracker_mutation, "tracker", tracker_mutation / "output.txt", "input modified", "tracker mutation")
+        body_route = clone(valids["failure"], root, "body-route")
+        evidence = next((body_route / "repo/.wayne/triage").glob("*.md"))
+        write(evidence, evidence.read_text(encoding="utf-8").replace("- verdict: fix-now", "- verdict: needs-plan"))
+        assert_invalid(body_route, "failure", body_route / "output.txt", "disagree", "route copies")
 
-        missing_signal = clone(valids["multiple-signal"], root, "missing-signal")
-        evidence = next((missing_signal / "repo/.wayne/triage").glob("*.md"))
+        wrong_agent = clone(valids["failure"], root, "wrong-agent")
+        packet = next((wrong_agent / "repo/.wayne/checkpoints").glob("*.md"))
+        write(packet, packet.read_text(encoding="utf-8").replace("wayne-test-design", "wayne-plan"))
+        assert_invalid(wrong_agent, "failure", wrong_agent / "output.txt", "next_agent must be", "wrong agent")
+
+        auto = clone(valids["failure"], root, "auto")
+        packet = next((auto / "repo/.wayne/checkpoints").glob("*.md"))
+        write(packet, packet.read_text(encoding="utf-8").replace("Auto-advance | NO", "Auto-advance | YES"))
+        assert_invalid(auto, "failure", auto / "output.txt", "Auto-advance NO", "auto advance")
+
+        snapshot = clone(valids["architecture"], root, "wrong-snapshot")
+        packet = next((snapshot / "repo/.wayne/checkpoints").glob("*.md"))
+        write(packet, packet.read_text(encoding="utf-8").replace(".wayne/triage/2026-07-17-architecture.md", ".wayne/triage/other.md"))
+        assert_invalid(snapshot, "architecture", snapshot / "output.txt", "snapshot must be", "snapshot")
+
+        denied = clone(valids["approval-denied"], root, "denied-packet")
+        write(denied / "repo/.wayne/checkpoints/bad.md", "next_agent: wayne-test-design\n")
+        assert_invalid(denied, "approval-denied", denied / "output.txt", "emitted a checkpoint", "approval")
+
+        external = clone(valids["external-owner"], root, "external-packet")
+        write(external / "repo/.wayne/checkpoints/bad.md", "next_agent: external-owner\n")
+        assert_invalid(external, "external-owner", external / "output.txt", "emitted a Wayne checkpoint", "external")
+
+        tracker = clone(valids["tracker"], root, "tracker-mutation")
+        write(tracker / "repo/tracker-state.json", '{"state":"closed"}\n')
+        assert_invalid(tracker, "tracker", tracker / "output.txt", "input modified", "tracker mutation")
+
+        signal = clone(valids["multiple-signal"], root, "missing-signal")
+        evidence = next((signal / "repo/.wayne/triage").glob("*.md"))
         write(evidence, evidence.read_text(encoding="utf-8").replace("env_skew: true", "env_skew: false"))
-        assert_invalid(missing_signal, "multiple-signal", missing_signal / "output.txt", "env_skew: true", "multiple signal")
+        assert_invalid(signal, "multiple-signal", signal / "output.txt", "env_skew: true", "signal")
 
-        premature = clone(valids["missing-data"], root, "premature-route")
+        premature = clone(valids["missing-data"], root, "premature")
         write(premature / "repo/.wayne/triage/premature.md", evidence_text("tracker"))
-        assert_invalid(premature, "missing-data", premature / "output.txt", "wrote evidence before data", "missing data")
+        assert_invalid(premature, "missing-data", premature / "output.txt", "wrote evidence", "missing data")
 
-        guessed = clone(valids["no-match"], root, "guessed-playbook")
+        guessed = clone(valids["no-match"], root, "guessed")
         evidence = next((guessed / "repo/.wayne/triage").glob("*.md"))
-        write(
-            evidence,
-            evidence.read_text(encoding="utf-8")
-            .replace("symptom_class: unknown", "symptom_class: crash")
-            .replace("stack_trace: false", "stack_trace: true"),
-        )
-        assert_invalid(guessed, "no-match", guessed / "output.txt", "symptom_class must be 'unknown'", "no match")
+        write(evidence, evidence.read_text(encoding="utf-8").replace("symptom_class: unknown", "symptom_class: crash"))
+        assert_invalid(guessed, "no-match", guessed / "output.txt", "symptom_class must be", "no match")
 
-        no_marker = clone(valids["tracker"], root, "no-observed-marker")
-        evidence = next((no_marker / "repo/.wayne/triage").glob("*.md"))
-        write(evidence, evidence.read_text(encoding="utf-8").replace("[OBSERVED]", "[INFERRED]"))
-        assert_invalid(no_marker, "tracker", no_marker / "output.txt", "no [OBSERVED]", "evidence marker")
-
-    print("PASS: 5 positive routes and 7 independent mutations")
+    print("PASS: 8 valid routes and 12 independent mutations")
     return 0
 
 
