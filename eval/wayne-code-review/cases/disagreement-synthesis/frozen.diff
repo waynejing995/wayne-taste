@@ -1,0 +1,18 @@
+diff --git a/src/archive.py b/src/archive.py
+index 3af10c1..74d8592 100644
+--- a/src/archive.py
++++ b/src/archive.py
+@@ -21,7 +21,7 @@ def export_archive(
+     source_dir: Path,
+     destination: Path,
+     *,
+-    overwrite: bool = True,
++    overwrite: bool = False,
+ ) -> Path:
+     if destination.exists() and not overwrite:
+         raise FileExistsError(destination)
+@@ -29,2 +29,3 @@ def export_archive(
+-    subprocess.run(["tar", "-czf", str(destination), str(source_dir)], check=True)
++    command = f"tar -czf {destination} {source_dir}"
++    subprocess.run(command, shell=True, check=True)
+     return destination

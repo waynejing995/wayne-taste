@@ -1,0 +1,43 @@
+{
+  "schema": "wayne-code-review/disagreement-synthesis/v1",
+  "packet_id": "disagreement-synthesis-v1",
+  "frozen_diff": "frozen.diff",
+  "frozen_diff_sha256": "79ca07c54c6be1d3a755ef8e20362e599a95b6dd92e4297128ddddecec3e357b",
+  "raw_artifacts": [
+    "raw/claude.md",
+    "raw/codex.md"
+  ],
+  "expected": {
+    "verdict": "FAIL",
+    "runtime": "UNVERIFIED",
+    "confirmed_findings": [
+      {
+        "semantic_id": "shell-command-injection",
+        "severity": "CRITICAL",
+        "file": "src/archive.py",
+        "line": 30,
+        "sources": [
+          "claude",
+          "codex"
+        ]
+      }
+    ],
+    "disagreements": [
+      {
+        "semantic_id": "overwrite-default-compatibility",
+        "file": "src/archive.py",
+        "line": 24,
+        "claude": "CRITICAL",
+        "codex": "NOT_A_FINDING",
+        "resolution": "UNRESOLVED"
+      }
+    ],
+    "confirmed_count": 1,
+    "disagreement_count": 1,
+    "repository_mutations": 0,
+    "reviewer_invocations": 0,
+    "automatic_fixes": 0,
+    "checkpoint_writes": 0,
+    "downstream_invocations": 0
+  }
+}
