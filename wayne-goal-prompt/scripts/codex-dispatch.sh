@@ -18,6 +18,7 @@
 #   codex-dispatch.sh status   <job-id>                              -> running? goal status? last log
 #   codex-dispatch.sh tail     <job-id> [grep-regex]                 -> follow the JSONL log (push)
 #   codex-dispatch.sh inject   <job-id> <text | @file>               -> feed a message into the LIVE thread
+#   codex-dispatch.sh resume   <job-id>                              -> reactivate the SAME blocked/paused thread
 #   codex-dispatch.sh list                                           -> list jobs for this cwd
 #
 # The JSONL log is the monitor's push source: `tail -F` it and grep your own unit
@@ -56,6 +57,8 @@ cmd_dispatch() {
   local log="$jobdir/events.jsonl"
   local drvlog="$jobdir/driver.log"
   local meta="$jobdir/meta.env"
+  local control="$jobdir/control"
+  mkdir -p "$control"
 
   local budget_args=()
   [ -n "$budget" ] && budget_args=(--token-budget "$budget")
@@ -65,6 +68,7 @@ cmd_dispatch() {
       --cwd "$cwd" \
       --log "$log" \
       --inbox "$jobdir/inbox" \
+      --control "$control" \
       "${budget_args[@]}" \
       -v \
       > "$drvlog" 2>&1 &
@@ -73,8 +77,25 @@ cmd_dispatch() {
   {
     echo "JOB_ID=$jobid"; echo "CWD=$cwd"; echo "GOAL_FILE=$goal_file"
     echo "LOG=$log"; echo "DRIVER_LOG=$drvlog"; echo "INBOX=$jobdir/inbox"
+    echo "CONTROL=$control"
     echo "PID=$pid"; echo "STARTED=$(date -Iseconds)"
   } > "$meta"
+
+  local attempts=$(( ${WAYNE_DISPATCH_STARTUP_TIMEOUT:-15} * 20 )) ready=""
+  for _ in $(seq 1 "$attempts"); do
+    if [ -s "$control/ready" ]; then ready=1; break; fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "codex-dispatch: worker failed before readiness" >&2
+      tail -20 "$drvlog" >&2 || true
+      return 1
+    fi
+    sleep 0.05
+  done
+  if [ -z "$ready" ]; then
+    kill "$pid" 2>/dev/null || true
+    echo "codex-dispatch: readiness timeout; log preserved at $drvlog" >&2
+    return 1
+  fi
 
   echo "$jobid"
   echo "  cwd:    $cwd" >&2
@@ -100,6 +121,7 @@ cmd_status() {
   echo "cwd:     $CWD"
   echo "log:     $LOG"
   echo "inbox:   $INBOX"
+  echo "goal:    $(cat "$CONTROL/status" 2>/dev/null || echo starting)"
   echo "--- last goal status ---"
   grep -oE 'goal.status = [a-z]+|GOAL COMPLETE|goal ended [a-z-]+' "$DRIVER_LOG" 2>/dev/null | tail -3 || true
   echo "--- log tail ---"; tail -6 "$LOG" 2>/dev/null || true
@@ -124,6 +146,26 @@ cmd_inject() {
   echo "queued mid-run message -> $msg (driver injects into live thread for ${jobid})"
 }
 
+cmd_resume() {
+  local jobid="${1:-}"; [ -n "$jobid" ] || die "resume needs a job-id"
+  local jd; jd="$(_jobdir "$jobid")"; source "$jd/meta.env"
+  kill -0 "$PID" 2>/dev/null || die "job is not live: $jobid"
+  local current; current="$(cat "$CONTROL/status" 2>/dev/null || true)"
+  case "$current" in
+    paused|blocked) ;;
+    *) die "job is not resumable (status=${current:-unknown})";;
+  esac
+  printf '%s\n' "$current" > "$CONTROL/resume.request"
+  local accepted=""
+  for _ in $(seq 1 100); do
+    [ ! -e "$CONTROL/resume.request" ] && { accepted=1; break; }
+    kill -0 "$PID" 2>/dev/null || break
+    sleep 0.05
+  done
+  [ -n "$accepted" ] || die "resume was not accepted; see $DRIVER_LOG"
+  echo "resumed same thread for $jobid"
+}
+
 cmd_list() {
   local slug base; slug="$(ws_slug "$PWD")"; base="$JOBROOT/$slug"
   [ -d "$base" ] || { echo "no jobs for $PWD"; return; }
@@ -140,6 +182,7 @@ case "${1:-}" in
   status)   shift; cmd_status "$@";;
   tail)     shift; cmd_tail "$@";;
   inject)   shift; cmd_inject "$@";;
+  resume)   shift; cmd_resume "$@";;
   list)     shift; cmd_list "$@";;
-  *) die "usage: dispatch <goal-file> [cwd] [--token-budget N] | status <id> | tail <id> [regex] | inject <id> <text|@file> | list";;
+  *) die "usage: dispatch <goal-file> [cwd] [--token-budget N] | status <id> | tail <id> [regex] | inject <id> <text|@file> | resume <id> | list";;
 esac
