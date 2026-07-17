@@ -13,3 +13,5 @@ uv run --no-project python -m unittest tests.test_region_contract
 
 `service_region()` is imported by both CLI and worker. Diagnose the crash and the
 environment skew together, recommend tracker state, and route without editing code.
+
+Handoff approval: granted for one return-only internal Wayne packet.
