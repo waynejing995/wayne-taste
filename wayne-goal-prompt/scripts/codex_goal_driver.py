@@ -37,7 +37,8 @@ import click
 from loguru import logger
 
 CLIENT_INFO = {"name": "wayne-goal-driver", "version": "0.1.0"}
-TERMINAL = {"complete", "blocked", "usageLimited", "budgetLimited"}
+TERMINAL = {"complete", "usageLimited", "budgetLimited"}
+RESUMABLE = {"paused", "blocked"}
 
 
 class AppServer:
@@ -176,8 +177,15 @@ def _drain_inbox(srv: "AppServer", thread_id: str, inbox) -> None:
     "then renamed *.sent. This is the app-server power exec mode lacks — feed "
     "review/instructions to the worker WHILE it runs.",
 )
+@click.option(
+    "--control",
+    "control_dir",
+    required=True,
+    type=click.Path(),
+    help="Job-local readiness, status, and same-thread resume control directory.",
+)
 @click.option("-v", "--verbose", is_flag=True)
-def main(goal_file, cwd, log_path, token_budget, poll, inbox_dir, verbose):
+def main(goal_file, cwd, log_path, token_budget, poll, inbox_dir, control_dir, verbose):
     logger.remove()
     logger.add(sys.stderr, level="DEBUG" if verbose else "INFO")
 
@@ -186,6 +194,12 @@ def main(goal_file, cwd, log_path, token_budget, poll, inbox_dir, verbose):
     log = Path(log_path)
     log.parent.mkdir(parents=True, exist_ok=True)
     inbox = Path(inbox_dir) if inbox_dir else None
+    control = Path(control_dir)
+    control.mkdir(parents=True, exist_ok=True)
+
+    def set_status(status: str) -> None:
+        (control / "status").write_text(status + "\n")
+
     if inbox:
         inbox.mkdir(parents=True, exist_ok=True)
         logger.info("inbox watching {} (drop *.txt to inject mid-run)", inbox)
@@ -210,12 +224,15 @@ def main(goal_file, cwd, log_path, token_budget, poll, inbox_dir, verbose):
         logger.error("no threadId in thread/start result: {}", thread)
         sys.exit(1)
     logger.info("thread {}", thread_id)
+    (control / "thread-id").write_text(thread_id + "\n")
 
     goal_params = {"threadId": thread_id, "objective": objective}
     if token_budget:
         goal_params["tokenBudget"] = token_budget
     srv.request("thread/goal/set", goal_params)
     logger.info("goal set (YOLO: danger-full-access + never)")
+    set_status("active")
+    (control / "ready").write_text(thread_id + "\n")
 
     # turn/start REQUIRES input — kick the goal loop with the objective
     srv.request(
@@ -226,16 +243,37 @@ def main(goal_file, cwd, log_path, token_budget, poll, inbox_dir, verbose):
     logger.info("turn started; watching goal status")
 
     # watch goal status until terminal; inject inbox messages mid-run
+    current_status = "active"
     while True:
         if not srv.alive():
+            set_status("failed")
             logger.error("app-server died before goal reached a terminal status")
             sys.exit(1)
+        resume_request = control / "resume.request"
+        if resume_request.exists():
+            if current_status not in RESUMABLE:
+                logger.error("resume rejected from non-resumable status {}", current_status)
+                resume_request.rename(control / "resume.rejected")
+            else:
+                srv.request(
+                    "thread/goal/set",
+                    {"threadId": thread_id, "status": "active"},
+                )
+                current_status = "active"
+                set_status(current_status)
+                resume_request.rename(control / "resume.sent")
+                logger.info("same thread reactivated")
         if inbox:
             _drain_inbox(srv, thread_id, inbox)
         for note in srv.drain_notifications():
             st = _goal_status(note)
             if st:
+                current_status = st
+                set_status(st)
                 logger.info("goal.status = {}", st)
+                if st in RESUMABLE:
+                    logger.warning("goal remains live and resumable: {}", st)
+                    continue
                 if st in TERMINAL:
                     if st == "complete":
                         logger.info("GOAL COMPLETE")
