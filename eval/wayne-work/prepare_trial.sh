@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 3 ]]; then
-    echo "usage: $0 <normal|protected|missing-u> <skill-dir> <workspace>" >&2
+    echo "usage: $0 <normal|protected|missing-u|parallel-disjoint> <skill-dir> <workspace>" >&2
     exit 2
 fi
 

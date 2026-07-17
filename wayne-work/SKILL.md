@@ -9,13 +9,11 @@ Execute one approved implementation plan to a verified, review-ready diff.
 
 ## Boundary
 
-Own implementation, plan-unit tracking, test-as-you-go, integration, U status
-updates, and the final work handoff. Do not redesign approved behavior, author a
-new plan/test matrix, change E status, commit, branch, push, open a PR, run runtime
-verification, invoke code review, or ship.
+Own implementation, plan-unit tracking, test-as-you-go, integration, U status updates,
+and the final work handoff. Do not redesign approved behavior, author a new plan/test
+matrix, change E status, commit, branch, push, open a PR, verify, review, or ship.
 
-The plan, decision log, and test matrix are source contracts. Existing repository
-instructions and unrelated dirty files remain untouched.
+The plan, decision log, test matrix, repository instructions, and dirty baseline are source contracts.
 
 ## Flow
 
@@ -26,11 +24,12 @@ digraph work {
     B [label="Complete and consistent?", shape=diamond];
     X [label="Return exact blocker", shape=doublecircle];
     C [label="Freeze baseline and unit graph", shape=box];
-    D [label="Pick ready unit", shape=box];
-    E [label="Test-first unit?", shape=diamond];
-    R [label="Establish relevant RED", shape=box];
-    F [label="Implement unit", shape=box];
-    G [label="Unit verification passes?", shape=diamond];
+    D [label="Build ready wave", shape=box];
+    E [label="Parallel-safe wave?", shape=diamond];
+    R [label="Attempt native workers", shape=box];
+    P [label="Workers started?", shape=diamond];
+    F [label="Execute serial or fallback", shape=box];
+    G [label="Wave verification passes?", shape=diamond];
     T [label="Fix observed failure", shape=box];
     H [label="Audit diff and tick U rows", shape=box];
     I [label="More units?", shape=diamond];
@@ -45,7 +44,9 @@ digraph work {
     D -> E;
     E -> R [label="yes"];
     E -> F [label="no"];
-    R -> F;
+    R -> P;
+    P -> G [label="yes"];
+    P -> F [label="no"];
     F -> G;
     G -> T [label="no"];
     T -> G;
@@ -80,31 +81,42 @@ lines with no preamble, Markdown fence, explanation outside line 5, or postscrip
 
 ### C. Freeze baseline and task graph
 
-Capture branch, status, existing dirty paths, and the source/input manifest without
-changing them. Do not create a feature branch or commit. Convert plan units into a
-dependency graph and track their status with whatever task mechanism the current
-runtime provides; no provider-specific task/team tool is required.
+Capture branch, status, existing dirty paths, and the source/input manifest unchanged.
+Do not create a branch or commit. Convert plan units into a dependency graph and track
+status with any runtime task mechanism; no provider-specific task/team tool is required.
 
-For each unit, extract its full text and relevant decisions before dispatch. A
-worker must receive the unit contract directly, not rediscover or reinterpret the
-whole plan. Parallelize only units whose writes do not overlap and whose inputs do
-not depend on another unit's outputs. The main agent remains owner of scope, matrix
-status, integration, and completion.
+For each unit, extract its full text, relevant decisions, dependencies,
+consumes/produces, and exact write set. Assign every path one owner. Matrix,
+checkpoint, shared integration files, scope state, and full verification stay
+main-owned; remove them from worker write sets.
 
-### D. Start one ready unit
+Build dependency waves. When at least two ready units have no producer/consumer
+dependency and disjoint write sets, native parallel subagents are a required
+attempt, not an optional preference. Dispatch the whole wave before awaiting one
+result. Count it as started only when the tool returns observable worker handles or
+results. On an unavailable tool or dispatch error, explicitly fall back to serial,
+then quote the exact tool error in both handoff and final result; never claim parallelism.
+When a dependency or shared path prevents parallelism, record that specific edge or
+path. The main agent remains owner of scope, actual-diff review, integration, and
+completion.
 
-Read the unit's real source and existing tests before writing. Confirm its expected
-inputs/outputs and discover all callers or consumers named by the plan. If the
-current code contradicts a plan assumption, stop and return the conflict to the
-planning owner; do not silently redesign.
+### D. Build and start one ready wave
+
+Read each ready unit's real source and existing tests before writing. Confirm its
+inputs/outputs and named consumers. If code contradicts a plan assumption, stop and
+return the conflict to planning.
+
+Each worker receives one fixed unit ID; full goal, decisions, approach, and
+consumes/produces; exact allowed paths and verification; and prohibitions on commits,
+matrix/checkpoint/shared-path edits, and plan reinterpretation. Workers report actual
+paths and commands; they do not rediscover the plan or update shared state.
 
 ### R. Establish RED when required
 
-Follow the unit execution note. For test-first work, run the exact unit command
-before implementation and preserve the non-zero result. The RED must fail for the
-missing behavior, not environment or tooling. An unexpected failure is a blocker
-to diagnose, not permission to start coding. Never edit, delete, skip, or weaken a
-locked test to manufacture GREEN.
+Follow the unit execution note. For test-first work, run the exact unit command before
+implementation and preserve the non-zero result. RED must fail for missing behavior,
+not environment or tooling. Diagnose unexpected failures before coding. Never edit,
+delete, skip, or weaken a locked test to manufacture GREEN.
 
 ### F. Implement the unit
 
@@ -113,9 +125,10 @@ decision semantics, state ownership, error behavior, and existing repository
 patterns. Add tests only when the plan assigns test authorship to this stage; when
 tests are locked, treat them as immutable acceptance inputs.
 
-Use the current runtime's inline, delegated, or parallel execution mechanism as
-appropriate. Every implementer reports actual paths changed and commands run; no
-implementer commits or updates matrix/E ownership independently.
+Use inline execution only for a single ready unit, a dependency/shared-path serial
+wave, or an explicitly recorded native-dispatch failure. Every implementer reports
+actual paths changed and commands run; no implementer commits or updates
+matrix/E ownership independently.
 
 ### G. Verify and repair from evidence
 
@@ -126,11 +139,13 @@ failure is not a behavioral test result.
 
 ### H. Audit the unit and update U status
 
-Inspect the actual diff rather than trusting a worker summary. Compare every unit
-requirement and decision with code and tests; reject missing, extra, or changed
-behavior. Check names, ownership, error paths, integration points, and unnecessary
-complexity. Only after the real test passes, change that unit's owned U rows from
-`☐` to `☑`. Never edit the U scenario text or any E row/status `⬜`.
+After every wave, inspect the actual diff rather than trusting worker summaries.
+Reject cross-owner writes or overlapping edits, compare every unit requirement and
+decision with code/tests, and run the plan-defined wave/integration checks. The
+main agent performs shared integration only after all producing workers finish;
+do not start a dependent wave while this barrier fails. Only after each real unit
+test passes, change its U rows from `☐` to `☑`. Never edit U scenario text or any E
+row/status `⬜`.
 
 ### J. Prove integrated completion
 
@@ -145,20 +160,21 @@ Then audit:
 - no TODO, partial implementation, staged file, commit, branch, or downstream
   action was introduced.
 
-Do not call the feature complete while any command, unit, U row, decision, or scope
-gate is unresolved.
+Do not claim completion while any command, unit, U row, decision, or scope gate is unresolved.
 
 ### L. Handoff to wayne-code-review
 
-Invoke `wayne-checkpoint` in return-only handoff mode. Include the plan and matrix
-paths, completed units, exact passing commands, changed paths, preserved scope,
-and residual risks; set the next agent to `wayne-code-review`. Tell the user tests
-passed and explicitly name `wayne-code-review` as the next stage. Do not invoke it.
+Before returning success, write one packet under `.wayne/checkpoints/` through
+`wayne-checkpoint` return-only mode or a supplied canonical contract. Verify the file
+exists and surface its path; without either mechanism, return the exact blocker. Include
+plan/matrix paths, units, passing commands, changed paths, preserved scope, residual
+risks, and `next_agent: wayne-code-review`; final output repeats that literal but never invokes it.
 
 ## Red lines
 
 - No implementation with incomplete/conflicting source contracts.
-- No provider-specific task tool, forced delegation, or fake parallelism.
+- No provider-specific task API, shell-process substitute, silent serial fallback,
+  or claimed parallel success after a tool error.
 - No test weakening, hidden substitute command, unchecked U row, or changed E row.
 - No completion claim without full verification and actual scope-diff proof.
 - No commit, branch, stage, push, review, verify, ship, or auto-advance.
