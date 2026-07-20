@@ -67,6 +67,11 @@ Second local note with different context.
 ## Checklist
 
 - A separate contextual reviewer decides whether this restates the Flow.
+- Literal hook syntax: `- [Title](file.md) — hook`.
+
+```text
+[Title](fenced-example.md)
+```
 """
 
 
@@ -109,9 +114,16 @@ def main() -> int:
         )
         assert "dot-label" in codes(unlabeled), codes(unlabeled)
 
+        broken_link = write_skill(
+            root / "broken-link",
+            VALID + "\n[Title](missing.md)\n",
+        )
+        assert "broken-link" in codes(broken_link), codes(broken_link)
+
     print(
         "PASS: repeated H3, Flow+Checklist, and conditional resources are not "
-        "semantic-scored; H2, node IDs, and decision edges stay structural"
+        "semantic-scored; code examples are not links; real broken links, H2, "
+        "node IDs, and decision edges stay structural"
     )
     return 0
 
