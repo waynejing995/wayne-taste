@@ -16,6 +16,13 @@ def valid() -> dict[str, object]:
             "log_preserved": True,
             "reason_preserved": True,
         },
+        "turn_start_failure": {
+            "dispatch_failed": True,
+            "no_job_id": True,
+            "not_ready": True,
+            "log_preserved": True,
+            "reason_preserved": True,
+        },
         "resume": {
             "dispatch_started": True,
             "blocked_observed": True,
@@ -33,7 +40,7 @@ def main() -> int:
     if validate_report(positive):
         raise AssertionError("valid dispatch report failed")
     count = 0
-    for section in ("failure", "resume"):
+    for section in ("failure", "turn_start_failure", "resume"):
         rows = positive[section]
         assert isinstance(rows, dict)
         for key in rows:

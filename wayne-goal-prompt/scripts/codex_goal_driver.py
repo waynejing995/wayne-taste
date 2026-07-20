@@ -231,8 +231,6 @@ def main(goal_file, cwd, log_path, token_budget, poll, inbox_dir, control_dir, v
         goal_params["tokenBudget"] = token_budget
     srv.request("thread/goal/set", goal_params)
     logger.info("goal set (YOLO: danger-full-access + never)")
-    set_status("active")
-    (control / "ready").write_text(thread_id + "\n")
 
     # turn/start REQUIRES input — kick the goal loop with the objective
     srv.request(
@@ -241,6 +239,8 @@ def main(goal_file, cwd, log_path, token_budget, poll, inbox_dir, control_dir, v
         timeout=600,
     )
     logger.info("turn started; watching goal status")
+    set_status("active")
+    (control / "ready").write_text(thread_id + "\n")
 
     # watch goal status until terminal; inject inbox messages mid-run
     current_status = "active"

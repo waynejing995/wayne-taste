@@ -17,8 +17,9 @@ $S list
 
 `dispatch` creates one workspace-namespaced job, event log, driver log, inbox,
 control directory, and metadata record. It emits the job ID only after the driver
-has completed `initialize`, `thread/start`, and initial `thread/goal/set`. A startup
-failure returns non-zero and preserves the job directory and exact driver reason.
+has completed `initialize`, `thread/start`, initial `thread/goal/set`, and
+`turn/start`. A startup failure at any of those steps returns non-zero and preserves
+the job directory and exact driver reason.
 
 ## Protocol invariants
 

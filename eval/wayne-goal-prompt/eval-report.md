@@ -28,12 +28,12 @@ control-pass cells. Final candidate result is 6/6 PASS with no invalid cell.
 
 | Gate | Control | Candidate |
 |---|---|---|
-| Startup provider failure | FAIL: success/job ID emitted; provider reason lost | PASS: non-zero `DISPATCH_FAILED`, no job ID, log/reason preserved |
+| Startup provider failure | FAIL: success/job ID emitted; provider reason lost | PASS: initialize and `turn/start` failures are non-zero before ready/job ID; log/reason preserved |
 | Blocked same-thread resume | FAIL: no working resume/reactivation/completion | PASS: blocked remains live; same thread set active and completes |
 | Composition checker calibration | — | PASS: 6 positives + 19 independent mutations |
 | Candidate static calibration | — | PASS: 1 positive + 53 independent mutations |
 | Goal validator calibration | — | PASS: 2 positives + 10 independent mutations |
-| Dispatch report calibration | — | PASS: 1 positive + 11 independent mutations |
+| Dispatch report calibration | — | PASS: 1 positive + 16 independent mutations |
 | Live-path `compose-real-path` smoke | — | PASS: Claude and Codex |
 | Python compile, shell syntax, Forge validation | legacy static failures | PASS |
 
@@ -57,3 +57,8 @@ rewriting prose.
 Residual uncertainty: live long-running app-server success against a real provider
 was not launched by this eval. Usage/budget terminal semantics and resume are
 covered by static mutations and a deterministic fake app-server protocol run.
+
+Follow-up 2026-07-20: readiness now belongs after a successful initial
+`turn/start`. The deterministic fake rejects the previous ordering by failing that
+method after goal setup and asserting that no `control/ready` marker or successful
+job ID escaped. Initialize failure and same-thread blocked/resume remain passing.

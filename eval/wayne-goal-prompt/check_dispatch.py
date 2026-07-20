@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute and validate dispatch startup-failure and same-thread resume behavior."""
+"""Execute and validate dispatch readiness failures and same-thread resume behavior."""
 
 from __future__ import annotations
 
@@ -20,8 +20,13 @@ JOB_ID = re.compile(r"^job-[0-9-]+-\d+$", re.MULTILINE)
 def validate_report(report: dict[str, object]) -> list[str]:
     findings: list[str] = []
     failure = report.get("failure", {})
+    turn_start_failure = report.get("turn_start_failure", {})
     resume = report.get("resume", {})
-    if not isinstance(failure, dict) or not isinstance(resume, dict):
+    if (
+        not isinstance(failure, dict)
+        or not isinstance(turn_start_failure, dict)
+        or not isinstance(resume, dict)
+    ):
         return ["dispatch report shape invalid"]
     failure_required = {
         "dispatch_failed": "startup failure returned success",
@@ -40,6 +45,15 @@ def validate_report(report: dict[str, object]) -> list[str]:
     }
     for key, finding in failure_required.items():
         if failure.get(key) is not True:
+            findings.append(finding)
+    for key, finding in {
+        "dispatch_failed": "turn/start failure returned success",
+        "no_job_id": "turn/start failure emitted a successful job id",
+        "not_ready": "turn/start failure published readiness",
+        "log_preserved": "turn/start failure lost driver log",
+        "reason_preserved": "turn/start failure lost provider reason",
+    }.items():
+        if turn_start_failure.get(key) is not True:
             findings.append(finding)
     for key, finding in resume_required.items():
         if resume.get(key) is not True:
@@ -140,6 +154,37 @@ def run_candidate(skill: Path) -> dict[str, object]:
         for job in failure_jobs:
             stop(int(metadata(job).get("PID", "0")))
 
+        turn_failure_home = root / "turn-failure-jobs"
+        turn_failure_trace = root / "turn-failure-trace.jsonl"
+        env = base_env | {
+            "CODEX_DISPATCH_HOME": str(turn_failure_home),
+            "FAKE_CODEX_MODE": "turn-start-fail",
+            "FAKE_CODEX_TRACE": str(turn_failure_trace),
+        }
+        turn_failure_run = subprocess.run(
+            ["bash", str(script), "dispatch", str(goal), str(repo)],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=15,
+        )
+        turn_failure_jobs = job_dirs(turn_failure_home)
+        turn_failure_job = turn_failure_jobs[0] if turn_failure_jobs else root / "missing"
+        turn_failure_log = turn_failure_job / "driver.log"
+        turn_start_failure = {
+            "dispatch_failed": turn_failure_run.returncode != 0,
+            "no_job_id": JOB_ID.search(turn_failure_run.stdout) is None,
+            "not_ready": not (turn_failure_job / "control/ready").exists(),
+            "log_preserved": turn_failure_log.is_file(),
+            "reason_preserved": turn_failure_log.is_file()
+            and "fixture turn startup failed" in turn_failure_log.read_text(
+                encoding="utf-8", errors="replace"
+            ),
+        }
+        for job in turn_failure_jobs:
+            stop(int(metadata(job).get("PID", "0")))
+
         resume_home = root / "resume-jobs"
         resume_trace = root / "resume-trace.jsonl"
         env = base_env | {
@@ -203,7 +248,11 @@ def run_candidate(skill: Path) -> dict[str, object]:
             "completed": completed,
             "one_job": len(jobs_before) == 1 and len(jobs_after) == 1,
         }
-        return {"failure": failure, "resume": resume}
+        return {
+            "failure": failure,
+            "turn_start_failure": turn_start_failure,
+            "resume": resume,
+        }
 
 
 def main() -> int:
@@ -219,7 +268,7 @@ def main() -> int:
         for finding in findings:
             print(f"FAIL: {finding}")
         return 1
-    print("PASS: dispatch startup failure and same-thread resume")
+    print("PASS: dispatch readiness failures and same-thread resume")
     return 0
 
 
