@@ -117,17 +117,22 @@ and duplicate boundaries. Record only reviewer-surprising exclusions.
 
 ### C. Draft U-SEED
 
-Always write the exact heading `U-SEED (wayne-plan re-authors + locks)`. Write rows as
-input → action → observable expected result, with `unit` or `integration` layer and
-Status `☐`; if none are sound, write `U-SEED: none — <reason>` below the heading.
-Do not bind rows to implementation units that do not exist yet.
+Always write the exact heading `U-SEED (wayne-plan re-authors + locks)`. Each row
+must communicate a concrete input or precondition, action, and observable expected
+result, including multiple branches when behavior requires them. This is a semantic
+scenario contract, not a required arrow count or sentence shape. Use `unit` or
+`integration` layer and Status `☐`; if none are sound, write
+`U-SEED: none — <reason>` below the heading. Do not bind rows to implementation
+units that do not exist yet.
 
 ### D/E. Audit E2E isolation and evidence
 
 In the template's `E2E Proof-Axis Audit`, list functional, attestation, aggregate,
 and cleanup rows by provider. For every capability claim, name its native evidence or
 record the exact scope conflict. Check that no prerequisite prevents reaching the
-behavior an E row claims to prove.
+behavior an E row claims to prove. The axis cell is a structured enum; whether the
+scenario actually proves that axis is an AI judgment over the complete behavior and
+evidence, never a keyword or substring classification.
 
 ### F. Draft locked E rows
 
@@ -146,6 +151,10 @@ or E row or an explicit non-testable rationale; every user path to map to E; eve
 row to have one axis, reachable prerequisites, correct provider granularity, and
 feasible evidence; and every status/column owner to remain intact.
 Summarize coverage as `R1✓ R2✓ (E2E: E1,E2 | U-SEED: S1-S4)`.
+Use deterministic checks for the table schema, IDs, enum values, statuses, and
+ownership closure. Use AI review of the complete sources for semantic coverage,
+axis correctness, reachability, observability, and capability claims; both layers
+must pass, and a lexical semantic proxy is not an additional gate.
 
 ### H/I/J. Approve and route
 

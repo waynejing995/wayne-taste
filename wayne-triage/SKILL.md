@@ -74,10 +74,10 @@ digraph triage {
 
 Use data already pasted, a supplied local path, or the exact fetch command/method
 the user named. With only an ID or vague reference, ask exactly one direct question
-for where the item lives or how to fetch it, then wait; an imperative request is
-not a question. End the response with that single `?` or `？`; do not include a
-second question. Do not infer a tracker or call an API. Open no evidence file until
-data exists.
+for one missing data decision—where the item lives or how to fetch it—then wait.
+Imperative or interrogative phrasing is acceptable; semantic cardinality is not a
+punctuation count. Do not batch a second missing decision, infer a tracker, or call
+an API. Open no evidence file until data exists.
 
 ### B. Select the surface
 

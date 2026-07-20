@@ -144,20 +144,24 @@ fact or unpersisted child into the next branch.
 ### D. Ask one recommended question
 
 Interview the user relentlessly until both sides share the same design. Select the
-next reachable open `choice` from the durable DAG. Ask exactly one question, give
-`My recommendation:` and its reason, then wait for the user's answer before moving
-on. The entire user-visible response contains exactly one `?` or `？`; state options
-and explanation declaratively, and never repeat the question in a heading or
-closing. Look up facts in the environment; put decisions to the user. Log each answer
-immediately. Treat `whatever`, `I don't care`, or any non-decision as unresolved:
-explain the consequence, repeat one recommendation, and wait. Never infer
-precedence between conflicting inputs.
+next reachable open `choice` from the durable DAG. Ask exactly one question and
+offer three concrete options for that decision, with `My recommendation:` naming
+the option you would choose and why. For a genuinely binary decision, offer two
+and state why no third distinct option exists; never pad the list with a fake
+variant. Then wait for the user's answer before moving on. One question means one
+open decision node; punctuation, sentence count, and whether the options are
+phrased interrogatively do not define cardinality. Never repeat the same decision
+as a second question in a heading or closing. Look up facts in the environment;
+put decisions to the user. Log each answer immediately. Treat `whatever`, `I don't
+care`, or any non-decision as unresolved: explain the consequence, repeat one
+recommendation, and wait. Never infer precedence between conflicting inputs.
 
 The recommendation is advice, never a default or a disguised approval request.
-Ground it in current evidence and decisions; name its key assumption, the strongest
-alternative and its advantage, and what would change the recommendation. Ask for
-the user's choice neutrally; silence, agreement with the framing, or acceptance of a
-parent node never approves this node or its children.
+Ground all options in current evidence and decisions. For the recommendation name
+its key assumption and reversal condition; for each alternative name its distinct
+advantage or trade-off. Ask for the user's choice neutrally; silence, agreement
+with the framing, or acceptance of a parent node never approves this node or its
+children.
 
 ### Q. Persist one user decision
 
@@ -174,8 +178,10 @@ data/control flow, failure/concurrency, observability, verification, rollback, a
 legacy impact. Decision count, turn count, context length, or an apparently complete
 summary never empties the frontier; 40+ resolved decisions with one open node must
 continue. Grilling has no question cap; only the user may explicitly stop or request
-a partial wrap-up. After the user confirms shared understanding, compare 2-3 viable
-approaches against the log, lead with the recommendation, and record the choice.
+a partial wrap-up. After the user confirms shared understanding, compare three
+genuinely distinct viable approaches against the log, lead with the recommendation,
+and record the choice. If the approved constraints leave only two viable approaches,
+state the eliminated third direction and why it is not viable instead of padding it.
 Present architecture, components, state/data ownership, flows, failure behavior,
 boundaries, and verification in reviewable sections. Wait for approval of each
 material section and log every revision. Do not advance on assumed approval.

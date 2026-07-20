@@ -7,16 +7,6 @@ description: Save and resume working state within the project, and act as the ha
 
 Save and resume working state. Project-scoped — everything stays in `.wayne/checkpoints/`.
 
-## Inherits from ~/.claude/CLAUDE.md
-
-This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
-
-- Language Rules (Chinese to user, English to files)
-- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
-- Code Standards (uv run python, markdown tables)
-- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
-- Skill invocation rule (proportional effort)
-
 This skill only specifies the save / resume / list checkpoint workflow and the
 pipeline handoff workflow.
 
@@ -55,30 +45,20 @@ git log --oneline -10 2>/dev/null
 
 ### Step 2: Gather Pipeline State
 
-Read Wayne pipeline artifacts to enrich the checkpoint:
+Use exact artifact paths supplied by the caller or already recorded by the active
+pipeline stage. Never select an owner by modification time, filename order, heading,
+or ID-shaped text. In a standalone save, discover candidates only to locate them;
+if more than one could be active, ask which exact path is authoritative.
 
-```bash
-# Latest decision log
-ls -t docs/decisions/*.md 2>/dev/null | head -1
-# Latest plan
-ls -t docs/plans/*.md 2>/dev/null | head -1
-# Latest spec
-ls -t docs/specs/*.md 2>/dev/null | head -1
-# Authoritative test matrix
-ls -t docs/test-matrix/*.md 2>/dev/null | head -1
-# Task list state
-# (read from TaskList if available)
-```
-
-For each artifact found, note:
-- **Decision log:** how many decisions logged, status (in-progress/completed)
-- **Plan:** which implementation units are done (checked `- [x]`) vs pending (`- [ ]`)
-- **Spec:** status field from frontmatter
-- **Test Matrix:** exact path and current authoritative E statuses
+For each supplied artifact, record its repository-relative path, owner, SHA-256,
+and observed state. Decision counts, unit progress, and E statuses are derived
+snapshots for orientation only. The decision log, plan, and test matrix remain the
+only owners; a checkpoint never becomes their replacement.
 
 ### Step 3: Summarize Context
 
-Using git state + pipeline artifacts + conversation history, produce:
+Using git state plus the complete supplied artifacts and conversation history,
+produce:
 
 1. **Title** — 3-6 words describing the work (infer from context, don't ask)
 2. **Pipeline stage** — where in the Wayne pipeline this work currently is
@@ -86,6 +66,10 @@ Using git state + pipeline artifacts + conversation history, produce:
 4. **Decisions made** — key decisions from the log, with rationale
 5. **Remaining work** — concrete next steps in priority order
 6. **Notes** — gotchas, blockers, open questions, dead ends tried
+
+Use AI contextual reading for stage, intent, decisions, and remaining work.
+Deterministic checks may validate paths, hashes, schema, and literal state fields;
+keywords, headings, checkbox counts, and ID scans cannot decide artifact meaning.
 
 ### Step 4: Write Checkpoint
 
@@ -101,25 +85,26 @@ echo "TIMESTAMP=$TIMESTAMP"
 
 Write to `.wayne/checkpoints/{TIMESTAMP}-{title-slug}.md`.
 
-**Read first, then write:** `${HOME}/.claude/skills/wayne-checkpoint/templates/checkpoint-template.md`
+**Read first, then write:** `templates/checkpoint-template.md` relative to this
+skill directory.
 
 The template is the canonical structure. Required sections:
 - frontmatter: `title`, `status`, `branch`, `timestamp`, `pipeline_stage`, `pipeline_phase`, `decision_log`, `plan`, `spec`, `files_modified`
 - `## Working on:` (title)
 - `### Summary` (1-3 sentences)
 - `### Pipeline State` (Stage, Phase, Last action, Next action)
-- `### Decision Log Snapshot` (table copied from decision log)
-- `### Implementation Units (from plan)` (checkbox format — wayne-work reads this on resume)
+- `### Artifact References` (exact paths, owners, hashes, and observed states)
+- `### Decision Progress` (derived summary linked to the decision log)
+- `### Implementation Progress` (derived summary linked to the plan)
 - `### Wave Progress (if parallel execution)` (table)
 - `### Per-Task Review Status` (table)
 - `### Remaining Work` (priority-ordered next steps)
 - `### Notes` (gotchas, blockers, dead ends)
 - `### Deferred Decisions` (unresolved questions from wayne-mind-explode)
 
-**Format alignment:** The Implementation Units section uses the same checkbox format
-as `wayne-plan`, so `wayne-work` can read it directly on resume without re-parsing
-the plan file. The Decision Log Snapshot uses the same table format as
-`wayne-mind-explode`'s decision log.
+**Ownership:** checkpoint summaries are never pipeline input. On resume, consumers
+must re-read the referenced authoritative artifacts and verify their hashes/state;
+they may not use copied decisions, checkboxes, or E statuses as the current truth.
 
 Confirm to user (in Chinese):
 
@@ -150,7 +135,8 @@ fi
 
 ### Step 2: Load and Present
 
-Read the most recent checkpoint (or user-specified one). Present in Chinese:
+Read the most recent checkpoint (or user-specified one). Treat its summaries as
+historical observations, not current pipeline state. Present in Chinese:
 
 ```
 恢复检查点
@@ -176,7 +162,8 @@ If current branch differs from checkpoint branch, warn:
 
 ### Step 3: Verify Pipeline Artifacts Still Exist
 
-Check that referenced decision log, plan, spec, and authoritative test matrix exist:
+Check that every exact referenced decision log, plan, spec, and authoritative test
+matrix exists and compare its current hash with the checkpoint hash:
 ```bash
 [ -f "{decision_log_path}" ] && echo "DECISIONS: OK" || echo "DECISIONS: MISSING"
 [ -f "{plan_path}" ] && echo "PLAN: OK" || echo "PLAN: MISSING"
@@ -184,7 +171,8 @@ Check that referenced decision log, plan, spec, and authoritative test matrix ex
 [ -f "{test_matrix_path}" ] && echo "TEST_MATRIX: OK" || echo "TEST_MATRIX: MISSING"
 ```
 
-If any are missing, warn the user.
+If any are missing, stop. If a hash changed, re-read the current owner and report
+the drift before resuming; never restore or override it from checkpoint content.
 
 ### Step 4: Auto-Resume Pipeline
 
@@ -203,14 +191,15 @@ Wayne skill — don't just suggest, actually invoke it via the Skill tool.
 
 **For `work` stage (most common resume):**
 
-1. Read the checkpoint's **Implementation Units** section
-2. Find the first `- [ ]` unit (not done)
-3. Read the original plan file to get full unit details
+1. Read the exact authoritative plan referenced by the checkpoint
+2. Derive current completed/pending units from that plan; use checkpoint progress
+   only to explain drift
+3. Read the full next unit and its current source artifacts
 4. Invoke `wayne-work` with the plan path — wayne-work will:
-   - Skip already-completed units (marked `[x]` in checkpoint)
+   - Skip units completed in the current authoritative plan
    - Resume from the next pending unit
-   - Use the checkpoint's Wave Progress to restore parallel execution state
-   - Check Deferred Decisions for unresolved items
+   - Treat checkpoint Wave Progress as historical evidence, not live worker state
+   - Read unresolved decisions from the current decision log
 
 ```
 告诉用户:
@@ -290,7 +279,7 @@ digraph handoff {
   gather  [label="gather state\n(Save Flow 1-2)"];
   route   [label="route to\nnext agent"];
   emit    [label="emit packet\n(file + chat)"];
-  user    [label="USER reads packet\n+ manually triggers\nnext step", shape=oval];
+  user    [label="USER reads packet\n+ manually triggers\nnext step", shape=doublecircle];
   next    [label="next pipeline skill", style=dashed];
 
   stage -> call -> gather -> route -> emit -> user;
@@ -308,15 +297,17 @@ digraph handoff {
   the call DOES.
 - **Manual:** `/wayne-checkpoint handoff` when the user wants the packet on demand.
 
-### Step 1: Gather State
+### H1. Gather referenced state
 
 Reuse **Save Flow → Step 1 (Gather State)** and **Step 2 (Gather Pipeline
 State)** exactly. No duplicate logic — the snapshot is the checkpoint snapshot.
 
 ### Step 2: Route to Next Agent
 
-Determine the current pipeline stage (from the calling skill, or infer from
-artifacts as in Save Flow), then look up the next agent:
+Determine the current pipeline stage from the calling skill or an explicit resume
+request. Standalone inference reads the complete referenced artifacts and must stop
+when ownership is ambiguous; artifact age or lexical tokens cannot select a stage.
+Then look up the next agent:
 
 | Current stage | Next agent |
 |---------------|------------|
@@ -338,15 +329,15 @@ target applies or validation fails, write no packet and return
 
 Assemble the four required parts plus the optional goal:
 
-1. **snapshot** — current state: git branch/status, decision-log progress, plan
-   implementation-unit checkbox status, current pipeline stage, and the primary
-   repository-relative artifact supplied by the caller. (Same fields the
-   checkpoint captures.)
+1. **snapshot** — current git state plus exact repository-relative artifact paths,
+   owners, hashes, and derived progress observed from those owners. It never embeds
+   a second authoritative decision, unit, or E-status table.
 2. **next agent** — from the routing table above.
-3. **next prompt** — a SELF-CONTAINED prompt for the next step. The next agent has
-   NO prior context; the prompt must stand alone (name the branch, snapshot and
-   plan/spec paths, scope, acceptance criteria, and out-of-scope). Do not write
-   "continue from before" — restate everything needed.
+3. **next prompt** — a SELF-CONTAINED routing prompt for the next step. Name the
+   branch, snapshot and authoritative plan/spec/matrix paths, scope, acceptance
+   criteria, and out-of-scope. Preserve meaning through AI reading of the complete
+   owners; do not rebuild it from headings, keywords, ID scans, or checkpoint
+   summaries. Do not write "continue from before".
 4. **goal (OPTIONAL)** — a success-criteria / Goal-Driven block (per CLAUDE.md
    "Goal-Driven Execution"). Include ONLY when concrete success criteria are
    extractable. When present, the next step may loop autonomously toward the goal;
@@ -374,7 +365,8 @@ echo "TIMESTAMP=$TIMESTAMP"
 Write the packet to `.wayne/checkpoints/{TIMESTAMP}-handoff-{stage}-to-{next}.md`
 (same directory as checkpoints, same gitignore).
 
-**Read first, then write:** `${HOME}/.claude/skills/wayne-checkpoint/templates/handoff-packet.md`
+**Read first, then write:** `templates/handoff-packet.md` relative to this skill
+directory.
 
 The template is the canonical structure. It shares frontmatter and table
 conventions with `checkpoint-template.md` so formats flow between skills without
@@ -419,34 +411,6 @@ Checkpoint has two relationships with the pipeline:
 2. **Handoff conductor:** each pipeline skill auto-calls it as its final step to
    emit a handoff packet that standardizes the transition to the next stage —
    without advancing it (Mode A, return-only).
-
-```dot
-digraph pipeline {
-  rankdir=LR;
-  node [shape=box];
-  me [label="wayne-mind-explode"];
-  pl [label="wayne-plan"];
-  wk [label="wayne-work"];
-  cr [label="wayne-code-review"];
-  vf [label="wayne-verify"];
-  sh [label="wayne-ship"];
-  cp [label="wayne-compound"];
-  ck [label="wayne-checkpoint\n(save / resume / list\n+ handoff conductor)", shape=box, style=bold];
-
-  me -> pl -> wk -> cr -> vf -> sh -> cp;
-
-  // every stage auto-calls checkpoint in handoff mode as its final step
-  me -> ck [style=dashed, label="handoff"];
-  pl -> ck [style=dashed];
-  wk -> ck [style=dashed];
-  cr -> ck [style=dashed];
-  vf -> ck [style=dashed];
-  sh -> ck [style=dashed];
-
-  // checkpoint emits packet; user manually fires next stage (never auto-advance)
-  ck -> wk [style=dotted, label="save/resume\n(any stage)", constraint=false];
-}
-```
 
 The `pipeline_stage` field tells **resume** which skill to suggest, and tells
 **handoff** which skill is the next agent (see Handoff Mode → Step 2 routing
