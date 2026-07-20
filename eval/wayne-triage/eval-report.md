@@ -44,7 +44,7 @@ implementation routes enter `wayne-test-design`; architecture returns to
 
 ## Validation
 
-- Calibration: PASS, 8 valid routes and 12 independent mutations.
+- Calibration: PASS, 8 valid routes and 13 independent mutations.
 - Final candidate behavior: 16/16 PASS; no invalid final cells.
 - Live-path smoke: `failure` PASS on Claude and Codex.
 - Live tree equals the evaluated final candidate byte-for-byte.
@@ -59,3 +59,32 @@ passing.
 Residual uncertainty: the harness does not execute a real 10k-line parallel
 fan-out or mutate a live tracker. Those boundaries remain protected by the
 unchanged dispatch reference and source-manifest checks.
+
+## 2026-07-20 tracker-write ownership hotfix
+
+The tracker path now renders a complete proposed comment and cannot describe
+publication as part of triage. The deterministic gate checks the exact proposal
+section and unchanged tracker state; semantic completeness and publication meaning
+belong to the blind rubric, not a keyword/count proxy. The missing-section mutation
+fails as expected.
+
+| Live case | Model | Structural gate | Blind semantic read |
+|---|---|---|---|
+| `tracker` | Claude Opus 4.8 | PASS | PASS |
+| `tracker` | Codex `dvue-aoai-001-gpt-5.6-sol` | PASS | PASS |
+
+Both isolated results rendered a complete proposal, preserved tracker bytes, and
+returned a manual `wayne-test-design` handoff without claiming publication. The
+candidate tree is `c35b787463cdc4689fa0f83434f2331df5102c791dd5a612d650e416aa428183`
+(171 lines / 1265 words); Forge static reports 0 errors and 0 warnings.
+
+The same correction removes the nine triage lexical proxies catalogued in
+`eval/REVIEW-consolidated.md`: punctuation counts and wording scans no longer
+decide clarification, classification, repro meaning, prior-fix meaning, routing,
+or invocation claims. Existing structured fields and immutable artifacts retain
+their deterministic checks; prose meaning moves to the independent rubric.
+
+Residual uncertainty for this hotfix: the generic Claude trial runner retained the
+final JSON but not the native stream tool trace, so unchanged tracker bytes and the
+result prove no observed publication, not the absence of every attempted external
+write. A later trace-enabled publication case should close that proof gap.

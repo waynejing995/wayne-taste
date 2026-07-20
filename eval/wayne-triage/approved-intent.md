@@ -20,8 +20,10 @@ tracker item into evidence-backed attribution and one consumable next route.
 | T13 | Approved internal handoff uses the real checkpoint schema and preserves route, evidence snapshot, one real Skill, manual/no-auto-advance, acceptance, and out-of-scope | `wayne-checkpoint/SKILL.md@2652edd`; `templates/handoff-packet.md@2652edd` | control defect | checkpoint packet | deterministic real-schema checker | internal routes | VERIFIED |
 | T14 | Triage never edits product code, tracker state, KB, commits, branches, pushes, or publishes | `wayne-triage/SKILL.md@372759e` boundary; current Red lines | intended | triage | source manifest and mutation cases | all | VERIFIED |
 | T15 | Large logs / multiple boundaries or hypotheses may fan out, but main alone attributes/routes and raw logs stay out of main context | `wayne-triage/references/subagent-dispatch.md@372759e` | intended | dispatch reference | static contract preserved byte-for-byte | static | VERIFIED |
+| T16 | A tracker pass renders one complete proposed tracker comment but never publishes it; publication belongs to a separate tracker-write owner or explicit additional authorization | `wayne-triage/references/tracker-triage.md`; user correction 2026-07-20 | intended ownership correction | triage output / tracker-write boundary | exact proposal section and unchanged tracker state; blind semantic rubric judges completeness and non-publication meaning | tracker, multiple-signal | FROZEN |
 
 Reverse audit: all normative route, approval, mutation, state-owner, and handoff
-clauses from the creation commit and current Skill map above. Provider-specific task
+clauses from the creation commit, current Skill, and the tracker-write ownership
+correction map above. Provider-specific task
 APIs, the old contradictory “triage may directly fix” exception, and decorative
 phase prose are incidental mechanisms, not behavior to restore.

@@ -174,7 +174,15 @@ Send NET-88 to that owner.
         state = " category=enhancement state=ready-for-agent"
     elif case == "multiple-signal":
         state = " category=bug state=ready-for-agent"
-    write(output, f"route={route}{state}; next={agent}; trigger=manual")
+    proposal = ""
+    if case in {"tracker", "multiple-signal"}:
+        proposal = f"""
+
+## Proposed tracker comment
+Recommendation:{state}; route={route}. The verified evidence and shared contract
+require {agent}. This is a proposal only; it has not been published.
+"""
+    write(output, f"route={route}{state}; next={agent}; trigger=manual{proposal}")
     return output
 
 
@@ -248,6 +256,17 @@ def main() -> int:
         write(tracker / "repo/tracker-state.json", '{"state":"closed"}\n')
         assert_invalid(tracker, "tracker", tracker / "output.txt", "input modified", "tracker mutation")
 
+        missing_proposal = clone(valids["tracker"], root, "missing-proposal")
+        output = missing_proposal / "output.txt"
+        write(output, output.read_text(encoding="utf-8").split("\n## Proposed tracker comment", 1)[0])
+        assert_invalid(
+            missing_proposal,
+            "tracker",
+            output,
+            "Proposed tracker comment",
+            "tracker proposal",
+        )
+
         signal = clone(valids["multiple-signal"], root, "missing-signal")
         evidence = next((signal / "repo/.wayne/triage").glob("*.md"))
         write(evidence, evidence.read_text(encoding="utf-8").replace("env_skew: true", "env_skew: false"))
@@ -262,7 +281,7 @@ def main() -> int:
         write(evidence, evidence.read_text(encoding="utf-8").replace("symptom_class: unknown", "symptom_class: crash"))
         assert_invalid(guessed, "no-match", guessed / "output.txt", "symptom_class must be", "no match")
 
-    print("PASS: 8 valid routes and 12 independent mutations")
+    print("PASS: 8 valid routes and 13 independent mutations")
     return 0
 
 

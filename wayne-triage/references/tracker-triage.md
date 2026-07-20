@@ -9,18 +9,18 @@ against the diff.
 Adapted from mattpocock/skills `triage` (MIT). Wayne deltas: data is fetched
 user-driven (never guessed); findings land in the `.wayne/triage/` evidence file;
 routing maps to Wayne pipeline stages; and — the key Wayne difference —
-**triage only COMMENTS, it never mutates the tracker.**
+**triage only PROPOSES a comment; it never publishes or mutates the tracker.**
 
-## Triage comments, it does not mutate the tracker
+## Triage proposes; it does not publish
 
 Triage is a decision layer, not the tracker's write layer. It MUST NOT add/remove
 labels, change status/state, assign, or close/transition an item — those touch
 shared board state that others read, and per Wayne blast-radius discipline are
 authorized, human-driven actions, not something triage does as a side effect.
 
-- Triage's tracker output is a **comment** that states the recommendation (category, suggested route, reasoning, brief).
-- The actual label/state/transition change is left to a human, or on Jira to the wayne `cvs-jira-workflow` skill.
-- The category + state names below are triage's internal routing vocabulary, expressed in the comment as a recommendation — NOT labels triage writes back.
+- Triage's tracker output is a **complete proposed comment** that states the recommendation (category, suggested route, reasoning, brief).
+- Publication and any label/state/transition change belong to a separate tracker-write owner, or require explicit additional user authorization outside this triage pass.
+- The category + state names below are triage's internal routing vocabulary, expressed in the proposed comment as a recommendation — NOT labels triage writes back.
 
 ## Getting the item (user-driven, never guessed)
 
@@ -33,12 +33,12 @@ Triage does NOT decide where the data lives or auto-call an API. Per Phase 0:
 Triage reads the fetched item; it never owns the fetch or the eventual write-back
 transition (Jira transitions → `cvs-jira-workflow`).
 
-## Category + state (classification — recommended in a comment, not written back)
+## Category + state (classification — recommended in a proposal, not written back)
 
 Two category roles: `bug` (something broken) · `enhancement` (new feature/change).
 
 Five state roles — triage's internal routing vocabulary. Recommend exactly one in
-the comment; do NOT apply it as a label.
+the proposed comment; do NOT apply it as a label.
 
 | State (recommendation) | Meaning | Maps toward |
 |---|---|---|
@@ -49,7 +49,7 @@ the comment; do NOT apply it as a label.
 | `wontfix` | should not be actioned | recommend close (human/`cvs-jira-workflow` does it) |
 
 Recommend exactly one category + one state. Conflicting signals → flag it in the
-comment and ask the maintainer; do not decide it silently.
+proposal and ask the maintainer; do not decide it silently.
 
 ## Tracker intake steps
 
@@ -60,20 +60,20 @@ comment and ask the maintainer; do not decide it silently.
 3. **Recommend.** State your category + state recommendation with reasoning and a short codebase summary (including whether it's already implemented). Wait for direction.
 4. **Verify the claim (before any deep work).** Bug → reproduce from the reporter's steps. PR → check out the diff, run the relevant tests/commands. Report: confirmed (with code path), failed, or insufficient detail. **Insufficient repro = strong `needs-info`** — a confirmed repro is the entry ticket to any fix route (the Bug gate in SKILL.md Phase 5).
 5. **Grill if under-specified.** If the request needs shape, sharpen it one question at a time (use wayne-mind-explode's grill mode); capture resolved points so they aren't lost.
-6. **Record the outcome** — write findings to the `.wayne/triage/` evidence file, then post ONE comment stating the recommendation. Never change labels/state/assignee yourself; recommend, and let a human or `cvs-jira-workflow` apply it.
-   - `ready-for-agent` / `ready-for-human` → comment the durable brief (see below) + the recommended route per SKILL.md Phase 5 table.
-   - `needs-info` → comment triage notes: what's established, what's still needed (specific, actionable questions).
+6. **Record the outcome** — write findings to the `.wayne/triage/` evidence file, then render ONE complete proposed comment under `## Proposed tracker comment`. Never publish it or change labels/state/assignee yourself; a separate tracker-write owner or explicit additional authorization owns that action.
+   - `ready-for-agent` / `ready-for-human` → propose the durable brief (see below) + the recommended route per SKILL.md route table.
+   - `needs-info` → propose triage notes: what's established, what's still needed (specific, actionable questions).
    - `wontfix` (recommend, don't close):
-     - **already implemented** — comment where it lives; do not record as a rejection.
-     - **rejected (bug)** — comment a polite explanation + recommend close.
-     - **rejected (enhancement)** — comment the concept + reason + prior requests (note the repo `.out-of-scope/` entry if it keeps one) + recommend close.
+     - **already implemented** — propose where it lives; do not record as a rejection.
+     - **rejected (bug)** — propose a polite explanation + recommend close.
+     - **rejected (enhancement)** — propose the concept + reason + prior requests (note the repo `.out-of-scope/` entry if it keeps one) + recommend close.
 
 ## Verify → repro is the fix-route gate
 
 The Bug gate (SKILL.md Phase 5) applies to the tracker surface verbatim: a bug
 cannot route toward a fix without a repro / failing test. On the tracker surface,
 a failed or insufficient repro is not a dead end — it's the `needs-info` route,
-with specific questions back to the reporter.
+with specific proposed questions back to the reporter.
 
 ## Durable handoff brief (for ready-for-agent / ready-for-human)
 
@@ -92,7 +92,7 @@ packet (SKILL.md Phase 5).
 ## `needs-info` template
 
 ```markdown
-## Triage Notes
+## Proposed tracker comment
 > *Generated by AI during triage.*
 
 **Established so far:**

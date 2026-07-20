@@ -12,6 +12,13 @@ This harness freezes all front-door routes claimed by `wayne-triage`:
 - `architecture`: three failed fixes → `wayne-mind-explode`.
 - `external-owner`: render a report and create no Wayne checkpoint.
 
+Tracker cases also require one non-empty `## Proposed tracker comment`. The
+deterministic checker owns only that structure and tracker-state immutability;
+[the blind rubric](semantic-rubric.md) owns whether the proposal is complete and
+whether the result preserves the no-publication boundary. It also owns prose-only
+questions, classifications, failure meaning, and invocation claims; the checker
+does not infer those meanings from punctuation or keywords.
+
 Internal handoffs are checked against the repository's real `wayne-checkpoint`
 Skill and canonical packet template, not a local substitute.
 
