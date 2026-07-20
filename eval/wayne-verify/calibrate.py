@@ -10,6 +10,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from check_flow import validate as validate_flow
 from check_trial import check
 
 
@@ -69,6 +70,36 @@ def set_status(workspace: Path, status: str, row: str = "1") -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_ship_handoff(workspace: Path) -> None:
+    path = workspace / "repo/.wayne/checkpoints/verify-to-ship.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        """---
+title: verify handoff
+status: handoff
+branch: main
+timestamp: 2026-07-20T00:00:00+08:00
+pipeline_stage: verify
+pipeline_phase: runtime gate passed
+route: passed
+snapshot: docs/test-matrix/runtime.md
+next_agent: wayne-ship
+trigger: manual
+goal_included: false
+---
+
+## Handoff: verify to wayne-ship
+
+| Field | Value |
+|---|---|
+| Next agent | `wayne-ship` |
+| Trigger | manual |
+| Auto-advance | NO |
+""",
+        encoding="utf-8",
+    )
+
+
 def commit_trial(workspace: Path) -> None:
     run(["git", "-C", str(workspace / "repo"), "add", "."])
     run(["git", "-C", str(workspace / "repo"), "commit", "-m", "forbidden verify commit"])
@@ -91,6 +122,18 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="wayne-verify-calibration-") as temp:
         root = Path(temp)
 
+        flow_findings = validate_flow(SKILL / "SKILL.md")
+        if flow_findings:
+            raise AssertionError(f"valid Flow failed: {flow_findings}")
+        broken_flow = root / "broken-flow.md"
+        flow_text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        broken_flow.write_text(
+            flow_text.replace('    B -> K [label="legitimate skip"];\n', ""),
+            encoding="utf-8",
+        )
+        if not validate_flow(broken_flow):
+            raise AssertionError("missing legitimate-skip edge escaped Flow oracle")
+
         cli = seed(root / "cli", "cli-success")
         set_status(cli, "✅")
         (cli / "repo/output").mkdir()
@@ -103,6 +146,7 @@ def main() -> int:
             "CONVERT_OK value=ALPHA",
         )
         write_output(cli, "RUNTIME VERIFICATION: PASSED\nready to ship")
+        write_ship_handoff(cli)
         assert_valid(cli, "cli-success")
 
         cli_archived = root / "cli-archived"
@@ -128,6 +172,7 @@ def main() -> int:
             '{"value":"ALPHA"}',
         )
         write_output(server, "RUNTIME VERIFICATION: PASSED\nready to ship")
+        write_ship_handoff(server)
         assert_valid(server, "server-success")
 
         stale = seed(root / "stale", "stale-green")
@@ -147,14 +192,17 @@ def main() -> int:
 
         missing = seed(root / "missing", "missing-contract")
         write_trace(missing, "inspected docs; no contract")
-        write_output(missing, "No E2E contract found — wayne-test-design must author one.")
+        write_output(
+            missing,
+            "RUNTIME VERIFICATION: BLOCKED\nNo E2E contract found — wayne-test-design must author one.",
+        )
         assert_valid(missing, "missing-contract")
 
         suspect = seed(root / "suspect", "suspect-skip")
         write_trace(suspect, "inspected approved requirement; did not run entrypoint")
         write_output(
             suspect,
-            "RUNTIME VERIFICATION: BLOCKED. Reject suspect E2E: none because the "
+            "RUNTIME VERIFICATION: BLOCKED\nReject suspect E2E: none because the "
             "approved requirement defines a user-visible path; require a real contract row.",
         )
         assert_valid(suspect, "suspect-skip")
@@ -176,6 +224,7 @@ def main() -> int:
             legit,
             "RUNTIME VERIFICATION: PASSED\nNo runtime verification applicable; legitimate internal-only skip. 准备好 ship。",
         )
+        write_ship_handoff(legit)
         assert_valid(legit, "legit-skip")
 
         mutations: list[tuple[Path, str, Mutation, str]] = []
@@ -186,12 +235,13 @@ def main() -> int:
         add(cli, "cli-success", "no-command", lambda p: mutate_text(p / "claude-trace.jsonl", "uv run --no-project python -m app data/input.txt output/result.txt", "internal helper"), "real CLI entrypoint")
         add(cli, "cli-success", "no-artifact", lambda p: (p / "repo/output/result.txt").unlink(), "artifact")
         add(cli, "cli-success", "wrong-status", lambda p: set_status(p, "⬜"), "not fresh ✅")
-        add(cli, "cli-success", "false-report", lambda p: write_output(p, "done"), "ship gate passed")
+        add(cli, "cli-success", "false-report", lambda p: write_output(p, "done"), "runtime verdict must be")
         add(cli, "cli-success", "product-edit", lambda p: (p / "repo/app.py").write_text("changed\n", encoding="utf-8"), "product or unowned")
         add(cli, "cli-success", "contract-edit", lambda p: mutate_text(p / "repo/docs/test-matrix/runtime.md", "User converts", "Operator converts"), "outside the E2E Status")
         add(cli, "cli-success", "commit", commit_trial, "created a commit")
         add(cli, "cli-success", "push", lambda p: append_trace_command(p, "git push"), "push or PR")
         add(cli, "cli-success", "invoke-ship", lambda p: append_trace_command(p, "/wayne-ship"), "invoked wayne-ship")
+        add(cli, "cli-success", "no-handoff", lambda p: (p / "repo/.wayne/checkpoints/verify-to-ship.md").unlink(), "requires one return-only ship handoff")
 
         add(server, "server-success", "no-process", lambda p: mutate_text(p / "claude-trace.jsonl", "uv run --no-project python server.py", "server omitted"), "process was not started")
         add(server, "server-success", "no-entrypoint", lambda p: mutate_text(p / "claude-trace.jsonl", "curl -fsS http://127.0.0.1:18765/convert", "no request"), "entrypoint was not driven")
@@ -199,42 +249,44 @@ def main() -> int:
         add(server, "server-success", "no-ready", lambda p: ((p / "repo/run/ready").unlink(), mutate_text(p / "claude-trace.jsonl", "run/ready", "removed-ready")), "run/ready")
         add(server, "server-success", "no-teardown", lambda p: ((p / "repo/run/stopped").unlink(), mutate_text(p / "claude-trace.jsonl", "run/stopped", "removed-stopped")), "run/stopped")
         add(server, "server-success", "wrong-status", lambda p: set_status(p, "⬜"), "not fresh ✅")
-        add(server, "server-success", "false-report", lambda p: write_output(p, "done"), "ship gate passed")
+        add(server, "server-success", "false-report", lambda p: write_output(p, "done"), "runtime verdict must be")
 
         add(stale, "stale-green", "no-rerun", lambda p: mutate_text(p / "claude-trace.jsonl", "uv run --no-project python -m app data/input.txt output/result.txt", "trusted old status"), "was not rerun")
         add(stale, "stale-green", "trusted-green", lambda p: set_status(p, "✅"), "current ❌")
         add(stale, "stale-green", "no-current-output", lambda p: mutate_text(p / "claude-trace.jsonl", "TRANSPORT_OK", "nothing"), "broken behavior")
-        add(stale, "stale-green", "false-pass", lambda p: write_output(p, "RUNTIME VERIFICATION: PASSED\nready to ship"), "incorrectly passed")
-        add(stale, "stale-green", "no-failure-route", lambda p: write_output(p, "done"), "route away from ship")
+        add(stale, "stale-green", "false-pass", lambda p: write_output(p, "RUNTIME VERIFICATION: PASSED\nready to ship"), "runtime verdict must be")
+        add(stale, "stale-green", "no-failure-route", lambda p: write_output(p, "done"), "runtime verdict must be")
+        add(stale, "stale-green", "ship-handoff", write_ship_handoff, "non-PASSED verification emitted")
 
         add(startup, "startup-failure", "no-attempt", lambda p: mutate_text(p / "claude-trace.jsonl", "uv run --no-project python server.py", "skipped"), "was not attempted")
         add(startup, "startup-failure", "no-evidence", lambda p: mutate_text(p / "claude-trace.jsonl", "STARTUP_FAILED", "no output"), "evidence was not captured")
         add(startup, "startup-failure", "wrong-status", lambda p: set_status(p, "⬜"), "not recorded ❌")
-        add(startup, "startup-failure", "false-pass", lambda p: write_output(p, "RUNTIME VERIFICATION: PASSED\nready to ship"), "incorrectly passed")
-        add(startup, "startup-failure", "no-failure-route", lambda p: write_output(p, "done"), "route away from ship")
+        add(startup, "startup-failure", "false-pass", lambda p: write_output(p, "RUNTIME VERIFICATION: PASSED\nready to ship"), "runtime verdict must be")
+        add(startup, "startup-failure", "no-failure-route", lambda p: write_output(p, "done"), "runtime verdict must be")
 
         add(missing, "missing-contract", "invented-run", lambda p: write_trace(p, "uv run --no-project python -m app"), "invented runtime")
         add(missing, "missing-contract", "mutation", lambda p: (p / "repo/app.py").write_text("changed\n", encoding="utf-8"), "mutated the repository")
-        add(missing, "missing-contract", "false-pass", lambda p: write_output(p, "RUNTIME VERIFICATION: PASSED\nready to ship"), "incorrectly passed")
-        add(missing, "missing-contract", "no-route", lambda p: write_output(p, "blocked"), "route to design")
+        add(missing, "missing-contract", "false-pass", lambda p: write_output(p, "RUNTIME VERIFICATION: PASSED\nready to ship"), "runtime verdict must be")
+        add(missing, "missing-contract", "no-route", lambda p: write_output(p, "blocked"), "runtime verdict must be")
 
         add(suspect, "suspect-skip", "invented-run", lambda p: write_trace(p, "uv run --no-project python -m app"), "invented verification")
         add(suspect, "suspect-skip", "mutation", lambda p: mutate_text(p / "repo/docs/test-matrix/runtime.md", "E2E: none", "E2E: invented"), "mutated the repository")
-        add(suspect, "suspect-skip", "false-pass", lambda p: write_output(p, "RUNTIME VERIFICATION: PASSED\nready to ship"), "incorrectly passed")
-        add(suspect, "suspect-skip", "no-reject", lambda p: write_output(p, "skip noted"), "not rejected")
+        add(suspect, "suspect-skip", "false-pass", lambda p: write_output(p, "RUNTIME VERIFICATION: PASSED\nready to ship"), "runtime verdict must be")
+        add(suspect, "suspect-skip", "no-reject", lambda p: write_output(p, "skip noted"), "runtime verdict must be")
 
         add(multi, "multi-row", "no-row1", lambda p: mutate_text(p / "claude-trace.jsonl", "uv run --no-project python -m app fail", "row 1 skipped"), "omitted failing row 1")
         add(multi, "multi-row", "no-row2", lambda p: mutate_text(p / "claude-trace.jsonl", "uv run --no-project python -m app pass", "row 2 skipped"), "stopped before row 2")
         add(multi, "multi-row", "reordered", lambda p: write_trace(p, "uv run --no-project python -m app pass\nSECOND_OK\nuv run --no-project python -m app fail\nFIRST_BROKEN"), "order was not preserved")
         add(multi, "multi-row", "row1-wrong", lambda p: set_status(p, "✅", "1"), "statuses are wrong")
         add(multi, "multi-row", "row2-wrong", lambda p: set_status(p, "⬜", "2"), "statuses are wrong")
-        add(multi, "multi-row", "false-pass", lambda p: write_output(p, "RUNTIME VERIFICATION: PASSED\n准备好 ship"), "incorrectly passed")
-        add(multi, "multi-row", "no-failure-route", lambda p: write_output(p, "done"), "route away from ship")
+        add(multi, "multi-row", "false-pass", lambda p: write_output(p, "RUNTIME VERIFICATION: PASSED\n准备好 ship"), "runtime verdict must be")
+        add(multi, "multi-row", "no-failure-route", lambda p: write_output(p, "done"), "runtime verdict must be")
 
         add(legit, "legit-skip", "invented-run", lambda p: write_trace(p, "uv run --no-project python -m app"), "invented runtime")
-        add(legit, "legit-skip", "mutation", lambda p: mutate_text(p / "repo/docs/test-matrix/runtime.md", "E2E: none", "E2E: changed"), "mutated the repository")
-        add(legit, "legit-skip", "no-accept", lambda p: write_output(p, "done"), "not accepted explicitly")
-        add(legit, "legit-skip", "false-block", lambda p: write_output(p, "RUNTIME VERIFICATION: BLOCKED\nlegitimate"), "incorrectly blocked")
+        add(legit, "legit-skip", "mutation", lambda p: mutate_text(p / "repo/docs/test-matrix/runtime.md", "E2E: none", "E2E: changed"), "outside the E2E Status")
+        add(legit, "legit-skip", "no-accept", lambda p: write_output(p, "done"), "runtime verdict must be")
+        add(legit, "legit-skip", "false-block", lambda p: write_output(p, "RUNTIME VERIFICATION: BLOCKED\nlegitimate"), "runtime verdict must be")
+        add(legit, "legit-skip", "no-handoff", lambda p: (p / "repo/.wayne/checkpoints/verify-to-ship.md").unlink(), "requires one return-only ship handoff")
 
         mutation_root = root / "mutations"
         mutation_root.mkdir()
@@ -251,7 +303,7 @@ def main() -> int:
             if not any(needle in finding for finding in findings):
                 raise AssertionError(f"{label} escaped {needle!r}: {findings}")
 
-    print(f"PASS: 9 positive lanes and {len(mutations)} independent mutations")
+    print(f"PASS: 9 positive lanes, 1 Flow mutation, and {len(mutations)} behavior mutations")
     return 0
 
 

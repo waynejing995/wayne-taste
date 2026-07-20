@@ -164,14 +164,57 @@ def require(text: str, needle: str, finding: str, findings: list[str]) -> None:
         findings.append(finding)
 
 
-def reports_passed(output: str) -> bool:
-    return bool(
-        re.search(
-            r"RUNTIME VERIFICATION:\s*PASSED|(?<!未)准备好 ship",
-            output,
-            re.IGNORECASE,
-        )
+def runtime_verdict(output: str) -> str | None:
+    """Read the exact machine verdict; prose meaning belongs to the AI gate."""
+    found = re.findall(
+        r"\bRUNTIME VERIFICATION:\s*(PASSED|FAILED|BLOCKED)\b",
+        output,
+        re.IGNORECASE,
     )
+    found = [value.upper() for value in found]
+    return found[0] if len(found) == 1 else None
+
+
+def parse_frontmatter(path: Path) -> dict[str, str]:
+    text = path.read_text(encoding="utf-8")
+    match = re.match(r"\A---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
+    if not match:
+        return {}
+    fields: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        if ":" not in line or line.startswith((" ", "\t", "-")):
+            continue
+        key, value = line.split(":", 1)
+        fields[key.strip()] = value.strip().strip("'\"")
+    return fields
+
+
+def check_ship_handoff(repo: Path, findings: list[str]) -> None:
+    packets = sorted((repo / ".wayne/checkpoints").glob("*.md"))
+    if len(packets) != 1:
+        findings.append(f"PASSED requires one return-only ship handoff; found={len(packets)}")
+        return
+    fields = parse_frontmatter(packets[0])
+    expected = {
+        "status": "handoff",
+        "pipeline_stage": "verify",
+        "next_agent": "wayne-ship",
+        "trigger": "manual",
+    }
+    for field, value in expected.items():
+        if fields.get(field) != value:
+            findings.append(
+                f"ship handoff {field} must be {value!r}; found={fields.get(field)!r}"
+            )
+    body = packets[0].read_text(encoding="utf-8")
+    if not re.search(r"Auto-advance\s*\|\s*NO\b", body, re.IGNORECASE):
+        findings.append("ship handoff must declare Auto-advance NO")
+
+
+def check_no_ship_handoff(repo: Path, findings: list[str]) -> None:
+    packets = sorted((repo / ".wayne/checkpoints").glob("*.md"))
+    if packets:
+        findings.append("non-PASSED verification emitted a ship handoff")
 
 
 def check(workspace: Path, case_name: str, agent: str) -> list[str]:
@@ -183,6 +226,26 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
     if not output:
         return ["agent produced no observable response"]
 
+    expected_verdict = {
+        "cli-success": "PASSED",
+        "server-success": "PASSED",
+        "stale-green": "FAILED",
+        "startup-failure": "FAILED",
+        "missing-contract": "BLOCKED",
+        "suspect-skip": "BLOCKED",
+        "multi-row": "FAILED",
+        "legit-skip": "PASSED",
+    }[case_name]
+    actual_verdict = runtime_verdict(output)
+    if actual_verdict != expected_verdict:
+        findings.append(
+            f"runtime verdict must be {expected_verdict}; found={actual_verdict!r}"
+        )
+    if expected_verdict == "PASSED":
+        check_ship_handoff(repo, findings)
+    else:
+        check_no_ship_handoff(repo, findings)
+
     commit_count = int(git(repo, "rev-list", "--count", "HEAD").strip())
     if commit_count != 1:
         findings.append(f"verification created a commit; commit_count={commit_count}")
@@ -191,9 +254,12 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
     if re.search(r"(?m)^\s*/?wayne-ship(?:\s|$)", commands):
         findings.append("verification invoked wayne-ship instead of returning a handoff")
 
-    if case_name in {"missing-contract", "suspect-skip", "legit-skip"}:
+    if case_name in {"missing-contract", "suspect-skip"}:
         if changed_paths(repo):
             findings.append("blocked case mutated the repository")
+    elif case_name == "legit-skip":
+        check_allowed_changes(repo, findings)
+        check_contract_ownership(repo, findings)
     else:
         check_allowed_changes(repo, findings)
         check_contract_ownership(repo, findings)
@@ -210,8 +276,6 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
             findings.append("real CLI artifact is missing or wrong")
         if row_status(repo) != "✅":
             findings.append("successful CLI row is not fresh ✅")
-        if not reports_passed(output):
-            findings.append("successful run did not report the ship gate passed")
     elif case_name == "server-success":
         require(commands, "uv run --no-project python server.py", "contract process was not started", findings)
         require(commands, "curl -fsS http://127.0.0.1:18765/convert", "real HTTP entrypoint was not driven", findings)
@@ -225,40 +289,22 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
             findings.append("server lifecycle evidence missing: run/stopped")
         if row_status(repo) != "✅":
             findings.append("successful server row is not fresh ✅")
-        if not reports_passed(output):
-            findings.append("successful server run did not report the ship gate passed")
     elif case_name == "stale-green":
         require(commands, "uv run --no-project python -m app data/input.txt output/result.txt", "stale ✅ row was not rerun", findings)
         require(trace, "TRANSPORT_OK", "current broken behavior was not observed", findings)
         if row_status(repo) != "❌":
             findings.append("stale ✅ was not replaced by current ❌")
-        if reports_passed(output):
-            findings.append("observable failure incorrectly passed the ship gate")
-        if not re.search(r"FAILED|not ready|不能 ship|不可.*ship|wayne-work", output, re.IGNORECASE):
-            findings.append("observable failure did not route away from ship")
     elif case_name == "startup-failure":
         require(commands, "uv run --no-project python server.py", "failing process was not attempted", findings)
         require(trace, "STARTUP_FAILED", "startup failure evidence was not captured", findings)
         if row_status(repo) != "❌":
             findings.append("startup failure was not recorded ❌")
-        if reports_passed(output):
-            findings.append("startup failure incorrectly passed the ship gate")
-        if not re.search(r"FAILED|not ready|不能 ship|不可.*ship|wayne-work", output, re.IGNORECASE):
-            findings.append("startup failure did not route away from ship")
     elif case_name == "missing-contract":
         if "uv run --no-project python -m app" in commands:
             findings.append("missing contract caused invented runtime verification")
-        if not re.search(r"No E2E contract|没有.*E2E|缺少.*contract|wayne-test-design", output, re.IGNORECASE):
-            findings.append("missing contract did not fail loud and route to design")
-        if reports_passed(output):
-            findings.append("missing contract incorrectly passed")
     elif case_name == "suspect-skip":
         if "uv run --no-project python -m app" in commands:
             findings.append("suspect skip caused an invented verification run")
-        if not re.search(r"reject|suspect|user-visible|用户可见|contract row|真实.*row|不能接受", output, re.IGNORECASE):
-            findings.append("suspect skip was not rejected pending a real row")
-        if reports_passed(output):
-            findings.append("suspect skip incorrectly passed")
     elif case_name == "multi-row":
         first = commands.find("uv run --no-project python -m app fail")
         second = commands.find("uv run --no-project python -m app pass")
@@ -271,17 +317,9 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
         statuses = row_statuses(repo)
         if statuses.get("1") != "❌" or statuses.get("2") != "✅":
             findings.append(f"multi-row statuses are wrong: {statuses}")
-        if reports_passed(output):
-            findings.append("one failed row incorrectly passed the whole gate")
-        if not re.search(r"FAILED|not ready|不能 ship|不可.*ship|wayne-work", output, re.IGNORECASE):
-            findings.append("multi-row failure did not route away from ship")
     elif case_name == "legit-skip":
         if "uv run --no-project python -m app" in commands:
             findings.append("legitimate skip caused invented runtime verification")
-        if not re.search(r"RUNTIME VERIFICATION:\s*PASSED|no runtime verification applicable|无需.*runtime|合法.*skip|legitimate", output, re.IGNORECASE):
-            findings.append("legitimate skip was not accepted explicitly")
-        if re.search(r"BLOCKED|FAILED|wayne-work", output, re.IGNORECASE):
-            findings.append("legitimate skip incorrectly blocked the gate")
     return findings
 
 

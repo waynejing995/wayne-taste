@@ -23,11 +23,19 @@ Behavior lanes:
 
 Run every case through Claude and Codex in fresh isolated workspaces. Provider or
 tool termination before an observable result is `invalid`, not a behavioral loss.
+Every PASSED case must emit exactly one return-only checkpoint for `wayne-ship`;
+BLOCKED/FAILED cases must emit none and must never invoke the ship skill.
+
+The deterministic checker owns exact verdict sentinels, Status cells, commands,
+artifacts, mutation boundaries, and Flow edges. [The blind semantic rubric](semantic-rubric.md)
+owns whether the explanation and next route mean the right thing; it is not replaced
+by keyword or negation regexes.
 
 ## Deterministic gates
 
 ```bash
 uv run --no-project python eval/wayne-verify/calibrate.py
+uv run --no-project python eval/wayne-verify/check_flow.py wayne-verify
 uv run wayne-skill-forge/scripts/validate_skill.py <candidate-skill>
 uv run --no-project python -m py_compile eval/wayne-verify/*.py
 bash -n eval/wayne-verify/*.sh

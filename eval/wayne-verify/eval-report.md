@@ -31,10 +31,10 @@ is the gate, and the smaller always-loaded context is the tie-breaker.
 
 ## Deterministic gates
 
-- Behavior checker calibration: PASS, 9 positive lanes and 45 independent
-  mutations.
+- Behavior checker calibration: PASS, 9 positive lanes, 1 Flow mutation, and 48
+  independent behavior mutations.
 - Frozen tasks/fixtures/checker hash:
-  `3292807bcdd089b0097dc96d7cc300711b5bda3908002f99b24c077ea4a9ee8a`.
+  `f4dcda56c224757ec64ad2937eeef8da1736c36fc3e788dc7e99e48981722b78`.
 - Candidate Forge validation: PASS, 0 errors and 0 warnings.
 - Python compile and shell syntax: PASS.
 - Live-path held-out `multi-row` smoke: PASS on Claude and Codex.
@@ -68,5 +68,28 @@ Residual uncertainty: browser UI driving and a real external persistence system
 were not exercised. The server case proves readiness, HTTP observable, and teardown;
 the multi-row held-out proves ordered continuation after failure.
 
-The later return-only ship boundary and authoritative-matrix-path additions were
-deterministically calibrated but not provider-rerun before the hotfix push.
+## 2026-07-20 legitimate-skip Flow hotfix
+
+The Flow again carries a legitimate `E2E: none` declaration through a dedicated
+record action, the row loop, and the final gate. Removing that edge fails the new
+structural oracle. The harness now requires one manual return-only ship checkpoint
+for every PASSED terminal—including a legitimate skip—and zero ship checkpoint for
+BLOCKED/FAILED terminals.
+
+| Live case | Model | Structural gate | Blind semantic read |
+|---|---|---|---|
+| `legit-skip` | Claude Opus 4.8 | PASS | PASS |
+| `legit-skip` | Codex `dvue-aoai-001-gpt-5.6-sol` | PASS | PASS |
+
+Both fresh runs validated the skip against the approved requirement, ran no E2E
+command, preserved the authoritative matrix, and emitted only a manual
+`verify → wayne-ship` checkpoint. The candidate tree is
+`0a51a323c0911fad27fa46979b0419750a0fc9198c9745bf5c7996b6101a0a17`
+(142 lines / 881 words); Forge static reports 0 errors and 0 warnings.
+
+The first Claude result formatted the controlled verdict as bold Markdown. A
+line-shape checker rejected it even though its meaning and token were correct; that
+trial was invalidated, the evaluator was changed to recognize only the controlled
+verdict token independent of presentation, and the same case was rerun fresh.
+Failure/skip route meaning is judged by the blind rubric rather than keyword or
+negation regexes.

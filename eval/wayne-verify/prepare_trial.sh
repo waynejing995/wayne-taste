@@ -18,10 +18,12 @@ case_dir="$harness/cases/$case_name"
 [[ -d "$case_dir/repo" ]] || { echo "missing case repo: $case_name" >&2; exit 2; }
 [[ ! -e "$workspace" ]] || { echo "workspace exists: $workspace" >&2; exit 2; }
 
-mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/_shared"
+mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/_shared" "$workspace/support"
 cp -R "$case_dir/repo/." "$workspace/repo/"
 cp -R "$skill_dir/." "$workspace/skill/"
 cp "$repo_root/_shared/e2e-contract.md" "$workspace/_shared/e2e-contract.md"
+cp "$repo_root/_shared/pipeline-id-contract.md" "$workspace/_shared/pipeline-id-contract.md"
+cp -R "$repo_root/wayne-checkpoint" "$workspace/support/wayne-checkpoint"
 cp "$case_dir/task.md" "$workspace/task.md"
 
 git -C "$workspace/repo" init -q
