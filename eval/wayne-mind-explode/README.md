@@ -18,10 +18,20 @@ or gstack. It owns four frozen cases:
   not approved; ask for design approval without modifying code or starting work.
 - `depth-recommendation`: resolve one parent, expand every supplied causal child,
   and ask a neutral next question with a falsifiable recommendation.
+- `three-options`: resume at one non-binary user choice and offer three genuinely
+  distinct options with one recommendation. A blind AI judge owns option
+  distinctness and viability; the harness does not count labels, bullets, or
+  keywords as a semantic proxy.
 
 The complete case also owns a provider-trace oracle: every decision must become
 durable in its own file-write event. A correct final decision log does not repair a
 batched trace.
+
+The `three-options` result is judged with
+`cases/three-options/semantic-judge.md`. Run the same task with Claude and Codex;
+give the judge only the case, supplied Skill, and user-visible response, with
+provider identity hidden. Both responses must pass. The binary exception is a
+semantic claim: a response cannot earn it merely by saying “binary.”
 
 ## Calibrate
 

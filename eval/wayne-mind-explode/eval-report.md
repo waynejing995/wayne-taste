@@ -46,3 +46,23 @@ This run stops before that gate and does not re-claim the old single-turn comple
 handoff as proof. A future multi-turn harness should approve the written spec, test
 reviewer unavailability, verify `wayne-test-design` invocation ownership, and then
 exercise final handoff without planner execution.
+
+## Three-option regression lock — 2026-07-20
+
+The live Skill already restored the runtime rule in `e54ee99`: every open
+user-owned choice offers three concrete options by default, while a genuinely
+binary choice may offer two only with an explicit reason. This follow-up corrects
+the stale I06 ledger and freezes a non-binary `three-options` case.
+
+| Same task | Result | Semantic evidence |
+|---|---|---|
+| Claude Opus 4.8, high effort | PASS | DLQ/manual replay, one delayed redelivery, and tenant pause are distinct; one recommendation; only N4 advances |
+| `dvue-aoai-001-gpt-5.6-sol`, high effort | PASS | the same three distinct policy directions; one recommendation; only N4 advances |
+
+Both trial repositories remained unchanged. The blind rubric judges distinctness,
+viability, decision ownership, and stage boundaries from the complete case and
+response. It does not count labels, bullets, punctuation, or option keywords.
+
+Current deterministic calibration remains green: 6 positive fixtures plus 19
+independent mutations, and 10 DAG lanes plus 18 independent DAG mutations. This is
+a regression lock for the already-restored behavior, not a new runtime rewrite.
