@@ -11,24 +11,13 @@ Every commit is atomic (1 feature / 1 fix / 1 request), signed-off, and Jira-tag
 <HARD-GATE>
 BOTH gates MUST pass before any commit. No exceptions.
 
-1. `wayne-code-review` (static) MUST pass. If review hasn't run this session, invoke
-   it first.
+1. `wayne-code-review` (static) MUST provide a valid PASS artifact for the exact
+   current frozen patch hash. If it is absent or stale, invoke it first.
 2. `wayne-verify` (runtime) MUST pass: the E2E Verification Contract table must be
    all ✅ — no remaining ⬜ (unverified), no ❌ (broken) — OR the work legitimately
    declared `E2E: none — <reason>` (no user-observable path to verify). If
-   wayne-verify hasn't run this session, invoke it first.
+   the carried verification evidence is absent or stale, invoke it first.
 </HARD-GATE>
-
-## Inherits from ~/.claude/CLAUDE.md
-
-This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
-
-- Language Rules (Chinese to user, English to files)
-- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
-- Code Standards (uv run python, markdown tables)
-- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
-- Skill invocation rule (proportional effort)
-- Commit format (CLAUDE.md `## Commit Format` section)
 
 This skill only specifies the per-feature commit + push + PR workflow.
 
@@ -89,11 +78,17 @@ digraph ship {
 
 ## Phase 1: Pre-Flight Check
 
-Before any commit work, verify `wayne-code-review` has passed:
+Before any commit work, consume the exact upstream gate artifacts:
 
-1. Check if review was run in this session
-2. If not, invoke `wayne-code-review` skill first
-3. Only proceed after review passes
+1. Validate the code-review manifest, two provider identities, verdict, and frozen
+   patch hash against the current diff. Ship does not re-judge review semantics.
+2. Validate the exact authoritative matrix path and fresh Verify evidence. Status
+   glyphs are structural state; legitimacy of `E2E: none` comes from Verify's AI
+   review of the actual requirements, not substring presence.
+3. If either artifact is missing, invalid, unavailable, or stale, run its owning
+   skill and stop unless the new artifact passes.
+
+Never accept a `PASS`/`PASSED` word in chat or report prose as gate evidence.
 
 ---
 
@@ -255,7 +250,7 @@ gh pr create --base "<resolved-base-branch>" \
 
 ## Review
 - wayne-code-review: PASSED
-- Sources: Claude structured + Claude adversarial + Codex
+- Sources: one independent Claude voice + one independent Codex voice
 
 ## Test Plan
 - [ ] <verification items from the plan>

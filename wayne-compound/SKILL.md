@@ -8,34 +8,11 @@ description: Capture lessons learned after solving a problem or shipping a featu
 Each solved problem should make the next one easier.
 This skill captures what was learned and saves it where it can be found later.
 
-## Inherits from ~/.claude/CLAUDE.md
-
-This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
-
-- Language Rules (Chinese to user, English to files)
-- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
-- Code Standards (uv run python, markdown tables)
-- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
-- Skill invocation rule (proportional effort)
-
 This skill only specifies the lesson-capture / KB-write / repo-doc workflow.
 
 ## Files Written
 
 KB entries (`/work/kb/`), solution docs (`docs/solutions/<category>/`), decision log updates. Category names / frontmatter keys / section headers stay English in Chinese prose.
-
-## When to Run
-
-**Auto-trigger phrases:**
-- "that worked", "it's fixed", "working now", "problem solved"
-- After `wayne-ship` completes
-
-**Manual:** `/wayne-compound` or `/wayne-compound [brief context]`
-
-**Skip when:**
-- Trivial fix (typo, obvious one-liner)
-- No non-obvious insight was gained
-- Problem was already documented
 
 ## Checklist
 
@@ -53,6 +30,10 @@ KB entries (`/work/kb/`), solution docs (`docs/solutions/<category>/`), decision
      * Two lessons cite the same decision letter / invariant / contract from different angles (e.g. contract-vs-cosmetic + cosmetic-auto-fix-triage both about OBS routing)
    - **When merging**: keep the broader title, expand `trigger:` to cover both scenarios, add sections for each empirical instance with its own anchor (commit SHA, review seq, date), preserve all anti-patterns + prevention bullets from both, then `git rm` the absorbed file and rewrite cross-references.
    - Only write a NEW file when: (a) the topic genuinely is not covered by any existing lesson, AND (b) merging it into the closest existing lesson would dilute that lesson's trigger past usability.
+
+Search terms only locate candidates. Read each candidate's complete trigger,
+scope, cause, and prevention before an AI semantic duplicate decision; keyword,
+title, tag, or similarity overlap alone never forces merge or new-file status.
 5. **Write to KB** — `/mnt/share/wayne-note/` (primary, Obsidian-compatible)
 6. **Write to repo** — `docs/solutions/` (secondary, in-repo discovery)
 7. **Cross-reference** — link between KB entry and repo doc
@@ -91,24 +72,11 @@ digraph compound {
 
 ## Phase 1: Gather Pipeline Artifacts
 
-Read all available Wayne pipeline outputs:
-
-```bash
-# Decision log from brainstorming
-ls -t docs/decisions/*.md 2>/dev/null | head -3
-
-# Plan from planning
-ls -t docs/plans/*.md 2>/dev/null | head -3
-
-# Specs from brainstorming
-ls -t docs/specs/*.md 2>/dev/null | head -3
-
-# Recent commits
-git log --oneline -10
-
-# Diff summary
-git diff HEAD~5 --stat 2>/dev/null
-```
+Read the exact decision log, plan, spec, review, verification, and commit references
+carried by the ship handoff or explicitly supplied by the user. Validate their
+paths and hashes before extracting lessons. Never select an artifact by modification
+time, filename order, heading, or ID-shaped text. If a standalone run has multiple
+plausible artifact sets, ask which shipped change is authoritative.
 
 For each artifact found, read it and extract:
 
@@ -193,7 +161,8 @@ fields (`type: lesson` + `trigger`) so future workflow skills can recall it.
 
 ### Lesson format (per SCHEMA.md)
 
-**Read first, then write:** `${HOME}/.claude/skills/wayne-compound/templates/lesson-template.md`
+**Read first, then write:** `templates/lesson-template.md` relative to this skill
+directory.
 
 The template is the canonical structure. Required sections:
 - frontmatter: `title`, `date`, `tags`, `source`, `pipeline: wayne`, `type: lesson`, `trigger`, `related`

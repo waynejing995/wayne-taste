@@ -110,7 +110,15 @@ digraph wayne_plan {
 ### G. Run deterministic validation
 
 - Run `check` from [the validator](scripts/validate_plan.py) with the plan, repository root, pre-run manifest, matrix, source ledger, and every available decision log/spec argument. Artifact-only validation is not source-fidelity evidence.
-- Require exit zero. Treat each finding as a failed gate; do not hand-edit the E block, weaken the ledger, or remove a source to obtain a pass.
+- For each finding, name the directly observed structural invariant before changing
+  the plan. Hash, schema, exact carry, ID closure, repository-relative structured
+  paths, mutation scope, and event order are valid deterministic gates. A lexical
+  pattern over prose that claims vagueness, completeness, intent, causality, or
+  scenario quality is an evaluator defect, not a plan defect.
+- Require every valid deterministic gate to pass. Do not hand-edit the E block,
+  weaken the ledger, remove a source, or reshape clear prose to satisfy an evaluator
+  defect. Record the defective finding and let the independent AI review own its
+  claimed semantic question until the checker is fixed.
 
 ### H. Revise from findings
 
@@ -118,7 +126,9 @@ digraph wayne_plan {
 - A validator finding authorizes no semantic rewrite. Preserve the intended
   owner/member and repair the incorrect field; never weaken or rename a surface
   solely to make two strings equal.
-- Re-run deterministic validation after every revision. If a finding exposes an unresolved product decision or absent E ownership, follow C or D rather than continuing the loop.
+- Re-run deterministic validation after every real plan revision. Do not loop on an
+  unchanged evaluator defect. If a finding exposes an unresolved product decision
+  or absent E ownership, follow C or D rather than continuing the loop.
 
 ### I. Run independent reviews
 

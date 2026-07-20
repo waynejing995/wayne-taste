@@ -26,6 +26,19 @@ the prose.
 Keep model, reasoning effort, available tools, permissions, task text, and input
 artifacts identical. Record the skill files and model setting used in each trial.
 
+### Repository harness ownership
+
+Before changing an existing skill, create or reuse `eval/<skill-name>/` in the
+same repository. That directory owns approved intent, task text, exact fixtures,
+frozen checkers, checker calibration, and downstream hidden tests. Keep generated
+workspaces, provider state, traces, candidates, and identity maps under the
+gitignored `eval/.runs/<skill-name>/`.
+
+Lock one run to one target skill. Record control and candidate tree hashes before
+generation; do not let a run silently edit sibling skills or replace its evaluator.
+The harness must run from the repository path without depending on a previous
+`/tmp` workspace.
+
 ## 2. Forge meta-eval
 
 Do not evaluate a skill generator only by reviewing the skill files it writes.
@@ -58,8 +71,9 @@ candidate forge → child skill B → fresh downstream agent → task result B
 - Capture user-visible outcome, tool trace, verification evidence, boundary
   behavior, failures, tokens, latency, clarification count, and terminal reason
   when available.
-- Use a blind judge or deterministic acceptance checks. The judge sees task,
-  result, and evidence, not forge identity or expected winner.
+- Use deterministic structural checks and a blind AI semantic judge when both
+  layers apply. The judge sees task, result, sources, and evidence, not forge
+  identity or expected winner.
 - When the child creates a machine-checkable artifact, run its frozen deterministic
   checker before the blind judge. Keep invalid output unchanged as evidence.
 - Freeze that checker from the approved intent before candidate generation. Never
@@ -71,6 +85,17 @@ candidate forge → child skill B → fresh downstream agent → task result B
 - Pass original source artifacts to checks for verbatim carry, completeness, and
   real repository surfaces. A checker that reads only the generated artifact cannot
   score those dimensions.
+- Separate proof owners. Deterministic gates cover directly observable low-freedom
+  grammar, hashes, exact literals and snapshots, ID/state closure, file mutation,
+  and recorded event order. Independent AI review covers intent, semantic
+  classification, completeness, equivalence, and causality by reading the complete
+  sources. Both must pass when both layers apply.
+- Never let headings, ID prefixes, keywords, substring scans, counts, regex, or
+  string similarity decide prose meaning. A paraphrase that preserves meaning must
+  pass the AI gate; same-shaped text with weaker meaning must fail it. Do not keep a
+  lexical semantic proxy merely because AI review was added. Keep only a separate,
+  directly observable structural invariant; otherwise remove that check from the
+  gate or expose a real structured field.
 - For plan/spec/router artifacts whose value is downstream transfer, give a fresh
   executor only the produced artifact and runnable repository, not the upstream
   sources it could use to redo the work. Inject hidden acceptance tests only after
@@ -97,6 +122,22 @@ state the residual uncertainty.
 
 Use real prompts and raw artifacts from usage history when available. Do not tell
 the test agent what failure is expected or what the candidate changed.
+
+For every observed failure proposed as an anti-pattern, build one exact case with:
+
+- the raw task and minimum source artifact needed to reproduce it;
+- a causally verified failure mechanism, not a log-only guess;
+- the same environment, permissions, tools, and initial state for both sides;
+- a frozen observable oracle, preferably deterministic;
+- a neighboring regression case and a held-out transfer case.
+
+First run the control. If it does not reproduce the failure, the case cannot
+justify a skill edit. If the failure is provider noise, a tool boundary, or an
+agent execution lapse that the skill cannot change, classify it separately and do
+not add an anti-pattern. A failure-driven candidate is eligible only when the
+target case flips from fail to pass and all control-pass cases remain passing.
+For pure slimming without a target failure, require behavioral parity and use
+smaller context only as the tie-breaker.
 
 Default minimum:
 
@@ -176,6 +217,8 @@ When candidate fails, connect the failure to one smallest correction:
 
 Re-run the failed case and one neighboring case. Do not add a general essay in
 response to one miss.
+Retain a rejected edit with its case IDs and score drop in the run record so a
+later iteration does not propose the same harmful change again.
 
 ## 7. Trigger evaluation
 

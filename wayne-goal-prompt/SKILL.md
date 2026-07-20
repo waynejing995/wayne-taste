@@ -99,9 +99,9 @@ say `per the plan` instead. Keep §5 and §6 self-contained.
 
 If a required choice or proof is still missing, ask exactly one Chinese question
 in this turn. Lead with `我的建议：` when evidence supports a default, explain why,
-then offer the smallest alternatives for that one decision. Use one interrogative
-sentence and exactly one question mark. Do not batch a second decision, list
-secondary questions, or invent default criteria; leave later gaps for later turns.
+then offer the smallest alternatives for that one decision. Do not batch a second
+decision, list secondary questions, or invent default criteria; leave later gaps
+for later turns. Question cardinality is semantic, not a punctuation count.
 Do not emit a partial goal or advance to dispatch; continue from A after the answer.
 
 ### C. Compose the bounded goal
@@ -116,8 +116,12 @@ on a first issue. Keep the goal at most 4,000 characters.
 Before presenting, check heading order/cardinality, length, exact commands,
 real-path proof, secret hygiene, and §5→§6 coverage. The bundled
 `scripts/validate_goal_prompt.py` checks the artifact-local portion; semantic
-mapping still requires review against the grounded sources. Repair one failed
-invariant without weakening it.
+mapping still requires AI review against the complete grounded sources. For each
+script finding, name the directly observed structural invariant before revising.
+Do not reshape valid prose for a keyword, substring, punctuation, or Markdown-style
+proxy that claims to judge vagueness, executability, or source fidelity; record it
+as an evaluator defect and let the AI gate judge that meaning. Repair one real
+failed invariant without weakening it.
 
 ### E. Present and confirm
 

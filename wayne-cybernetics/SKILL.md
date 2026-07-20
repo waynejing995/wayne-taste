@@ -11,23 +11,13 @@ This skill is a **diagnostic walker** — it reads the lens, surfaces its 8 prin
 as questions against the user's problem, and outputs a structured diagnosis with
 recommended interventions. Cross-domain: code, debug, process, KB, prompt-engineering.
 
-## Inherits from ~/.claude/CLAUDE.md
-
-This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
-
-- Language Rules (Chinese to user, English to files)
-- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
-- Code Standards (uv run python, markdown tables)
-- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
-- Skill invocation rule (proportional effort)
-
 This skill only specifies the cybernetics-lens application workflow.
 
 ## Files Written
 
 diagnosis report (markdown, in conversation or to a file the user names), KB research entries (`/mnt/share/wayne-note/research/`), decision log entries when the diagnosis informs a design choice.
 
-## When to Run
+## Applicability
 
 Use this lens when the problem involves:
 - **Systems** — code architecture, service topology, multi-component interaction
@@ -72,7 +62,7 @@ digraph wayne_cybernetics {
 **Mandatory first step.** Read the lens file before doing anything else:
 
 ```
-~/.claude/skills/_shared/cybernetics-lens.md
+../_shared/cybernetics-lens.md
 ```
 
 This is the SoT for the 8 principles + diagnostic questions + cross-domain examples.
@@ -90,21 +80,8 @@ Apply Principle #1 first, always. Name all 5:
 
 If the user has not given enough context to name all 5, **stop and ask**. Use AskUserQuestion (in Chinese) for the missing piece. Do not guess.
 
-Output to user:
-
-```
-## 系统建模
-
-| 元素 | 内容 |
-|------|------|
-| Plant (受控对象) | ... |
-| Controller (控制器) | ... |
-| Setpoint (设定值) | ... |
-| Disturbance (扰动) | ... |
-| Feedback (反馈) | ... |
-```
-
-Confirm with user before proceeding to Phase 3.
+Use the system-modeling table in the final report format below. Confirm it with the
+user before proceeding to Phase 3.
 
 ## Phase 3 — Walk Diagnostics (Principles #2-#8)
 

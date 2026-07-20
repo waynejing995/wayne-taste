@@ -9,10 +9,16 @@ Turn one repeatable pattern into the smallest skill that reliably changes agent 
 
 ## Boundary
 
-`wayne-distill` supplies evidence; `skill-creator` owns the format floor;
-`wayne-mind-explode` converges raw ideas. This forge writes validated skill files.
-Read `skill-creator` completely. Do not forge one-offs, unconverged ideas, or
-guidance already owned by global `AGENTS.md` / `CLAUDE.md`.
+`wayne-distill` supplies evidence; `wayne-mind-explode` converges raw ideas.
+This forge owns the complete Wayne skill format, authoring, and validation floor.
+Do not forge one-offs, unconverged ideas, or guidance already owned by global
+`AGENTS.md` / `CLAUDE.md`.
+
+Every skill is one kebab-case directory containing `SKILL.md`. Its YAML
+frontmatter contains exactly `name` and `description`; `name` matches the
+directory, while `description` owns all triggering language. Add only resources
+the runtime needs: deterministic work in `scripts/`, conditional knowledge in
+one-level `references/`, and output material in `assets/` or `templates/`.
 
 ### Start from the strongest-model baseline
 
@@ -154,6 +160,8 @@ Choose the archetype from observable task shape. Define the eval baseline first:
 - existing skill: current skill versus candidate;
 - trigger change: current metadata versus candidate metadata.
 Use the same model, reasoning effort, tools, task, and input artifacts on both sides.
+For a revision, create or reuse the versioned harness at `eval/<skill-name>/`
+before drafting; a `/tmp`-only evaluator is not durable evidence.
 
 ### D. Draft the minimum skill
 
@@ -169,10 +177,25 @@ own template.
 Classify checks as artifact-local or source-relative. A validator for verbatim
 carry, source completeness, or real repository surfaces must accept those upstream
 artifacts explicitly; an artifact-only validator cannot claim that coverage.
+Build two proof layers with separate jobs. Deterministic gates check directly
+observable low-freedom facts: grammar, hashes, exact literals and snapshots, IDs,
+closure, mutations, and event order. An AI source-fidelity gate reads the complete
+sources and judges intent, classification, completeness, equivalence, and causality.
+When an output has both structural and semantic requirements, both gates must pass.
+Headings, keywords, ID prefixes, substrings, counts, regex, and similarity may
+locate a bounded structure or validate its grammar; they cannot decide prose
+meaning. Do not keep a lexical semantic proxy merely because an AI gate was added.
+If it protects no independently useful structural invariant, remove it from the
+gate; if machine validation is required, expose a real structured field.
 When source content is discovered only at skill runtime, require a temporary
 runtime ledger for exact literals, ownership, and cross-record relationships; trace
 each row into the generated artifact and its validator proof. Map every independent
 machine-checkable invariant to its own check and mutation, not one broad family test.
+Before adding a gate, name the failure it prevents, the direct observable it checks,
+and why its runtime cost is lower than the failure cost. Reject a check that merely
+duplicates another gate, restates an AI judgment, or forces harmless prose rewrites.
+Consolidate cheap structural checks into one pass; rerun only after an owning input
+or artifact changes.
 
 ### E. Run static validation
 
@@ -191,14 +214,16 @@ If the environment prevents execution, report static validation as incomplete.
 ### F. Run behavioral eval
 
 Follow [the eval protocol](references/eval.md):
+- Freeze the repository harness before candidate generation. An observed failure
+  earns an anti-pattern only when the control fails its exact case and the candidate passes.
 - Use at least three representative cases; use five or more for trigger-sensitive
   or high-risk skills.
 - Run control and candidate in fresh contexts without revealing the expected fix.
 - Score success, boundaries, output, Flow, context, and resource discovery.
 - Accept only without required-behavior regression; prefer smaller when equal.
 Turn each failure into one minimal instruction, resource, or validator check.
-When the child output has a deterministic contract, run its validator before a
-subjective judge. Keep invalid artifacts as evidence; never repair them by hand.
+Run applicable deterministic checks and an independent AI semantic judge as
+separate gates. Keep invalid artifacts as evidence; never repair them by hand.
 Also run a frozen acceptance checker derived before generation; a child-authored
 validator can be self-consistent while drifting from the approved intent.
 Every checker finding must trace to a published intent/task clause; an untraceable
@@ -227,4 +252,8 @@ uncertainty. Do not install, sync, commit, or publish unless asked.
 - Do not remove a template or validator whose contract remains low-freedom.
 - Do not claim a bundled script passes when it was only inspected.
 - Do not call schema/template/validator agreement proof of intent fidelity.
+- Do not let a lexical rule decide prose meaning. Adding an AI judge does not make
+  a semantic-proxy regex valid; keep only a separately useful structural check.
+- Do not replace exact structural checks with AI review. Use both gates when a
+  requirement genuinely has independent structural and semantic parts.
 - Do not auto-forge every repeated prompt; extend an existing owner when possible.
