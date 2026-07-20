@@ -16,6 +16,7 @@ IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache"}
 COMPLETE_CASES = {"complete", "gstack-ban"}
 E2E_HEADER = "| ID | Env: entrypoint | Setup | Action | Observable outcome | Status |"
 DECISION_SOURCES = {"user", "codebase", "web", "constraint", "default", "review"}
+RECOMMENDATION = re.compile(r"My recommendation:|我的建议|我的推荐|建议|推荐", re.IGNORECASE)
 
 
 def digest(path: Path) -> str:
@@ -105,13 +106,13 @@ def read_events(repo: Path, findings: list[str]) -> list[dict[str, object]]:
 def check_decision_rows(decision: Path, findings: list[str]) -> None:
     rows: list[tuple[int, str]] = []
     for line in decision.read_text(encoding="utf-8").splitlines():
-        if not re.match(r"^\|\s*\d+\s*\|", line):
+        if not re.match(r"^\|\s*D?\d+\s*\|", line, re.IGNORECASE):
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
         if len(cells) != 5:
             findings.append(f"decision row has {len(cells)} cells instead of 5: {line}")
             continue
-        rows.append((int(cells[0]), cells[-1].casefold()))
+        rows.append((int(cells[0].lstrip("Dd")), cells[-1].casefold()))
     identifiers = [identifier for identifier, _ in rows]
     if not identifiers:
         findings.append("decision log has no numbered decisions")
@@ -250,6 +251,127 @@ def validate_conflict(repo: Path, output: str) -> list[str]:
     return findings
 
 
+def validate_decision_locked(repo: Path, output: str) -> list[str]:
+    findings: list[str] = []
+    check_source_boundary(repo, "decision-locked", findings)
+    decision = exactly_one(repo, "docs/decisions/*-decisions.md", "decision log", findings)
+    if decision:
+        text = decision.read_text(encoding="utf-8")
+        if not re.search(r"^Decision lock:\s*locked\s*$", text, re.MULTILINE | re.IGNORECASE):
+            findings.append("decision lock marker was removed")
+        if not re.search(r"^Design-section approval:\s*pending\s*$", text, re.MULTILINE | re.IGNORECASE):
+            findings.append("unapproved design sections were treated as approved")
+        if re.search(r"^Status:\s*design-approved\s*$", text, re.MULTILINE | re.IGNORECASE):
+            findings.append("decision lock was promoted to design-approved")
+
+    forbidden = (
+        "docs/specs/**/*.md", "docs/test-matrix/**/*.md", "docs/reviews/**/*.md",
+        "docs/plans/**/*.md", ".wayne/checkpoints/**/*.md",
+    )
+    for pattern in forbidden:
+        matches = sorted(path.as_posix() for path in repo.glob(pattern) if path.is_file())
+        if matches:
+            findings.append(f"decision lock advanced past design approval: {matches}")
+
+    question_marks = output.count("?") + output.count("？")
+    if question_marks != 1:
+        findings.append(f"decision-lock response must ask exactly one question; found={question_marks}")
+    if not RECOMMENDATION.search(output):
+        findings.append("decision-lock response lacks a recommendation")
+    if not re.search(r"design|architecture|section|设计|架构|章节|批准|确认", output, re.IGNORECASE):
+        findings.append("decision-lock response did not route to design approval")
+    return findings
+
+
+def validate_depth_recommendation(repo: Path, output: str) -> list[str]:
+    findings: list[str] = []
+    check_source_boundary(repo, "depth-recommendation", findings)
+    decision = exactly_one(repo, "docs/decisions/*-decisions.md", "decision log", findings)
+    if decision:
+        text = decision.read_text(encoding="utf-8")
+        identifiers = [
+            int(match.group(1))
+            for line in text.splitlines()
+            if (match := re.match(r"^\|\s*D?(\d+)\s*\|", line, re.IGNORECASE))
+        ]
+        if identifiers != [1, 2, 3]:
+            findings.append(f"depth case decisions are not exactly 1..3: {identifiers}")
+
+        dag_rows: list[list[str]] = []
+        in_dag = False
+        for line in text.splitlines():
+            if line.strip() == "## Decision DAG":
+                in_dag = True
+                continue
+            if in_dag and line.startswith("## "):
+                break
+            if not in_dag or not line.startswith("|"):
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) == 6 and cells[0].casefold() != "node" and not all(set(cell) <= {"-", ":"} for cell in cells):
+                dag_rows.append(cells)
+
+        root = [row for row in dag_rows if row[0].casefold() == "n1"]
+        if len(root) != 1 or root[0][4].casefold() != "resolved":
+            findings.append("depth case did not resolve parent N1")
+
+        child_patterns = {
+            "guarantee/idempotency": re.compile(r"guarantee|idempoten|duplicate|投递保证|幂等|重复", re.IGNORECASE),
+            "ack/ownership": re.compile(
+                r"\back(?:nowledge(?:ment)?)?\b|worker.*own|consumer.*own|确认.*所有|消费者.*所有",
+                re.IGNORECASE,
+            ),
+            "capacity/backpressure": re.compile(r"capacity|backpressure|queue full|容量|背压|队列满", re.IGNORECASE),
+        }
+        for label, pattern in child_patterns.items():
+            matches = [
+                row for row in dag_rows
+                if row[2].casefold() == "choice" and pattern.search(row[3])
+            ]
+            if len(matches) != 1:
+                findings.append(f"depth case has {len(matches)} {label} child nodes")
+                continue
+            row = matches[0]
+            if "n1" not in row[1].casefold():
+                findings.append(f"depth {label} node is not a child of N1")
+            if row[4].casefold() not in {"open", "blocked"}:
+                findings.append(f"depth {label} child status={row[4]!r}")
+
+        if re.search(r"^Status:\s*design-approved\s*$", text, re.MULTILINE | re.IGNORECASE):
+            findings.append("depth case converged before child choices")
+
+    for pattern in (
+        "docs/specs/**/*.md", "docs/test-matrix/**/*.md", "docs/reviews/**/*.md",
+        "docs/plans/**/*.md", ".wayne/checkpoints/**/*.md",
+    ):
+        if any(path.is_file() for path in repo.glob(pattern)):
+            findings.append(f"depth case advanced to forbidden artifact: {pattern}")
+
+    question_marks = output.count("?") + output.count("？")
+    if question_marks != 1:
+        findings.append(f"depth response must ask exactly one question; found={question_marks}")
+    question = next((part for part in re.split(r"\n+", output) if "?" in part or "？" in part), "")
+    if re.search(r"agree|approve|confirm|同意|批准|确认", question, re.IGNORECASE):
+        findings.append("depth response asks for approval of its recommendation")
+    if not RECOMMENDATION.search(output):
+        findings.append("depth response lacks a recommendation")
+    if not re.search(r"assum|前提|假设", output, re.IGNORECASE):
+        findings.append("recommendation omits its key assumption")
+    if not re.search(r"alternative|备选|替代|另一(?:个|种|项)?", output, re.IGNORECASE):
+        findings.append("recommendation omits the strongest alternative")
+    if not re.search(r"advantage|benefit|优势|好处|更(?:简单|可靠|高效)", output, re.IGNORECASE):
+        findings.append("recommendation omits the alternative's advantage")
+    if not re.search(
+        r"(?:if|when|unless).{0,120}(?:change|choose|prefer|recommend)|"
+        r"改变建议|会改变建议|反转条件|"
+        r"(?:如果|若|当|除非).{0,120}(?:改变|改推|改选|推荐|转向)",
+        output,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        findings.append("recommendation omits a reversal condition")
+    return findings
+
+
 def validate(
     workspace: Path,
     case: str,
@@ -270,13 +392,21 @@ def validate(
         return findings
     if case == "conflict":
         return validate_conflict(repo, output)
+    if case == "decision-locked":
+        return validate_decision_locked(repo, output)
+    if case == "depth-recommendation":
+        return validate_depth_recommendation(repo, output)
     return [f"unknown case: {case}"]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("workspace", type=Path)
-    parser.add_argument("--case", choices=sorted(COMPLETE_CASES | {"conflict"}), required=True)
+    parser.add_argument(
+        "--case",
+        choices=sorted(COMPLETE_CASES | {"conflict", "decision-locked", "depth-recommendation"}),
+        required=True,
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--trace", type=Path)
     parser.add_argument("--provider", choices=("auto", "claude", "codex"), default="auto")

@@ -19,6 +19,9 @@ HARNESS = Path(__file__).resolve().parent
 def seed(workspace: Path, case: str) -> Path:
     repo = workspace / "repo"
     shutil.copytree(HARNESS / "fixture", repo)
+    overlay = HARNESS / "cases" / case / "repo"
+    if overlay.is_dir():
+        shutil.copytree(overlay, repo, dirs_exist_ok=True)
     shutil.copy(HARNESS / "cases" / case / "case.md", repo / "case.md")
     return repo
 
@@ -158,6 +161,42 @@ def valid_conflict(workspace: Path) -> Path:
     return output
 
 
+def valid_decision_locked(workspace: Path) -> Path:
+    seed(workspace, "decision-locked")
+    output = workspace / "output.txt"
+    write(
+        output,
+        "决策已锁定，但设计章节尚未批准。My recommendation: 先批准架构与状态所有权章节。你批准这一设计章节吗？",
+    )
+    return output
+
+
+def valid_depth_recommendation(workspace: Path) -> Path:
+    repo = seed(workspace, "depth-recommendation")
+    decision = next((repo / "docs/decisions").glob("*-decisions.md"))
+    text = decision.read_text(encoding="utf-8")
+    text = text.replace(
+        "| 2 | Lifecycle owner | Dispatcher is the sole delivery lifecycle owner | Preserve one state owner | codebase |",
+        "| 2 | Lifecycle owner | Dispatcher is the sole delivery lifecycle owner | Preserve one state owner | codebase |\n"
+        "| 3 | Delivery topology | Use the existing queue | User chose queue delivery | user |",
+    ).replace(
+        "| N1 | root | choice | Delivery topology: inline or existing queue | open | F1 and F2 resolved |",
+        "| N1 | root | choice | Delivery topology: inline or existing queue | resolved | F1 and F2 resolved |\n"
+        "| N2 | N1 | choice | Delivery guarantee and idempotency ownership | open | N1 = queue |\n"
+        "| N3 | N1 | choice | Worker acknowledgement and lifecycle ownership boundary | blocked | N2 resolved |\n"
+        "| N4 | N1 | choice | Queue capacity and backpressure behavior | blocked | N2 resolved |",
+    )
+    write(decision, text)
+    output = workspace / "output.txt"
+    write(
+        output,
+        "My recommendation: 先决定至少一次投递与 Dispatcher 幂等。关键假设是可靠性优先。"
+        "最强备选是 receiver-owned idempotency，优势是发送端更简单；如果接收方不能稳定保存 key，我会改变推荐。"
+        "你选择 Dispatcher 还是 receiver 负责幂等？",
+    )
+    return output
+
+
 def assert_valid(workspace: Path, case: str, output: Path, label: str) -> None:
     findings = validate(workspace, case, output)
     if findings:
@@ -279,7 +318,112 @@ def main() -> int:
             "conflict gate",
         )
 
-    print("PASS: 4 positive fixtures and 11 independent mutations")
+        locked = root / "decision-locked-valid"
+        locked.mkdir()
+        locked_output = valid_decision_locked(locked)
+        assert_valid(locked, "decision-locked", locked_output, "positive decision lock")
+
+        locked_source = clone(locked, root, "decision-locked-source-edit")
+        source = locked_source / "repo/src/dispatcher.py"
+        write(source, source.read_text(encoding="utf-8") + "\n# implemented after lock\n")
+        assert_invalid(
+            locked_source,
+            "decision-locked",
+            locked_source / "output.txt",
+            "source input modified",
+            "decision lock source boundary",
+        )
+
+        locked_spec = clone(locked, root, "decision-locked-spec")
+        write(locked_spec / "repo/docs/specs/premature-design.md", "# Premature\n")
+        assert_invalid(
+            locked_spec,
+            "decision-locked",
+            locked_spec / "output.txt",
+            "advanced past design approval",
+            "decision lock approval gate",
+        )
+
+        locked_questions = clone(locked, root, "decision-locked-two-questions")
+        write(locked_questions / "output.txt", "My recommendation: approve design. Approve architecture? Start implementation?")
+        assert_invalid(
+            locked_questions,
+            "decision-locked",
+            locked_questions / "output.txt",
+            "ask exactly one question",
+            "decision lock question count",
+        )
+
+        locked_promoted = clone(locked, root, "decision-locked-promoted")
+        decision = next((locked_promoted / "repo/docs/decisions").glob("*-decisions.md"))
+        write(decision, decision.read_text(encoding="utf-8").replace("Status: in-progress", "Status: design-approved"))
+        assert_invalid(
+            locked_promoted,
+            "decision-locked",
+            locked_promoted / "output.txt",
+            "promoted to design-approved",
+            "decision lock status gate",
+        )
+
+        depth = root / "depth-valid"
+        depth.mkdir()
+        depth_output = valid_depth_recommendation(depth)
+        assert_valid(depth, "depth-recommendation", depth_output, "positive depth recommendation")
+
+        depth_child = clone(depth, root, "depth-missing-child")
+        decision = next((depth_child / "repo/docs/decisions").glob("*-decisions.md"))
+        write(
+            decision,
+            "\n".join(
+                line for line in decision.read_text(encoding="utf-8").splitlines()
+                if "Queue capacity and backpressure behavior" not in line
+            ) + "\n",
+        )
+        assert_invalid(
+            depth_child,
+            "depth-recommendation",
+            depth_child / "output.txt",
+            "0 capacity/backpressure child nodes",
+            "depth child expansion",
+        )
+
+        depth_leading = clone(depth, root, "depth-leading-question")
+        write(
+            depth_leading / "output.txt",
+            "My recommendation: queue. 前提是可靠性优先。最强备选是 inline，优势是简单；如果吞吐不重要我会改变推荐。你同意吗？",
+        )
+        assert_invalid(
+            depth_leading,
+            "depth-recommendation",
+            depth_leading / "output.txt",
+            "asks for approval",
+            "non-leading recommendation",
+        )
+
+        depth_reversal = clone(depth, root, "depth-no-reversal")
+        write(
+            depth_reversal / "output.txt",
+            "My recommendation: Dispatcher 幂等。前提是可靠性优先。最强备选是 receiver 幂等，优势是发送端简单。你选择哪一个？",
+        )
+        assert_invalid(
+            depth_reversal,
+            "depth-recommendation",
+            depth_reversal / "output.txt",
+            "omits a reversal condition",
+            "recommendation reversal",
+        )
+
+        depth_advanced = clone(depth, root, "depth-advanced")
+        write(depth_advanced / "repo/docs/specs/premature-design.md", "# Premature\n")
+        assert_invalid(
+            depth_advanced,
+            "depth-recommendation",
+            depth_advanced / "output.txt",
+            "advanced to forbidden artifact",
+            "depth convergence gate",
+        )
+
+    print("PASS: 6 positive fixtures and 19 independent mutations")
     return 0
 
 

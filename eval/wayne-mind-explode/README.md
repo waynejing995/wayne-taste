@@ -10,6 +10,14 @@ or gstack. It owns four frozen cases:
   and stop before writing the spec.
 - `staged-durable`: process source-resolved branches, persist each decision, then
   stop at the next genuine user choice.
+- `dag-iteration`: across three real turns, resolve one choice, persist the child
+  frontier, and ask the next dependency-ordered question without early convergence.
+- `dag-long`: resume after forty resolved decisions, resolve N41, open N42, and
+  continue; decision count is never an exit condition.
+- `decision-locked`: start from a fully resolved frontier whose written design is
+  not approved; ask for design approval without modifying code or starting work.
+- `depth-recommendation`: resolve one parent, expand every supplied causal child,
+  and ask a neutral next question with a falsifiable recommendation.
 
 The complete case also owns a provider-trace oracle: every decision must become
 durable in its own file-write event. A correct final decision log does not repair a
@@ -19,6 +27,15 @@ batched trace.
 
 ```bash
 uv run --no-project python eval/wayne-mind-explode/calibrate.py
+uv run --no-project python eval/wayne-mind-explode/calibrate_dag.py
+```
+
+Freeze the executable harness from the repository root after calibration:
+
+```bash
+find eval/wayne-mind-explode -type f \
+  ! -path '*/__pycache__/*' ! -name harness.sha256 ! -name eval-report.md -print0 \
+  | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
 ```
 
 ## Prepare a trial

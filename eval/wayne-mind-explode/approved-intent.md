@@ -9,7 +9,7 @@ The skill turns an unresolved idea into durable, user-approved design inputs for
 |---|---|---|---|
 | I01 | Create one `in-progress` decision log before research or the first question. | pre-slim Skill, Phase 1 | final artifact + first write event |
 | I02 | Discover one repository/KB/web fact or obtain one user decision, append exactly one row durably, then advance to the next branch. Never reconstruct or batch the log later. | pre-slim Flow `Log decision`; user correction; current trace | external decision-write event oracle |
-| I03 | Use unique consecutive decision IDs and source values `user`, `codebase`, `web`, `constraint`, `default`, or `review`. | decision-log contract + review outcome requirement | deterministic decision-row checker |
+| I03 | Use unique consecutive canonical `D<number>` decision IDs and source values `user`, `codebase`, `web`, `constraint`, `default`, or `review`; legacy numeric rows remain readable without source rewrite. | `_shared/pipeline-id-contract.md` + decision-log contract | deterministic decision-row checker |
 | I04 | Read repository instructions, code, docs, history, active plans/specs, prior decisions, relevant KB lessons/research/how-tos/project notes, and decision-changing current web facts before asking discoverable questions. | pre-slim Phases 2.1–2.3 | research/no-handwave held-out |
 | I05 | Walk the dependency-ordered decision tree; ask one recommended question and wait. Reject `whatever`/`I don't care` as unresolved instead of inventing a default. | pre-slim Phase 3; grilling commit `170ad4865582` | one-question and vague-answer case |
 | I06 | Compare 2–3 viable approaches, record the choice, and obtain approval for every material design section. | pre-slim Phases 4–5 | complete design case |
@@ -24,6 +24,12 @@ The skill turns an unresolved idea into durable, user-approved design inputs for
 | I15 | Review reports are immutable evidence under `docs/reviews/`; the decision log solely owns resolutions and final review outcomes. | current harness + state-owner rule | artifact and outcome checker |
 | I16 | Mark `design-approved`, return a checkpoint handoff to real `wayne-plan`, and never invoke or auto-advance planning. | pre-slim Phase 9 + checkpoint contract | handoff + planner trap |
 | I17 | Keep units/interfaces bounded, follow existing patterns, and avoid unrelated refactors in the design. | pre-slim Design for Isolation | spec boundary held-out |
+| I18 | The decision log durably owns a dependency-ordered DAG frontier with stable nodes and `fact` versus `choice` kind. Resolving a node persists newly opened children before selecting the next node. | `708779e:wayne-mind-explode/SKILL.md` Phase 3 rules 3-7; `failure-evidence-dag.md` | three-turn DAG snapshots + wrong-order mutation |
+| I19 | Convergence depends only on an empty DAG frontier, never turn count, decision-row count, summary length, or apparent design sufficiency. A 40+ decision log with an open node must continue. | `failure-evidence-dag.md` user correction | 42-node late-frontier Claude/Codex case |
+| I20 | Evidence-backed `fact` nodes auto-resolve and are logged without user confirmation. `choice` nodes involving intent, priority, risk, scope, or trade-offs require one recommended question; ambiguous/conflicting facts remain unresolved. | current Skill B/D boundary; `failure-evidence-dag.md` | auto-resolved ownership fact + kind/evidence mutations |
+| I21 | A locked decision frontier freezes design input but never authorizes implementation, plan execution, or `wayne-work`; continue only the remaining design approvals and end at the `wayne-plan` handoff. | user correction in `failure-evidence-decision-lock.md`; pre-slim boundary and Phase 9 | decision-locked no-execution case |
+| I22 | Grilling expands the causal consequences of every resolved node and has no model-imposed question cap; unresolved downstream ownership, failure, compatibility, operations, verification, and rollback branches stay open. | pre-slim Phase 3 rules and grill menu; Matt Pocock `grilling`; `failure-evidence-depth.md` | deep branch-expansion case |
+| I23 | A recommendation is evidence-grounded and revisable advice, not a default decision: expose its key assumption, strongest alternative, and reversal condition, then ask the user's choice neutrally. | user correction in `failure-evidence-depth.md`; Matt Pocock `grilling` decision ownership | non-leading recommendation case |
 
 Every intended clause maps to an executable or held-out oracle. A candidate cannot
 be accepted while any row is `UNVERIFIED`.
@@ -54,6 +60,7 @@ decision 2 ready → append row 2 → verify durable → next branch
 - Runtime paths and review dispatch stay provider-neutral across Claude and Codex.
 - User-facing language remains owned by repository instructions, not duplicated in
   this Skill.
+- A long decision history never relaxes the unresolved-frontier or one-question gate.
 
 ## Optimization classification
 
