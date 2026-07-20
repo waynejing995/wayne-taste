@@ -107,10 +107,10 @@ def validate(skill_dir: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
     if re.search(r"^##\s+When to Run\b", body, re.MULTILINE | re.IGNORECASE):
         findings.append(finding("error", "when-to-run", "routing belongs in frontmatter description"))
 
-    headings = re.findall(r"^#{1,6}\s+(.+?)\s*$", body, re.MULTILINE)
-    duplicates = sorted(h for h, count in Counter(headings).items() if count > 1)
+    h2_headings = re.findall(r"^##\s+(.+?)\s*$", body, re.MULTILINE)
+    duplicates = sorted(h for h, count in Counter(h2_headings).items() if count > 1)
     if duplicates:
-        findings.append(finding("error", "duplicate-heading", f"duplicate headings: {duplicates}"))
+        findings.append(finding("error", "duplicate-heading", f"duplicate level-two sections: {duplicates}"))
 
     dot_blocks = DOT_BLOCK_RE.findall(body)
     has_flow = bool(re.search(r"^##\s+Flow\s*$", body, re.MULTILINE))
@@ -118,13 +118,12 @@ def validate(skill_dir: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
         findings.append(finding("error", "flow-block", "Flow section requires one dot block"))
     if len(dot_blocks) > 1:
         findings.append(finding("warning", "flow-count", "keep one main Flowchart in SKILL.md"))
-    if has_flow and re.search(r"^##\s+Checklist\s*$", body, re.MULTILINE):
-        findings.append(finding("error", "flow-duplicate", "Checklist must not restate Flowchart sequence"))
-
+    flow_nodes: set[str] = set()
     for index, dot in enumerate(dot_blocks, 1):
         if dot.count("{") != dot.count("}"):
             findings.append(finding("error", "dot-braces", f"dot block {index} has unbalanced braces"))
         nodes = {node: attrs for node, attrs in DOT_NODE_RE.findall(dot)}
+        flow_nodes.update(node.strip('"') for node in nodes)
         edges = DOT_EDGE_RE.findall(dot)
         if not any("shape=doublecircle" in attrs.replace(" ", "") for attrs in nodes.values()):
             findings.append(finding("error", "dot-terminal", f"dot block {index} has no terminal node"))
@@ -140,22 +139,34 @@ def validate(skill_dir: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
                     finding("error", "dot-label", f"every outgoing edge from decision node {node} needs a label")
                 )
 
+    process = re.search(
+        r"^## Process\s*$\n(.*?)(?=^## |\Z)",
+        body,
+        re.MULTILINE | re.DOTALL,
+    )
+    if process and flow_nodes:
+        groups = re.findall(
+            r"^###\s+([A-Z][A-Z0-9]*(?:/[A-Z][A-Z0-9]*)*)\.",
+            process.group(1),
+            re.MULTILINE,
+        )
+        process_ids = {node for group in groups for node in group.split("/")}
+        unknown = sorted(process_ids - flow_nodes)
+        if unknown:
+            findings.append(
+                finding(
+                    "error",
+                    "flow-process-id",
+                    f"Process headings reference unknown Flow nodes: {unknown}",
+                )
+            )
+
     for target in MARKDOWN_LINK_RE.findall(body):
         if target.startswith(("http://", "https://", "#", "mailto:")):
             continue
         clean = target.split("#", 1)[0]
         if clean and not (skill_dir / clean).exists():
             findings.append(finding("error", "broken-link", f"linked resource does not exist: {target}"))
-
-    for folder_name in ("references", "scripts", "templates", "assets"):
-        folder = skill_dir / folder_name
-        if not folder.is_dir():
-            continue
-        for resource in folder.rglob("*"):
-            if resource.is_file() and "__pycache__" not in resource.parts and resource.suffix != ".pyc":
-                relative = resource.relative_to(skill_dir).as_posix()
-                if relative not in body and resource.name not in body:
-                    findings.append(finding("warning", "unreferenced-resource", f"resource is not named: {relative}"))
 
     metrics = {
         "description_chars": len(description_text),
