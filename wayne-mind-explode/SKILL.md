@@ -14,6 +14,10 @@ conflict resolution, spec writing, independent design review, and handoff. Never
 implement code or write an implementation plan. Do not commit, branch, push, or
 publish unless separately requested.
 
+`decision locked`, `design approved`, or an equivalent milestone freezes design
+state; it never authorizes execution. Continue only this Flow, hand off to
+`wayne-plan`, and stop. Never execute the plan or invoke `wayne-work`.
+
 Create only design artifacts:
 
 - `docs/decisions/YYYY-MM-DD-<topic>-decisions.md`
@@ -30,7 +34,7 @@ digraph mind_explode {
     A [label="Open decision log", shape=box];
     B [label="Research one fact or branch", shape=box];
     P [label="Persist one discovered decision", shape=box];
-    C [label="Unresolved decision?", shape=diamond];
+    C [label="Next DAG node?", shape=diamond];
     D [label="Ask one recommended question", shape=box];
     Q [label="Persist one user decision", shape=box];
     E [label="Converge and approve design", shape=box];
@@ -49,10 +53,11 @@ digraph mind_explode {
     A -> B;
     B -> P;
     P -> C;
-    C -> D [label="yes"];
+    C -> B [label="fact"];
+    C -> D [label="choice"];
     D -> Q;
-    Q -> B;
-    C -> E [label="no"];
+    Q -> C;
+    C -> E [label="empty"];
     E -> F;
     F -> G;
     G -> H;
@@ -74,55 +79,102 @@ digraph mind_explode {
 
 ### A. Open decision log
 
-Create the log immediately with `Status: in-progress` and this table:
+Read `_shared/pipeline-id-contract.md` completely. Create the log immediately with
+`Status: in-progress` and this table:
 
 ```markdown
-| # | Question | Decision | Rationale | Source |
+| ID | Question | Decision | Rationale | Source |
 |---|---|---|---|---|
+| D1 | ... | ... | ... | user |
 ```
 
+The same file also owns the complete decision frontier:
+
+```markdown
+## Decision DAG
+| Node | Parent | Kind | Decision | Status | Opens when |
+|---|---|---|---|---|---|
+```
+
+Use stable dependency-ordered node IDs. `Kind` is `fact` or `choice`; `Status` is
+`blocked`, `open`, `resolved`, or `not-applicable`; put only that literal in the
+status cell. `Decision` names the unresolved fact or choice and is never blank or
+`—`; `Opens when` contains only its activation predicate. Preserve supplied node
+boundaries and dependencies: one turn processes one node, and one answer never
+batch-resolves split nodes. Seed known roots and dependents as `open` or `blocked`,
+then add children as their parent resolves.
+
 Use source values `user`, `codebase`, `web`, `constraint`, `default`, or `review`.
+Assign the next `D<number>` without leading zeroes. Review reports use `F<number>`;
+never reuse `R<number>`, which is reserved for requirements.
 One file-write event appends exactly one new numbered row. Verify that row is
 durable before researching, asking, approving, or handing off; never batch or
 reconstruct the log later.
 
 ### B. Research project and lessons
 
-Select the next dependency-ordered branch and discover at most one decision before
-returning to P. Read repository instructions, relevant code, docs, architecture,
+On the initial pass, research enough to seed known root and dependent nodes. Then
+select the next reachable open `fact` and process at most one before returning to P.
+Read repository instructions, relevant code, docs, architecture,
 active plans, specs, and recent history. Scan Wayne's KB for semantically matching
 lessons, prior decisions, research, how-tos, and project notes; surface matches and
 log whether the user applies or skips them. Search the web only when current
 external facts could change a design choice, and preserve the source URL in the log.
 
-Answer discoverable questions from those sources. Ask the user only for intent,
-priority, risk, or trade-off choices the sources cannot decide.
+An evidence-backed `fact` auto-resolves without user confirmation; append its
+numbered evidence row before marking it resolved. Never seed a fact as resolved.
+Every design-relevant source fact belongs in both the numbered log and the DAG;
+never leave it only in a prose context, notes, or summary section.
+A `choice` requires the user when it concerns intent, priority, risk, scope, or a
+trade-off. Ambiguous or conflicting evidence cannot resolve a fact: keep the node
+open and route it as a choice.
+
+After every resolved node, expand consequences before choosing the next node: what
+new purpose/scope, owner, interface, data/control flow, failure/concurrency,
+compatibility, operations, verification, or rollback decision becomes reachable?
+Persist each real child. A broad parent answer never resolves its consequences.
 
 ### P. Persist one discovered decision
 
-Append the single discovered fact or constraint as one new row, verify the durable
-file contains it once, then evaluate whether another decision remains. Do not carry
-an unlogged fact into the next branch.
+Append the single discovered fact or constraint as one new row. In that same write,
+mark its node resolved and persist every child it opened as `open` or `blocked`;
+verify both row and frontier before selecting another node. Do not carry an unlogged
+fact or unpersisted child into the next branch.
 
 ### D. Ask one recommended question
 
-Interview the user relentlessly until both sides share the same design. Walk every
-branch of the decision tree in dependency order. Ask exactly one question, give
+Interview the user relentlessly until both sides share the same design. Select the
+next reachable open `choice` from the durable DAG. Ask exactly one question, give
 `My recommendation:` and its reason, then wait for the user's answer before moving
-on. Look up facts in the environment; put decisions to the user. Log each answer
+on. The entire user-visible response contains exactly one `?` or `？`; state options
+and explanation declaratively, and never repeat the question in a heading or
+closing. Look up facts in the environment; put decisions to the user. Log each answer
 immediately. Treat `whatever`, `I don't care`, or any non-decision as unresolved:
 explain the consequence, repeat one recommendation, and wait. Never infer
 precedence between conflicting inputs.
 
+The recommendation is advice, never a default or a disguised approval request.
+Ground it in current evidence and decisions; name its key assumption, the strongest
+alternative and its advantage, and what would change the recommendation. Ask for
+the user's choice neutrally; silence, agreement with the framing, or acceptance of a
+parent node never approves this node or its children.
+
 ### Q. Persist one user decision
 
 Append only the answered decision as one new row and verify it is durable before
-researching or asking the next branch. If the answer did not resolve the choice,
-return to D without writing a resolved decision.
+researching or asking the next branch. In the same write, mark that node resolved
+and persist all children opened by the answer. If the answer did not resolve the
+choice, leave it open and return to D without writing a resolved decision.
 
 ### E. Converge and approve design
 
-Only converge after the user confirms shared understanding. Compare 2-3 viable
+Converge only when every DAG node is `resolved` or `not-applicable` and a coverage
+audit finds no missing branch across purpose, scope, ownership, interfaces,
+data/control flow, failure/concurrency, observability, verification, rollback, and
+legacy impact. Decision count, turn count, context length, or an apparently complete
+summary never empties the frontier; 40+ resolved decisions with one open node must
+continue. Grilling has no question cap; only the user may explicitly stop or request
+a partial wrap-up. After the user confirms shared understanding, compare 2-3 viable
 approaches against the log, lead with the recommendation, and record the choice.
 Present architecture, components, state/data ownership, flows, failure behavior,
 boundaries, and verification in reviewable sections. Wait for approval of each

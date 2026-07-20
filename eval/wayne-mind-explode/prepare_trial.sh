@@ -26,6 +26,9 @@ harness=$(cd "$(dirname "$0")" && pwd)
 
 mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/support"
 cp -a "$harness/fixture/." "$workspace/repo/"
+if [[ -d "$harness/cases/$case_name/repo" ]]; then
+    cp -a "$harness/cases/$case_name/repo/." "$workspace/repo/"
+fi
 cp "$harness/cases/$case_name/case.md" "$workspace/repo/case.md"
 cp "$skill_dir/SKILL.md" "$workspace/skill/SKILL.md"
 if [[ -f "$harness/cases/$case_name/task.md" ]]; then
