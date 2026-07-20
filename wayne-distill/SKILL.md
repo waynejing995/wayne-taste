@@ -26,16 +26,6 @@ recurring agent mistakes — and turns the worth-it ones into skills (or
 anti-patterns on existing skills). Semantic, evidence-gated, dedup-first,
 never auto-writes.
 
-## Inherits from ~/.claude/CLAUDE.md
-
-Inherits the Wayne control-plane invariants; does NOT redeclare them:
-
-- Language Rules (Chinese to user, English to files/paths/labels)
-- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Delete>Add)
-- Code Standards, Behavior Baselines, proportional-effort skill rule
-
-This skill only specifies the scan → cluster → gate → write-pattern workflow.
-
 ## Boundary vs neighbors (read before running)
 
 | Skill | Input | Output |
@@ -53,15 +43,9 @@ one-off *lesson* — a redirect to wayne-compound. distill **discovers + writes
 the pattern**; it does NOT write the SKILL.md — that's `wayne-skill-forge`, the
 single owner of how a skill is written.
 
-## When to Run
-
-- **Manual:** `/wayne-distill` (all projects) or `/wayne-distill <keyword>` to
-  focus candidates on one theme.
-- **Periodic:** good as a weekly/scheduled audit (CronCreate) — history only
-  grows; new repeated workflows surface over time.
-
-**Skip when:** history is thin (< ~10 sessions) or you just ran it and nothing
-crossed the threshold. Do not lower the threshold to manufacture candidates.
+Before collection, stop when history is thin (< ~10 sessions) or the last run
+found no new threshold-crossing evidence. Do not lower thresholds to manufacture
+candidates.
 
 ## Flow
 
@@ -69,6 +53,8 @@ crossed the threshold. Do not lower the threshold to manufacture candidates.
 digraph distill {
     rankdir=TB;
 
+    "Enough history or new evidence?" [shape=diamond];
+    "Stop: keep evidence threshold" [shape=doublecircle];
     "uv run scan_sessions.py\n(embed + Leiden → clusters.json)" [shape=box];
     "Pick clusters to analyze\n(token budget: top-N by sessions)" [shape=box];
     "Fan out 1 analyst / cluster\n(induce pattern: procedure OR mistake)" [shape=box, style=bold];
@@ -82,6 +68,8 @@ digraph distill {
     "Write pattern file(s)\n→ /wayne-skill-forge" [shape=box];
     "Done" [shape=doublecircle];
 
+    "Enough history or new evidence?" -> "Stop: keep evidence threshold" [label="no"];
+    "Enough history or new evidence?" -> "uv run scan_sessions.py\n(embed + Leiden → clusters.json)" [label="yes"];
     "uv run scan_sessions.py\n(embed + Leiden → clusters.json)" -> "Pick clusters to analyze\n(token budget: top-N by sessions)";
     "Pick clusters to analyze\n(token budget: top-N by sessions)" -> "Fan out 1 analyst / cluster\n(induce pattern: procedure OR mistake)";
     "Fan out 1 analyst / cluster\n(induce pattern: procedure OR mistake)" -> "Merge + dedup analyst verdicts\n(cross-cluster same pattern → one)";
@@ -101,6 +89,9 @@ digraph distill {
 ## Process Flow
 
 ### Phase 1 — Collect + cluster (scripted, semantic)
+
+Bare `/wayne-distill` spans all projects; `/wayne-distill <keyword>` narrows
+candidate analysis to one theme without changing the evidence thresholds.
 
 Run the collector with `uv run` — the PEP 723 header pulls its deps
 (sentence-transformers / leidenalg / igraph / numpy). NOT stdlib-only anymore;
