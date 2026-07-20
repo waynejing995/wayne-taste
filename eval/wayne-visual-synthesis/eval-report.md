@@ -33,7 +33,8 @@ or the Level-2 ledger comparison.
 ## Static and script gates
 
 - Behavioral checker: 8 positive cases and 18 independent mutations calibrated.
-- Original-contract checker: 55 carrier, targetable, and direct-resource mutations
+- Original-contract checker: 57 carrier, targetable, direct-resource, and
+  Level-1 short-circuit mutations
   calibrated.
 - Control static failure: `compare_render.py` was not directly routed from the
   Skill; candidate passes the direct-resource contract.
@@ -63,3 +64,10 @@ Residual uncertainty: image fixtures are deterministic UI/document rasters. Map,
 equation, and arbitrary natural-photo carriers are contract-checked statically but
 not each exercised through a model trial. The small matrix proves the published
 intent cases, not statistical superiority on all possible images.
+
+Follow-up 2026-07-20: `compare-methods.md` still carried the pre-fix words
+“stop”/“PASS, done” as if dimension or hash ended the whole comparison. Its
+structured short-circuit table now makes the owner explicit: both signals stop
+later Level-1 metrics only, per-image VEL and Level 2 always continue, and PASS is
+available only under a pre-approved byte-identity tolerance. Two independent row
+mutations prove that either scope can no longer drift silently.

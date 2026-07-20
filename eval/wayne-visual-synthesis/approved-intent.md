@@ -19,7 +19,9 @@ summary is useful only when it is derived from a complete Visual Element Ledger
   golden-vs-symmetric semantics, and tolerance before measuring. `No verdict` is
   an explicit resolved tolerance.
 - Comparison has both a mechanical pixel/channel level and a VEL semantic level.
-  Reconcile them as read noise or real change.
+  Dimension mismatch or exact hash equality may stop later Level-1 metrics only;
+  per-image VEL synthesis, Level 2, reconciliation, and reporting still run.
+  Reconcile both levels as read noise or real change.
 - Only exact byte/hash equality proves byte identity. Never invent a tolerance or
   emit pass/fail without an approved one.
 - Inspect image channels and covered bit/frequency dimensions when content or
