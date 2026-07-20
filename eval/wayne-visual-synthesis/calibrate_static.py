@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from check_static import CARRIER_FIELDS, validate
+from check_static import CARRIER_FIELDS, SHORT_CIRCUIT_ROWS, validate
 
 
 REQUIRED_REFS = (
@@ -110,6 +110,16 @@ def main() -> int:
             trial = clone(positive, root, f"target-{index}")
             replace_once(trial / "references/targetable-structure.md", f"`{field}`", f"`MISSING_{index}`")
             expect_finding(trial, f"targetable contract missing {field}")
+            mutations += 1
+
+        for index, signal in enumerate(SHORT_CIRCUIT_ROWS):
+            trial = clone(positive, root, f"short-circuit-{index}")
+            replace_once(
+                trial / "references/compare-methods.md",
+                f"| {signal} |",
+                f"| DRIFTED {index} |",
+            )
+            expect_finding(trial, f"compare short-circuit row drifted: {signal}")
             mutations += 1
 
     print(f"PASS: calibrated static control and {mutations} independent mutations")

@@ -15,6 +15,9 @@ the same eight tasks:
 | `multi-no-compare` | one VEL per image and no implicit comparison |
 
 Generated images and trial output belong under `eval/.runs/wayne-visual-synthesis/`.
+The static contract also parses the method catalog's short-circuit table: dimension
+or hash may stop later Level-1 metrics, never per-image VEL or Level 2, and hash
+equality cannot emit PASS without a pre-approved byte-identity tolerance.
 
 ```bash
 uv run --no-project python eval/wayne-visual-synthesis/calibrate.py

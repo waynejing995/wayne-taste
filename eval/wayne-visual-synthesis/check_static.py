@@ -18,6 +18,29 @@ CARRIER_FIELDS = {
     "equation": ("notation", "variables[]", "operators[]", "layout"),
     "dense-ui": ("controls[]", "values[]", "states[]", "hierarchy[]", "primary_workflow"),
 }
+SHORT_CIRCUIT_ROWS = {
+    "Dimension mismatch": (
+        "stop later pixel metrics",
+        "per-image VEL and Level 2",
+        "apply only the pre-approved tolerance",
+    ),
+    "Exact hash equality": (
+        "stop later pixel metrics",
+        "per-image VEL and Level 2",
+        "byte-identity PASS only under a pre-approved byte-identity tolerance; otherwise no verdict",
+    ),
+}
+
+
+def markdown_rows(text: str) -> dict[str, tuple[str, ...]]:
+    rows: dict[str, tuple[str, ...]] = {}
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = tuple(cell.strip() for cell in line.strip().strip("|").split("|"))
+        if cells and cells[0] and not set(cells[0]) <= {"-", ":"}:
+            rows[cells[0]] = cells[1:]
+    return rows
 
 
 def validate(skill: Path) -> list[str]:
@@ -66,6 +89,13 @@ def validate(skill: Path) -> list[str]:
         ):
             if f"`{field}`" not in target:
                 findings.append(f"targetable contract missing {field}")
+
+    methods_path = skill / "references/compare-methods.md"
+    if methods_path.is_file():
+        rows = markdown_rows(methods_path.read_text(encoding="utf-8"))
+        for signal, expected in SHORT_CIRCUIT_ROWS.items():
+            if rows.get(signal) != expected:
+                findings.append(f"compare short-circuit row drifted: {signal}")
     return findings
 
 

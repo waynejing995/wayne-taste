@@ -22,7 +22,7 @@ can be accepted. `UNVERIFIED` blocks the no-regression claim.
 | V8 | Both channel and hidden-signal probes run; flagged payloads become VEL entries; uncovered watermark classes are named | `hidden-channel`; bundled-script execution | behavioral + script |
 | V9 | Compare resolves set, same target, golden/symmetric semantics, and tolerance before metrics | `compare`, `pixel-noise`, `semantic-change` | behavioral |
 | V10 | Compare Level 1 is tool-measured and includes hash/L1/region/structure plus cross-image channels | `compare`, `pixel-noise`, `semantic-change`; `compare_render.py` | behavioral + script |
-| V11 | Compare Level 2 runs even for byte-identical images and reports all VEL/probe facets | compare facet oracle in all three compare cases | behavioral |
+| V11 | Dimension mismatch or exact hash equality ends later Level-1 metrics only; per-image VEL and Level 2 still run and report all VEL/probe facets | compare facet oracle in all three compare cases; structured short-circuit table oracle | behavioral + static |
 | V12 | Pixel and ledger evidence reconcile read-noise vs real-change | `pixel-noise`, `semantic-change` | behavioral |
 | V13 | Verdict exists only for a pre-approved tolerance; byte identity only from exact hash | `compare`, no-verdict oracles in both delta cases | behavioral |
 | V14 | Bundled scripts execute on the supported runtime | direct positive executions; NumPy 2.x dump regression | script |

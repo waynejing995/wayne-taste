@@ -30,10 +30,20 @@ not by habit. Report which method produced each number; never emit a bare "diffe
 
 ## Render Regression Triage Pipeline
 
-Run in order, stop when a stage answers the question:
+The short-circuit scope is structural:
 
-1. **Dimension gate** — sizes differ → stop, that IS the diff (do not resize-then-diff unless the user asks).
-2. **Exact hash** — identical → PASS, byte-identical render, done.
+| Signal | Level-1 action | Required continuation | Verdict effect |
+|---|---|---|---|
+| Dimension mismatch | stop later pixel metrics | per-image VEL and Level 2 | apply only the pre-approved tolerance |
+| Exact hash equality | stop later pixel metrics | per-image VEL and Level 2 | byte-identity PASS only under a pre-approved byte-identity tolerance; otherwise no verdict |
+
+Run the Level-1 stages in order. A stop below ends later pixel metrics only; it
+never ends per-image synthesis, Level 2, reconciliation, or reporting:
+
+1. **Dimension gate** — sizes differ → record that as the Level-1 result and stop
+   later pixel metrics; do not resize unless the user asks. Continue to Level 2.
+2. **Exact hash** — identical → record byte identity and stop later pixel metrics.
+   Continue to Level 2; verdict policy still applies.
 3. **Per-pixel L1 map** — compute `diff = |A-B|.sum(axis=2)`. Report: changed-px %, max L1, `L1>threshold` count, strong-diff bbox + centroid.
 4. **Diff-region characterization** — the discriminator between noise and real change:
    - **Magnitude**: all L1 ≤ ~5 → sub-LSB / rounding. Large L1 → real.
