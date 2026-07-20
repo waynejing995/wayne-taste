@@ -27,51 +27,30 @@ files_modified:
 - **Last action:** {what was the last thing completed}
 - **Next action:** {what should happen next when resumed}
 
-### Decision Log Snapshot
+### Artifact References
 
-{Decisions logged so far — copy the table from the decision log}
+| Artifact | Path | Owner | SHA-256 | Observed state |
+|---|---|---|---|---|
+| Decision log | `{decision_log path}` | `wayne-mind-explode` | `{sha256}` | {state at checkpoint time} |
+| Plan | `{plan path}` | `wayne-plan` / U Status by `wayne-work` | `{sha256}` | {state at checkpoint time} |
+| Spec | `{spec path}` | product-design stage | `{sha256}` | {state at checkpoint time} |
+| Test Matrix | `{test_matrix path}` | `wayne-test-design` / E Status by `wayne-verify` | `{sha256}` | {state at checkpoint time} |
 
-| ID | Question | Decision | Rationale | Source |
-|---|----------|----------|-----------|--------|
-| D1 | ... | ... | ... | user |
-| D2 | ... | ... | ... | codebase |
+### Decision Progress
 
-Total: {N} decisions logged. Status: {in-progress/completed}
+- Source: `{decision_log path}` at `{sha256}`.
+- Observed at checkpoint time: {N decisions; in-progress/design-approved}.
+- This is a derived historical summary; resume re-reads the source owner.
 
-### Authoritative Test Matrix
+### Implementation Progress
 
-`{test_matrix path}` — E Status SSoT. Any E block in a plan is a read-only snapshot.
+| Unit | Observed state | Source |
+|---|---|---|
+| I1 | {state at checkpoint time} | `{plan path}` at `{sha256}` |
+| I2 | {state at checkpoint time} | `{plan path}` at `{sha256}` |
 
-### Implementation Units (from plan)
-
-{Copy the plan's implementation units with their checkbox state — this is the
-format wayne-work reads, so resume can feed directly back into it}
-
-- [x] **I1: {name}**
-  - Goal: {goal}
-  - Files: {files}
-  - Verification: {verification}
-  - Status: DONE — spec ✅ quality ✅
-
-- [x] **I2: {name}**
-  - Goal: {goal}
-  - Files: {files}
-  - Verification: {verification}
-  - Status: DONE — spec ✅ quality ✅
-
-- [ ] **I3: {name}** ← NEXT
-  - Goal: {goal}
-  - Files: {files}
-  - Approach: {approach}
-  - Test scenarios: {scenarios}
-  - Verification: {verification}
-  - Status: NOT STARTED
-  - Execution note: {if any}
-
-- [ ] **I4: {name}**
-  - Goal: {goal}
-  - Files: {files}
-  - Status: BLOCKED BY I3
+This table is orientation only. `wayne-work` re-reads the authoritative plan and
+current U Status; it never executes from this checkpoint summary.
 
 ### Wave Progress (if parallel execution)
 

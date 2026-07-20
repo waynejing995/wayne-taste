@@ -33,26 +33,24 @@ Current state at the moment of handoff (same fields a checkpoint captures).
 - **Primary snapshot:** `{snapshot path}`
 - **Branch:** {branch}
 - **Git status:** {clean | N files modified, M staged}
-- **Decision log:** {N} decisions logged, status {in-progress/completed} — `{decision_log path}`
-- **Plan:** {X}/{Y} implementation units done — `{plan path}`
-- **Test Matrix:** authoritative E Status owner — `{test_matrix path}`
+- **Decision log:** `{decision_log path}` at `{sha256}`; {observed state}.
+- **Plan:** `{plan path}` at `{sha256}`; {observed implementation progress}.
+- **Test Matrix:** `{test_matrix path}` at `{sha256}`; authoritative E Status owner.
 
-**Implementation Units (checkbox status copied from plan):**
+### Artifact References
 
-{Same checkbox format as checkpoint-template.md / wayne-plan, so the next agent
-reads it without re-parsing.}
+| Artifact | Path | Owner | SHA-256 | Observed state |
+|---|---|---|---|---|
+| Decision log | `{decision_log path}` | `wayne-mind-explode` | `{sha256}` | {state at handoff time} |
+| Plan | `{plan path}` | `wayne-plan` / U Status by `wayne-work` | `{sha256}` | {state at handoff time} |
+| Spec | `{spec path}` | product-design stage | `{sha256}` | {state at handoff time} |
+| Test Matrix | `{test_matrix path}` | `wayne-test-design` / E Status by `wayne-verify` | `{sha256}` | {state at handoff time} |
 
-- [x] **I1: {name}** — Status: DONE — spec ✅ quality ✅
-- [x] **I2: {name}** — Status: DONE — spec ✅ quality ✅
-- [ ] **I3: {name}** ← NEXT — Status: NOT STARTED
-- [ ] **I4: {name}** — Status: BLOCKED BY I3
+### Derived Progress
 
-**Decision Log Snapshot (table copied from decision log):**
-
-| ID | Question | Decision | Rationale | Source |
-|---|----------|----------|-----------|--------|
-| D1 | ... | ... | ... | user |
-| D2 | ... | ... | ... | codebase |
+Summarize decisions and implementation progress briefly, always linked to the rows
+above. This is orientation only; the next agent re-reads and verifies every current
+source instead of executing from copied decisions, unit checkboxes, or E statuses.
 
 ### Next Agent
 

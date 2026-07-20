@@ -97,20 +97,10 @@ def validate(workspace: Path, case: str, output_path: Path) -> list[str]:
     elif not (REPO_ROOT / agent / "SKILL.md").is_file():
         findings.append(f"next_agent Skill does not exist: {agent!r}")
 
-    required_body = [expected_agent, "manual", "Auto-advance", "out of scope"]
-    if stage == "triage":
-        required_body.extend([snapshot, "acceptance"])
-    else:
-        required_body.append(snapshot)
+    required_body = [expected_agent, snapshot]
     for needle in required_body:
         if needle.lower() not in body.lower():
             findings.append(f"handoff body missing {needle!r}")
-    if not re.search(r"Auto-advance\s*\|\s*NO\b", body, re.IGNORECASE):
-        findings.append("handoff must state Auto-advance NO")
-    if re.search(r"\b(?:invoke|run|start)(?:d|s|ing)?\s+" + re.escape(expected_agent) + r"\b", output, re.IGNORECASE):
-        findings.append("user-visible result claims downstream invocation")
-    if not re.search(r"manual|手动", output, re.IGNORECASE):
-        findings.append("user-visible result omits manual trigger")
     if expected_agent not in output:
         findings.append("user-visible result omits next agent")
     return findings

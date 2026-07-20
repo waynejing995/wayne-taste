@@ -89,7 +89,7 @@ Write to `.wayne/checkpoints/{TIMESTAMP}-{title-slug}.md`.
 skill directory.
 
 The template is the canonical structure. Required sections:
-- frontmatter: `title`, `status`, `branch`, `timestamp`, `pipeline_stage`, `pipeline_phase`, `decision_log`, `plan`, `spec`, `files_modified`
+- frontmatter: `title`, `status`, `branch`, `timestamp`, `pipeline_stage`, `pipeline_phase`, `decision_log`, `plan`, `spec`, `test_matrix`, `files_modified`
 - `## Working on:` (title)
 - `### Summary` (1-3 sentences)
 - `### Pipeline State` (Stage, Phase, Last action, Next action)
@@ -183,7 +183,7 @@ Wayne skill — don't just suggest, actually invoke it via the Skill tool.
 |-------|-------------|--------------|
 | `brainstorm` | `wayne-mind-explode` | Decision log path, resume from last question |
 | `plan` | `wayne-plan` | Spec + decision log paths, resume from last phase |
-| `work` | **`wayne-work`** | Plan path + checkpoint's Implementation Units as task input. Wayne-work reads the checkpoint's unit status and skips completed units. |
+| `work` | **`wayne-work`** | Exact plan and Test Matrix paths; re-read their current state. Checkpoint progress is orientation only. |
 | `review` | `wayne-code-review` | Auto-run dual-voice review |
 | `verify` | `wayne-verify` | Exact authoritative test-matrix path and current E statuses |
 | `ship` | `wayne-ship` | Auto-run commit flow |
