@@ -12,8 +12,9 @@ Behavior lanes:
   with exact commands, real entrypoint proof, and a confirm gate.
 - `existing-plan`: the prompt references the plan SSoT without copying its body,
   while keeping verification and completion self-contained.
-- deterministic dispatch: a fake app-server proves startup failure and same-thread
-  blocked/resume behavior without provider noise.
+- deterministic dispatch: a fake app-server proves initialize failure,
+  `turn/start` failure before readiness, and same-thread blocked/resume behavior
+  without provider noise.
 
 Run every composition case with Claude-primary and Codex-primary. Run bundled
 scripts plus dispatch protocol checks directly. Infrastructure termination before

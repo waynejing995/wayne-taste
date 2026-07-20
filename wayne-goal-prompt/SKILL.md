@@ -138,7 +138,7 @@ scripts/codex-dispatch.sh dispatch <goal-file> <cwd>
 ```
 
 The command prints a job ID only after app-server initialization, thread start,
-and goal readiness succeed. If it exits non-zero, report `DISPATCH_FAILED` with
+goal setup, and the initial work turn all succeed. If it exits non-zero, report `DISPATCH_FAILED` with
 the preserved driver log; never claim a worker started. Run `status <job-id>` and
 require the recorded cwd plus a live or completed state.
 

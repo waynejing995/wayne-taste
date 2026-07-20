@@ -49,6 +49,15 @@ def main() -> int:
                 }
             )
             return 1
+        if method == "turn/start" and MODE == "turn-start-fail":
+            emit(
+                {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32001, "message": "fixture turn startup failed"},
+                }
+            )
+            return 1
         if method == "initialize":
             result: dict = {}
         elif method == "thread/start":
