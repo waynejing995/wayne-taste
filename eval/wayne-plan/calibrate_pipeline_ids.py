@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibrate the cross-stage ID parser used by Wayne Plan."""
+"""Calibrate Plan's deterministic ID and literal proof boundary."""
 
 from __future__ import annotations
 
@@ -40,36 +40,6 @@ SOURCE = """# Feature decisions
 
 
 def main() -> int:
-    requirements = MODULE.structured_requirement_rows(SOURCE)
-    decisions = MODULE.structured_decision_rows(SOURCE)
-    assert requirements == {"R1": {"- R1: deliver the accepted user-visible behavior."}}
-    assert decisions == {
-        "D1": {"| 1 | Queue | Reuse it | One owner | user |"},
-        "D34": {"| 34 | Rollback | Restore old route | Safe reversal | user |"},
-    }
-
-    canonical = SOURCE.replace("| # | Question", "| ID | Question").replace(
-        "| 1 | Queue", "| D1 | Queue"
-    ).replace("| 34 | Rollback", "| D34 | Rollback")
-    assert MODULE.structured_decision_rows(canonical) == {
-        "D1": {"| D1 | Queue | Reuse it | One owner | user |"},
-        "D34": {"| D34 | Rollback | Restore old route | Safe reversal | user |"},
-    }
-    legacy_three = """| ID | Decision | Rationale |
-|---|---|---|
-| D1 | Reuse queue | One owner |
-| D34 | Restore route | Safe reversal |
-"""
-    assert MODULE.structured_decision_rows(legacy_three) == {
-        "D1": {"| D1 | Reuse queue | One owner |"},
-        "D34": {"| D34 | Restore route | Safe reversal |"},
-    }
-
-    no_requirements = SOURCE.replace(
-        "## Requirements\n\n- R1", "## Product scope\n\n- R1", 1
-    )
-    assert MODULE.structured_requirement_rows(no_requirements) == {}
-
     with tempfile.TemporaryDirectory(prefix="wayne-plan-id-contract-") as temp:
         root = Path(temp)
         decision_path = root / "decisions.md"
@@ -103,12 +73,29 @@ def main() -> int:
         MODULE.validate_ledger(ledger, sources, texts, "", {}, findings)
         assert not findings.items, findings.items
 
+        # Semantic classification is intentionally outside this validator. The
+        # source-fidelity reviewers, not a heading/regex parser, own completeness.
+        incomplete = dict(ledger)
+        incomplete["requirements"] = []
+        findings = MODULE.Findings()
+        MODULE.validate_ledger(incomplete, sources, texts, "", {}, findings)
+        assert not findings.items, findings.items
+
         ledger["requirements"][0]["exact"] = "| R1 | legacy review label, not a requirement |"
+        ledger["requirements"][0]["source"] = "decisions.md"
         findings = MODULE.Findings()
         MODULE.validate_ledger(ledger, sources, texts, "", {}, findings)
-        assert any(code == "source-requirement-row" for code, _ in findings.items)
+        assert not findings.items, findings.items
 
-    print("PASS: legacy 1..34 -> D aliases; review R01/R1 excluded; structured ledger rows enforced")
+        ledger["requirements"][0]["exact"] = "R1: text absent from every source"
+        findings = MODULE.Findings()
+        MODULE.validate_ledger(ledger, sources, texts, "", {}, findings)
+        assert any(code == "ledger-requirements" for code, _ in findings.items)
+
+    print(
+        "PASS: canonical ledger IDs and literal existence enforced; "
+        "semantic classification and completeness left to independent AI review"
+    )
     return 0
 
 

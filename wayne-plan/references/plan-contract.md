@@ -64,7 +64,14 @@ The source ledger is UTF-8 JSON with this shape:
 }
 ```
 
-Use JSON `null` for an absent `decision_log`, `spec`, or direct request snapshot, and omit its hash and entries. When a request snapshot is supplied, set `request` to identifier `direct_request`, add that identifier to `source_sha256`, and use it as the relevant entry `source`. Preserve each `exact` value byte-for-byte. Apply `_shared/pipeline-id-contract.md`: requirements come only from `## Requirements`; canonical decisions are `D<number>`. A legacy numeric decision-table row `1` is ledger ID `D1` with the original numeric row in `exact`. Never rewrite a source to add a prefix.
+Use JSON `null` for an absent `decision_log`, `spec`, or direct request snapshot, and omit its hash and entries. When a request snapshot is supplied, set `request` to identifier `direct_request`, add that identifier to `source_sha256`, and use it as the relevant entry `source`. Preserve each `exact` value byte-for-byte. Apply `_shared/pipeline-id-contract.md`: contextual source-fidelity review determines which clauses are requirements, decisions, or findings; canonical decisions are `D<number>`. A legacy numeric decision-table row `1` is ledger ID `D1` with the original numeric row in `exact`. Never rewrite a source to add a prefix.
+
+The ledger is an AI-authored contextual inventory, not parser output. Headings,
+table shape, ID prefixes, keywords, regex, and substring scans may help navigate a
+source but cannot prove semantic classification or completeness. Both independent
+reviews must reverse-audit source → ledger → plan. The deterministic validator
+only checks source hashes, literal existence, ledger grammar, and downstream
+closure over the ledger it was given.
 
 Locate exactly one level-two `## U-SEED` section in the matrix and exactly one Markdown table within that bounded section. Each data row after its header and separator is one source seed. Its identifier is the non-empty, unique first-cell value exactly as written after Markdown cell-padding is removed; `added` is reserved and cannot be a source identifier. Store that identifier as `id` and the complete source Markdown data-row line, excluding its line ending, byte-for-byte as `exact`. Do not discover seeds from prose or tables outside that section. The validator independently inventories this structured table, checks all source hashes, and requires the ledger identifiers and exact rows to equal it in both directions. Independent source-fidelity review remains responsible for seed-by-seed semantic equivalence, which has no machine grammar.
 
@@ -249,8 +256,8 @@ uv run --no-project <skill-dir>/scripts/validate_plan.py check <plan> \
   [--request-source <temporary-exact-request.txt>]
 ```
 
-Exit zero proves local grammar and relationships, exact E carry, structured source requirement and seed accounting, original-source hashes and literal entries, real repository surfaces where claimed, and no repository mutation beyond the new plan. A nonzero exit prints stable finding codes.
+Exit zero proves local grammar and relationships, exact E carry, structured seed accounting, original-source hashes and literal ledger entries, real repository surfaces where claimed, and no repository mutation beyond the new plan. A nonzero exit prints stable finding codes.
 
 Use `--no-project` for every validator subcommand so validation cannot discover, lock, or create an environment for the target repository.
 
-It does not prove semantic decision completeness, quality of HOW choices, English prose quality, or downstream executability. The two independent reviews own those judgments. Deleting sources, weakening the ledger, or using an artifact-only invocation cannot convert a source-relative failure into a pass.
+It does not prove source requirement/decision completeness, semantic classification, semantic equivalence, quality of HOW choices, English prose quality, or downstream executability. The two independent reviews own those judgments. Deleting sources, weakening the ledger, or using an artifact-only invocation cannot convert a source-relative failure into a pass.

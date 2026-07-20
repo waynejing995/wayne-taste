@@ -273,59 +273,6 @@ def extract_e_contract(matrix_text: str, findings: Findings) -> tuple[str, list[
     return block, ids
 
 
-def h2_named_sections(text: str, name: str) -> list[str]:
-    headings = list(re.finditer(r"^## (?!#)(.+?)\s*$", text, re.MULTILINE))
-    sections: list[str] = []
-    for index, heading in enumerate(headings):
-        if heading.group(1) != name:
-            continue
-        end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
-        sections.append(text[heading.end() : end])
-    return sections
-
-
-def structured_requirement_rows(text: str, allow_unsectioned: bool = False) -> dict[str, set[str]]:
-    rows: dict[str, set[str]] = {}
-    sections = h2_named_sections(text, "Requirements")
-    sources = sections or ([text] if allow_unsectioned else [])
-    for line in (line for section in sources for line in section.splitlines()):
-        stripped = line.strip()
-        if stripped.startswith("|"):
-            row = parse_row(stripped) or []
-            if row and re.fullmatch(r"R[1-9]\d*", row[0]):
-                rows.setdefault(row[0], set()).add(line)
-            continue
-        stripped = re.sub(r"^(?:#{1,6}\s+|[-*]\s+)", "", stripped)
-        match = re.match(r"^(R[1-9]\d*)(?=\s*(?:[.:—-]|$))", stripped)
-        if match:
-            rows.setdefault(match.group(1), set()).add(line)
-    return rows
-
-
-def structured_decision_rows(text: str) -> dict[str, set[str]]:
-    rows: dict[str, set[str]] = {}
-    expected = ["Question", "Decision", "Rationale", "Source"]
-    for _, lines in markdown_tables(text):
-        header = parse_row(lines[0]) or []
-        five_column = len(header) == 5 and header[1:] == expected and header[0] in {"ID", "#"}
-        legacy_three_column = header == ["ID", "Decision", "Rationale"]
-        if not five_column and not legacy_three_column:
-            continue
-        for line in lines[2:]:
-            row = parse_row(line) or []
-            if len(row) != len(header):
-                continue
-            raw = row[0]
-            if re.fullmatch(r"D[1-9]\d*", raw):
-                canonical = raw
-            elif five_column and header[0] == "#" and re.fullmatch(r"[1-9]\d*", raw):
-                canonical = f"D{raw}"
-            else:
-                continue
-            rows.setdefault(canonical, set()).add(line)
-    return rows
-
-
 def validate_surface(value: str, findings: Findings, code: str) -> tuple[str, str] | None:
     match = SURFACE_RE.fullmatch(value.strip("`"))
     if not match:
@@ -582,46 +529,8 @@ def validate_ledger(
             accepted.append(item)
         return ids, accepted
 
-    requirement_ids, requirement_entries = entries("requirements", r"R[1-9]\d*", valid_source_ids)
-    decision_ids, decision_entries = entries("decisions", r"D[1-9]\d*", valid_source_ids)
-
-    discovered_requirement_rows: dict[tuple[str, str], set[str]] = {}
-    for key in ("decision_log", "spec", "request"):
-        value = source_paths.get(key)
-        if value:
-            source_id = value[0]
-            found = structured_requirement_rows(
-                source_texts[source_id], allow_unsectioned=key == "request"
-            )
-            for requirement, exact_rows in found.items():
-                discovered_requirement_rows[(source_id, requirement)] = exact_rows
-    discovered_requirements = {item[1] for item in discovered_requirement_rows}
-    if requirement_ids != discovered_requirements:
-        findings.add(
-            "source-requirements",
-            f"ledger requirements {sorted(requirement_ids)} != source requirements {sorted(discovered_requirements)}",
-        )
-    for item in requirement_entries:
-        key = (item.get("source"), item.get("id"))
-        if item.get("exact") not in discovered_requirement_rows.get(key, set()):
-            findings.add("source-requirement-row", f"{item.get('id')} exact value is not its structured requirement row")
-
-    discovered_decision_rows: dict[tuple[str, str], set[str]] = {}
-    decision_source = source_paths.get("decision_log")
-    if decision_source:
-        source_id = decision_source[0]
-        for decision, exact_rows in structured_decision_rows(source_texts[source_id]).items():
-            discovered_decision_rows[(source_id, decision)] = exact_rows
-    discovered_decisions = {item[1] for item in discovered_decision_rows}
-    if decision_ids != discovered_decisions:
-        findings.add(
-            "source-decisions",
-            f"ledger decisions {sorted(decision_ids)} != source decisions {sorted(discovered_decisions)}",
-        )
-    for item in decision_entries:
-        key = (item.get("source"), item.get("id"))
-        if item.get("exact") not in discovered_decision_rows.get(key, set()):
-            findings.add("source-decision-row", f"{item.get('id')} exact value is not its structured decision row")
+    requirement_ids, _ = entries("requirements", r"R[1-9]\d*", valid_source_ids)
+    decision_ids, _ = entries("decisions", r"D[1-9]\d*", valid_source_ids)
 
     raw_seeds = ledger.get("u_seeds")
     seed_ids: set[str] = set()

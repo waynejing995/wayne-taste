@@ -56,6 +56,10 @@ generic planning advice and deprecated/tool-specific review machinery.
 - Source-relative validation must accept the original decision log, spec, matrix,
   repository, and a pre-run manifest. An artifact-only check may not claim source
   fidelity or no-upstream-mutation proof.
+- Requirement/decision discovery, semantic classification, and completeness are
+  owned by contextual AI review. Deterministic validation may check hashes,
+  literal existence, grammar, and closure over the supplied ledger, but must not
+  infer source meaning from headings, IDs, keywords, substring scans, or regex.
 - Cross-field repair preserves the most specific future surface. Validator success
   never justifies widening `Type.member` to `Type` or stripping a method owner.
 
