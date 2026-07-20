@@ -15,16 +15,6 @@ description: >
 
 End-of-stage knowledge cleanup. Aligns four layers (agent memory · project root markdown · docs/+README · code comments) with what the code actually does. Treats CLAUDE.md as a **rule book**, not a changelog. Reads three sources in parallel: this conversation, `git log` since last sync, and comments in `git diff`-touched files.
 
-## Inherits from ~/.claude/CLAUDE.md
-
-This skill inherits the Wayne control-plane invariants and does NOT redeclare them:
-
-- Language Rules (Chinese to user, English in files)
-- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
-- Code Standards
-- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
-- Skill invocation rule (proportional effort)
-
 ## Origin
 
 Adapted from [`KKKKhazix/khazix-skills/neat-freak`](https://github.com/KKKKhazix/khazix-skills/tree/main/neat-freak) (数字生命卡兹克, MIT). The three-layer audience model, anti-bloat doctrine, and self-checklist are his. Wayne deltas: cross-project (not Chinese-only), `git log` as a second input source, explicit Wayne auto-memory format awareness, and sister-skill boundaries.
