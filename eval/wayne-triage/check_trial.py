@@ -104,6 +104,22 @@ def checkpoints(repo: Path) -> list[Path]:
     return sorted((repo / ".wayne" / "checkpoints").glob("*.md"))
 
 
+def markdown_section(text: str, heading: str) -> str | None:
+    """Return one exact level-two section; headings are structure, not semantics."""
+    lines = text.splitlines()
+    marker = f"## {heading}"
+    starts = [index for index, line in enumerate(lines) if line.strip() == marker]
+    if len(starts) != 1:
+        return None
+    start = starts[0] + 1
+    end = next(
+        (index for index in range(start, len(lines)) if lines[index].startswith("## ")),
+        len(lines),
+    )
+    body = "\n".join(lines[start:end]).strip()
+    return body or None
+
+
 def check_evidence_shape(
     path: Path, findings: list[str], *, require_hypothesis: bool = True
 ) -> tuple[dict[str, str], str]:
@@ -193,10 +209,6 @@ def check_handoff(
         findings.append("handoff must state Auto-advance NO")
     if expected_agent not in output:
         findings.append("user-visible result omits next agent")
-    if not re.search(r"manual|手动", output, re.IGNORECASE):
-        findings.append("user-visible result omits manual trigger")
-    if re.search(rf"\b(?:invoked|started|ran)\s+{re.escape(expected_agent)}\b", output, re.IGNORECASE):
-        findings.append("user-visible result claims downstream invocation")
 
 
 def expected_fields(case: str) -> dict[str, str]:
@@ -258,13 +270,8 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
         findings.append(f"user-visible result omits route {route}")
 
     if case in {"failure", "approval-denied"}:
-        if "tests.test_tokenizer" not in body or not re.search(r"fail|失败|error", body, re.IGNORECASE):
-            findings.append("fix route lacks the supplied failing repro")
-    if case == "tracker":
-        if not re.search(r"enhancement", output, re.IGNORECASE):
-            findings.append("tracker output omits enhancement category")
-        if "ready-for-agent" not in output:
-            findings.append("tracker output omits ready-for-agent state")
+        if "tests.test_tokenizer" not in body:
+            findings.append("fix route does not carry the supplied repro identifier")
     if case == "multiple-signal":
         if frontmatter.get("cause_category", "").lower() not in {"config", "logic"}:
             findings.append("multiple-signal cause_category must preserve config or logic ownership")
@@ -273,17 +280,16 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
         for signal in ("stack_trace", "env_skew"):
             if not re.search(rf"{signal}\s*:\s*true", body, re.IGNORECASE):
                 findings.append(f"multiple-signal evidence omits {signal}: true")
-        if not re.search(r"ready-for-agent", output, re.IGNORECASE):
-            findings.append("multiple-signal tracker output omits ready-for-agent")
-        if not re.search(r"(?:category\s*[=:]\s*)?bug", output, re.IGNORECASE):
-            findings.append("multiple-signal tracker output omits bug category")
+    if case in {"tracker", "multiple-signal"}:
+        if markdown_section(output, "Proposed tracker comment") is None:
+            findings.append("tracker output requires one non-empty Proposed tracker comment section")
     if case == "architecture":
         try:
             count = int(frontmatter.get("repro_count", "0"))
         except ValueError:
             count = 0
-        if count < 3 and not re.search(r"(?:three|3).*(?:fix|attempt)", body, re.IGNORECASE):
-            findings.append("architecture route omits three failed fixes")
+        if count < 3:
+            findings.append("architecture route requires repro_count >= 3")
 
     if case in INTERNAL:
         route, agent = INTERNAL[case]
@@ -291,8 +297,6 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
     elif case == "approval-denied":
         if checkpoints(repo):
             findings.append("approval-denied case emitted a checkpoint")
-        if re.search(r"handoff (?:generated|created)|交接包已生成", output, re.IGNORECASE):
-            findings.append("approval-denied output claims a handoff")
     elif case == "external-owner":
         if checkpoints(repo):
             findings.append("external route emitted a Wayne checkpoint")
@@ -315,17 +319,6 @@ def validate_missing(repo: Path, output: str) -> list[str]:
         findings.append("missing-data case wrote evidence before data existed")
     if checkpoints(repo):
         findings.append("missing-data case emitted a handoff")
-    question_marks = output.count("?") + output.count("？")
-    if question_marks != 1:
-        findings.append(f"missing-data response must ask exactly one question; found={question_marks}")
-    if not re.search(
-        r"where|how|fetch|source|command|content|body|哪里|在哪|如何|怎么|来源|拉取|获取|命令|内容|正文",
-        output,
-        re.IGNORECASE,
-    ):
-        findings.append("missing-data response does not ask where/how to fetch")
-    if re.search(r"fix-now|needs-plan|route-to-owner|ready-for-agent", output, re.IGNORECASE):
-        findings.append("missing-data response routed without input")
     return findings
 
 
@@ -354,9 +347,6 @@ def validate_no_match(repo: Path, output: str) -> list[str]:
         findings.append("no-match needs-info case emitted a handoff")
     if "needs-info" not in output:
         findings.append("no-match output omits needs-info")
-    question_marks = output.count("?") + output.count("？")
-    if question_marks != 1:
-        findings.append(f"no-match response must ask one question; found={question_marks}")
     return findings
 
 

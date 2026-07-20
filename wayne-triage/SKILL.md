@@ -23,7 +23,7 @@ edit product code.
 | Input signal | Load | Required route behavior |
 |---|---|---|
 | Raw crash, hang, wrong output, perf regression, flaky test, config/env failure | [symptom playbooks](references/symptom-playbooks.md) | Run every matching signal; never force one when none matches |
-| Issue, external PR, Jira ID/body | [tracker triage](references/tracker-triage.md) | Recommend one category/state; never change labels, state, assignee, or status |
+| Issue, external PR, Jira ID/body | [tracker triage](references/tracker-triage.md) | Recommend one category/state and render a complete proposed comment; never publish it or change labels, state, assignee, or status |
 | Tracker item with attached failure artifact | both references | Complete tracker intake, then every matching symptom path |
 | Large log, 2+ boundaries, or 2+ testable hypotheses | [dispatch contracts](references/subagent-dispatch.md) | Gather in parallel; main agent alone attributes and routes |
 | Data absent and no fetch method | none | Ask one where/how question; stop without evidence or route |
@@ -151,6 +151,8 @@ interfaces/contracts and acceptance criteria, excludes stale line numbers, and
 states out-of-scope. Never pass a verdict, stage chain, or external owner as an
 agent, and never auto-run the next stage.
 Surface the selected `next_agent` and manual trigger in the user-visible result.
+For every tracker surface, also render one complete `## Proposed tracker comment`
+for a separate tracker-write owner. Triage never publishes that proposal.
 
 For `escalate-incident` or `route-to-owner`, render
 [the triage report](templates/triage-report.md) and create no checkpoint. Preserve
