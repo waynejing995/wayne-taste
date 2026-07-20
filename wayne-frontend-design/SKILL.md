@@ -7,19 +7,6 @@ description: Wayne-style UI/UX design skill. Combines Anthropic Claude Design sy
 
 Distinctive, production-grade UI work — not AI slop. Detects context, plans visual thesis, builds with intention, verifies visually. Bilingual operations matching Wayne convention.
 
-## Inherits from ~/.claude/CLAUDE.md
-
-This skill inherits the Wayne control-plane invariants and does not redeclare them. The following are assumed and MUST NOT be repeated below:
-
-- Language Rules (Chinese to user, English to files)
-- Engineering Principles (KISS / YAGNI / DRY / SSoT / Fail-Loud / Push-Don't-Poll / Delete>Add)
-- Code Standards (uv run python, markdown tables)
-- Behavior Baselines (Think Before / Simplicity / Surgical / Goal-Driven)
-- Skill invocation rule (proportional effort)
-- Frontend mandate (read VoltAgent awesome-design-md FIRST — see CLAUDE.md `## Frontend`)
-
-This skill only specifies the UI design / build / verify workflow.
-
 ## Files Written
 
 HTML, CSS, JS, JSX, design tokens, comments, DESIGN.md. Severity tags `[CRITICAL]` / `[OVERRIDE]`, mode names (`Existing` / `Partial` / `Greenfield`), file:line references stay English in Chinese prose.
