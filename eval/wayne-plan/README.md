@@ -11,7 +11,8 @@ uv run --no-project python eval/wayne-plan/calibrate_pipeline_ids.py
 ```
 
 The calibration proves one valid normal plan, nineteen independent invalid
-mutations, two valid CommonMark/symbol variants, and exact blocker responses.
+mutations, two valid CommonMark/symbol variants, clear one-arrow and multi-branch
+scenario variants, and exact blocker responses.
 The ID calibration proves legacy numeric decisions map to `D<number>` without
 source mutation and that review `R01` rows cannot enter the requirement namespace.
 

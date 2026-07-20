@@ -180,6 +180,22 @@ def existing_instance_field(repo: Path) -> None:
     )
 
 
+def clear_one_arrow_scenario(repo: Path) -> None:
+    replace_once(
+        repo / PLAN,
+        "Empty or whitespace-only request_id, destination, and body values → construct each request → ValueError is raised before a store can mutate",
+        "An empty or whitespace-only request field → reject before any store mutation.",
+    )
+
+
+def clear_multi_branch_scenario(repo: Path) -> None:
+    replace_once(
+        repo / PLAN,
+        "Empty or whitespace-only request_id, destination, and body values → construct each request → ValueError is raised before a store can mutate",
+        "Empty → reject before mutation; whitespace-only → reject before mutation; valid values → construct the request.",
+    )
+
+
 def run_normal(repo: Path) -> tuple[bool, list[str]]:
     completed = subprocess.run(
         [sys.executable, str(CHECKER), str(repo), str(BASELINE), "--case", "normal"],
@@ -236,6 +252,8 @@ def main() -> int:
     positive_mutations: tuple[tuple[str, Callable[[Path], None]], ...] = (
         ("CommonMark lazy continuation", lazy_continuation),
         ("existing direct instance field", existing_instance_field),
+        ("clear one-arrow scenario", clear_one_arrow_scenario),
+        ("clear multi-branch scenario", clear_multi_branch_scenario),
     )
     failures: list[str] = []
     print("| Case | Expected | Observed | Proof |")

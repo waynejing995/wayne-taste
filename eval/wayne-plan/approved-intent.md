@@ -50,7 +50,9 @@ generic planning advice and deprecated/tool-specific review machinery.
   `Dropped Seeds` table with a non-empty reason. Never both; `added` is permitted
   only for new U rows.
 - Every feature-bearing unit owns at least one U row. Every U row names its real
-  `path::symbol`, concrete input → action → expected result, and starts `☐`.
+  `path::symbol`, uses non-empty prose whose input/action/observable meaning is
+  judged by contextual AI review, and starts `☐`. Arrow count and sentence shape
+  are not requirements.
 - Every carried E row is advanced by at least one unit. Only `wayne-verify` may
   change `⬜`; only `wayne-work` may change `☐`.
 - Source-relative validation must accept the original decision log, spec, matrix,

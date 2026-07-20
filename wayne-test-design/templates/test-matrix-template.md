@@ -44,11 +44,11 @@ Developer / `wayne-work` ticks `☐ → ☑` when the test passes. These do **no
 `unit` = isolated, mocks OK. `integration` = crosses a real seam (real DB / real service),
 mocks discouraged.
 
-| ID | Behavior seed | Dimension | Case (input → action → expected) | Layer | Status |
-|---|------|-----------|----------------------------------|-------|--------|
-| S1 | [unit] | positive | [input → action → expected] | unit | ☐ |
-| S2 | [unit] | invalid | [input → action → expected] | unit | ☐ |
-| S3 | [unit] | persistence | [input → action → expected] | integration | ☐ |
+| ID | Behavior seed | Dimension | Case | Layer | Status |
+|---|------|-----------|------|-------|--------|
+| S1 | [unit] | positive | [concrete precondition, action, and observable result] | unit | ☐ |
+| S2 | [unit] | invalid | [invalid boundary and observable rejection behavior] | unit | ☐ |
+| S3 | [unit] | persistence | [write/reload boundary and observable persisted result] | integration | ☐ |
 
 [If no U-SEED row is sound, keep the heading and table header, omit example rows,
 then write `U-SEED: none — <reason>`.]
