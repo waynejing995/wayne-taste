@@ -184,7 +184,10 @@ Each U row obeys all of:
 - `Owner` is exactly one existing `I<number>`.
 - `Seed` is exactly one identifier from the ledger’s `u_seeds`, unchanged from the source table, or literal `added` only when no source seed produced the row.
 - `Surface` is one repo-relative `path::symbol` named in the owner’s interfaces or files.
-- `Scenario` has exactly `concrete input → action → expected result`; keep both arrow characters.
+- `Scenario` is non-empty prose. It must contextually communicate the concrete
+  input or precondition, action, and observable result, including multiple branches
+  when required. Arrow count and sentence shape are not part of the contract; the
+  independent AI reviews judge scenario meaning.
 - `Status` is exactly `☐`.
 
 Re-authoring may change the unit surface and wording, but it must preserve the source seed’s accepted and rejected behavior sets, boundary classes, ordering, state timing, quantities, modality, negation, and every other qualifier. Do not narrow, widen, normalize, or omit those obligations. A drop reason must show from approved sources and repository evidence why no U scenario is warranted without discarding or weakening the seed’s behavior. Source-fidelity review compares each ledger `exact` row with its mapped U scenario or drop reason; any changed obligation fails the review and returns the plan to revision.

@@ -123,7 +123,7 @@ none — control flow is fully specified by the approach
 
 | ID | Owner | Seed | Surface | Scenario | Status |
 |---|---|---|---|---|---|
-| U1 | I1 | <exact source seed identifier> | path/to/new.py::new_symbol | concrete input → action → expected result | ☐ |
+| U1 | I1 | <exact source seed identifier> | path/to/new.py::new_symbol | <concrete input/precondition, action, branches, and observable result> | ☐ |
 
 ### Dropped Seeds
 

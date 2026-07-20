@@ -75,6 +75,12 @@ matrix, and referenced spec completely. Validate before editing:
 - unit file writes fit repository and plan scope boundaries;
 - no unresolved decision changes the implementation shape.
 
+Assign every `Deferred to Implementation` entry to one owning unit before dispatch.
+Resolve only mechanical questions whose answer is directly observable in the
+repository or runtime, and record the evidence in Work state. If an answer changes
+behavior or any approved boundary, treat it as a Plan gap and follow the user/Plan
+revision path below.
+
 Do not invent a missing row, choose precedence between conflicting sources, or
 partially implement around a protected file. If implementation requires a behavior,
 scope, ownership, failure, compatibility, migration, or public-interface choice not
@@ -114,7 +120,17 @@ return the conflict to planning.
 Each worker receives one fixed unit ID; full goal, decisions, approach, and
 consumes/produces; exact allowed paths and verification; and prohibitions on commits,
 matrix/checkpoint/shared-path edits, and plan reinterpretation. Workers report actual
-paths and commands; they do not rediscover the plan or update shared state.
+paths and commands; they do not rediscover the plan or update shared state. Require
+one status: `DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, or `BLOCKED`.
+
+- `DONE` enters verification.
+- `DONE_WITH_CONCERNS` enters verification only when the concern is observational;
+  correctness, scope, or ownership concerns block the unit.
+- `NEEDS_CONTEXT` may receive existing repository/plan context and retry the same
+  unit; it never receives a new decision invented by the main agent.
+- `BLOCKED` is never retried unchanged. A source or Plan gap follows A and asks the
+  user; a mechanical implementation obstacle may be decomposed without changing
+  the unit's behavior or write boundary.
 
 ### R. Establish RED when required
 
@@ -157,8 +173,7 @@ complete decision log, spec, plan, unit, and actual diff. It must flag missing,
 changed, and extra behavior or files by contextual reading; CLI output, regex,
 keywords, headings, or validator status cannot substitute. Any uncovered change
 fails the unit and returns to Plan/user instead of being normalized into the diff.
-The
-main agent performs shared integration only after all producing workers finish;
+The main agent performs shared integration only after all producing workers finish;
 do not start a dependent wave while this barrier fails. Only after each real unit
 test passes, change its plan-owned U rows from `☐` to `☑`. Never edit U scenario
 text, the plan's E snapshot, or any authoritative E row/status `⬜`.

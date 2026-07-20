@@ -679,8 +679,8 @@ def validate_test_matrix(
         normalized = f"{parsed[0]}::{parsed[1]}" if parsed else surface_text
         if owner in owned_surfaces and normalized not in owned_surfaces[owner]:
             findings.add("u-surface-owner", f"{u_id} surface is not owned by {owner}: {normalized}")
-        if scenario.count("→") != 2 or any(phrase.lower() in scenario.lower() for phrase in BANNED):
-            findings.add("u-scenario", f"{u_id} must use concrete input → action → expected result")
+        if not scenario.strip():
+            findings.add("u-scenario", f"{u_id} scenario must be non-empty")
         if status != "☐":
             findings.add("u-status", f"{u_id} status must be ☐")
         u_by_id[u_id] = (owner, seed)

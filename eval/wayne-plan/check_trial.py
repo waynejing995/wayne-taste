@@ -447,8 +447,8 @@ def validate_plan(repo: Path, baseline: Path) -> list[str]:
                 findings.append(f"invalid U seed/status: {row_id}/{seed}/{status}")
             if not re.fullmatch(r"[A-Za-z0-9_./-]+::[A-Za-z_][A-Za-z0-9_.]*", surface):
                 findings.append(f"invalid U surface: {row_id}/{surface}")
-            if scenario.count("→") < 2:
-                findings.append(f"U scenario lacks input → action → expected shape: {row_id}")
+            if not scenario.strip():
+                findings.append(f"U scenario is empty: {row_id}")
             u_by_owner.setdefault(owner, set()).add(row_id)
             if seed != "added":
                 mapped_seeds.append(seed)

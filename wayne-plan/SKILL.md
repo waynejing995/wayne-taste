@@ -104,6 +104,10 @@ digraph wayne_plan {
 ### F. Draft the canonical plan
 
 - Copy [the plan template](templates/plan-template.md) and fill it under the contract. Choose the next unused filename for the current date; keep paths repository-relative and the prose English.
+- Right-size detail to the actual dependency graph and risk. A small standalone
+  change may use one or a few compact units; cross-cutting or high-risk work needs
+  enough detail to close its real interfaces and failure paths. Never add units,
+  prose, or review work to satisfy a size/depth quota.
 - Order units by dependency. Give every unit closed inputs/outputs, files and symbols, concrete control logic, test ownership, E coverage, verification, and source traces so another agent can implement it from the plan plus repository.
 - Carry the E block byte-for-byte. Re-author every source seed against a real `path::symbol` without changing its semantic obligations, map or drop each seed exactly once, add U rows only as `added`, and bind every U row to one unit. Keep both statuses under their downstream owners.
 
