@@ -76,7 +76,11 @@ matrix, and referenced spec completely. Validate before editing:
 - no unresolved decision changes the implementation shape.
 
 Do not invent a missing row, choose precedence between conflicting sources, or
-partially implement around a protected file. Return the task's blocker contract.
+partially implement around a protected file. If implementation requires a behavior,
+scope, ownership, failure, compatibility, migration, or public-interface choice not
+covered by the approved sources, stop and ask the user. Return the answer to Plan
+for revision and re-approval; never implement it directly or choose a default.
+Return the task's blocker contract.
 When the caller requires a five-line blocker, emit exactly those five non-empty
 lines with no preamble, Markdown fence, explanation outside line 5, or postscript.
 
@@ -126,6 +130,11 @@ decision semantics, state ownership, error behavior, and existing repository
 patterns. Add tests only when the plan assigns test authorship to this stage; when
 tests are locked, treat them as immutable acceptance inputs.
 
+Do not add adjacent cleanup, defensive behavior, fallback paths, generalized
+abstractions, or compatibility work merely because they seem useful. When such a
+change is necessary for correctness, the Plan is incomplete: stop and follow the
+boundary process instead of expanding the unit.
+
 Use inline execution only for a single ready unit, a dependency/shared-path serial
 wave, or an explicitly recorded native-dispatch failure. Every implementer reports
 actual paths changed and commands run; no implementer commits or updates
@@ -142,7 +151,13 @@ failure is not a behavioral test result.
 
 After every wave, inspect the actual diff rather than trusting worker summaries.
 Reject cross-owner writes or overlapping edits, compare every unit requirement and
-decision with code/tests, and run the plan-defined wave/integration checks. The
+decision with code/tests, and run the plan-defined wave/integration checks. Before
+ticking any U row, dispatch one fresh read-only spec-compliance agent with the
+complete decision log, spec, plan, unit, and actual diff. It must flag missing,
+changed, and extra behavior or files by contextual reading; CLI output, regex,
+keywords, headings, or validator status cannot substitute. Any uncovered change
+fails the unit and returns to Plan/user instead of being normalized into the diff.
+The
 main agent performs shared integration only after all producing workers finish;
 do not start a dependent wave while this barrier fails. Only after each real unit
 test passes, change its plan-owned U rows from `☐` to `☑`. Never edit U scenario
