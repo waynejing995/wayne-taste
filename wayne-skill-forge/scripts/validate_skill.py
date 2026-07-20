@@ -25,6 +25,7 @@ from loguru import logger
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n(.*)\Z", re.DOTALL)
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 DOT_BLOCK_RE = re.compile(r"```dot\s*\n(.*?)\n```", re.DOTALL)
 DOT_ID = r'(?:"[^"]+"|[A-Za-z][A-Za-z0-9_]*)'
 DOT_NODE_RE = re.compile(rf"^\s*({DOT_ID})\s*\[([^\]]+)]\s*;", re.MULTILINE)
@@ -53,6 +54,52 @@ def parse_skill(path: Path) -> tuple[dict[str, object], str, list[dict[str, str]
     if not isinstance(data, dict):
         return {}, match.group(2), [finding("error", "frontmatter", "frontmatter must be a mapping")]
     return data, match.group(2), []
+
+
+def markdown_prose(text: str) -> str:
+    """Return Markdown outside fenced and inline code for prose-only checks."""
+    prose: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in text.splitlines(keepends=True):
+        if fence:
+            marker, length = fence
+            if re.fullmatch(rf" {{0,3}}{re.escape(marker)}{{{length},}}[ \t]*(?:\n)?", line):
+                fence = None
+            prose.append("\n" if line.endswith("\n") else "")
+            continue
+        match = FENCE_OPEN_RE.match(line)
+        if match:
+            run = match.group(1)
+            fence = (run[0], len(run))
+            prose.append("\n" if line.endswith("\n") else "")
+            continue
+        prose.append(line)
+
+    text = "".join(prose)
+    visible: list[str] = []
+    index = 0
+    while index < len(text):
+        if text[index] != "`":
+            visible.append(text[index])
+            index += 1
+            continue
+        end = index
+        while end < len(text) and text[end] == "`":
+            end += 1
+        delimiter = text[index:end]
+        close = text.find(delimiter, end)
+        while close >= 0 and (
+            (close > 0 and text[close - 1] == "`")
+            or (close + len(delimiter) < len(text) and text[close + len(delimiter)] == "`")
+        ):
+            close = text.find(delimiter, close + len(delimiter))
+        if close < 0:
+            visible.append(delimiter)
+            index = end
+            continue
+        visible.extend("\n" for char in text[end:close] if char == "\n")
+        index = close + len(delimiter)
+    return "".join(visible)
 
 
 def validate(skill_dir: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
@@ -161,7 +208,7 @@ def validate(skill_dir: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
                 )
             )
 
-    for target in MARKDOWN_LINK_RE.findall(body):
+    for target in MARKDOWN_LINK_RE.findall(markdown_prose(body)):
         if target.startswith(("http://", "https://", "#", "mailto:")):
             continue
         clean = target.split("#", 1)[0]
