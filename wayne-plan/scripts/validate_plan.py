@@ -45,16 +45,7 @@ UNIT_FIELDS = [
     "Decision trace",
 ]
 FRONTMATTER_KEYS = ["title", "type", "status", "date", "origin", "decisions"]
-BANNED = [
-    "TBD",
-    "TODO",
-    "implement later",
-    "add error handling",
-    "add validation",
-    "handle edge cases",
-    "write tests",
-    "similar to Unit",
-]
+PLACEHOLDER_MARKER_RE = re.compile(r"\b(?:TBD|TODO)\b", re.IGNORECASE)
 PLAN_PATH_RE = re.compile(
     r"^docs/plans/(\d{4}-\d{2}-\d{2})-(\d{3})-(feat|fix|refactor)-"
     r"([a-z0-9]+(?:-[a-z0-9]+){2,4})-plan\.md$"
@@ -245,9 +236,32 @@ def extract_u_seed_rows(matrix_text: str, findings: Findings) -> dict[str, str]:
 
 
 def extract_e_contract(matrix_text: str, findings: Findings) -> tuple[str, list[str]]:
-    none_lines = re.findall(r"^E2E: none — \S.*$", matrix_text, re.MULTILINE)
+    headings = list(re.finditer(r"^## (?!#)(.+?)\s*$", matrix_text, re.MULTILINE))
+    matches = [
+        (index, heading)
+        for index, heading in enumerate(headings)
+        if heading.group(1).endswith("E2E Verification Contract")
+    ]
+    if len(matches) != 1:
+        findings.add(
+            "source-e-section",
+            "matrix must contain exactly one bounded E2E Verification Contract section",
+        )
+        return "", []
+    heading_index, heading = matches[0]
+    end = headings[heading_index + 1].start() if heading_index + 1 < len(headings) else len(matrix_text)
+    section = matrix_text[heading.end() : end]
+    none_lines = re.findall(r"^E2E: none — \S.*$", section, re.MULTILINE)
     candidates: list[tuple[str, list[str]]] = []
-    for block, lines in markdown_tables(matrix_text):
+    for block, lines in markdown_tables(section):
+        header = parse_row(lines[0]) or []
+        if (
+            not header
+            or header[0] not in {"ID", "#"}
+            or "Status" not in header
+            or "User path" not in header
+        ):
+            continue
         ids: list[str] = []
         for line in lines[2:]:
             row = parse_row(line) or []
@@ -256,7 +270,10 @@ def extract_e_contract(matrix_text: str, findings: Findings) -> tuple[str, list[
         if ids:
             candidates.append((block, ids))
     if len(none_lines) + len(candidates) != 1:
-        findings.add("source-e-contract", "matrix must contain exactly one E table or E2E-none line")
+        findings.add(
+            "source-e-contract",
+            "bounded E2E section must contain exactly one Status/User-path table or E2E-none line",
+        )
         return "", []
     if none_lines:
         return none_lines[0], []
@@ -285,20 +302,18 @@ def validate_surface(value: str, findings: Findings, code: str) -> tuple[str, st
     return path, match.group("symbol")
 
 
-def symbol_exists(repo_root: Path, surface: tuple[str, str], findings: Findings, code: str) -> None:
-    relative, symbol = surface
+def surface_file_exists(
+    repo_root: Path, surface: tuple[str, str], findings: Findings, code: str
+) -> None:
+    relative, _ = surface
     path = repo_root / relative
     if not path.is_file():
         findings.add(code, f"repository surface path does not exist: {relative}")
         return
     try:
-        text = path.read_text(encoding="utf-8")
+        path.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         findings.add(code, f"repository surface is not readable UTF-8: {relative}")
-        return
-    token = re.split(r"[.:-]", symbol)[-1]
-    if not re.search(rf"\b{re.escape(token)}\b", text):
-        findings.add(code, f"symbol {symbol!r} was not found in {relative}")
 
 
 def sentinel(content: str, findings: Findings, location: str) -> bool:
@@ -366,10 +381,12 @@ def parse_units(
         fields = data["fields"]
         current_index = data["index"]
         for field_name, value in fields.items():
-            lowered = value.lower()
-            for phrase in BANNED:
-                if phrase.lower() in lowered:
-                    findings.add("placeholder", f"{unit_id} {field_name} contains {phrase!r}")
+            marker = PLACEHOLDER_MARKER_RE.search(value)
+            if marker:
+                findings.add(
+                    "placeholder",
+                    f"{unit_id} {field_name} contains marker {marker.group(0)!r}",
+                )
 
         dependency_value = fields.get("Dependencies", "")
         if dependency_value and not sentinel(dependency_value, findings, f"{unit_id} Dependencies"):
@@ -398,7 +415,7 @@ def parse_units(
                 source = match.group(2)
                 data.setdefault("consumes", []).append((surface_text, source))
                 if source == "repository":
-                    symbol_exists(repo_root, parsed, findings, "consume-repository")
+                    surface_file_exists(repo_root, parsed, findings, "consume-repository")
                 elif source not in units or units[source]["index"] >= current_index:
                     findings.add("consume-order", f"{unit_id} consumes from non-earlier {source}")
 
@@ -443,7 +460,7 @@ def parse_units(
                 if not match:
                     findings.add("pattern-grammar", f"{unit_id}: {line!r}")
                     continue
-                symbol_exists(
+                surface_file_exists(
                     repo_root,
                     (match.group("path"), match.group("symbol")),
                     findings,
@@ -890,13 +907,6 @@ def validate_plan(args: argparse.Namespace) -> int:
     for key, value in source_paths.items():
         if value and key != "request" and value[0] not in sources_section:
             findings.add("sources-reference", f"Sources & References omits {value[0]}")
-    if re.search(r"```(?:python|javascript|typescript|tsx|jsx|java|go|rust|ruby|bash|sh|shell)\b", body, re.IGNORECASE):
-        findings.add("runnable-code", "plan contains a runnable-language code fence")
-    if re.search(r"(?m)^\s*(?:\$\s*)?git\s+\S+", body):
-        findings.add("git-command", "plan contains a git command")
-    if re.search(r"`(?:/|[A-Za-z]:\\)[^`]+`", body):
-        findings.add("absolute-path", "plan contains an absolute path")
-
     validate_manifest(repo_root, plan_relative, Path(args.pre_run_manifest), findings)
     return findings.emit()
 

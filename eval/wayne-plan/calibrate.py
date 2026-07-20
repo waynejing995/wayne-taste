@@ -196,6 +196,22 @@ def clear_multi_branch_scenario(repo: Path) -> None:
     )
 
 
+def specific_validation_wording(repo: Path) -> None:
+    replace_once(
+        repo / PLAN,
+        "Add the focused request-validation test without altering the prototype test;",
+        "Add validation coverage that rejects each blank field without altering the prototype test;",
+    )
+
+
+def surface_prefix_collision(repo: Path) -> None:
+    replace_once(
+        repo / PLAN,
+        "| U1 | I1 | US1 | src/relay_queue/models.py::DeliveryRequest |",
+        "| U1 | I1 | US1 | src/relay_queue/models.py::DeliveryReq |",
+    )
+
+
 def run_normal(repo: Path) -> tuple[bool, list[str]]:
     completed = subprocess.run(
         [sys.executable, str(CHECKER), str(repo), str(BASELINE), "--case", "normal"],
@@ -233,7 +249,7 @@ def main() -> int:
         ("verbatim E drift", drift_e_row, "not the exact first Test Matrix table"),
         ("missing unit field", missing_unit_field, "field order mismatch"),
         ("forward dependency", forward_dependency, "unknown, self, or later dependencies"),
-        ("placeholder", placeholder, "banned placeholder"),
+        ("placeholder", placeholder, "placeholder marker"),
         ("mapped and dropped seed", mapped_and_dropped, "not-exactly-once"),
         ("missing seed", missing_seed, "U-SEED disposition mismatch"),
         ("wrong U owner", wrong_u_owner, "U ownership mismatch"),
@@ -248,12 +264,14 @@ def main() -> int:
         ("canonical slug too short", short_filename, "exactly one added canonical plan"),
         ("unexpected empty directory", extra_empty_directory, "exactly one added canonical plan"),
         ("out-of-scope Files surface", out_of_scope_surface, "outside approved fixture scope"),
+        ("surface prefix collision", surface_prefix_collision, "surface is not owned"),
     )
     positive_mutations: tuple[tuple[str, Callable[[Path], None]], ...] = (
         ("CommonMark lazy continuation", lazy_continuation),
         ("existing direct instance field", existing_instance_field),
         ("clear one-arrow scenario", clear_one_arrow_scenario),
         ("clear multi-branch scenario", clear_multi_branch_scenario),
+        ("specific add-validation wording", specific_validation_wording),
     )
     failures: list[str] = []
     print("| Case | Expected | Observed | Proof |")

@@ -49,10 +49,11 @@ U_HEADER = "| ID | Owner | Seed | Surface | Scenario | Status |"
 U_SEPARATOR = "|---|---|---|---|---|---|"
 DROP_HEADER = "| Seed | Reason |"
 DROP_SEPARATOR = "|---|---|"
-BANNED = re.compile(
-    r"\b(?:TBD|TODO|implement later|add error handling|add validation|"
-    r"handle edge cases|write tests|similar to Unit)\b",
-    re.IGNORECASE,
+PLACEHOLDER_MARKER_RE = re.compile(r"\b(?:TBD|TODO)\b", re.IGNORECASE)
+SURFACE_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9_./:-])"
+    r"([A-Za-z0-9_./-]+::[A-Za-z_][A-Za-z0-9_.]*)"
+    r"(?![A-Za-z0-9_./:-])"
 )
 IGNORED_PARTS = {".git", ".pytest_cache", ".ruff_cache", ".venv", "__pycache__"}
 
@@ -121,7 +122,7 @@ def surface_exists(root: Path, surface: str) -> bool:
     if not path.is_file():
         return False
     symbols = python_symbols(path)
-    return symbol in symbols or any(item.rsplit(".", 1)[-1] == symbol for item in symbols)
+    return symbol in symbols
 
 
 def section(text: str, heading: str, level: int = 2) -> str:
@@ -261,8 +262,9 @@ def validate_plan(repo: Path, baseline: Path) -> list[str]:
         findings.append(f"level-two section order mismatch: {headings}")
     if "gstack" in text.lower():
         findings.append("plan must not contain or invoke gstack")
-    if BANNED.search(text):
-        findings.append(f"plan contains banned placeholder: {BANNED.search(text).group(0)}")
+    marker = PLACEHOLDER_MARKER_RE.search(text)
+    if marker:
+        findings.append(f"plan contains placeholder marker: {marker.group(0)}")
 
     spec = baseline / "docs/specs/2026-07-15-delivery-retry-design.md"
     decisions = baseline / "docs/decisions/2026-07-15-delivery-retry-decisions.md"
@@ -453,7 +455,12 @@ def validate_plan(repo: Path, baseline: Path) -> list[str]:
             if seed != "added":
                 mapped_seeds.append(seed)
             bodies = unit_fields.get(owner, {})
-            if surface not in bodies.get("Files", "") and surface not in bodies.get("Produces", ""):
+            owned_surfaces = set(
+                SURFACE_TOKEN_RE.findall(
+                    bodies.get("Files", "") + "\n" + bodies.get("Produces", "")
+                )
+            )
+            if surface not in owned_surfaces:
                 findings.append(f"{row_id} surface is not owned by {owner} Files or Produces: {surface}")
 
     dropped_body = section(test_body, "Dropped Seeds", 3)
