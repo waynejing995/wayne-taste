@@ -116,6 +116,7 @@ digraph forge {
     C [label="Choose archetype and baseline", shape=box];
     D [label="Draft minimum skill", shape=box];
     E [label="Static validation", shape=box];
+    V [label="Static validation passes?", shape=diamond];
     F [label="Behavioral eval passes?", shape=diamond];
     R [label="Revise from observed failure", shape=box];
     G [label="User approves write?", shape=diamond];
@@ -126,7 +127,9 @@ digraph forge {
     B -> C [label="yes"];
     C -> D;
     D -> E;
-    E -> F;
+    E -> V;
+    V -> R [label="no"];
+    V -> F [label="yes"];
     F -> R [label="no"];
     R -> D;
     F -> G [label="yes"];
