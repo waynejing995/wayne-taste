@@ -145,11 +145,11 @@ produced surface. File bullets name create/modify/delete plus a symbol and work.
 |---|---|
 ```
 
-Ban placeholders in unit fields: `TBD`, `TODO`, “implement later”, “add error
-handling”, “add validation”, “handle edge cases”, “write tests”, “similar to Unit”,
-and references to undefined interfaces. Paths are repo-relative; do not include
-git commands, commit messages, runnable framework code, or claim runtime unknowns
-are settled.
+Deterministically ban literal `TBD` and `TODO` markers. Contextual
+execution-readiness review decides whether other prose is a vague placeholder,
+whether an interface really exists, and whether a code fence/path/git mention is
+runnable, portable, and appropriate. Structured paths remain repo-relative; do not
+include runnable implementation/commands or claim runtime unknowns are settled.
 
 ## Blocking output contract
 

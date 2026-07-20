@@ -209,18 +209,21 @@ Every source E ID is listed by at least one unit’s `E rows`; only source E IDs
 
 ## 6. Content constraints
 
-Unit fields must not contain any banned placeholder, case-insensitively:
+The deterministic placeholder markers are:
 
 - `TBD`
 - `TODO`
-- `implement later`
-- `add error handling`
-- `add validation`
-- `handle edge cases`
-- `write tests`
-- `similar to Unit`
 
-Name actual branches, failures, inputs, actions, and expected results. Do not reference an undefined interface. Do not include absolute paths, git commands, commit messages, or runnable framework code. Pseudocode and diagrams are directional guidance only. Do not claim an execution-time unknown is resolved; list it under deferred questions with the exact sentinel only when it does not block WHAT-level behavior.
+Name actual branches, failures, inputs, actions, and expected results. Contextual
+execution-readiness review—not a phrase list—decides whether language such as “add
+validation”, “write tests”, or “implement later” is specific enough, negated,
+quoted, or a real placeholder. It also judges whether prose/code fences contain
+runnable implementation, executable git instructions, non-portable absolute paths,
+or an undefined interface. Deterministic validation checks only structured path
+surfaces, file existence, grammar, IDs, hashes, and literal markers. Pseudocode and
+diagrams are directional guidance only. Do not claim an execution-time unknown is
+resolved; list it under deferred questions with the exact sentinel only when it does
+not block WHAT-level behavior.
 
 ## 7. Blocking artifact
 
