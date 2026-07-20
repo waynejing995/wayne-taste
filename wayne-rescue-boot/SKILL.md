@@ -25,13 +25,6 @@ Take a box that won't boot with only remote BMC access, get a rescue shell, prov
 disk-health vs software-fault on evidence, chroot-fix the real cause, verify from
 the real disk.
 
-## Inherits from ~/.claude/CLAUDE.md
-
-Inherits the Wayne control-plane invariants; does NOT redeclare them (Language /
-Engineering Principles — Occam / Fail-Loud / SSoT / Novacula / Delete>Add / Code
-Standards / Behavior / proportional effort). This skill only specifies the
-remote rescue-boot workflow below.
-
 ## Boundary vs neighbors
 
 | Skill | Input | Output |
@@ -44,13 +37,9 @@ Triage classifies a failure from evidence handed to you and routes it. This skil
 goes to the actual machine, drives its BMC, opens a rescue shell, and **writes the
 fix**. If you don't have the box (only a log paste) → that's triage.
 
-## When to Run
-
-- **Manual:** `/wayne-rescue-boot`.
-- **Auto-trigger phrases:** the bilingual list in the description.
-
-**Skip when:** the box boots but a *service* is broken (that's triage/verify); or
-you have no path to a console/BMC at all (nothing this skill can do remotely).
+If the box boots but a service is broken, route to triage/verify. If no BMC,
+physical console, or on-site operator can provide a rescue shell, stop blocked;
+do not pretend a log-only diagnosis can execute this workflow.
 
 ## Flow
 
@@ -58,13 +47,17 @@ you have no path to a console/BMC at all (nothing this skill can do remotely).
 digraph rescue {
     rankdir=TB;
 
+    "Console or BMC path available?" [shape=diamond];
+    "Stop: no rescue access" [shape=doublecircle];
     "Read the panic screen" [shape=box];
     "Kernel logs printed?\n(got past GRUB)" [shape=diamond, style=bold];
     "Boot region unreadable\n→ suspect HW / BIOS sees disk?" [shape=box];
     "Get a Live rescue shell\n(IPMI ISO or USB)" [shape=box];
     "Live auto-mounts root fs?" [shape=diamond, style=bold];
-    "Disk suspect: smartctl + fsck" [shape=box];
-    "Disk is HEALTHY\n→ software boot fault" [shape=box];
+    "Read-only disk inspection\n(SMART + fsck -n)" [shape=box];
+    "Confirm hardware\n(SMART + free space)" [shape=box];
+    "Disk healthy enough to repair?" [shape=diamond];
+    "Stop: preserve data / replace disk" [shape=doublecircle];
     "Diagnose: initrd / grub / fstab" [shape=box];
     "chroot: rebuild initramfs\n+ update-grub" [shape=box];
     "Reboot from disk (gate)" [shape=box];
@@ -73,15 +66,19 @@ digraph rescue {
     "Fix remaining / pick stable kernel" [shape=box];
     "Done" [shape=doublecircle];
 
+    "Console or BMC path available?" -> "Stop: no rescue access" [label="no"];
+    "Console or BMC path available?" -> "Read the panic screen" [label="yes"];
     "Read the panic screen" -> "Kernel logs printed?\n(got past GRUB)";
     "Kernel logs printed?\n(got past GRUB)" -> "Boot region unreadable\n→ suspect HW / BIOS sees disk?" [label="no"];
     "Kernel logs printed?\n(got past GRUB)" -> "Get a Live rescue shell\n(IPMI ISO or USB)" [label="yes"];
     "Boot region unreadable\n→ suspect HW / BIOS sees disk?" -> "Get a Live rescue shell\n(IPMI ISO or USB)";
     "Get a Live rescue shell\n(IPMI ISO or USB)" -> "Live auto-mounts root fs?";
-    "Live auto-mounts root fs?" -> "Disk suspect: smartctl + fsck" [label="no"];
-    "Live auto-mounts root fs?" -> "Disk is HEALTHY\n→ software boot fault" [label="yes"];
-    "Disk suspect: smartctl + fsck" -> "Diagnose: initrd / grub / fstab";
-    "Disk is HEALTHY\n→ software boot fault" -> "Diagnose: initrd / grub / fstab";
+    "Live auto-mounts root fs?" -> "Read-only disk inspection\n(SMART + fsck -n)" [label="no"];
+    "Live auto-mounts root fs?" -> "Confirm hardware\n(SMART + free space)" [label="yes"];
+    "Read-only disk inspection\n(SMART + fsck -n)" -> "Disk healthy enough to repair?";
+    "Confirm hardware\n(SMART + free space)" -> "Disk healthy enough to repair?";
+    "Disk healthy enough to repair?" -> "Stop: preserve data / replace disk" [label="no"];
+    "Disk healthy enough to repair?" -> "Diagnose: initrd / grub / fstab" [label="yes"];
     "Diagnose: initrd / grub / fstab" -> "chroot: rebuild initramfs\n+ update-grub";
     "chroot: rebuild initramfs\n+ update-grub" -> "Reboot from disk (gate)";
     "Reboot from disk (gate)" -> "Verify from REAL disk\n(hostname/uname/findmnt)";
