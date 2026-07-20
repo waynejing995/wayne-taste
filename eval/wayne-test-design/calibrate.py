@@ -14,7 +14,7 @@ from check_trial import check
 
 H = Path(__file__).resolve().parent
 SKILL = H.parent.parent / "wayne-test-design"
-HEADER = "| # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |"
+HEADER = "| ID | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |"
 Mutation = Callable[[Path], None]
 
 
@@ -94,7 +94,7 @@ def main() -> int:
 | U2 | slug | edge | `""` → normalize → `""` | unit | ☐ |
 | U3 | slug | invalid | non-string → normalize → TypeError | unit | ☐ |
 ## E2E Verification Contract
-| # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
+| ID | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
 |---|---|---|---|---|---|---|
 E2E: none — pure function has no user-observable runtime path
 """

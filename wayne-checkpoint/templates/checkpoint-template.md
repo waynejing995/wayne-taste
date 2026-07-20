@@ -3,11 +3,12 @@ title: {title}
 status: in-progress
 branch: {branch}
 timestamp: {ISO-8601}
-pipeline_stage: {brainstorm|plan|work|review|ship|compound}
+pipeline_stage: {brainstorm|plan|work|review|verify|ship|compound}
 pipeline_phase: {specific phase within skill, e.g. "Phase 3: Grill" or "Wave 2"}
 decision_log: docs/decisions/{file}.md
 plan: docs/plans/{file}.md
 spec: docs/specs/{file}.md
+test_matrix: docs/test-matrix/{file}.md
 files_modified:
   - path/to/file1
   - path/to/file2
@@ -21,7 +22,7 @@ files_modified:
 
 ### Pipeline State
 
-- **Stage:** {wayne-mind-explode / wayne-plan / wayne-work / wayne-code-review / wayne-ship / wayne-compound}
+- **Stage:** {wayne-mind-explode / wayne-plan / wayne-work / wayne-code-review / wayne-verify / wayne-ship / wayne-compound}
 - **Phase:** {specific phase, e.g. "Phase 3: Grill — Q7 asked, 4 branches remaining"}
 - **Last action:** {what was the last thing completed}
 - **Next action:** {what should happen next when resumed}
@@ -30,31 +31,35 @@ files_modified:
 
 {Decisions logged so far — copy the table from the decision log}
 
-| # | Question | Decision | Rationale | Source |
+| ID | Question | Decision | Rationale | Source |
 |---|----------|----------|-----------|--------|
-| 1 | ... | ... | ... | user |
-| 2 | ... | ... | ... | codebase |
+| D1 | ... | ... | ... | user |
+| D2 | ... | ... | ... | codebase |
 
 Total: {N} decisions logged. Status: {in-progress/completed}
+
+### Authoritative Test Matrix
+
+`{test_matrix path}` — E Status SSoT. Any E block in a plan is a read-only snapshot.
 
 ### Implementation Units (from plan)
 
 {Copy the plan's implementation units with their checkbox state — this is the
 format wayne-work reads, so resume can feed directly back into it}
 
-- [x] **Unit 1: {name}**
+- [x] **I1: {name}**
   - Goal: {goal}
   - Files: {files}
   - Verification: {verification}
   - Status: DONE — spec ✅ quality ✅
 
-- [x] **Unit 2: {name}**
+- [x] **I2: {name}**
   - Goal: {goal}
   - Files: {files}
   - Verification: {verification}
   - Status: DONE — spec ✅ quality ✅
 
-- [ ] **Unit 3: {name}** ← NEXT
+- [ ] **I3: {name}** ← NEXT
   - Goal: {goal}
   - Files: {files}
   - Approach: {approach}
@@ -63,10 +68,10 @@ format wayne-work reads, so resume can feed directly back into it}
   - Status: NOT STARTED
   - Execution note: {if any}
 
-- [ ] **Unit 4: {name}**
+- [ ] **I4: {name}**
   - Goal: {goal}
   - Files: {files}
-  - Status: BLOCKED BY Unit 3
+  - Status: BLOCKED BY I3
 
 ### Wave Progress (if parallel execution)
 
@@ -74,9 +79,9 @@ format wayne-work reads, so resume can feed directly back into it}
 
 | Wave | Tasks | Status |
 |------|-------|--------|
-| Wave 1 | Unit 1, Unit 2 | DONE |
-| Wave 2 | Unit 3, Unit 4 | IN PROGRESS — Unit 3 next |
-| Wave 3 | Unit 5 | PENDING |
+| Wave 1 | I1, I2 | DONE |
+| Wave 2 | I3, I4 | IN PROGRESS — I3 next |
+| Wave 3 | I5 | PENDING |
 
 ### Per-Task Review Status
 
@@ -84,9 +89,9 @@ format wayne-work reads, so resume can feed directly back into it}
 
 | Unit | Spec | Quality | Notes |
 |------|------|---------|-------|
-| Unit 1 | ✅ | ✅ | — |
-| Unit 2 | ✅ | ✅ | — |
-| Unit 3 | — | — | not started |
+| I1 | ✅ | ✅ | — |
+| I2 | ✅ | ✅ | — |
+| I3 | — | — | not started |
 
 ### Remaining Work
 

@@ -13,7 +13,7 @@ Own implementation, plan-unit tracking, test-as-you-go, integration, U status up
 and the final work handoff. Do not redesign approved behavior, author a new plan/test
 matrix, change E status, commit, branch, push, open a PR, verify, review, or ship.
 
-The plan, decision log, test matrix, repository instructions, and dirty baseline are source contracts.
+The plan, decision log, test matrix, repository instructions, and dirty baseline are source contracts. Read `_shared/pipeline-id-contract.md`; consume IDs only from their defining structures and never renumber upstream artifacts.
 
 ## Flow
 
@@ -70,7 +70,8 @@ matrix, and referenced spec completely. Validate before editing:
 - plan status is approved and no other active plan conflicts;
 - each implementation unit has goal, dependencies, consumes/produces, files,
   approach/design, patterns, test scenarios, U/E ownership, and verification;
-- every referenced U and E row exists once in the authoritative matrix;
+- plan-owned U rows and authoritative E rows at the carried `docs/test-matrix/`
+  path both exist once; the plan's E snapshot matches that matrix;
 - unit file writes fit repository and plan scope boundaries;
 - no unresolved decision changes the implementation shape.
 
@@ -144,8 +145,8 @@ Reject cross-owner writes or overlapping edits, compare every unit requirement a
 decision with code/tests, and run the plan-defined wave/integration checks. The
 main agent performs shared integration only after all producing workers finish;
 do not start a dependent wave while this barrier fails. Only after each real unit
-test passes, change its U rows from `☐` to `☑`. Never edit U scenario text or any E
-row/status `⬜`.
+test passes, change its plan-owned U rows from `☐` to `☑`. Never edit U scenario
+text, the plan's E snapshot, or any authoritative E row/status `⬜`.
 
 ### J. Prove integrated completion
 

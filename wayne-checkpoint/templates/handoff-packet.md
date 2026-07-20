@@ -13,6 +13,7 @@ goal_included: {true|false}
 decision_log: docs/decisions/{file}.md
 plan: docs/plans/{file}.md
 spec: docs/specs/{file}.md
+test_matrix: docs/test-matrix/{file}.md
 files_modified:
   - path/to/file1
   - path/to/file2
@@ -34,23 +35,24 @@ Current state at the moment of handoff (same fields a checkpoint captures).
 - **Git status:** {clean | N files modified, M staged}
 - **Decision log:** {N} decisions logged, status {in-progress/completed} — `{decision_log path}`
 - **Plan:** {X}/{Y} implementation units done — `{plan path}`
+- **Test Matrix:** authoritative E Status owner — `{test_matrix path}`
 
 **Implementation Units (checkbox status copied from plan):**
 
 {Same checkbox format as checkpoint-template.md / wayne-plan, so the next agent
 reads it without re-parsing.}
 
-- [x] **Unit 1: {name}** — Status: DONE — spec ✅ quality ✅
-- [x] **Unit 2: {name}** — Status: DONE — spec ✅ quality ✅
-- [ ] **Unit 3: {name}** ← NEXT — Status: NOT STARTED
-- [ ] **Unit 4: {name}** — Status: BLOCKED BY Unit 3
+- [x] **I1: {name}** — Status: DONE — spec ✅ quality ✅
+- [x] **I2: {name}** — Status: DONE — spec ✅ quality ✅
+- [ ] **I3: {name}** ← NEXT — Status: NOT STARTED
+- [ ] **I4: {name}** — Status: BLOCKED BY I3
 
 **Decision Log Snapshot (table copied from decision log):**
 
-| # | Question | Decision | Rationale | Source |
+| ID | Question | Decision | Rationale | Source |
 |---|----------|----------|-----------|--------|
-| 1 | ... | ... | ... | user |
-| 2 | ... | ... | ... | codebase |
+| D1 | ... | ... | ... | user |
+| D2 | ... | ... | ... | codebase |
 
 ### Next Agent
 
@@ -73,6 +75,7 @@ Do not write "continue from before"; restate everything needed.
 
 You are running {next_agent} on branch `{branch}`.
 Plan: `{plan path}`. Spec: `{spec path}`. Decision log: `{decision_log path}`.
+Authoritative Test Matrix: `{test_matrix path}`. Never mutate the plan's E snapshot.
 Scope: {units / files / area in scope}.
 Already done: {what previous stages produced}.
 Do: {concrete instruction for this stage}.

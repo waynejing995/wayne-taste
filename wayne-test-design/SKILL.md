@@ -10,7 +10,7 @@ Define how an approved behavior will be proved before planning or implementation
 ## Boundary and ownership
 
 Produce one durable `docs/test-matrix/` artifact; never write test code, implement,
-or execute tests. Read `_shared/e2e-contract.md` and the canonical
+or execute tests. Read `_shared/pipeline-id-contract.md`, `_shared/e2e-contract.md`, and the canonical
 [matrix template](templates/test-matrix-template.md) completely.
 
 The matrix has two state owners:
@@ -77,7 +77,7 @@ digraph test_design {
     R [label="Repair one gap", shape=box];
     H [label="User approves matrix?", shape=diamond];
     I [label="Scope conflict unresolved?", shape=diamond];
-    J [label="Invoked by mind-explode?", shape=diamond];
+    J [label="Nested design caller?", shape=diamond];
     K [label="Write blocked matrix; no plan handoff", shape=doublecircle];
     M [label="Write and return to caller", shape=doublecircle];
     S [label="Stop without writing", shape=doublecircle];
@@ -145,13 +145,13 @@ Require every requirement, test-relevant decision, and matched lesson to map to 
 or E row or an explicit non-testable rationale; every user path to map to E; every E
 row to have one axis, reachable prerequisites, correct provider granularity, and
 feasible evidence; and every status/column owner to remain intact.
-Summarize coverage as `R1✓ R2✓ (E2E: E1,E2 | U-SEED: U1-U4)`.
+Summarize coverage as `R1✓ R2✓ (E2E: E1,E2 | U-SEED: S1-S4)`.
 
 ### H/I/J. Approve and route
 
 Present dimensions kept, challengeable omissions, proof conflicts, and the matrix.
 Write only after approval. An unresolved scope conflict produces a blocked matrix and
-stops without a plan handoff. When invoked by `wayne-mind-explode`, return the written
-matrix to that caller so it can reference the SSoT; do not auto-advance. Only a
-standalone, unblocked run hands the artifact to `wayne-plan`. Never plan, implement,
-or run it here.
+stops without a plan handoff. When invoked by `wayne-mind-explode` or `wayne-plan`,
+return the written matrix to that caller so it can reference the SSoT; do not
+auto-advance. Only a standalone, unblocked run emits a return-only handoff to
+`wayne-plan`. Never plan, implement, or run it here.

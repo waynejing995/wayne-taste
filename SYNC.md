@@ -9,7 +9,7 @@ here. Edit a file once; both agents see it instantly. No copying, no drift.
 
 ```
 /mnt/share/wayne-skills/        ← SSoT (edit here, commit here)
-  _shared/                      ← library: cybernetics-lens.md, e2e-contract.md
+  _shared/                      ← library: pipeline-id-contract.md and shared contracts
   wayne-*/SKILL.md              ← the skills
   sync.sh                       ← idempotent re-linker (run on add/remove)
   SYNC.md                       ← this file
@@ -52,7 +52,8 @@ Safety properties:
 `_shared`, `wayne-checkpoint`, `wayne-code-review`, `wayne-compound`,
 `wayne-cybernetics`, `wayne-distill`, `wayne-frontend-design`, `wayne-goal-prompt`,
 `wayne-manner`,
-`wayne-mind-explode`, `wayne-plan`, `wayne-ship`, `wayne-skill-forge`, `wayne-test-design`, `wayne-triage`,
+`wayne-mind-explode`, `wayne-plan`, `wayne-ship`, `wayne-skill-forge`,
+`wayne-skill-optimize`, `wayne-test-design`, `wayne-triage`,
 `wayne-verify`, `wayne-visual-synthesis`, `wayne-work`.
 
 **Intentionally NOT synced:**

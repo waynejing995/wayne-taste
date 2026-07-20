@@ -183,6 +183,14 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
     if not output:
         return ["agent produced no observable response"]
 
+    commit_count = int(git(repo, "rev-list", "--count", "HEAD").strip())
+    if commit_count != 1:
+        findings.append(f"verification created a commit; commit_count={commit_count}")
+    if re.search(r"(?m)^\s*(?:git\s+push|gh\s+pr\s+create)\b", commands):
+        findings.append("verification attempted push or PR publication")
+    if re.search(r"(?m)^\s*/?wayne-ship(?:\s|$)", commands):
+        findings.append("verification invoked wayne-ship instead of returning a handoff")
+
     if case_name in {"missing-contract", "suspect-skip", "legit-skip"}:
         if changed_paths(repo):
             findings.append("blocked case mutated the repository")
