@@ -70,15 +70,16 @@ digraph wayne_plan {
   not require Mind Explode, a decision log, or a spec. Route upstream only when a
   missing WHAT choice would change scope, behavior, risk, or compatibility.
 - Read `_shared/pipeline-id-contract.md` completely. Preserve upstream bytes: map
-  legacy numeric decision rows to `D<number>` only in the temporary ledger, and
-  never treat review IDs outside `## Requirements` as requirements.
+  legacy numeric decision rows to `D<number>` only in the temporary ledger. Use
+  source meaning and artifact ownership—not headings, prefixes, keywords, or
+  regex—to distinguish requirements, decisions, and review findings.
 - Follow references to the original test matrix. Read its complete E contract and the structurally bounded `## U-SEED` table, relevant repository files and tests, all active plans that touch the work, and applicable project or Wayne lessons.
 - Read [the plan contract](references/plan-contract.md) completely before building validation inputs or authoring. It is the single schema owner.
 
 ### B. Bind evidence and context
 
 - Before repository mutation, create the pre-run manifest with [the validator](scripts/validate_plan.py). Keep the manifest and all working ledgers in a temporary directory outside the repository root.
-- Build a temporary source ledger in the contract’s format from the actual decision log, spec, and matrix. Freeze hashes, exact requirements and decisions, every U-SEED row, the complete E block, ownership claims, exact literals, and forbidden alternatives. Canonical aliases never authorize editing their source rows. Compare clauses governing the same field; stop upstream if they accept different outputs.
+- Build a temporary source ledger in the contract’s format from the actual decision log, spec, and matrix. Read every source completely and classify its obligations in context; never use lexical scanning to claim source completeness. Freeze hashes, exact requirements and decisions, every U-SEED row, the complete E block, ownership claims, exact literals, and forbidden alternatives. Canonical aliases never authorize editing their source rows. Compare clauses governing the same field; stop upstream if they accept different outputs.
 - Trace each requirement and decision forward to planned units. Inspect architecture, real files and symbols, similar implementation and test patterns, and active-plan assumptions. Do not ask for information discoverable from these sources.
 
 ### C. Gate active conflicts
@@ -122,7 +123,7 @@ digraph wayne_plan {
 ### I. Run independent reviews
 
 - Dispatch two provider-agnostic reviews in fresh contexts. Source-fidelity reads the decision log, spec, matrix, ledger, plan, and [source-fidelity review protocol](references/source-fidelity-review.md); it reports the preserved obligations for every exact seed row and fails any mapped scenario or drop reason that changes them. It also checks requirement/decision coverage, scope, rationale, and byte-exact E carry in both directions.
-- Execution-readiness reads the repository and plan; it checks dependency closure, interfaces, files/symbols, U ownership and seed accounting, E advancement, placeholders, cleanup, and whether each unit is executable without product redesign.
+- Execution-readiness independently reverse-checks every source obligation through ledger and plan before checking dependency closure, interfaces, files/symbols, U ownership and seed accounting, E advancement, placeholders, cleanup, and whether each unit is executable without product redesign. Neither reviewer may substitute heading, keyword, substring, or regex matching for contextual reading.
 - Revise on any finding, return to G, and repeat both reviews. Provider/tool termination before an observable report is invalid and must be rerun, not treated as a pass or failure.
 
 ### J. Present the plan

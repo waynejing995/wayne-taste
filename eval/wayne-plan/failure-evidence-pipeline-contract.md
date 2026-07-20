@@ -27,7 +27,8 @@ Freeze one Mind Explode → Test Design → Plan → Work → Verify fixture and
 
 1. canonical `D/R/S/I/U/E/F/N` namespaces come only from the shared contract;
 2. legacy numeric decisions map to `D<number>` without changing source bytes;
-3. review `R01/R1` outside `## Requirements` never becomes a requirement;
+3. contextual review classifies product requirements and legacy review `R01/R1`
+   correctly even when headings vary; no lexical parser claims completeness;
 4. plan `active` becomes `approved` only after both reviews;
 5. Work changes only plan-owned U Status and Verify changes only authoritative
    `docs/test-matrix/` E Status;
@@ -36,6 +37,8 @@ Freeze one Mind Explode → Test Design → Plan → Work → Verify fixture and
    validator would otherwise pass.
 8. a converged small direct request enters Plan without Mind Explode; Plan may nest
    Test Design for the owned matrix, then resumes without auto-advancing any stage.
+9. a semantically equivalent source under an unexpected heading remains covered,
+   while a same-shaped review-resolution row never becomes a requirement.
 
 This evidence is frozen for the later pipeline-contract harness; it does not justify
 weakening any current single-skill oracle.

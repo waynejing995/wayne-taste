@@ -31,9 +31,12 @@ The decision log owns decisions in exactly one table:
 | D1 | ... | ... | ... | user |
 ```
 
-Requirements are only rows or list items inside an explicit level-two
-`## Requirements` section. Review resolution IDs such as legacy `R01`/`R1`, when
-outside that section, are not requirements. New review findings use `F<number>`.
+The approved product/spec owner assigns `R<number>` to requirements. Consumers
+recover that set by reading the source in context and recording exact clauses in a
+temporary ledger. A heading, table shape, ID prefix, keyword, substring, or regex
+is never proof that the inventory is complete or that an `R1` token is a product
+requirement rather than a legacy review resolution. New review findings use
+`F<number>`.
 
 The test matrix defines `S<number>` only in its bounded `## U-SEED` table and
 `E<number>` only in its bounded E2E contract table. The plan defines `I<number>`

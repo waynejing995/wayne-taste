@@ -4,6 +4,21 @@ Use this protocol only for the independent semantic review after deterministic
 validation. The plan contract owns the requirements; this review judges meanings
 that the validator cannot prove.
 
+## Source-to-ledger review
+
+Read every upstream artifact completely. Build an independent obligation list
+without seeing only the ledger's selected rows, then reconcile it against the
+ledger in both directions. For each source clause, record whether it is a product
+requirement, decision, review finding, rationale, example, or non-normative
+context, with the surrounding evidence that determines that classification.
+Missing or misclassified obligations fail the review.
+
+Do not use headings, table shape, ID prefixes, keywords, substring search, or
+regex as a completeness or semantic-equivalence oracle. They may locate text,
+but contextual reading owns classification. A source can express a requirement
+under an unexpected heading, and an `R1`-shaped review finding can remain a
+finding.
+
 ## Seed-by-seed review
 
 Read the original matrix, source ledger, approved decision log/spec, repository,
