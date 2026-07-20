@@ -10,6 +10,9 @@ Produce an English implementation plan that a fresh `wayne-work` agent can execu
 ## Boundary
 
 - Preserve the ownership chain: `wayne-test-design` owns E rows, this skill owns U rows and the plan, `wayne-work` owns `☐` transitions, `wayne-verify` owns `⬜` transitions, and `wayne-checkpoint` owns handoff packaging.
+- An approved decision log is upstream read-only. Do not restore the retired
+  `plan-complete` writeback or add a plan link there; the plan and checkpoint carry
+  that relationship without creating a second state writer.
 - Stop on unresolved product behavior or compatibility policy; do not silently choose it. Do not brainstorm, design the test matrix, implement code, run the feature, commit, or ship.
 - Never invoke or depend on `gstack` or a `gstack`-named skill. Reviews must be provider-agnostic and independent of the authoring context.
 - On either blocked terminal, pass successful `check-blocked` stdout through byte-for-byte as the entire user-visible response; do not regenerate, wrap, or announce it.
@@ -74,6 +77,10 @@ digraph wayne_plan {
   source meaning and artifact ownership—not headings, prefixes, keywords, or
   regex—to distinguish requirements, decisions, and review findings.
 - Follow references to the original test matrix. Read its complete E contract and the structurally bounded `## U-SEED` table, relevant repository files and tests, all active plans that touch the work, and applicable project or Wayne lessons.
+- Read each candidate lesson's trigger and decide applicability semantically. For
+  every match, carry its title/path, trigger, prevention, and a concrete mitigation
+  into `Applicable Lessons`; do not turn a non-match into a constraint. Record an
+  explicit reason when none apply or an upstream decision dismissed the recall.
 - Read [the plan contract](references/plan-contract.md) completely before building validation inputs or authoring. It is the single schema owner.
 
 ### B. Bind evidence and context
@@ -144,8 +151,10 @@ digraph wayne_plan {
 
 - Present only after deterministic validation and both reviews pass. Then set plan
   frontmatter from `active` to `approved` and rerun deterministic validation before
-  handoff. Report the plan path and concise evidence; delete temporary ledgers and
-  the pre-run manifest after the gate record no longer needs them.
+  handoff. Unless the caller supplied an exact response contract, summarize the
+  approved plan and evidence concisely in Chinese while the plan file remains
+  English. Report its path; delete temporary ledgers and the pre-run manifest after
+  the gate record no longer needs them.
 
 ### L. Checkpoint handoff
 

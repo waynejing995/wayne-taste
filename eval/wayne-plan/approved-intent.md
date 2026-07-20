@@ -21,7 +21,10 @@ generic planning advice and deprecated/tool-specific review machinery.
 
 1. Discover inputs in priority order: decision log, spec, then direct request.
    Read the referenced test matrix, relevant repository files/tests, active plans,
-   and applicable project/Wayne lessons.
+   and applicable project/Wayne lessons. Match each lesson from its trigger by
+   contextual meaning; carry a relevant lesson's title/path, trigger, prevention,
+   and concrete mitigation, exclude non-matches as constraints, and explicitly
+   record none/dismissed outcomes.
 2. Treat the decision log as the WHAT-level source of truth when present. Trace
    every source requirement and decision into the plan; HOW details are plan-owned.
 3. Detect active-plan conflicts, unresolved product decisions, and missing E2E
@@ -36,6 +39,8 @@ generic planning advice and deprecated/tool-specific review machinery.
    interfaces, files/symbols, U rows, dependencies, placeholders). Do not name or
    invoke a vendor-specific review skill.
 7. Revise from findings and revalidate. Present the plan only when gates pass.
+   Keep the plan English and the default user-visible summary concise Chinese unless
+   the caller supplied an exact output contract.
    Handoff through `wayne-checkpoint` to `wayne-work` unless the caller explicitly
    requests a return-only/no-checkpoint evaluation.
 
@@ -171,6 +176,14 @@ preamble, code fence, or validation announcement.
   pipeline tutorial, and gstack review sections when their information is already
   owned by metadata, Flow, the contract reference, or global instructions.
 - Keep one-level resources only. Every shipped resource is linked directly.
+
+## Historical intent dispositions
+
+| Historical behavior | Disposition | Current owner and reason |
+|---|---|---|
+| Plan changes the decision-log status to `plan-complete` and writes its plan link | superseded; do not restore | `_shared/pipeline-id-contract.md` makes decision-log rows/DAG/status read-only after `design-approved`; the plan owns approval and `wayne-checkpoint` owns the derived handoff link |
+| Plan presents a Chinese summary for an English file | preserved | `wayne-plan` presentation step |
+| Lesson recall uses semantic trigger matching and records relevant/none/dismissed outcomes | preserved | `wayne-plan` discovery plus `Context / Applicable Lessons` in the plan contract |
 
 ## Evaluation contract
 
