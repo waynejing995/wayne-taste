@@ -7,7 +7,7 @@ Date: 2026-07-17
 | Side | Source-tree SHA-256 | SKILL.md SHA-256 | Size | Forge static |
 |---|---|---|---:|---|
 | Control | `f42ecc2443128e33dc790199d3d031bd4822e6c638a1d0e2476dbd0308c7f777` | `9a7e995f4f7934dbbac2f97efc6731299fda2de69d89da8fbedeec2f37ee671d` | 303 lines / 2,150 words | 1 error, 3 warnings |
-| Candidate | `5413f254d0f07c9d58b39427cbb0d3f74c17cae3ca7ddacab79e16f8b3d25fab` | `3076d346dedf9e467a08343138d1ec0d7a05b87914c46c82c0d0865001929adb` | 128 lines / 784 words | 0 errors, 0 warnings |
+| Candidate | `b0f06f74b75e657cdc88f09351e1504844718ba6584d4bea2e62b64a111d8443` | `96fe57314cdf8d01c9fb5fcf88367f0012859f979290ff0abbfb991db5325707` | 133 lines / 825 words | 0 errors, 0 warnings |
 
 The frozen control is Git tree `5033468bd74d17eaddc28fffa86ba7625f12aae0`.
 Trials used Claude Opus 4.8 and `dvue-aoai-001-gpt-5.6-sol`, both at high
@@ -31,10 +31,10 @@ is the gate, and the smaller always-loaded context is the tie-breaker.
 
 ## Deterministic gates
 
-- Behavior checker calibration: PASS, 9 positive lanes and 42 independent
+- Behavior checker calibration: PASS, 9 positive lanes and 45 independent
   mutations.
 - Frozen tasks/fixtures/checker hash:
-  `bbddff749d67031f940d1bd39f3162f391a0d404a9e7f44c336e4ac2a2258436`.
+  `3292807bcdd089b0097dc96d7cc300711b5bda3908002f99b24c077ea4a9ee8a`.
 - Candidate Forge validation: PASS, 0 errors and 0 warnings.
 - Python compile and shell syntax: PASS.
 - Live-path held-out `multi-row` smoke: PASS on Claude and Codex.
@@ -67,3 +67,6 @@ lines and 1,366 words from always-loaded context.
 Residual uncertainty: browser UI driving and a real external persistence system
 were not exercised. The server case proves readiness, HTTP observable, and teardown;
 the multi-row held-out proves ordered continuation after failure.
+
+The later return-only ship boundary and authoritative-matrix-path additions were
+deterministically calibrated but not provider-rerun before the hotfix push.

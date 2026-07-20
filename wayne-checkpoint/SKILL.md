@@ -20,6 +20,9 @@ This skill inherits the Wayne control-plane invariants and does not redeclare th
 This skill only specifies the save / resume / list checkpoint workflow and the
 pipeline handoff workflow.
 
+Read `_shared/pipeline-id-contract.md` before copying pipeline artifacts. Preserve
+IDs byte-for-byte; checkpoint never renumbers or reclassifies upstream rows.
+
 ## Files Written
 
 checkpoint and handoff-packet markdown files at `.wayne/checkpoints/`.
@@ -61,6 +64,8 @@ ls -t docs/decisions/*.md 2>/dev/null | head -1
 ls -t docs/plans/*.md 2>/dev/null | head -1
 # Latest spec
 ls -t docs/specs/*.md 2>/dev/null | head -1
+# Authoritative test matrix
+ls -t docs/test-matrix/*.md 2>/dev/null | head -1
 # Task list state
 # (read from TaskList if available)
 ```
@@ -69,6 +74,7 @@ For each artifact found, note:
 - **Decision log:** how many decisions logged, status (in-progress/completed)
 - **Plan:** which implementation units are done (checked `- [x]`) vs pending (`- [ ]`)
 - **Spec:** status field from frontmatter
+- **Test Matrix:** exact path and current authoritative E statuses
 
 ### Step 3: Summarize Context
 
@@ -170,11 +176,12 @@ If current branch differs from checkpoint branch, warn:
 
 ### Step 3: Verify Pipeline Artifacts Still Exist
 
-Check that referenced decision log, plan, and spec files still exist:
+Check that referenced decision log, plan, spec, and authoritative test matrix exist:
 ```bash
 [ -f "{decision_log_path}" ] && echo "DECISIONS: OK" || echo "DECISIONS: MISSING"
 [ -f "{plan_path}" ] && echo "PLAN: OK" || echo "PLAN: MISSING"
 [ -f "{spec_path}" ] && echo "SPEC: OK" || echo "SPEC: MISSING"
+[ -f "{test_matrix_path}" ] && echo "TEST_MATRIX: OK" || echo "TEST_MATRIX: MISSING"
 ```
 
 If any are missing, warn the user.
@@ -190,6 +197,7 @@ Wayne skill — don't just suggest, actually invoke it via the Skill tool.
 | `plan` | `wayne-plan` | Spec + decision log paths, resume from last phase |
 | `work` | **`wayne-work`** | Plan path + checkpoint's Implementation Units as task input. Wayne-work reads the checkpoint's unit status and skips completed units. |
 | `review` | `wayne-code-review` | Auto-run dual-voice review |
+| `verify` | `wayne-verify` | Exact authoritative test-matrix path and current E statuses |
 | `ship` | `wayne-ship` | Auto-run commit flow |
 | `compound` | `wayne-compound` | Auto-run lessons capture |
 
@@ -207,8 +215,8 @@ Wayne skill — don't just suggest, actually invoke it via the Skill tool.
 ```
 告诉用户:
 "从检查点恢复，自动继续 wayne-work。
-已完成: Unit 1, Unit 2
-下一个: Unit 3 — {goal}
+已完成: I1, I2
+下一个: I3 — {goal}
 启动中..."
 ```
 

@@ -10,7 +10,8 @@ from pathlib import Path
 
 
 CASES = {"provider-isolation", "proof-axis", "missing-native-evidence", "simple", "absorb-existing"}
-HEADER = "| # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |"
+HEADER = "| ID | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |"
+LEGACY_HEADER = "| # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -128,7 +129,7 @@ def check(workspace: Path, case_name: str) -> list[str]:
     explicit_no_useed = re.search(r"U-SEED:\s*none\s*[—-]\s*\S", text) is not None
     if useed_label not in text or (not u_rows(text) and not explicit_no_useed):
         findings.append("matrix omits provisional U-SEED ownership/status")
-    if HEADER not in text:
+    if HEADER not in text and LEGACY_HEADER not in text:
         findings.append("matrix omits the locked E2E header")
     rows = e_rows(text)
     u = u_rows(text)

@@ -15,11 +15,11 @@ decisions: docs/decisions/YYYY-MM-DD-<topic>-decisions.md
 
 ## Requirements Trace
 
-- R1. [Requirement] → covered by [U1, E1]
-- R2. [Requirement] → covered by [U3]
+- R1. [Requirement] → covered by [S1, E1]
+- R2. [Requirement] → covered by [S3]
 - R3. [Requirement] → covered by [E2]
 
-Coverage summary: [R1✓ R2✓ R3✓ | unit: U1-Un | e2e: E1-En]
+Coverage summary: [R1✓ R2✓ R3✓ | seed: S1-Sn | e2e: E1-En]
 
 ## Dimensions Considered
 
@@ -44,11 +44,11 @@ Developer / `wayne-work` ticks `☐ → ☑` when the test passes. These do **no
 `unit` = isolated, mocks OK. `integration` = crosses a real seam (real DB / real service),
 mocks discouraged.
 
-| # | Behavior seed | Dimension | Case (input → action → expected) | Layer | Status |
+| ID | Behavior seed | Dimension | Case (input → action → expected) | Layer | Status |
 |---|------|-----------|----------------------------------|-------|--------|
-| U1 | [unit] | positive | [input → action → expected] | unit | ☐ |
-| U2 | [unit] | invalid | [input → action → expected] | unit | ☐ |
-| U3 | [unit] | persistence | [input → action → expected] | integration | ☐ |
+| S1 | [unit] | positive | [input → action → expected] | unit | ☐ |
+| S2 | [unit] | invalid | [input → action → expected] | unit | ☐ |
+| S3 | [unit] | persistence | [input → action → expected] | integration | ☐ |
 
 [If no U-SEED row is sound, keep the heading and table header, omit example rows,
 then write `U-SEED: none — <reason>`.]
@@ -77,7 +77,7 @@ This layer **is** the E2E Verification Contract. Format is LOCKED by
 Each row below has one primary proof axis. A prerequisite that can fail before the target
 behavior has its own row. Flags, argv, and help text show intent, not effective capability.
 
-| # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
+| ID | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
 |---|-----------|--------------|-----------|-----------------|----------------------|--------|
 | E1 | [human journey end to end] | [process to start] | [data it runs against] | [where user enters] | [real user-visible outcome — never "200 OK"] | ⬜ |
 

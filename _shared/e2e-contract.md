@@ -18,11 +18,11 @@ contract answers *does the feature actually work in real use*.
 
 A single markdown table. These columns, in this order, exactly:
 
-| # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
+| ID | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
 |---|-----------|--------------|-----------|-----------------|----------------------|--------|
-| 1 | User opens dashboard, clicks a ticket, hits "Transition → Analyzed" | `uv run dashboard_server.py` on :8765 | real `wayne.db` | browser `/` | Jira ticket status actually changed to Analyzed (confirmed in Jira UI), and the row re-renders as Analyzed | ⬜ |
+| E1 | User opens dashboard, clicks a ticket, hits "Transition → Analyzed" | `uv run dashboard_server.py` on :8765 | real `wayne.db` | browser `/` | Jira ticket status actually changed to Analyzed (confirmed in Jira UI), and the row re-renders as Analyzed | ⬜ |
 
-- **#** — stable row id. Plan units reference rows by this number.
+- **ID** — canonical `E<number>` from `_shared/pipeline-id-contract.md`.
 - **User path** — what the user actually does, end to end. Not an internal call; the human-level journey.
 - **Env: process / data / entrypoint** — the three fixed environment sub-columns (see below).
 - **Observable (pass = ?)** — the real user-visible outcome that proves it works.

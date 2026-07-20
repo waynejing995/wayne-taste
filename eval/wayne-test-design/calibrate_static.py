@@ -36,7 +36,7 @@ Always emit the locked header.
 
 TEMPLATE = '''### U-SEED (wayne-plan re-authors + locks)
 | # | Behavior seed | Dimension | Case | Layer | Status |
-| # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
+| ID | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
 Keep the locked header when there are no E rows.
 '''
 

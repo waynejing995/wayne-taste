@@ -47,6 +47,14 @@ def write_trace(workspace: Path, text: str) -> None:
     )
 
 
+def append_trace_command(workspace: Path, command: str) -> None:
+    path = workspace / "claude-trace.jsonl"
+    frame = json.loads(path.read_text(encoding="utf-8"))
+    block = frame["message"]["content"][0]
+    block["input"]["command"] += f"\n{command}"
+    path.write_text(json.dumps(frame) + "\n", encoding="utf-8")
+
+
 def set_status(workspace: Path, status: str, row: str = "1") -> None:
     path = workspace / "repo/docs/test-matrix/runtime.md"
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -59,6 +67,11 @@ def set_status(workspace: Path, status: str, row: str = "1") -> None:
     else:
         raise AssertionError(f"no row {row} in {path}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def commit_trial(workspace: Path) -> None:
+    run(["git", "-C", str(workspace / "repo"), "add", "."])
+    run(["git", "-C", str(workspace / "repo"), "commit", "-m", "forbidden verify commit"])
 
 
 def assert_valid(workspace: Path, case_name: str) -> None:
@@ -176,6 +189,9 @@ def main() -> int:
         add(cli, "cli-success", "false-report", lambda p: write_output(p, "done"), "ship gate passed")
         add(cli, "cli-success", "product-edit", lambda p: (p / "repo/app.py").write_text("changed\n", encoding="utf-8"), "product or unowned")
         add(cli, "cli-success", "contract-edit", lambda p: mutate_text(p / "repo/docs/test-matrix/runtime.md", "User converts", "Operator converts"), "outside the E2E Status")
+        add(cli, "cli-success", "commit", commit_trial, "created a commit")
+        add(cli, "cli-success", "push", lambda p: append_trace_command(p, "git push"), "push or PR")
+        add(cli, "cli-success", "invoke-ship", lambda p: append_trace_command(p, "/wayne-ship"), "invoked wayne-ship")
 
         add(server, "server-success", "no-process", lambda p: mutate_text(p / "claude-trace.jsonl", "uv run --no-project python server.py", "server omitted"), "process was not started")
         add(server, "server-success", "no-entrypoint", lambda p: mutate_text(p / "claude-trace.jsonl", "curl -fsS http://127.0.0.1:18765/convert", "no request"), "entrypoint was not driven")

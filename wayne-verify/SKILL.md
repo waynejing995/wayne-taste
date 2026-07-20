@@ -9,9 +9,11 @@ Run the feature as its user runs it and decide the runtime gate from fresh evide
 
 ## Boundary and contract owner
 
-Read `_shared/e2e-contract.md` completely. It owns
-the locked table, `E2E: none` declaration, and Status lifecycle. Locate the carried
-E2E layer in `docs/plans/` or `docs/test-matrix/`; do not author or repair it.
+Read `_shared/pipeline-id-contract.md` and `_shared/e2e-contract.md` completely. They own
+the locked table, `E2E: none` declaration, and Status lifecycle. Use the exact
+authoritative `docs/test-matrix/` path carried by the handoff or explicitly supplied
+by the user; never select or mutate the read-only snapshot inside a plan. Do not
+author or repair the matrix.
 
 This skill alone may change the E2E `Status` cells (`⬜/✅/❌`). Never change a
 unit-integration status, another contract cell, or product code. Unit tests and
@@ -123,6 +125,9 @@ ship-ready while the verification process remains live.
 - All rows freshly `✅` and legitimate skips confirmed: `RUNTIME VERIFICATION:
   PASSED`; report evidence, then call `wayne-checkpoint` in handoff mode with
   `wayne-ship` as the next stage.
+
+`PASSED` authorizes only that return-only handoff. It never authorizes commit,
+push, PR creation, or invoking `wayne-ship`; stop after surfacing the packet.
 
 Never turn inability to run, stale status, prior evidence, or provider/tool failure
 into a pass.

@@ -13,7 +13,7 @@
 | VV09 | Tear down the row process on both success and failure | `fe578b0` Phase 3d | server writes shutdown marker after the verification drive | server-success | FROZEN |
 | VV10 | Run rows in order and do not convert one failed row into a global skip or early ship handoff | `fe578b0` core loop and hard gate | row 2 executes after row 1 fails; statuses are `❌`, `✅`; final is not-ready | multi-row | FROZEN |
 | VV11 | Accept only a legitimate `E2E: none`; reject a skip hiding a user-visible path without inventing a replacement row | `_shared/e2e-contract.md` Trigger Rule; current Phase 2 | legitimate skip passes without execution; suspect skip stays unchanged, not run, and blocked | legit-skip, suspect-skip | FROZEN |
-| VV12 | Any `❌` routes to `wayne-work` and no ship handoff; all fresh `✅` routes to checkpoint/ship | `fe578b0` Phase 4 | final PASS/FAILED route matches statuses | executable cases | FROZEN |
+| VV12 | Any `❌` routes to `wayne-work` and no ship handoff; all fresh `✅` routes only to a return-only checkpoint for ship, never a commit, push, PR, or `wayne-ship` invocation | `fe578b0` Phase 4; user milestone correction 2026-07-20 | final PASS/FAILED route matches statuses; commit count stays one and trace has no publication/ship invocation | executable cases | FROZEN |
 
 The reported failure seed for this optimization is intent loss during slimming:
 the harness therefore freezes fresh execution, state ownership, failure, skip,

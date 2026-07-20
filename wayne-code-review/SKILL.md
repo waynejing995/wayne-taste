@@ -8,6 +8,9 @@ description: "Performs review-only analysis over one frozen diff with exactly on
 Produce an evidence-backed static verdict from the same immutable target reviewed
 independently by Claude and Codex.
 
+Read `_shared/pipeline-id-contract.md` when reviewing Wayne artifacts; preserve their
+namespaces and never reinterpret review findings as requirements or decisions.
+
 ## Boundary
 
 Own target freezing, review-type routing, dual-provider evidence, static-only findings,

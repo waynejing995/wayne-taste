@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 
-E_HEADER = "| # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |"
+E_HEADER = "| ID | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |"
 U_MARKER = "U-SEED (wayne-plan re-authors + locks)"
 
 
