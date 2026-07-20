@@ -27,6 +27,7 @@ digraph verify {
     A [label="Locate and validate contract", shape=box];
     B [label="Runnable contract row?", shape=diamond];
     X [label="BLOCKED: return to test design", shape=doublecircle];
+    K [label="Record legitimate skip", shape=box];
     C [label="Prepare exact row environment", shape=box];
     D [label="Start and observe readiness", shape=box];
     E [label="Process ready?", shape=diamond];
@@ -43,7 +44,9 @@ digraph verify {
 
     A -> B;
     B -> X [label="missing / invalid skip"];
+    B -> K [label="legitimate skip"];
     B -> C [label="yes"];
+    K -> M;
     C -> D;
     D -> E;
     E -> N [label="no"];
@@ -73,6 +76,12 @@ route to `wayne-test-design`. Never invent verification.
 Validate each `E2E: none — <reason>` against the actual requirement. Accept a skip
 only when no user-observable path exists. If it hides a real path, reject it and
 require test design to author a row; do not write or execute a replacement yourself.
+
+### K. Record a legitimate skip
+
+Record the approved requirement and why it has no user-observable path, without
+editing the contract or inventing a runtime command. Then continue through the row
+loop and final gate; a legitimate skip is neither `❌` nor `BLOCKED`.
 
 ### C. Prepare the exact row environment
 
