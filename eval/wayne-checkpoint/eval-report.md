@@ -44,3 +44,27 @@ Residual uncertainty: save/list/resume behavior was preserved textually rather
 than rerun end-to-end. The older checkpoint Skill still needs a separate full
 optimization to remove its inherited static errors; that is deliberately outside
 this blocker fix.
+
+## 2026-07-20 single-owner template hotfix
+
+The canonical save and handoff templates now carry artifact path, owner, SHA-256,
+and observed state, plus derived progress explicitly marked as orientation. They no
+longer copy decision rows, implementation checkboxes, or E status as downstream
+input. Resume at work re-reads the plan/matrix; verify is present in both resume and
+handoff routing.
+
+| Live case | Model | Packet gate | Blind semantic read |
+|---|---|---|---|
+| `plan-regression` | Claude Opus 4.8 | PASS | PASS |
+| `plan-regression` | Codex `dvue-aoai-001-gpt-5.6-sol` | PASS | PASS |
+
+Both packets preserved the approved plan path/hash, routed manually to
+`wayne-work`, left product files unchanged, and told Work to re-read the current
+owner. Current calibration passes 5 routes, 7 packet mutations, and 4 template
+ownership mutations. Forge static now reports 0 errors and 3 size warnings. The
+live tree hash is
+`e0df4c1eae304276d8a0a0805975b925e3a33b0a68ed1063071b58d15f7c3eff`.
+
+User-visible manual/no-auto-advance meaning, scope/acceptance quality, and invocation
+claims moved to the blind rubric; packet fields, source paths/hashes, Skill existence,
+template structure, and repository mutation remain deterministic.

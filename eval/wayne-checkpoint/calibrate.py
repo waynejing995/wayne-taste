@@ -94,7 +94,6 @@ def main() -> int:
             "verdict-agent": ("fix-now", "wayne-test-design", "fix-now", "next_agent must be"),
             "chain-agent": ("fix-now", "wayne-test-design", "wayne-test-design -> wayne-plan", "next_agent must be"),
             "missing-manual": ("needs-plan", "trigger: manual", "trigger: automatic", "trigger must be"),
-            "auto-advance": ("needs-plan", "| Auto-advance | NO |", "| Auto-advance | YES |", "Auto-advance NO"),
             "wrong-snapshot": ("escalate-architecture", ".wayne/triage/retry-controller.md", ".wayne/triage/other.md", "snapshot must be"),
         }
         for name, (case, old, new, needle) in mutations.items():
@@ -119,7 +118,7 @@ def main() -> int:
         write(subprocess_repo / "src/service.py", "# mutated\n")
         expect_finding(workspace, "fix-now", workspace / "output.txt", "product/input modified")
 
-    print("PASS: 5 valid routes and 8 independent mutations")
+    print("PASS: 5 valid routes and 7 independent mutations")
     return 0
 
 

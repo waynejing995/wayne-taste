@@ -10,12 +10,16 @@ This harness freezes the handoff conductor contract. It tests five inputs:
 
 Triage owns verdict-to-capability selection; checkpoint validates and packages the
 selected target. The checker validates the real packet schema, one existing Skill,
-the evidence snapshot, manual/no-auto-advance semantics, and repository immutability.
+the evidence snapshot, and repository immutability. The
+[blind semantic rubric](semantic-rubric.md) owns manual/no-auto-advance meaning,
+scope/acceptance quality, and invocation claims; those are not keyword-scored.
 
 ## Calibrate
 
 ```bash
 uv run --no-project python eval/wayne-checkpoint/calibrate.py
+uv run --no-project python eval/wayne-checkpoint/check_template_ownership.py \
+  wayne-checkpoint --calibrate
 ```
 
 ## Prepare and run
