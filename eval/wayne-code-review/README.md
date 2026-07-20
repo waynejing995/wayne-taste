@@ -10,3 +10,13 @@ reproduce a broad/unfocused review or another exact boundary failure before a
 candidate is eligible.
 
 No gstack-named skill, path, command, or content is part of this harness.
+
+The adapter intent lane verifies that caller-selected normative sources are copied
+with repository-relative paths and SHA-256 into one provider-neutral payload. The
+caller summary is orientation only; both voices receive the complete selected
+source bytes and cannot silently choose a different plan or spec.
+
+```bash
+uv run --no-project python eval/wayne-code-review/check_intent_payload.py \
+  wayne-code-review
+```

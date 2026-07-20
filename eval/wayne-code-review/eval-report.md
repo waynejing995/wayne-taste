@@ -50,7 +50,8 @@ artifacts were not replaced by fresh reviewers.
 |---|---|
 | Forge skill validation | pass, 0 errors and 0 warnings |
 | Candidate static contract | pass |
-| Candidate static calibration | pass: 1 positive + 35 independent mutations |
+| Candidate static calibration | pass: 1 positive + 38 independent mutations |
+| Caller-selected intent payload | pass: exact source bytes/hashes, frozen-after-load behavior, containment, and change sensitivity |
 | Dual-evidence/schema calibration | pass: 1 positive + 22 independent mutations |
 | Behavior checker calibration | pass: 4 positives + 11 independent mutations |
 | Provider failure execution | pass: non-zero `REVIEW_UNAVAILABLE`, both failures retained, repo unchanged |
@@ -82,3 +83,11 @@ not a statistical claim.
 Residual uncertainty: clean Wayne-pipeline checkpoint emission and specialized
 architecture/concurrency/performance routes are protected by calibrated static
 contracts but were not exercised as additional live-provider cases in this run.
+
+Follow-up 2026-07-20: the adapter now accepts repeatable repository-relative
+`--intent-source` inputs plus a caller-authored `--intent-summary-file`. It freezes
+the full selected source bytes and SHA-256 into the one provider-neutral payload;
+the summary is orientation only and cannot replace those sources. Direct
+calibration proves that both voices receive identical frozen intent, a post-freeze
+source edit cannot alter the payload, a newly loaded edit does alter it, and
+absolute, escaping, missing, or duplicate source paths fail loud.

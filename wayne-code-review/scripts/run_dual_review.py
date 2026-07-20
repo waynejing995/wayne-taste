@@ -82,6 +82,47 @@ def digest(path: Path) -> str:
     return sha256_bytes(path.read_bytes())
 
 
+def load_intent_sources(repo: Path, values: list[str]) -> list[dict[str, str]]:
+    sources: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in values:
+        requested = Path(raw)
+        if requested.is_absolute():
+            raise RuntimeError(f"intent source must be repository-relative: {raw}")
+        path = (repo / requested).resolve()
+        if not path.is_relative_to(repo) or path == repo:
+            raise RuntimeError(f"intent source escapes repository: {raw}")
+        if not path.is_file():
+            raise RuntimeError(f"intent source not found: {raw}")
+        relative = path.relative_to(repo).as_posix()
+        if relative in seen:
+            raise RuntimeError(f"duplicate intent source: {relative}")
+        seen.add(relative)
+        raw_bytes = path.read_bytes()
+        try:
+            text = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(f"intent source is not UTF-8 text: {relative}") from exc
+        sources.append(
+            {"path": relative, "sha256": sha256_bytes(raw_bytes), "text": text}
+        )
+    return sources
+
+
+def load_intent_summary(path: Path | None) -> dict[str, str] | None:
+    if path is None:
+        return None
+    resolved = path.expanduser().resolve()
+    if not resolved.is_file():
+        raise RuntimeError(f"intent summary not found: {resolved}")
+    raw_bytes = resolved.read_bytes()
+    try:
+        text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(f"intent summary is not UTF-8 text: {resolved}") from exc
+    return {"sha256": sha256_bytes(raw_bytes), "text": text}
+
+
 def write_json(path: Path, data: object) -> None:
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -251,9 +292,29 @@ def build_payload(
     patch: bytes,
     schema: dict[str, Any],
     playbooks: str,
+    intent_sources: list[dict[str, str]],
+    intent_summary: dict[str, str] | None,
 ) -> bytes:
     patch_text = patch.decode("utf-8", errors="replace")
     schema_text = json.dumps(schema, separators=(",", ":"), sort_keys=True)
+    source_blocks = "\n\n".join(
+        "INTENT SOURCE "
+        f"{source['path']} SHA256 {source['sha256']} BEGIN\n"
+        f"{source['text']}\n"
+        f"INTENT SOURCE {source['path']} END"
+        for source in intent_sources
+    )
+    if not source_blocks:
+        source_blocks = "NO CALLER-SELECTED INTENT SOURCE"
+    summary_block = (
+        "NO CALLER-AUTHORED INTENT SUMMARY"
+        if intent_summary is None
+        else (
+            f"CALLER INTENT SUMMARY SHA256 {intent_summary['sha256']} BEGIN\n"
+            f"{intent_summary['text']}\n"
+            "CALLER INTENT SUMMARY END"
+        )
+    )
     text = f"""You are one of two independent static code-review voices.
 
 REVIEW_TYPE: {review_type}
@@ -263,7 +324,10 @@ PATCH_SHA256: {patch_sha}
 MUTATION_POLICY: read-only
 
 Review only the supplied patch and repository evidence relevant to REVIEW_TYPE.
-You may inspect repository files, plans, specs, producers, consumers, and callers,
+The caller-selected intent sources below are the complete normative intent set for
+this review. Do not select another plan, spec, or issue as approved intent. The
+caller summary is orientation only and cannot override the full source bytes. You
+may inspect other repository files, producers, consumers, and callers as evidence,
 but you must not edit files, stage, commit, fetch, run the application or tests,
 write a checkpoint, or invoke another workflow. Do not assume the other reviewer's
 opinion and do not emit compliments or a prose wrapper.
@@ -280,6 +344,12 @@ concrete code facts that support it.
 SELECTED REVIEW PLAYBOOKS BEGIN
 {playbooks}
 SELECTED REVIEW PLAYBOOKS END
+
+CALLER INTENT PACKET BEGIN
+{summary_block}
+
+{source_blocks}
+CALLER INTENT PACKET END
 
 FROZEN PATCH BEGIN
 {patch_text}
@@ -615,6 +685,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--repo", type=Path, default=Path.cwd())
     parser.add_argument(
+        "--intent-source",
+        action="append",
+        default=[],
+        metavar="REPO_RELATIVE_PATH",
+        help="caller-selected normative intent source; repeat for multiple files",
+    )
+    parser.add_argument(
+        "--intent-summary-file",
+        type=Path,
+        help="caller-authored orientation summary; full intent sources remain normative",
+    )
+    parser.add_argument(
         "--claude-bin", default=env_first("WAYNE_CLAUDE_BIN", "CLAUDE_BIN") or "claude"
     )
     parser.add_argument(
@@ -692,6 +774,8 @@ def main() -> int:
         playbooks = load_playbooks(args.review_type)
         base_sha = git(repo, "rev-parse", "--verify", f"{args.base}^{{commit}}").decode().strip()
         head_sha = git(repo, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
+        intent_sources = load_intent_sources(repo, args.intent_source)
+        intent_summary = load_intent_summary(args.intent_summary_file)
         patch = git(
             repo,
             "diff",
@@ -711,9 +795,21 @@ def main() -> int:
             patch,
             schema,
             playbooks,
+            intent_sources,
+            intent_summary,
         )
         payload_sha = sha256_bytes(payload)
         (output_dir / "payload.txt").write_bytes(payload)
+        write_json(
+            output_dir / "intent-inputs.json",
+            {
+                "sources": [
+                    {"path": source["path"], "sha256": source["sha256"]}
+                    for source in intent_sources
+                ],
+                "summary_sha256": intent_summary["sha256"] if intent_summary else None,
+            },
+        )
         specs = command_specs(args, schema_path, schema, output_dir, repo)
     except (OSError, RuntimeError, json.JSONDecodeError) as exc:
         write_preflight_unavailable(
