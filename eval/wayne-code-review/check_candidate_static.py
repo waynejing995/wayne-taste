@@ -39,6 +39,11 @@ PLAYBOOK_CONTRACTS = {
 }
 FORBIDDEN_DEPENDENCIES = ("gstack",)
 IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
+RUNNER_INTENT_CONTRACT = (
+    "--intent-source",
+    "--intent-summary-file",
+    "CALLER INTENT PACKET BEGIN",
+)
 
 
 def parse_skill(path: Path) -> tuple[dict[str, str], str, list[str]]:
@@ -142,6 +147,9 @@ def check_candidate(root: Path) -> list[str]:
     for identity in ("claude", "codex"):
         if identity not in runner.lower():
             findings.append(f"dual-review runner omits {identity} adapter identity")
+    for literal in RUNNER_INTENT_CONTRACT:
+        if literal not in runner:
+            findings.append(f"dual-review runner omits intent contract: {literal}")
 
     if "claude" not in body_lower or "codex" not in body_lower:
         findings.append("SKILL.md must require both Claude and Codex voices")

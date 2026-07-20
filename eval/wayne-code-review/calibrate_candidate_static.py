@@ -9,7 +9,12 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from check_candidate_static import PLAYBOOK_CONTRACTS, REVIEW_TYPES, check_candidate
+from check_candidate_static import (
+    PLAYBOOK_CONTRACTS,
+    REVIEW_TYPES,
+    RUNNER_INTENT_CONTRACT,
+    check_candidate,
+)
 
 
 def replace(path: Path, pattern: str, value: str, flags: int = 0) -> None:
@@ -77,6 +82,15 @@ def main() -> int:
         trial = clone("runner-identity")
         replace(trial / "scripts/run_dual_review.py", "claude", "alpha", re.IGNORECASE)
         assert_invalid(trial, "runner omits claude", "runner identity")
+
+        for index, literal in enumerate(RUNNER_INTENT_CONTRACT):
+            trial = clone(f"runner-intent-{index}")
+            replace(
+                trial / "scripts/run_dual_review.py",
+                re.escape(literal),
+                f"REMOVED_INTENT_CONTRACT_{index}",
+            )
+            assert_invalid(trial, f"runner omits intent contract: {literal}", literal)
 
         body_mutations = {
             "exact-two": (r"exactly two", "multiple", "exactly two review voices"),

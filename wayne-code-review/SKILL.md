@@ -95,9 +95,13 @@ approved plan/spec paths. Freeze one full-index binary patch and its SHA-256 bef
 review. Empty diff stops with `INVALID: NOTHING_TO_REVIEW`; conflicting or missing
 required intent stops with the exact artifact and owner.
 
-The patch, selected source excerpts, intent summary, route, mutation policy, and
+The patch, caller-selected source bytes, caller-authored intent summary, route, mutation policy, and
 [finding schema](references/reviewer-schema.json) form one provider-neutral packet.
-No reviewer rereads a moving ref or receives the main agent's findings.
+Pass every selected plan/spec/acceptance source through the adapter's repeatable
+`--intent-source <repo-relative-path>` and pass the summary through
+`--intent-summary-file <path>`. The full selected sources remain normative; the
+summary is orientation only. No reviewer may choose a different artifact as the
+approved intent, reread a moving ref, or receive the main agent's findings.
 
 For a synthesis-only request with immutable Claude and Codex artifacts that declare
 the same frozen patch hash, validate those two inputs and enter F without relaunching
@@ -113,7 +117,8 @@ a re-architecture, include its intended producer→seam→consumer flow in the p
 ### D. Launch exactly two heterogeneous voices
 
 Run the bundled `scripts/run_dual_review.py` once with repository, frozen base, and
-review type/routes. When `WAYNE_REVIEW_OUTPUT_DIR` is set, do not override it; that
+review type/routes plus the frozen intent inputs from A. When
+`WAYNE_REVIEW_OUTPUT_DIR` is set, do not override it; that
 path owns the evidence. The adapter must start exactly one Claude process and one
 Codex process in parallel with the same payload hash and read-only permissions. The
 primary host model is not a review voice and same-family subagents cannot substitute.
