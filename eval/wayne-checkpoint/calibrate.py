@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibrate independent Wayne Checkpoint packet invariants."""
+"""Calibrate Wayne Checkpoint observations, not packet semantics."""
 
 from __future__ import annotations
 
@@ -118,7 +118,10 @@ def main() -> int:
         write(subprocess_repo / "src/service.py", "# mutated\n")
         expect_finding(workspace, "fix-now", workspace / "output.txt", "product/input modified")
 
-    print("PASS: 5 valid routes and 7 independent mutations")
+    print(
+        "PASS: observations cover 5 routes and 7 mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 

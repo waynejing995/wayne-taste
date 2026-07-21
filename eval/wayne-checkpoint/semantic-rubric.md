@@ -10,5 +10,12 @@ replace current decisions, plan/U state, or Test Matrix/E state; resume must re-
 the referenced owners and handle hash drift explicitly.
 
 Do not judge these meanings from words such as “manual”, “acceptance”, or invocation
-verbs. Deterministic checks separately own frontmatter fields, exact paths, hashes,
-Skill existence, repository mutation, and canonical template structure.
+verbs. Deterministic observations may establish actual files, exact paths/hashes,
+Skill existence, and repository mutation. Packet frontmatter, headings, field names,
+tables, and template structure are AI-readable presentation, not a second schema or
+semantic verdict. Accept equivalent organization; reject same-shaped packets that
+change ownership, route, scope, approval, or advancement behavior.
+
+Return `pass`, `fail`, or `invalid` with evidence mapped to the applicable intent
+IDs in `approved-intent.md`. Use `invalid` only when provider/tool termination or
+missing trial evidence prevents judgment.

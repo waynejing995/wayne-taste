@@ -9,16 +9,18 @@ This harness freezes the handoff conductor contract. It tests five inputs:
 - `external`: an out-of-pipeline incident produces no Wayne handoff packet.
 
 Triage owns verdict-to-capability selection; checkpoint packages the selected
-target. Existing checkers surface field/path observations and repository mutation
-evidence for the [blind semantic rubric](semantic-rubric.md). They do not decide
-packet completeness, manual/no-auto-advance meaning, scope/acceptance quality, or
-invocation claims from Markdown shape.
+target. Existing checkers emit `AI_REVIEW_REQUIRED` and surface field/path,
+Skill-existence, and repository-mutation observations for the
+[blind semantic rubric](semantic-rubric.md). They do not decide packet
+completeness, routing preservation, ownership, manual/no-auto-advance meaning,
+scope/acceptance quality, or invocation claims from Markdown shape.
 
-## Calibrate
+## Collect observations
 
 ```bash
 uv run --no-project python eval/wayne-checkpoint/check_template_ownership.py \
   wayne-checkpoint --calibrate
+uv run --no-project python eval/wayne-checkpoint/calibrate.py
 ```
 
 ## Prepare and run
@@ -30,9 +32,10 @@ MODEL=dvue-aoai-001-gpt-5.6-sol EFFORT=high \
   bash eval/wayne-checkpoint/run_agent.sh codex \
   eval/.runs/wayne-checkpoint/control-fix-now-codex \
   eval/.runs/wayne-checkpoint/state-control-fix-now-codex
-Read the generated packet, source artifacts, and trace with the blind rubric. The
-legacy `calibrate.py` and `check_trial.py` outputs may be attached as observations,
-but their exact field/heading checks are not semantic pass/fail gates.
+Read the generated packet, source artifacts, and trace with the blind rubric.
+`calibrate.py`, `check_trial.py`, and `check_template_ownership.py` only collect or
+calibrate observations; their exact field, heading, and table scans never return a
+packet-semantic pass/fail verdict.
 ```
 
 Generated workspaces, candidates, model state, and traces live only under
