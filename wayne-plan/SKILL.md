@@ -75,7 +75,10 @@ digraph wayne_plan {
   legacy numeric decision rows to `D<number>` only in the working coverage map. Use
   source meaning and artifact ownership—not headings, prefixes, keywords, or
   regex—to distinguish requirements, decisions, and review findings.
-- Follow references to the original test matrix. Read its complete E contract and the structurally bounded `## U-SEED` table, relevant repository files and tests, all active plans that touch the work, and applicable project or Wayne lessons.
+- Follow references to the original test matrix. Read its complete E contract and
+  provisional U-SEED information regardless of headings or table layout, plus
+  relevant repository files and tests, all active plans that touch the work, and
+  applicable project or Wayne lessons.
 - Read each candidate lesson's trigger and decide applicability semantically. For
   every match, carry its title/path, trigger, prevention, and a concrete mitigation
   into `Applicable Lessons`; do not turn a non-match into a constraint. Record an
