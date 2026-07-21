@@ -1,81 +1,41 @@
 # Wayne plan contract
 
-This file owns the plan, blocker, runtime-ledger, and validator-input schemas.
+This file owns the semantic information a plan must carry into `wayne-work`.
 `_shared/pipeline-id-contract.md` solely owns cross-stage identifier namespaces.
-The template instantiates both contracts; the validator checks them.
+The template is a starting layout, not a Markdown grammar.
 
 ## Contents
 
 1. Inputs and temporary evidence
-2. Plan file and frontmatter
-3. Section grammar
+2. Plan identity and lifecycle
+3. Required plan information
 4. Requirement and unit relationships
 5. Test Matrix ownership
 6. Content constraints
 7. Blocking artifact
-8. Validator interface and proof boundary
+8. Review and scope proof
 
 ## 1. Inputs and temporary evidence
 
-A successful plan check receives:
+Read the complete approved decision log, spec, test matrix, relevant code and tests,
+active plans, and applicable lessons. When planning from a direct request, preserve
+the user's request in the working context rather than converting it into a synthetic
+schema.
 
-- the new plan;
-- repository root and a pre-authoring manifest of every repository file except `.git` internals;
-- the original test matrix;
-- every available original decision log and spec; and
-- an exact temporary request snapshot when neither of those contains the direct request; and
-- a temporary source ledger made from those exact sources.
+Record the starting Git commit and status. Build any temporary coverage map in the
+form most useful to the agent. It should connect source obligations and decisions to
+plan units, account for U seeds, identify the E owner, and preserve any genuinely
+normative literal or forbidden alternative. It is working evidence, not a shipped
+artifact or parser input.
 
-Place the manifest and ledger outside the repository root. Do not ship either. The matrix is mandatory. A decision log or spec is optional only when it did not exist at discovery time.
+Contextual reading decides which clauses are requirements, decisions, findings,
+rationale, or examples. Headings, IDs, table shape, keywords, regex, and substring
+search may help navigation but cannot prove semantic classification or completeness.
+Both independent reviews reverse-audit source → working map → plan. Preserve source
+artifacts unchanged; canonical aliases in working notes never authorize rewriting
+their source rows.
 
-Create the manifest before writing the plan:
-
-```bash
-uv run --no-project <skill-dir>/scripts/validate_plan.py snapshot \
-  --repo-root <repo> --output <temporary-manifest.json>
-```
-
-The source ledger is UTF-8 JSON with this shape:
-
-```json
-{
-  "version": 1,
-  "sources": {
-    "decision_log": "docs/decisions/2026-01-01-topic-decisions.md",
-    "spec": "docs/specs/2026-01-01-topic-design.md",
-    "matrix": "docs/test-matrix/2026-01-01-topic.md",
-    "request": null
-  },
-  "source_sha256": {
-    "docs/decisions/2026-01-01-topic-decisions.md": "<sha256>",
-    "docs/specs/2026-01-01-topic-design.md": "<sha256>",
-    "docs/test-matrix/2026-01-01-topic.md": "<sha256>"
-  },
-  "requirements": [
-    {"id": "R1", "source": "docs/specs/2026-01-01-topic-design.md", "exact": "R1. <complete source line>"}
-  ],
-  "decisions": [
-    {"id": "D1", "source": "docs/decisions/2026-01-01-topic-decisions.md", "exact": "D1. <complete source statement>"}
-  ],
-  "u_seeds": [
-    {"id": "<exact first-column seed identifier>", "exact": "<complete source Markdown data-row line>"}
-  ],
-  "e_contract": {"exact": "<complete E table or E2E: none — reason>"}
-}
-```
-
-Use JSON `null` for an absent `decision_log`, `spec`, or direct request snapshot, and omit its hash and entries. When a request snapshot is supplied, set `request` to identifier `direct_request`, add that identifier to `source_sha256`, and use it as the relevant entry `source`. Preserve each `exact` value byte-for-byte. Apply `_shared/pipeline-id-contract.md`: contextual source-fidelity review determines which clauses are requirements, decisions, or findings; canonical decisions are `D<number>`. A legacy numeric decision-table row `1` is ledger ID `D1` with the original numeric row in `exact`. Never rewrite a source to add a prefix.
-
-The ledger is an AI-authored contextual inventory, not parser output. Headings,
-table shape, ID prefixes, keywords, regex, and substring scans may help navigate a
-source but cannot prove semantic classification or completeness. Both independent
-reviews must reverse-audit source → ledger → plan. The deterministic validator
-only checks source hashes, literal existence, ledger grammar, and downstream
-closure over the ledger it was given.
-
-Locate exactly one level-two `## U-SEED` section in the matrix and exactly one Markdown table within that bounded section. Each data row after its header and separator is one source seed. Its identifier is the non-empty, unique first-cell value exactly as written after Markdown cell-padding is removed; `added` is reserved and cannot be a source identifier. Store that identifier as `id` and the complete source Markdown data-row line, excluding its line ending, byte-for-byte as `exact`. Do not discover seeds from prose or tables outside that section. The validator independently inventories this structured table, checks all source hashes, and requires the ledger identifiers and exact rows to equal it in both directions. Independent source-fidelity review remains responsible for seed-by-seed semantic equivalence, which has no machine grammar.
-
-## 2. Plan file and frontmatter
+## 2. Plan identity and lifecycle
 
 Write English Markdown to:
 
@@ -83,7 +43,8 @@ Write English Markdown to:
 docs/plans/YYYY-MM-DD-NNN-<feat|fix|refactor>-<3-5-word-name>-plan.md
 ```
 
-Use a three-digit daily sequence and a three-to-five-word lowercase kebab name. The frontmatter has exactly these keys in this order:
+Use a clear date, sequence, change type, and short lowercase name. Keep lightweight
+metadata so downstream agents can identify the plan and lifecycle, for example:
 
 ```yaml
 title: <non-empty title>
@@ -94,105 +55,84 @@ origin: <repo-relative source path or none — converged direct request>
 decisions: <repo-relative decision-log path or none — no decision log exists>
 ```
 
-The filename date and type equal frontmatter `date` and `type`. Source paths are repository-relative and must name the supplied sources. The file is new relative to the pre-run manifest. Status is `active` while drafting; only both independent review passes authorize changing it to `approved`. `wayne-work` accepts only `approved`.
+The filename and metadata must agree in meaning. Source paths are repository-relative
+and name the actual inputs. Status remains `active` while drafting; only both
+independent review passes authorize `approved`. `wayne-work` accepts only an approved
+plan. Metadata order and YAML surface style are not correctness requirements.
 
-## 3. Section grammar
+## 3. Required plan information
 
-Use each level-two section exactly once and in this order, with no additional level-two section:
+Organize the plan for a fresh executor. The template's headings are recommended
+because they make review easier, but agents may combine, rename, or reorder sections
+when the same information remains clear and traceable.
 
-1. `## Overview`
-2. `## Problem Frame`
-3. `## Requirements Trace`
-4. `## Scope Boundaries`
-5. `## Context`
-6. `## Key Technical Decisions`
-7. `## Open Questions`
-8. `## File Structure`
-9. `## Implementation Units`
-10. `## Test Matrix`
-11. `## Dead Code / Legacy Cleanup`
-12. `## System-Wide Impact`
-13. `## Risks & Dependencies`
-14. `## Sources & References`
+The plan must communicate:
 
-`## Requirements Trace` starts with exactly:
+- the problem, approved requirements, scope boundaries, decisions, and rationale;
+- repository context, active-plan constraints, applicable lessons, and open questions;
+- dependency-ordered implementation units, affected files/symbols, cleanup, and
+  system-wide impact;
+- each unit's goal, requirements, dependencies, consumed and produced interfaces,
+  concrete approach, patterns, test scenarios, E contribution, verification, and
+  decision trace where applicable;
+- risks, dependencies, and links to every authoritative source.
 
-```markdown
-| Requirement | Owning units |
-|---|---|
-```
-
-Each data row is `| R<number> | I<number>[, I<number>...] |`. Every ledger requirement occurs exactly once and owns at least one existing unit. The unit’s `Requirements` field and this table agree in both directions.
-
-`## Implementation Units` contains only unit level-three headings. A heading is:
-
-```markdown
-### Unit I<number> — <name>
-```
-
-Unit IDs are unique and increase numerically in dependency order. Under every heading, use these non-empty level-four fields exactly once and in this order:
-
-1. `#### Goal`
-2. `#### Requirements`
-3. `#### Dependencies`
-4. `#### Consumes`
-5. `#### Produces`
-6. `#### Files`
-7. `#### Approach`
-8. `#### Technical design`
-9. `#### Patterns`
-10. `#### Test scenarios`
-11. `#### E rows`
-12. `#### Verification`
-13. `#### Decision trace`
-
-When a field legitimately has no item, its entire value is exact sentinel `none — <non-empty reason>`. Do not substitute `none`, `N/A`, an empty list, or a placeholder.
+Use stable unit and requirement IDs when they help cross-reference the plan. A
+legitimate absence must include a reason; no exact sentinel wording or heading order
+is required. The independent reviewers judge whether information is missing,
+ambiguous, duplicated, or disconnected.
 
 ## 4. Requirement and unit relationships
 
-- `Requirements` lists one or more ledger `R<number>` IDs, or the exact sentinel when the unit is pure cleanup with no source requirement. Unknown IDs are forbidden.
-- `Dependencies` lists only earlier unit IDs and states why, or the exact sentinel for an independent unit. Forward, self, and unknown dependencies are invalid.
-- Every non-sentinel `Consumes` bullet has `repo/relative/path::symbol from I<number> — <role>` for an earlier producer, or `repo/relative/path::symbol from repository — <role>` for an existing surface.
-- Every non-sentinel `Produces` bullet has `repo/relative/path::symbol — <type/input → type/output and role>`.
-- A `from I<number>` surface must exactly equal a surface in that earlier unit’s `Produces` field. A repository surface must name an existing path and symbol.
-- Every `Files` bullet is `Create|Modify|Delete repo/relative/path::symbol — <specific work>`. `Modify` and `Delete` paths exist before authoring. Every produced or tested surface is named by the owning unit’s interfaces or files.
+- Every source requirement maps to at least one unit, and each feature unit states
+  the requirements it advances. Pure cleanup explains why it has no source requirement.
+- Dependencies point only to earlier units and explain why. Independent units say so.
+- Consumed and produced interfaces identify repository-relative files and the most
+  specific useful symbol, owner, input/output shape, and role. A consumer from an
+  earlier unit must agree semantically with what that unit produces.
+- File entries say create, modify, or delete and describe the concrete work. Existing
+  paths and symbols are verified through repository reading; future symbols are
+  clearly identified as outputs rather than pretended to exist already.
 - Use the most specific semantic surface consistently. A new field or method is
   `Type.member` in both `Produces` and `Files`, even though that member does not
   exist yet; `Modify` requires the path, not the future symbol, to preexist. Never
   widen `Type.member` to `Type` or strip its owner merely to satisfy equality.
-- `Patterns` names existing `path::symbol` surfaces to follow, or uses the exact sentinel.
-- `Decision trace` names every decision that drives the unit. Across all units, every ledger decision appears at least once. Use the exact sentinel only when no decision log exists or the unit is HOW-only, with the reason stated.
+- Patterns name existing repository surfaces to follow when relevant.
+- Decision traces carry every WHAT-level decision into the units it governs. HOW-only
+  detail does not need a fabricated decision, but its ownership and rationale stay clear.
 
-Backticks around a surface are optional; they do not change its identity. Paths are never absolute, never contain `..`, and always use `/` separators.
+Paths remain repository-relative. Review meaning and repository evidence rather than
+backticks, punctuation, arrow count, or one fixed `path::symbol` sentence grammar.
 
 ## 5. Test Matrix ownership
 
-`## Test Matrix` contains these three items in order.
+The authoritative E contract remains in the linked test-matrix artifact. Carry its
+complete rows, meaning, IDs, columns, order, wording, and `⬜` status into the plan
+without authoring, dropping, normalizing, or advancing them. If the upstream owner
+explicitly decided that no E contract applies, preserve that decision and reason.
+The copy in the plan is a read-only execution aid, not a second status owner.
 
-First, copy the complete E Markdown table byte-for-byte from the matrix, including header, separator, row order, wording, IDs, columns, and every `⬜`. This is a read-only design-time snapshot, not a second Status owner; the authoritative table remains at the linked `docs/test-matrix/` path. If the upstream owner instead declared no E contract, copy its complete line `E2E: none — <reason>` byte-for-byte. The source must contain exactly one of these forms. A table row ID is `E<number>` and each row has status `⬜`.
-
-Second, include one U table with this exact header and separator:
+Author the U layer against real implementation units. A Markdown table is the
+recommended compact view:
 
 ```markdown
 | ID | Owner | Seed | Surface | Scenario | Status |
 |---|---|---|---|---|---|
 ```
 
-Each U row obeys all of:
+Each U scenario must:
 
-- `ID` is a unique `U<number>`.
-- `Owner` is exactly one existing `I<number>`.
-- `Seed` is exactly one identifier from the ledger’s `u_seeds`, unchanged from the source table, or literal `added` only when no source seed produced the row.
-- `Surface` is one repo-relative `path::symbol` named in the owner’s interfaces or files.
-- `Scenario` is non-empty prose. It must contextually communicate the concrete
-  input or precondition, action, and observable result, including multiple branches
-  when required. Arrow count and sentence shape are not part of the contract; the
-  independent AI reviews judge scenario meaning.
-- `Status` is exactly `☐`.
+- have a stable ID and exactly one existing owning unit;
+- identify whether it re-authors a source seed or adds coverage found during planning;
+- name the real repository-relative unit surface it exercises;
+- communicate concrete preconditions or inputs, action, branches where relevant,
+  and observable outcome in natural prose; and
+- start at `☐`, which only `wayne-work` may advance.
 
-Re-authoring may change the unit surface and wording, but it must preserve the source seed’s accepted and rejected behavior sets, boundary classes, ordering, state timing, quantities, modality, negation, and every other qualifier. Do not narrow, widen, normalize, or omit those obligations. A drop reason must show from approved sources and repository evidence why no U scenario is warranted without discarding or weakening the seed’s behavior. Source-fidelity review compares each ledger `exact` row with its mapped U scenario or drop reason; any changed obligation fails the review and returns the plan to revision.
+Re-authoring may change the unit surface and wording, but it must preserve the source seed’s accepted and rejected behavior sets, boundary classes, ordering, state timing, quantities, modality, negation, and every other qualifier. Do not narrow, widen, normalize, or omit those obligations. A drop reason must show from approved sources and repository evidence why no U scenario is warranted without discarding or weakening the seed’s behavior. Source-fidelity review compares each original seed in context with its mapped U scenario or drop reason; any changed obligation fails the review and returns the plan to revision.
 
-Third, include this heading and exact table header:
+Account for every source seed once: map it to a U scenario or record an explicit,
+evidence-backed drop reason, never both. A small table is recommended:
 
 ```markdown
 ### Dropped Seeds
@@ -201,33 +141,31 @@ Third, include this heading and exact table header:
 |---|---|
 ```
 
-Every ledger seed identifier appears exactly once across the U table’s `Seed` column and `Dropped Seeds`, never both, and neither table may name an identifier absent from the ledger. A dropped row uses the exact identifier unchanged and a non-empty reason. Literal `added` never appears in `Dropped Seeds`.
-
-Every non-sentinel unit `Test scenarios` field lists its U IDs; every U ID appears in exactly one such field and its table owner matches that unit. A feature-bearing unit has at least one U row. A non-feature unit uses the exact sentinel with its reason.
-
-Every source E ID is listed by at least one unit’s `E rows`; only source E IDs may appear there. When the source declares E2E none, every unit uses the sentinel. `wayne-work` alone changes `☐`; `wayne-verify` alone changes `⬜`. A plan therefore contains no `☑`, `✅`, or `❌` Test Matrix status.
+Every feature-bearing unit owns useful U coverage; non-feature units explain why no
+U scenario applies. Every E row is advanced by at least one unit, unless the source
+explicitly owns an E-none decision. `wayne-work` alone changes U status; `wayne-verify`
+alone changes E status. Independent AI review checks all ownership and seed coverage
+in both directions; table shape, sentence form, and arrow count are not correctness
+oracles.
 
 ## 6. Content constraints
 
-The deterministic placeholder markers are:
-
-- `TBD`
-- `TODO`
-
 Name actual branches, failures, inputs, actions, and expected results. Contextual
-execution-readiness review—not a phrase list—decides whether language such as “add
-validation”, “write tests”, or “implement later” is specific enough, negated,
-quoted, or a real placeholder. It also judges whether prose/code fences contain
-runnable implementation, executable git instructions, non-portable absolute paths,
-or an undefined interface. Deterministic validation checks only structured path
-surfaces, file existence, grammar, IDs, hashes, and literal markers. Pseudocode and
-diagrams are directional guidance only. Do not claim an execution-time unknown is
-resolved; list it under deferred questions with the exact sentinel only when it does
-not block WHAT-level behavior.
+execution-readiness review decides whether wording is specific enough; no phrase
+list, substring, or regex can prove that prose is a placeholder. Pseudocode and
+diagrams are directional guidance, not pre-written implementation.
+
+Keep paths repository-relative. Do not put implementation commands, commit recipes,
+or unrelated changes into the plan. Do not claim an execution-time unknown is
+resolved; defer it with a reason only when it cannot change approved WHAT-level
+behavior. If implementation requires a behavior, compatibility, migration,
+ownership, failure, or public-interface choice not covered by the source or plan,
+the plan is incomplete and must return to the user.
 
 ## 7. Blocking artifact
 
-On an active conflict or absent owned E contract, do not create a plan. Return exactly five non-empty lines and no preamble, code fence, blank line, or validation announcement:
+On an active conflict or absent owned E contract, do not create a plan. Return a
+compact blocker containing these facts:
 
 ```text
 STATUS: BLOCKED
@@ -237,33 +175,29 @@ OWNER: product-design or test-design
 <one concise Chinese explanation>
 ```
 
-Choose one reason, not the literal word `or`. `PLAN_CONFLICT` requires `OWNER: product-design`; `MISSING_E2E` requires `OWNER: test-design`. List at least one artifact. The fifth line contains Chinese text and no line break.
+Choose the applicable reason and owner: `PLAN_CONFLICT` belongs to product design;
+`MISSING_E2E` belongs to test design. Name the real source artifacts and explain the
+blocking gap in concise Chinese. The example is a shared communication convention,
+not a line-count or regex grammar; semantic completeness is what matters.
 
-Validate a temporary blocker file before returning its unchanged bytes:
+## 8. Review and scope proof
 
-```bash
-uv run --no-project <skill-dir>/scripts/validate_plan.py check-blocked <temporary-blocker.txt>
-```
+Two independent AI reviews own acceptance:
 
-On success, the command writes the input artifact byte-for-byte to stdout. Pass that stdout through as the entire user-visible response without regenerating or announcing it. On failure, it exits nonzero and prints stable finding codes instead of the artifact.
+- source-fidelity reads every upstream artifact and the repository evidence, then
+  checks requirements, decisions, scope, rationale, E ownership, seed disposition,
+  and semantic equivalence in both directions;
+- execution-readiness checks unit closure, dependencies, interfaces, real files and
+  symbols, cleanup, U ownership, E advancement, risks, and whether a fresh executor
+  can work without inventing a decision.
 
-## 8. Validator interface and proof boundary
+Both reviews compare the recorded starting commit/status, agent write history, and
+final Git diff before checkpoint handoff. Only the new plan may change during plan
+authoring; `wayne-checkpoint` later owns its own artifacts. A required change to a
+source artifact or unrelated file means the plan input or scope is incomplete: stop and ask the user.
+Do not recursively scan repository contents, open unrelated files, or require
+permission repair to prove scope.
 
-Run the successful-plan check as:
-
-```bash
-uv run --no-project <skill-dir>/scripts/validate_plan.py check <plan> \
-  --repo-root <repo> \
-  --pre-run-manifest <temporary-manifest.json> \
-  --matrix <repo-relative-matrix> \
-  --source-ledger <temporary-source-ledger.json> \
-  [--decision-log <repo-relative-log>] \
-  [--spec <repo-relative-spec>] \
-  [--request-source <temporary-exact-request.txt>]
-```
-
-Exit zero proves local grammar and relationships, exact E carry, structured seed accounting, original-source hashes and literal ledger entries, real repository surfaces where claimed, and no repository mutation beyond the new plan. A nonzero exit prints stable finding codes.
-
-Use `--no-project` for every validator subcommand so validation cannot discover, lock, or create an environment for the target repository.
-
-It does not prove source requirement/decision completeness, semantic classification, semantic equivalence, quality of HOW choices, English prose quality, or downstream executability. The two independent reviews own those judgments. Deleting sources, weakening the ledger, or using an artifact-only invocation cannot convert a source-relative failure into a pass.
+Templates, Markdown shape, hash ledgers, section counts, and scripts do not prove
+plan correctness. If future tooling introduces a real non-AI plan consumer, add
+mechanical validation only for that consumer's published interface.

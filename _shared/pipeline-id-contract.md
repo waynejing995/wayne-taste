@@ -70,7 +70,7 @@ temporary ledgers or newly authored downstream artifacts.
 | authoritative E table | `wayne-test-design` | lives in one `docs/test-matrix/` artifact as `E<number>` rows |
 | authoritative E Status | `wayne-verify` | test design initializes `⬜`; Verify alone changes the authoritative matrix to `✅/❌` |
 | plan E snapshot | `wayne-plan` | byte-for-byte design-time derived view; remains `⬜` and is never a status owner |
-| plan structure, `I<number>`, `U<number>` definitions | `wayne-plan` | `active` while drafting → `approved` only after deterministic validation and both reviews |
+| plan structure, `I<number>`, `U<number>` definitions | `wayne-plan` | `active` while drafting → `approved` only after both independent AI reviews |
 | U Status | `wayne-work` | Plan initializes `☐`; Work alone changes it to `☑` after owned verification |
 | checkpoint/handoff snapshot | `wayne-checkpoint` | derived copy only; never changes source IDs or statuses |
 
