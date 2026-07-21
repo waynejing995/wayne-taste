@@ -73,6 +73,11 @@ digraph skill_optimize {
 - For a cross-skill failure, inspect the affected producer, consumer, and shared
   owner. A local validator pass cannot prove pipeline compatibility; do not copy a
   shared schema into the target.
+- Before preserving any validator as historical intent, name the actual non-AI
+  consumer that parses or executes the artifact. If the downstream consumer is an
+  agent reading Markdown, classify heading/table/regex/schema enforcement as an
+  incidental mechanism or defect unless an approved source explicitly requires a
+  real machine interface.
 
 ### B. Map intent and freeze the harness
 
@@ -101,6 +106,10 @@ digraph skill_optimize {
   a check has no independently useful structural invariant, remove it from the
   gate. If machine validation is required, change the owned data shape to expose a
   real field instead of parsing prose.
+- Audit prompt-level policing as well as scripts: inspect `SKILL.md`, references,
+  templates, examples, and eval prompts for exact headings, section order, phrase
+  bans, counts, arrow shape, or table grammar that pretends to decide AI-readable
+  meaning. Move useful observations to the AI reviewer; remove them from runtime.
 - Calibrate this boundary in both directions: a paraphrase with the same meaning
   must pass the AI gate, while same-shaped text with weaker scope, ownership,
   modality, timing, or meaning must fail it. Separately mutate each structural
@@ -121,6 +130,10 @@ digraph skill_optimize {
   direct observable. Delete redundant gates and checks whose false-rejection/token
   cost exceeds the invariant they protect. Consolidate structural checks into one
   pass and rerun only after an owning input or artifact changes.
+- Treat a full-repository walker, unrelated-file read, or permission repair needed
+  only by an evaluator as an evaluator defect. Git start state, agent write history,
+  and final diff are enough for AI-authored document scope unless a named machine
+  consumer requires more.
 
 ### D. Generate a bounded candidate
 
@@ -170,6 +183,9 @@ Accept only when all applicable gates pass:
 - Do not add an anti-pattern without a control-reproduced exact failure case.
 - Do not let a lexical rule decide prose meaning. Adding an AI judge does not make
   a semantic-proxy regex valid; retain only a separately useful structural check.
+- Do not create or preserve a runtime schema/validator for agent-to-agent Markdown.
+- Do not treat repeated user correction of the same mechanism as an isolated case;
+  add it to intent-regression recovery and search every prompt/resource owner.
 - Do not spend an AI judge on a fact a hash or schema settles exactly. Use both
   gates when a requirement genuinely has independent structural and semantic parts.
 - Do not infer temporal correctness from final-state equality.
