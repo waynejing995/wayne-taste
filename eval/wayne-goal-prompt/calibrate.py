@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibrate the goal-prompt composition checker."""
+"""Calibrate the goal-prompt observation collector, not goal semantics."""
 
 from __future__ import annotations
 
@@ -278,7 +278,10 @@ def main() -> int:
         if not any("unexpected files" in finding for finding in findings):
             raise AssertionError(f"pre-confirm goal file escaped: {findings}")
 
-    print("PASS: 6 positive lanes and 19 independent mutations")
+    print(
+        "PASS: observation collector covers 6 examples and 19 mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 

@@ -20,7 +20,7 @@ Run every composition case with Claude-primary and Codex-primary. Run bundled
 scripts plus dispatch protocol checks directly. Infrastructure termination before
 an observable artifact is `invalid`, not a behavioral loss.
 
-## Current mechanical gates
+## Current gates
 
 ```bash
 uv run --no-project python eval/wayne-goal-prompt/calibrate_candidate_static.py <candidate-skill>
@@ -29,14 +29,17 @@ uv run --no-project python eval/wayne-goal-prompt/check_dispatch.py <candidate-s
 uv run wayne-skill-forge/scripts/validate_skill.py <candidate-skill>
 ```
 
-These gates cover loader metadata and the real dispatch protocol only. Composition
-artifacts are AI-readable Markdown; `calibrate.py`, `calibrate_validator.py`,
-`check_trial.py`, and `check_candidate_static.py` are retained as historical
-observation fixtures until the harness is migrated. Their heading, phrase, count,
-and regex findings cannot independently pass or fail goal meaning.
+The hard gates cover loader metadata, required runtime resources, and the real
+dispatch protocol only. `check_candidate_static.py` reports prose scans separately
+from its machine verdict. `check_trial.py` always emits
+`AI_REVIEW_REQUIRED`; its heading, phrase, count, and regex findings are reviewer
+observations, never a goal-semantic verdict. `calibrate.py` only proves those
+observations remain reproducible. The removed goal-Markdown validator has no
+replacement runtime schema.
 
 `prepare_trial.sh` and `run_agent.sh` own paired provider runs. A blind AI judge
-must read task, sources, goal, and observations before deciding behavior.
+must use `semantic-rubric.md` and read the task, sources, untouched agent result,
+Git scope evidence, and observations before deciding behavior.
 The runner exposes only the named `/workspace/skill` snapshot; Claude receives an
 isolated home so prior transcripts and installed skills cannot replace the trial.
 See `eval-report.md` for the accepted control/candidate result.
