@@ -1,255 +1,146 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = [
-#   "click>=8.1",
-#   "loguru>=0.7",
-#   "pyyaml>=6.0",
-# ]
+# dependencies = ["click>=8.1", "pyyaml>=6.0"]
 # ///
-"""Validate the static Wayne skill contract."""
+"""Validate only the loader-level Wayne skill contract."""
 
 from __future__ import annotations
 
 import json
 import re
-import sys
-from collections import Counter
 from pathlib import Path
 
 import click
 import yaml
-from loguru import logger
 
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n(.*)\Z", re.DOTALL)
-MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
-FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-DOT_BLOCK_RE = re.compile(r"```dot\s*\n(.*?)\n```", re.DOTALL)
-DOT_ID = r'(?:"[^"]+"|[A-Za-z][A-Za-z0-9_]*)'
-DOT_NODE_RE = re.compile(rf"^\s*({DOT_ID})\s*\[([^\]]+)]\s*;", re.MULTILINE)
-DOT_EDGE_RE = re.compile(
-    rf"^\s*({DOT_ID})\s*->\s*({DOT_ID})"
-    r"(?:\s*\[([^\]]+)])?\s*;",
-    re.MULTILINE,
-)
+ALLOWED_FRONTMATTER = {"name", "description", "license", "allowed-tools", "metadata"}
 
 
-def finding(level: str, code: str, message: str) -> dict[str, str]:
-    return {"level": level, "code": code, "message": message}
-
-
-def parse_skill(path: Path) -> tuple[dict[str, object], str, list[dict[str, str]]]:
-    text = path.read_text(encoding="utf-8")
-    match = FRONTMATTER_RE.match(text)
-    if not match:
-        return {}, text, [finding("error", "frontmatter", "missing or malformed YAML frontmatter")]
-
-    try:
-        data = yaml.safe_load(match.group(1))
-    except yaml.YAMLError as exc:
-        return {}, match.group(2), [finding("error", "frontmatter", f"invalid YAML: {exc}")]
-
-    if not isinstance(data, dict):
-        return {}, match.group(2), [finding("error", "frontmatter", "frontmatter must be a mapping")]
-    return data, match.group(2), []
-
-
-def markdown_prose(text: str) -> str:
-    """Return Markdown outside fenced and inline code for prose-only checks."""
-    prose: list[str] = []
-    fence: tuple[str, int] | None = None
-    for line in text.splitlines(keepends=True):
-        if fence:
-            marker, length = fence
-            if re.fullmatch(rf" {{0,3}}{re.escape(marker)}{{{length},}}[ \t]*(?:\n)?", line):
-                fence = None
-            prose.append("\n" if line.endswith("\n") else "")
-            continue
-        match = FENCE_OPEN_RE.match(line)
-        if match:
-            run = match.group(1)
-            fence = (run[0], len(run))
-            prose.append("\n" if line.endswith("\n") else "")
-            continue
-        prose.append(line)
-
-    text = "".join(prose)
-    visible: list[str] = []
-    index = 0
-    while index < len(text):
-        if text[index] != "`":
-            visible.append(text[index])
-            index += 1
-            continue
-        end = index
-        while end < len(text) and text[end] == "`":
-            end += 1
-        delimiter = text[index:end]
-        close = text.find(delimiter, end)
-        while close >= 0 and (
-            (close > 0 and text[close - 1] == "`")
-            or (close + len(delimiter) < len(text) and text[close + len(delimiter)] == "`")
-        ):
-            close = text.find(delimiter, close + len(delimiter))
-        if close < 0:
-            visible.append(delimiter)
-            index = end
-            continue
-        visible.extend("\n" for char in text[end:close] if char == "\n")
-        index = close + len(delimiter)
-    return "".join(visible)
+def finding(code: str, message: str) -> dict[str, str]:
+    return {"level": "error", "code": code, "message": message}
 
 
 def validate(skill_dir: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
     skill_path = skill_dir / "SKILL.md"
+    findings: list[dict[str, str]] = []
+    description_text = ""
+    text = ""
+    body = ""
+
     if not skill_path.is_file():
-        return [finding("error", "skill-file", f"missing {skill_path}")], {}
-
-    text = skill_path.read_text(encoding="utf-8")
-    data, body, findings = parse_skill(skill_path)
-    keys = set(data)
-    if keys != {"name", "description"}:
-        findings.append(
-            finding(
-                "error",
-                "frontmatter-keys",
-                f"frontmatter keys must be name + description; found {sorted(keys)}",
-            )
-        )
-
-    name = data.get("name")
-    description = data.get("description")
-    if not isinstance(name, str) or not NAME_RE.fullmatch(name):
-        findings.append(finding("error", "name", "name must be lowercase kebab-case"))
-    elif name != skill_dir.name:
-        findings.append(
-            finding("error", "name-directory", f"name {name!r} does not match directory {skill_dir.name!r}")
-        )
-
-    if not isinstance(description, str) or not description.strip():
-        findings.append(finding("error", "description", "description must be a non-empty string"))
-        description_text = ""
+        findings.append(finding("skill-file", f"missing {skill_path}"))
     else:
-        description_text = description.strip()
-        if len(description_text) > 1024:
-            findings.append(finding("error", "description-length", "description exceeds 1,024 characters"))
-        elif len(description_text) > 400:
+        text = skill_path.read_text(encoding="utf-8")
+        match = FRONTMATTER_RE.match(text)
+        if not match:
             findings.append(
-                finding("warning", "description-target", "description exceeds the 400-character lean target")
+                finding("frontmatter", "missing or malformed YAML frontmatter")
             )
+        else:
+            body = match.group(2)
+            try:
+                data = yaml.safe_load(match.group(1))
+            except yaml.YAMLError as exc:
+                findings.append(finding("frontmatter", f"invalid YAML: {exc}"))
+                data = None
 
-    lines = len(text.splitlines())
-    words = len(text.split())
-    if lines >= 500:
-        findings.append(finding("error", "line-limit", f"SKILL.md has {lines} lines; hard limit is <500"))
-    elif lines > 180:
-        findings.append(finding("warning", "line-target", f"SKILL.md has {lines} lines; lean target is <=180"))
-    if words > 1500:
-        findings.append(finding("warning", "word-target", f"SKILL.md has {words} words; lean target is <=1,500"))
-
-    if re.search(r"^##\s+Inherits from\b", body, re.MULTILINE | re.IGNORECASE):
-        findings.append(finding("error", "inherits", "global invariant blocks belong in AGENTS.md / CLAUDE.md"))
-    if re.search(r"^##\s+When to Run\b", body, re.MULTILINE | re.IGNORECASE):
-        findings.append(finding("error", "when-to-run", "routing belongs in frontmatter description"))
-
-    h2_headings = re.findall(r"^##\s+(.+?)\s*$", body, re.MULTILINE)
-    duplicates = sorted(h for h, count in Counter(h2_headings).items() if count > 1)
-    if duplicates:
-        findings.append(finding("error", "duplicate-heading", f"duplicate level-two sections: {duplicates}"))
-
-    dot_blocks = DOT_BLOCK_RE.findall(body)
-    has_flow = bool(re.search(r"^##\s+Flow\s*$", body, re.MULTILINE))
-    if has_flow and not dot_blocks:
-        findings.append(finding("error", "flow-block", "Flow section requires one dot block"))
-    if len(dot_blocks) > 1:
-        findings.append(finding("warning", "flow-count", "keep one main Flowchart in SKILL.md"))
-    flow_nodes: set[str] = set()
-    for index, dot in enumerate(dot_blocks, 1):
-        if dot.count("{") != dot.count("}"):
-            findings.append(finding("error", "dot-braces", f"dot block {index} has unbalanced braces"))
-        nodes = {node: attrs for node, attrs in DOT_NODE_RE.findall(dot)}
-        flow_nodes.update(node.strip('"') for node in nodes)
-        edges = DOT_EDGE_RE.findall(dot)
-        if not any("shape=doublecircle" in attrs.replace(" ", "") for attrs in nodes.values()):
-            findings.append(finding("error", "dot-terminal", f"dot block {index} has no terminal node"))
-        diamonds = [node for node, attrs in nodes.items() if "shape=diamond" in attrs.replace(" ", "")]
-        for node in diamonds:
-            outgoing = [edge for edge in edges if edge[0] == node]
-            if len(outgoing) < 2:
+            if not isinstance(data, dict):
                 findings.append(
-                    finding("error", "dot-branch", f"decision node {node} needs at least two outgoing edges")
+                    finding("frontmatter", "frontmatter must be a mapping")
                 )
-            if any("label=" not in attrs.replace(" ", "") for _, _, attrs in outgoing):
-                findings.append(
-                    finding("error", "dot-label", f"every outgoing edge from decision node {node} needs a label")
-                )
-
-    process = re.search(
-        r"^## Process\s*$\n(.*?)(?=^## |\Z)",
-        body,
-        re.MULTILINE | re.DOTALL,
-    )
-    if process and flow_nodes:
-        groups = re.findall(
-            r"^###\s+([A-Z][A-Z0-9]*(?:/[A-Z][A-Z0-9]*)*)\.",
-            process.group(1),
-            re.MULTILINE,
-        )
-        process_ids = {node for group in groups for node in group.split("/")}
-        unknown = sorted(process_ids - flow_nodes)
-        if unknown:
-            findings.append(
-                finding(
-                    "error",
-                    "flow-process-id",
-                    f"Process headings reference unknown Flow nodes: {unknown}",
-                )
-            )
-
-    for target in MARKDOWN_LINK_RE.findall(markdown_prose(body)):
-        if target.startswith(("http://", "https://", "#", "mailto:")):
-            continue
-        clean = target.split("#", 1)[0]
-        if clean and not (skill_dir / clean).exists():
-            findings.append(finding("error", "broken-link", f"linked resource does not exist: {target}"))
+            else:
+                keys = set(data)
+                unexpected = keys - ALLOWED_FRONTMATTER
+                missing = {"name", "description"} - keys
+                if unexpected or missing:
+                    findings.append(
+                        finding(
+                            "frontmatter-keys",
+                            "frontmatter requires name + description and supports only "
+                            f"{sorted(ALLOWED_FRONTMATTER)}; missing={sorted(missing)}, "
+                            f"unexpected={sorted(unexpected)}",
+                        )
+                    )
+                name = data.get("name")
+                if not isinstance(name, str) or not NAME_RE.fullmatch(name):
+                    findings.append(
+                        finding("name", "name must be lowercase kebab-case")
+                    )
+                elif name != skill_dir.name:
+                    findings.append(
+                        finding(
+                            "name-directory",
+                            f"name {name!r} does not match directory {skill_dir.name!r}",
+                        )
+                    )
+                elif len(name) > 64:
+                    findings.append(finding("name-length", "name exceeds 64 characters"))
+                description = data.get("description")
+                if not isinstance(description, str) or not description.strip():
+                    findings.append(
+                        finding(
+                            "description", "description must be a non-empty string"
+                        )
+                    )
+                else:
+                    description_text = description.strip()
+                    if "<" in description_text or ">" in description_text:
+                        findings.append(
+                            finding(
+                                "description-markup",
+                                "description must not contain angle brackets",
+                            )
+                        )
+                    if len(description_text) > 1024:
+                        findings.append(
+                            finding(
+                                "description-length",
+                                "description exceeds 1,024 characters",
+                            )
+                        )
+            if not body.strip():
+                findings.append(finding("body", "SKILL.md body must be non-empty"))
 
     metrics = {
         "description_chars": len(description_text),
-        "lines": lines,
-        "words": words,
-        "errors": sum(item["level"] == "error" for item in findings),
-        "warnings": sum(item["level"] == "warning" for item in findings),
+        "lines": len(text.splitlines()),
+        "words": len(text.split()),
+        "errors": len(findings),
+        "warnings": 0,
     }
     return findings, metrics
 
 
 @click.command()
-@click.argument("skill_directory", type=click.Path(path_type=Path, exists=True, file_okay=False))
+@click.argument(
+    "skill_directory", type=click.Path(path_type=Path, exists=True, file_okay=False)
+)
 @click.option("--json-output", is_flag=True, help="Emit machine-readable JSON.")
-@click.option("-v", "--verbose", is_flag=True, help="Include debug logging.")
-def main(skill_directory: Path, json_output: bool, verbose: bool) -> None:
-    """Validate SKILL_DIRECTORY against the static Wayne skill contract."""
+def main(skill_directory: Path, json_output: bool) -> None:
+    """Validate SKILL_DIRECTORY metadata required by the skill loader."""
 
-    logger.remove()
-    logger.add(sys.stderr, level="DEBUG" if verbose else "INFO")
     findings, metrics = validate(skill_directory.resolve())
-    logger.debug("validated {}", skill_directory.resolve())
-
     if json_output:
-        print(json.dumps({"metrics": metrics, "findings": findings}, indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                {"metrics": metrics, "findings": findings},
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
     else:
         print(
-            f"{skill_directory}: {metrics.get('errors', 0)} error(s), "
-            f"{metrics.get('warnings', 0)} warning(s); "
-            f"{metrics.get('description_chars', 0)} description chars, "
-            f"{metrics.get('lines', 0)} lines, {metrics.get('words', 0)} words"
+            f"{skill_directory}: {metrics['errors']} error(s), 0 warning(s); "
+            f"{metrics['description_chars']} description chars, "
+            f"{metrics['lines']} lines, {metrics['words']} words"
         )
         for item in findings:
-            print(f"[{item['level'].upper()}] {item['code']}: {item['message']}")
-
-    if metrics.get("errors", 0):
+            print(f"[ERROR] {item['code']}: {item['message']}")
+    if findings:
         raise SystemExit(1)
 
 

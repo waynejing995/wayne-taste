@@ -1,8 +1,9 @@
-# Forge static-validation Flow intent
+# Forge loader-validation Flow intent
 
-Static validation is a blocking gate, not an informational action. A generated
-child with malformed frontmatter, broken resources, or failing bundled scripts
-must return to revision before behavioral evaluation, approval, or live writing.
+Loader validation is a blocking gate, not an informational action. A generated
+child with malformed or unsupported frontmatter must return to revision before
+behavioral evaluation, approval, or live writing. Bundled operational scripts are
+tested separately against their real job.
 
 The deterministic oracle owns only the graph structure:
 

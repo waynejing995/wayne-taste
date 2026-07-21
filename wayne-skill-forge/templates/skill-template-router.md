@@ -7,9 +7,9 @@ description: <180-400 characters: what situation family this routes, when to use
 
 <One sentence: select one playbook from observable evidence; do not execute every playbook.>
 
-<!-- Map every routing requirement to one owner before compressing. When routing
-     inputs or outputs have an exact schema, keep that schema in one direct
-     reference and validate it; do not duplicate it across playbooks. -->
+<!-- Map every routing requirement to one owner before compressing. Add a schema
+     and checker only when a named non-AI consumer requires them; AI-readable
+     routing prose is judged semantically. -->
 
 ## Playbooks
 

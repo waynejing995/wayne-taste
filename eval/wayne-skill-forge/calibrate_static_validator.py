@@ -1,13 +1,9 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = [
-#   "click>=8.1",
-#   "loguru>=0.7",
-#   "pyyaml>=6.0",
-# ]
+# dependencies = ["click>=8.1", "pyyaml>=6.0"]
 # ///
-"""Calibrate Forge's structural validator against semantic-proxy regressions."""
+"""Calibrate Forge validation against the official loader-level contract."""
 
 from __future__ import annotations
 
@@ -23,107 +19,91 @@ assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
-
 VALID = """---
 name: sample-skill
-description: Performs one local sample procedure when asked for sample validation.
+description: Performs one local sample procedure when asked.
 ---
 
 # Sample Skill
 
-## Flow
-
-```dot
-digraph sample {
-    A [label="Draft", shape=box];
-    B [label="Valid?", shape=diamond];
-    R [label="Revise", shape=box];
-    X [label="Done", shape=doublecircle];
-    A -> B;
-    B -> R [label="no"];
-    B -> X [label="yes"];
-    R -> A;
-}
-```
-
-## Process
-
-### A. Draft
-
-Read `references/context.md`.
-
-### R. Revise
-
-Repair the observed issue.
-
-### Notes
-
-First local note.
-
-### Notes
-
-Second local note with different context.
-
-## Checklist
-
-- A separate contextual reviewer decides whether this restates the Flow.
-- Literal hook syntax: `- [Title](file.md) — hook`.
-
-```text
-[Title](fenced-example.md)
-```
+Use any clear Markdown organization that helps the agent do the task.
 """
+
+
+def write(root: Path, text: str, name: str = "sample-skill") -> Path:
+    skill = root / name
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(text, encoding="utf-8")
+    return skill
 
 
 def codes(skill: Path) -> set[str]:
     findings, _ = MODULE.validate(skill)
-    return {item["code"] for item in findings if item["level"] == "error"}
-
-
-def write_skill(root: Path, text: str, *, resource: bool = True) -> Path:
-    skill = root / "sample-skill"
-    skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text(text, encoding="utf-8")
-    if resource:
-        (skill / "references").mkdir()
-        (skill / "references/context.md").write_text("# Context\n", encoding="utf-8")
-        (skill / "references/runtime-only.md").write_text(
-            "# Conditionally discovered resource\n", encoding="utf-8"
-        )
-    return skill
+    return {item["code"] for item in findings}
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="forge-static-calibration-") as temp:
+    with tempfile.TemporaryDirectory(prefix="forge-loader-calibration-") as temp:
         root = Path(temp)
-        valid = write_skill(root / "valid", VALID)
-        assert not codes(valid), codes(valid)
+        assert not codes(write(root / "valid", VALID))
 
-        duplicate = write_skill(root / "duplicate", VALID + "\n## Process\n\nDuplicate.\n")
-        assert "duplicate-heading" in codes(duplicate), codes(duplicate)
+        missing_frontmatter = write(root / "missing", "# Sample\n")
+        assert "frontmatter" in codes(missing_frontmatter)
 
-        unknown = write_skill(
-            root / "unknown",
-            VALID.replace("### R. Revise", "### Z. Revise"),
+        missing_description = write(
+            root / "description",
+            VALID.replace(
+                "description: Performs one local sample procedure when asked.\n", ""
+            ),
         )
-        assert "flow-process-id" in codes(unknown), codes(unknown)
+        assert "frontmatter-keys" in codes(missing_description)
 
-        unlabeled = write_skill(
-            root / "unlabeled",
-            VALID.replace('    B -> R [label="no"];', "    B -> R;"),
+        supported_metadata = write(
+            root / "metadata",
+            VALID.replace(
+                "description: Performs one local sample procedure when asked.\n",
+                "description: Performs one local sample procedure when asked.\n"
+                "metadata:\n  owner: wayne\n",
+            ),
         )
-        assert "dot-label" in codes(unlabeled), codes(unlabeled)
+        assert not codes(supported_metadata), codes(supported_metadata)
 
-        broken_link = write_skill(
-            root / "broken-link",
-            VALID + "\n[Title](missing.md)\n",
+        unknown_key = write(
+            root / "unknown-key",
+            VALID.replace(
+                "description: Performs one local sample procedure when asked.\n",
+                "description: Performs one local sample procedure when asked.\n"
+                "unknown: value\n",
+            ),
         )
-        assert "broken-link" in codes(broken_link), codes(broken_link)
+        assert "frontmatter-keys" in codes(unknown_key)
+
+        bad_name = write(
+            root / "bad-name",
+            VALID.replace("name: sample-skill", "name: Sample Skill"),
+        )
+        assert "name" in codes(bad_name)
+
+        mismatch = write(root / "mismatch", VALID, name="different-directory")
+        assert "name-directory" in codes(mismatch)
+
+        empty_body = write(
+            root / "empty",
+            "---\nname: sample-skill\ndescription: Valid description.\n---\n",
+        )
+        assert "body" in codes(empty_body)
+
+        arbitrary_markdown = write(
+            root / "markdown",
+            VALID
+            + "\n## When to Run Diagnostics\n\n"
+            + "## Flow\n\nA prose flow with no DOT block.\n",
+        )
+        assert not codes(arbitrary_markdown), codes(arbitrary_markdown)
 
     print(
-        "PASS: repeated H3, Flow+Checklist, and conditional resources are not "
-        "semantic-scored; code examples are not links; real broken links, H2, "
-        "node IDs, and decision edges stay structural"
+        "PASS: loader metadata rejects invalid fixtures, accepts supported metadata, "
+        "and ignores arbitrary Markdown"
     )
     return 0
 

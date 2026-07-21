@@ -60,9 +60,8 @@ candidate forge → child skill B → fresh downstream agent → task result B
 - Store child skills under neutral IDs so downstream agents and judges do not know
   which forge produced them.
 - Repeat across procedure, lens, and router when the forge claims all three.
-- Run every bundled script. For validators, record a passing positive fixture,
-  one failing mutation per invariant family with expected findings, and lint/static
-  results. Manual inspection does not count as execution.
+- Run every bundled operational script. For a real machine-consumed contract,
+  record one valid fixture and one mutation per independent machine invariant.
 
 ### Stage 2: execute through the child skills
 
@@ -76,9 +75,8 @@ candidate forge → child skill B → fresh downstream agent → task result B
   identity or expected winner.
 - When the child creates a machine-checkable artifact, run its frozen deterministic
   checker before the blind judge. Keep invalid output unchanged as evidence.
-- Freeze that checker from the approved intent before candidate generation. Never
-  use only the child-authored validator as the oracle; it may encode the same drift
-  as the child schema and template.
+- Freeze any machine-interface checker before candidate generation. Never use a
+  child-authored checker as the semantic oracle; it may encode the same drift.
 - Trace every deterministic finding to an explicit clause in the published intent
   or task. A hidden evaluator expectation is an evaluator defect, not a candidate
   failure.
@@ -213,7 +211,7 @@ When candidate fails, connect the failure to one smallest correction:
 - wrong route → sharpen one observable predicate;
 - skipped gate → add one explicit gate plus reason;
 - wrong shape → add or repair a template;
-- repeated fragile work → add a validator or script.
+- repeated fragile operation → add and execute an operational script.
 
 Re-run the failed case and one neighboring case. Do not add a general essay in
 response to one miss.

@@ -11,14 +11,8 @@ description: <180-400 characters: what the workflow does, when to use it, concre
      with this one. Do not add an Inherits block or a body When-to-Run section. -->
 
 <!-- Before compressing, map every approved requirement to body / reference /
-     template / validator / eval. If the output has two or more of: exact grammar,
-     cross-field references, unique ownership, verbatim carry, ordered dependencies,
-     or machine terminals, add one schema reference, one aligned template, and a
-     deterministic validator. Freeze exact literals/sentinels/cardinalities before
-     drafting. For runtime source inputs, rebuild that literal/relationship ledger
-     from the actual sources. Link resources directly and run one valid fixture plus
-     one minimal mutation per independent invariant; self-consistency is not intent
-     fidelity. Stop on contradictory clauses. Source-relative checks read their source. -->
+     template / eval. AI-readable output stays semantic. Add a machine schema or
+     checker only when a named parser/API/executable consumes the output. -->
 
 ## Flow
 
@@ -68,8 +62,7 @@ digraph <name> {
 - Output: <artifact or state transition>.
 - Verify: <observable condition>.
 
-<!-- For a machine-checkable output, D creates from the canonical template and E
-     runs the bundled validator. Do not replace execution with manual inspection. -->
+<!-- Test bundled operational scripts by executing their real job. -->
 
 ### F. Revise from failure
 
