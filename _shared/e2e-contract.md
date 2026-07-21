@@ -1,11 +1,11 @@
 # E2E Verification Contract — the runnable proof a feature actually works
 
-A reusable contract format that pins down, at design time, how each user-observable
+A reusable information contract that pins down, at design time, how each user-observable
 requirement will be **run the way a real user runs it** — concrete process, concrete
 data, concrete entrypoint, concrete observable outcome. It is the single source of
 truth (SSoT) for end-to-end verification: written once by `wayne-test-design` (which
 `wayne-mind-explode` invokes at design time), carried unchanged by `wayne-plan`, executed
-only by `wayne-verify`, and gated on by `wayne-ship`. No other skill redeclares its format
+only by `wayne-verify`, and gated on by `wayne-ship`. No other skill redeclares its ownership
 — they all link here.
 
 It exists to stop the silent degradation where "the feature works" quietly collapses
@@ -14,9 +14,9 @@ contract answers *does the feature actually work in real use*.
 
 ---
 
-## The Format (LOCKED)
+## Required information
 
-A single markdown table. These columns, in this order, exactly:
+A Markdown table is the recommended compact view:
 
 | ID | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
 |---|-----------|--------------|-----------|-----------------|----------------------|--------|
@@ -28,14 +28,19 @@ A single markdown table. These columns, in this order, exactly:
 - **Observable (pass = ?)** — the real user-visible outcome that proves it works.
 - **Status** — ⬜ / ✅ / ❌ (see lifecycle below). Starts ⬜.
 
+Equivalent headings, grouping, or prose are acceptable when all of this information
+and its ownership remain unambiguous. This artifact is read by agents, not parsed by
+a machine schema; table shape, column order, and heading spelling do not decide
+correctness.
+
 ---
 
-## Why Environment Is Three Fixed Sub-Columns
+## Why environment has three required facts
 
-Environment is **not** free text. Free text degrades into vague hand-waving — "test in
-the test env", "run it locally" — which e2e can then be silently mocked around. Forcing
-three concrete, reproducible sub-columns makes the agent commit, at design time, to an
-environment that can actually be stood up and driven:
+Environment must identify three concrete facts. Vague text such as "test in the test
+env" or "run it locally" lets verification silently mock around the real path. Process,
+data, and entrypoint must be reproducible whether they appear as columns, bullets, or
+another clear presentation:
 
 | Sub-column | Answers | Good | Bad (rejected) |
 |---|---|---|---|
@@ -78,9 +83,9 @@ code-review, not ship — touches this column. Passing unit tests never flips �
 **Mandatory.** Every requirement that has a user-observable path MUST get a contract
 row. If a user can do it and see a result, it has a row.
 
-**Skip — but declare.** Requirements with NO user-observable path — pure refactor,
-pure algorithm, pure internal config — do NOT get table rows. Instead they get one
-explicit line beneath the table:
+**Skip — but declare.** Requirements with no user-observable path — pure refactor,
+pure algorithm, pure internal config — do not get a fake row. Record an explicit
+rationale, for example:
 
 ```
 E2E: none — <reason, e.g. "internal refactor of db.py, no behavior change">
