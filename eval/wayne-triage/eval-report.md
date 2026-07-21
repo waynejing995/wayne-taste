@@ -88,3 +88,12 @@ Residual uncertainty for this hotfix: the generic Claude trial runner retained t
 final JSON but not the native stream tool trace, so unchanged tracker bytes and the
 result prove no observed publication, not the absence of every attempted external
 write. A later trace-enabled publication case should close that proof gap.
+
+## 2026-07-21 AI-handoff boundary hotfix
+
+Evidence, scout/tester returns, tracker proposals, external reports, and checkpoint
+packets are AI-readable artifacts. Their templates remain useful shared guides, but
+headings, field order, exact blocks, and table shape no longer decide meaning.
+Immutable tracker/Git state and real Skill/path existence remain observable facts;
+the blind rubric owns evidence completeness, routing, attribution, and handoff
+meaning. No provider cell was rerun for this prompt-only change.

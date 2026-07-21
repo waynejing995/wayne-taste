@@ -156,10 +156,11 @@ for a separate tracker-write owner. Triage never publishes that proposal.
 
 For `escalate-incident` or `route-to-owner`, render
 [the triage report](templates/triage-report.md) and create no checkpoint. Preserve
-its seven sections without renaming or omission: Executive summary, Symptom,
-Reproduction, Root-cause analysis, Attribution, Recommended next action, and
-Evidence file. Within Recommended next action, retain Route, Desired behavior,
-Key interfaces/contracts, Acceptance criteria, Out of scope, and Handoff target.
+the information represented by its seven suggested sections: executive summary,
+symptom, reproduction, root-cause analysis, attribution, recommended next action,
+and evidence file. The recommendation still carries route, desired behavior, key
+interfaces/contracts, acceptance criteria, out-of-scope, and handoff target, but
+headings and order are not a semantic grammar.
 For `uncertain` or `needs-info`, ask for the smallest discriminating observable
 and create no report or checkpoint.
 
@@ -168,4 +169,5 @@ and create no report or checkpoint.
 - No product fix, implementation plan, tracker mutation, KB write, or unrequested commit.
 - No route from a hunch, missing repro, feel-word, or uncited field.
 - No raw large-log dump returned into main context; structured fields only.
-- No bespoke handoff format and no line-number-dependent next prompt.
+- Use the shared handoff information contract; do not invent a second state owner
+  or make the next prompt depend on stale line numbers. Layout remains advisory.

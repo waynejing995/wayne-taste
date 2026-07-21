@@ -12,12 +12,11 @@ This harness freezes all front-door routes claimed by `wayne-triage`:
 - `architecture`: three failed fixes → `wayne-mind-explode`.
 - `external-owner`: render a report and create no Wayne checkpoint.
 
-Tracker cases also require one non-empty `## Proposed tracker comment`. The
-deterministic checker owns only that structure and tracker-state immutability;
-[the blind rubric](semantic-rubric.md) owns whether the proposal is complete and
-whether the result preserves the no-publication boundary. It also owns prose-only
-questions, classifications, failure meaning, and invocation claims; the checker
-does not infer those meanings from punctuation or keywords.
+Tracker cases require one complete proposed comment. Legacy checker observations
+may locate a likely proposal and prove tracker-state immutability; only [the blind
+rubric](semantic-rubric.md) decides proposal completeness, no-publication meaning,
+questions, classification, failure meaning, and invocation claims. Headings,
+punctuation, keywords, and field order are not semantic gates.
 
 Internal handoffs are checked against the repository's real `wayne-checkpoint`
 Skill and canonical packet template, not a local substitute.
@@ -25,6 +24,7 @@ Skill and canonical packet template, not a local substitute.
 ## Calibrate
 
 ```bash
+# Legacy checker calibration is optional reviewer evidence, not the verdict.
 uv run --no-project python eval/wayne-triage/calibrate.py
 ```
 
@@ -34,9 +34,8 @@ uv run --no-project python eval/wayne-triage/calibrate.py
 bash eval/wayne-triage/prepare_trial.sh failure wayne-triage \
   eval/.runs/wayne-triage/control-failure
 
-uv run --no-project python eval/wayne-triage/check_trial.py \
-  eval/.runs/wayne-triage/control-failure --case failure \
-  --output eval/.runs/wayne-triage/control-failure/codex-final.txt
+Read the evidence file, sources, packet/report, trace, and any checker observations
+with the blind rubric before deciding the result.
 ```
 
 Run the trial through `eval/run_isolated_agent.sh`. Generated candidates, traces,

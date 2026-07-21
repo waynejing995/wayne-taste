@@ -1,10 +1,10 @@
-# Evidence File Template
+# Evidence File Guide
 
-The single source of truth for one triage. Copy this shape to
-`<cwd>/.wayne/triage/<date>-<slug>.md`. These are **structured landing fields, not an
-essay** — structured artifacts survive context compression and stay stable across
-re-reads; free prose does not. Every subagent writes back into these fields, and
-the main agent reads only these fields (never the raw logs the subagent saw).
+The single source of truth for one triage. Use this layout as a shared guide at
+`<cwd>/.wayne/triage/<date>-<slug>.md`. Named landing information survives context
+compression better than an essay, but headings, field order, and table shape are
+not a machine schema. Every subagent writes concise evidence into this file, and
+the main agent reads the evidence file rather than raw subagent logs.
 
 ## Why landing fields, not prose
 
@@ -20,11 +20,11 @@ the main agent reads only these fields (never the raw logs the subagent saw).
 
 Unmarked claims are treated as OBSERVED — so if you didn't observe it, mark it.
 
-## Frontmatter (required — makes `.wayne/triage/` indexable + seen-before checkable)
+## Suggested frontmatter
 
-Every evidence file opens with YAML frontmatter. The seen-before check (Phase 1)
-matches new failures against prior entries by these structured fields — concept,
-not keyword. Keep them filled.
+Use YAML frontmatter when it helps index `.wayne/triage/`. The seen-before check
+matches failures by concept, not keyword or exact field presence. Preserve the
+meaning below even when an equivalent layout is clearer.
 
 ```yaml
 ---
@@ -41,7 +41,7 @@ repro_count: <how many times this exact root cause has been seen, int>
 ---
 ```
 
-## The schema
+## Recommended evidence layout
 
 ```markdown
 # Triage: <slug>   ·   <date>
