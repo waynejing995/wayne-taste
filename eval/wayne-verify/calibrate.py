@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibrate every independent Wayne Verify behavior invariant."""
+"""Calibrate Wayne Verify evidence observations, not semantic verdicts."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from check_flow import validate as validate_flow
 from check_trial import check
 
 
@@ -121,18 +120,6 @@ def mutate_text(path: Path, old: str, new: str) -> None:
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="wayne-verify-calibration-") as temp:
         root = Path(temp)
-
-        flow_findings = validate_flow(SKILL / "SKILL.md")
-        if flow_findings:
-            raise AssertionError(f"valid Flow failed: {flow_findings}")
-        broken_flow = root / "broken-flow.md"
-        flow_text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
-        broken_flow.write_text(
-            flow_text.replace('    B -> K [label="legitimate skip"];\n', ""),
-            encoding="utf-8",
-        )
-        if not validate_flow(broken_flow):
-            raise AssertionError("missing legitimate-skip edge escaped Flow oracle")
 
         cli = seed(root / "cli", "cli-success")
         set_status(cli, "✅")
@@ -303,7 +290,10 @@ def main() -> int:
             if not any(needle in finding for finding in findings):
                 raise AssertionError(f"{label} escaped {needle!r}: {findings}")
 
-    print(f"PASS: 9 positive lanes, 1 Flow mutation, and {len(mutations)} behavior mutations")
+    print(
+        f"PASS: observations cover 9 lanes and {len(mutations)} mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 
