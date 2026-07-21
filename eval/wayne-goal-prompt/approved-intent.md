@@ -3,11 +3,11 @@
 | ID | Intended behavior | Source | Oracle | Case | Status |
 |---|---|---|---|---|---|
 | GP01 | Output is a steering prompt, not a plan or implementation | `a2d3255` why/how; current Boundary | no product mutation; no plan/implementation artifact | all composition | PASS |
-| GP02 | Required sections are Goal, Context, Tasks, Verification required, Completion criteria; Current correction is correction-only | `a2d3255:SKILL.md`; template | exact headings/cardinality; correction absent on first issue | compose-real-path, existing-plan | PASS |
+| GP02 | The goal carries outcome, context, tasks, verification, and completion evidence; current correction is correction-only | `a2d3255:SKILL.md`; template | blind AI review of information and correction timing; headings are guidance | compose-real-path, existing-plan | PASS |
 | GP03 | Missing target, success, or verification evidence produces the minimum pointed Chinese question instead of invented criteria | `a2d3255:SKILL.md` Process 2-3 | one Chinese question; no goal block or mutation | vague-missing | PASS |
-| GP04 | Verification names exact commands and the real entrypoint; every completion criterion maps to observable proof | `a2d3255` why; exemplar | required commands and real-path negative boundary appear; no “run tests”/“works well” | compose-real-path | PASS |
+| GP04 | Verification names exact commands and the real entrypoint; every completion criterion maps to observable proof | `a2d3255` why; exemplar | blind AI review of command fidelity, real-path boundary, and observable mapping | compose-real-path | PASS |
 | GP05 | Existing plan/spec/decision docs remain SSoT and are referenced, not re-pasted | `5fed796` why/how | plan path and unit IDs present; unique rationale sentinels absent; §5/§6 self-contained | existing-plan | PASS |
-| GP06 | Prompt stays at most 4,000 characters without trimming §5/§6 | `708779e:SKILL.md` | extracted goal block length ≤4,000 and required proof remains | composed cases | PASS |
+| GP06 | Prompt stays compact without trimming verification or completion evidence | `708779e:SKILL.md` | measured size is reviewer evidence; blind AI review decides whether compression preserves proof | composed cases | PASS |
 | GP07 | Constraints stay with governed tasks; secrets use env-var names, not values | template; exemplar | task-local red-lines and env name retained; fixture secret absent | compose-real-path | PASS |
 | GP08 | No dispatch occurs until the user confirms both goal and cwd | `c0d7611` why/how; current Process 5 | pre-confirm worktree/process trace unchanged; Chinese confirm gate asks goal + cwd | composition cases | PASS |
 | GP09 | Confirmed dispatch uses the bundled headless goal adapter, project-local goal file, explicit cwd, YOLO params, JSONL, and inbox | `708779e` why/how | static/script oracle over exact public contract | candidate-static | PASS |

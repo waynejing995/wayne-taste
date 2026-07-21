@@ -1,7 +1,8 @@
-# Goal-prompt template — fill these 6 sections
+# Goal-prompt template — six-part guide
 
-Copy this skeleton, fill each section, delete the parenthetical hints. Emit the
-result as ONE copy-paste block. Sections 1/2/4/5/6 required; 3 by-need.
+Use this skeleton when it makes the goal easier to execute. Preserve the required
+information, but adapt headings or grouping when clearer. Delete the parenthetical
+hints and emit one copy-paste block. Current correction is by-need.
 
 ---
 
@@ -35,6 +36,6 @@ Verification required before completion:
 
 Completion criteria:
 - (testable bullet — each one checkable, each one mapping to a Verification cmd.)
-- (testable bullet — no "works well", no "更好看"; a machine could decide it.)
+- (testable bullet — state the observable evidence that decides it.)
 - (the real-path criterion: the thing works through the actual surface, not a stub.)
 - (the negative criterion: no secrets printed/committed, no fake substitute used.)
