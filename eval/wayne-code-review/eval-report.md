@@ -91,3 +91,9 @@ the summary is orientation only and cannot replace those sources. Direct
 calibration proves that both voices receive identical frozen intent, a post-freeze
 source edit cannot alter the payload, a newly loaded edit does alter it, and
 absolute, escaping, missing, or duplicate source paths fail loud.
+
+Follow-up 2026-07-21: the review mutation snapshot no longer opens every Git-visible
+untracked file. It freezes Git tracked state/diff and untracked path metadata, so
+unrelated unreadable caches cannot block review while before/after drift remains
+detectable. CLI, intent, dual-evidence, provider-failure, lint, and compile checks
+pass; live providers were not relaunched for this snapshot-only change.

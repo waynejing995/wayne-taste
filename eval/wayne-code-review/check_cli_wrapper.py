@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 
 def load_runner(skill: Path):
@@ -56,11 +58,38 @@ def main() -> int:
         if "--sandbox" in codex_command:
             findings.append("Codex command still imposes a filesystem sandbox")
 
+        subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.email", "eval@example.invalid"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "user.name", "Eval"], check=True
+        )
+        (repo / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "tracked.txt"], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
+        untracked = repo / "unreadable.pyc"
+        untracked.write_bytes(b"stale bytecode")
+        with mock.patch.object(
+            Path,
+            "open",
+            side_effect=AssertionError("repository snapshot opened file content"),
+        ):
+            before = runner.repo_manifest(repo)
+        untracked.write_bytes(b"changed stale bytecode")
+        after = runner.repo_manifest(repo)
+        if before == after:
+            findings.append("untracked metadata change was not detected")
+
     if findings:
         for finding in findings:
             print(f"FAIL: {finding}")
         return 1
-    print("PASS: no Codex sandbox override; default timeout is 1800 seconds")
+    print(
+        "PASS: no Codex sandbox override; timeout is 1800 seconds; "
+        "Git snapshot does not open untracked content"
+    )
     return 0
 
 

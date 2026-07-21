@@ -40,7 +40,7 @@ Required fields:
 | `task_sha256` | string | SHA-256 of the raw user task |
 | `base_sha` | string | Frozen `origin/main` commit |
 | `head_sha` | string | Frozen review head |
-| `repo_manifest_before_sha256` | string | Hash of the path, mode, and content manifest |
+| `repo_manifest_before_sha256` | string | Hash of Git tracked state/diff plus untracked path metadata |
 | `permissions` | string | Exact value `read-only` |
 
 ### `route_observed`

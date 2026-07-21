@@ -121,8 +121,9 @@ review type/routes plus the frozen intent inputs from A. When
 `WAYNE_REVIEW_OUTPUT_DIR` is set, do not override it; that
 path owns the evidence. The adapter must start exactly one Claude process and one
 Codex process in parallel with the same payload hash. Do not impose a Codex
-filesystem sandbox: the review-only packet and frozen before/after repository
-manifest own the mutation boundary. Keep the host command timeout at least as long
+filesystem sandbox: the review-only packet and frozen before/after Git-native
+snapshot own the mutation boundary without opening unrelated untracked content.
+Keep the host command timeout at least as long
 as the adapter's 1,800-second default. The primary host model is not a review voice
 and same-family subagents cannot substitute.
 

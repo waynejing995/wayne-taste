@@ -193,18 +193,33 @@ def git(repo: Path, *args: str) -> bytes:
 
 
 def repo_manifest(root: Path) -> str:
-    """Hash Git-visible product files plus index, HEAD, and refs state."""
+    """Hash Git-native tracked state plus metadata for untracked paths."""
 
     hasher = hashlib.sha256()
-    for label, data in (
-        ("index", git(root, "ls-files", "--stage", "-z")),
-        ("head", git(root, "rev-parse", "--verify", "HEAD")),
-        ("refs", git(root, "show-ref", "--head", "-d")),
-    ):
+    git_views = (
+        ("index", ("ls-files", "--stage", "-z")),
+        ("head", ("rev-parse", "--verify", "HEAD")),
+        ("refs", ("show-ref", "--head", "-d")),
+        ("status", ("status", "--porcelain=v2", "-z", "--untracked-files=all")),
+        (
+            "tracked-diff",
+            (
+                "diff",
+                "--binary",
+                "--full-index",
+                "--no-ext-diff",
+                "--no-color",
+                "HEAD",
+                "--",
+            ),
+        ),
+    )
+    for label, args in git_views:
+        data = git(root, *args)
         hasher.update(label.encode() + b"\0" + data + b"\0")
-    names = git(
-        root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"
-    ).split(b"\0")
+    names = git(root, "ls-files", "-z", "--others", "--exclude-standard").split(
+        b"\0"
+    )
     relative_names = sorted(
         name.decode("utf-8", errors="surrogateescape") for name in names if name
     )
@@ -223,12 +238,10 @@ def repo_manifest(root: Path) -> str:
             kind = "symlink"
         else:
             kind = "special"
-        hasher.update(f"{relative}\0{kind}\0{mode:o}\0".encode())
-        if kind == "file":
-            with path.open("rb") as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                    hasher.update(chunk)
-        elif kind == "symlink":
+        hasher.update(
+            f"{relative}\0{kind}\0{mode:o}\0{info.st_size}\0{info.st_mtime_ns}\0".encode()
+        )
+        if kind == "symlink":
             hasher.update(os.readlink(path).encode("utf-8", errors="surrogateescape"))
         hasher.update(b"\0")
     return hasher.hexdigest()

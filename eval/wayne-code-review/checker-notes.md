@@ -89,7 +89,8 @@ attribution, and read-only boundary above.
   subagent events.
 - Codex plain terminal text cannot prove session identity or write attempts. Use
   JSONL and stdin; enforce no mutation through the frozen before/after repository
-  manifest instead of a provider filesystem sandbox.
+  Git-native snapshot instead of a provider filesystem sandbox. The snapshot does
+  not open unrelated untracked file contents.
 - Compare the provider-neutral payload, not Claude/Codex transport wrappers.
 - A provider timeout or tool failure before a complete raw output makes the cell
   `invalid`. Do not repair partial output or treat it as `NO FINDINGS`.

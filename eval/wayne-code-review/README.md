@@ -16,6 +16,9 @@ with repository-relative paths and SHA-256 into one provider-neutral payload. Th
 caller summary is orientation only; both voices receive the complete selected
 source bytes and cannot silently choose a different plan or spec.
 
+The CLI wrapper lane also proves the mutation snapshot uses Git tracked state/diff
+plus untracked path metadata and never opens unrelated untracked file contents.
+
 ```bash
 uv run --no-project python eval/wayne-code-review/check_intent_payload.py \
   wayne-code-review
