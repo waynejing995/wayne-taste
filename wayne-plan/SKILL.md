@@ -15,7 +15,9 @@ Produce an English implementation plan that a fresh `wayne-work` agent can execu
   that relationship without creating a second state writer.
 - Stop on unresolved product behavior or compatibility policy; do not silently choose it. Do not brainstorm, design the test matrix, implement code, run the feature, commit, or ship.
 - Never invoke or depend on `gstack` or a `gstack`-named skill. Reviews must be provider-agnostic and independent of the authoring context.
-- On either blocked terminal, pass successful `check-blocked` stdout through byte-for-byte as the entire user-visible response; do not regenerate, wrap, or announce it.
+- Before the final checkpoint handoff, planning may change only the new plan file.
+  `wayne-checkpoint` separately owns its checkpoint artifacts. If source artifacts
+  or unrelated files need edits, stop and ask the user to fix or expand scope first.
 
 ## Flow
 
@@ -32,9 +34,8 @@ digraph wayne_plan {
     Y [label="MISSING_E2E", shape=doublecircle];
     E [label="Trace cleanup surfaces", shape=box];
     F [label="Draft canonical plan", shape=box];
-    G [label="Validation passes?", shape=diamond];
+    G [label="Independent reviews pass?", shape=diamond];
     H [label="Revise from findings", shape=box];
-    I [label="Independent reviews pass?", shape=diamond];
     J [label="Present plan", shape=box];
     K [label="Return-only requested?", shape=diamond];
     R [label="Return plan", shape=doublecircle];
@@ -54,9 +55,7 @@ digraph wayne_plan {
     F -> G;
     G -> H [label="no"];
     H -> F;
-    G -> I [label="yes"];
-    I -> H [label="no"];
-    I -> J [label="yes"];
+    G -> J [label="yes"];
     J -> K;
     K -> R [label="yes"];
     K -> L [label="no"];
@@ -73,7 +72,7 @@ digraph wayne_plan {
   not require Mind Explode, a decision log, or a spec. Route upstream only when a
   missing WHAT choice would change scope, behavior, risk, or compatibility.
 - Read `_shared/pipeline-id-contract.md` completely. Preserve upstream bytes: map
-  legacy numeric decision rows to `D<number>` only in the temporary ledger. Use
+  legacy numeric decision rows to `D<number>` only in the working coverage map. Use
   source meaning and artifact ownership—not headings, prefixes, keywords, or
   regex—to distinguish requirements, decisions, and review findings.
 - Follow references to the original test matrix. Read its complete E contract and the structurally bounded `## U-SEED` table, relevant repository files and tests, all active plans that touch the work, and applicable project or Wayne lessons.
@@ -81,18 +80,29 @@ digraph wayne_plan {
   every match, carry its title/path, trigger, prevention, and a concrete mitigation
   into `Applicable Lessons`; do not turn a non-match into a constraint. Record an
   explicit reason when none apply or an upstream decision dismissed the recall.
-- Read [the plan contract](references/plan-contract.md) completely before building validation inputs or authoring. It is the single schema owner.
+- Read [the plan contract](references/plan-contract.md) completely before authoring.
+  It defines semantic ownership and review expectations, not a Markdown grammar.
 
 ### B. Bind evidence and context
 
-- Before repository mutation, create the pre-run manifest with [the validator](scripts/validate_plan.py). Keep the manifest and all working ledgers in a temporary directory outside the repository root.
-- Build a temporary source ledger in the contract’s format from the actual decision log, spec, and matrix. Read every source completely and classify its obligations in context; never use lexical scanning to claim source completeness. Freeze hashes, exact requirements and decisions, every U-SEED row, the complete E block, ownership claims, exact literals, and forbidden alternatives. Canonical aliases never authorize editing their source rows. Compare clauses governing the same field; stop upstream if they accept different outputs.
-- Trace each requirement and decision forward to planned units. Inspect architecture, real files and symbols, similar implementation and test patterns, and active-plan assumptions. Do not ask for information discoverable from these sources.
+- Record the starting `git rev-parse HEAD` and `git status --short`. Use them at
+  review time to prove that only the new plan file changed; do not inventory,
+  recursively read, or hash the repository tree.
+- Build a temporary working coverage map from the actual decision log, spec, and
+  matrix. Its shape is free: it exists to help the agent trace requirements,
+  decisions, U-SEED rows, E ownership, exact literals, and forbidden alternatives.
+  Read every source completely and classify obligations in context; never use a
+  parser, headings, IDs, keywords, or regex to claim semantic completeness.
+- Trace each requirement and decision forward to planned units. Inspect architecture,
+  real files and symbols, similar implementation and test patterns, and active-plan
+  assumptions. Compare clauses governing the same behavior and stop upstream when
+  they conflict. Do not ask for information discoverable from these sources.
 
 ### C. Gate active conflicts
 
 - Compare the requested change with every relevant active plan and recorded decision. A contradiction, duplicate ownership, or unresolved product choice is an active conflict; implementation uncertainty is not.
-- On conflict, create no plan. Render the five-line `PLAN_CONFLICT` artifact defined by the contract, run `check-blocked`, and on success pass the command stdout through as the entire response.
+- On conflict, create no plan. Return the `PLAN_CONFLICT` blocker described by the
+  contract with the conflicting artifacts, owner, and concise Chinese explanation.
 
 ### D. Gate E ownership
 
@@ -100,8 +110,8 @@ digraph wayne_plan {
 - For a converged standalone direct request with no matrix, invoke
   `wayne-test-design` as a nested owner and resume here with its returned artifact;
   do not invoke Mind Explode or author the matrix yourself. For other inputs, or if
-  test design cannot establish E ownership, create no plan. Render the five-line
-  `MISSING_E2E` artifact, run `check-blocked`, and return its stdout unchanged.
+  test design cannot establish E ownership, create no plan. Return the
+  `MISSING_E2E` blocker with the affected artifacts, owner, and explanation.
 
 ### E. Trace cleanup surfaces
 
@@ -110,51 +120,57 @@ digraph wayne_plan {
 
 ### F. Draft the canonical plan
 
-- Copy [the plan template](templates/plan-template.md) and fill it under the contract. Choose the next unused filename for the current date; keep paths repository-relative and the prose English.
+- Use [the plan template](templates/plan-template.md) as a readable starting point,
+  not a grammar. Choose the next unused filename for the current date; keep paths
+  repository-relative and the prose English. Adapt headings or grouping when that
+  makes the plan clearer without losing required information.
 - Right-size detail to the actual dependency graph and risk. A small standalone
   change may use one or a few compact units; cross-cutting or high-risk work needs
   enough detail to close its real interfaces and failure paths. Never add units,
   prose, or review work to satisfy a size/depth quota.
 - Order units by dependency. Give every unit closed inputs/outputs, files and symbols, concrete control logic, test ownership, E coverage, verification, and source traces so another agent can implement it from the plan plus repository.
-- Carry the E block byte-for-byte. Re-author every source seed against a real `path::symbol` without changing its semantic obligations, map or drop each seed exactly once, add U rows only as `added`, and bind every U row to one unit. Keep both statuses under their downstream owners.
+- Preserve the complete E contract without changing its meaning, rows, IDs, or
+  status. Re-author every source seed against a real `path::symbol` without changing
+  its semantic obligations, map or drop each seed once with evidence, add any new U
+  coverage explicitly, and bind every U scenario to one unit. Keep both statuses
+  under their downstream owners.
 
-### G. Run deterministic validation
+### G. Run independent reviews
 
-- Run `check` from [the validator](scripts/validate_plan.py) with the plan, repository root, pre-run manifest, matrix, source ledger, and every available decision log/spec argument. Artifact-only validation is not source-fidelity evidence.
-- For each finding, name the directly observed structural invariant before changing
-  the plan. Hash, schema, exact carry, ID closure, repository-relative structured
-  paths, mutation scope, and event order are valid deterministic gates. A lexical
-  pattern over prose that claims vagueness, completeness, intent, causality, or
-  scenario quality is an evaluator defect, not a plan defect.
-- Require every valid deterministic gate to pass. Do not hand-edit the E block,
-  weaken the ledger, remove a source, or reshape clear prose to satisfy an evaluator
-  defect. Record the defective finding and let the independent AI review own its
-  claimed semantic question until the checker is fixed.
+- Dispatch two provider-agnostic reviews in fresh contexts.
+- Source-fidelity reads every decision log, spec, matrix, the working coverage map,
+  plan, and [source-fidelity protocol](references/source-fidelity-review.md). It
+  reverse-checks every source obligation and U seed, E ownership, scope, decisions,
+  rationale, and intended behavior in both directions.
+- Execution-readiness independently checks dependency closure, interfaces, real
+  files/symbols, unit ownership, U coverage, E advancement, cleanup, placeholders,
+  and whether a fresh `wayne-work` agent could execute each unit without product
+  redesign or inventing behavior.
+- Both reviews compare the starting HEAD/status, the agent's write history, and the
+  current diff before checkpoint handoff. Any mutation beyond the new plan file
+  fails the scope review. Git evidence is sufficient; do not scan unrelated files.
+- Neither reviewer may substitute headings, section order, table shape, keywords,
+  substring checks, regex, a script, or template agreement for contextual reading.
+  Provider/tool termination before a report is invalid and must be rerun.
 
 ### H. Revise from findings
 
-- Fix the smallest owning surface: upstream gap, plan content, template use, or ledger transcription. Never change an upstream source inside this procedure.
-- A validator finding authorizes no semantic rewrite. Preserve the intended
-  owner/member and repair the incorrect field; never weaken or rename a surface
-  solely to make two strings equal.
-- Re-run deterministic validation after every real plan revision. Do not loop on an
-  unchanged evaluator defect. If a finding exposes an unresolved product decision
-  or absent E ownership, follow C or D rather than continuing the loop.
-
-### I. Run independent reviews
-
-- Dispatch two provider-agnostic reviews in fresh contexts. Source-fidelity reads the decision log, spec, matrix, ledger, plan, and [source-fidelity review protocol](references/source-fidelity-review.md); it reports the preserved obligations for every exact seed row and fails any mapped scenario or drop reason that changes them. It also checks requirement/decision coverage, scope, rationale, and byte-exact E carry in both directions.
-- Execution-readiness is an independent agent review. It reverse-checks every source obligation through ledger and plan before checking dependency closure, interfaces, files/symbols, U ownership and seed accounting, E advancement, placeholders, cleanup, and whether each unit is executable without product redesign. Fail when implementation would require any behavior, scope, ownership, failure, compatibility, migration, or public-interface choice not covered by the decision log, spec, or plan. If repository evidence cannot close that choice, ask the user and revise the plan; never invent a default. Neither reviewer may substitute heading, keyword, substring, regex, script output, or validator status for contextual reading.
-- Revise on any finding, return to G, and repeat both reviews. Provider/tool termination before an observable report is invalid and must be rerun, not treated as a pass or failure.
+- Fix the smallest owning surface: upstream gap, plan content, template guidance, or
+  coverage-map transcription. Never change an upstream source inside this procedure.
+- Preserve the intended owner/member and semantic obligation; do not weaken a
+  requirement or rename a surface merely to make text look consistent.
+- Repeat both reviews after every plan revision. If a finding exposes an unresolved
+  product decision or absent E ownership, follow C or D instead of inventing a
+  default. Ask the user when repository evidence cannot close a required choice.
 
 ### J. Present the plan
 
-- Present only after deterministic validation and both reviews pass. Then set plan
-  frontmatter from `active` to `approved` and rerun deterministic validation before
-  handoff. Unless the caller supplied an exact response contract, summarize the
+- Present only after both reviews pass. Then set plan status from `active` to
+  `approved` and confirm the final scope diff before handoff. Unless the caller
+  supplied an exact response contract, summarize the
   approved plan and evidence concisely in Chinese while the plan file remains
-  English. Report its path; delete temporary ledgers and the pre-run manifest after
-  the gate record no longer needs them.
+  English. Report its path; discard temporary working notes after the review record
+  no longer needs them.
 
 ### L. Checkpoint handoff
 

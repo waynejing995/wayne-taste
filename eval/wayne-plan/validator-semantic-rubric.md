@@ -1,12 +1,15 @@
-# Blind semantic rubric: Plan execution readiness
+# Blind semantic rubric: Plan source fidelity and execution readiness
 
-Read the complete sources, repository, plan, and deterministic findings. Judge
-whether unit prose is concrete, whether referenced symbols/interfaces genuinely
-exist or are intentionally created, whether pseudocode has crossed into runnable
-implementation, and whether any git/path text is an executable or non-portable
-instruction. Also judge negation and quotation in context.
+Read every upstream source, relevant repository surface, working coverage map, and
+the complete plan. Judge whether all approved behavior, scope, ownership, timing,
+U/E obligations, decisions, and rationale are preserved, and whether a fresh
+executor can implement every unit without inventing a product choice.
 
-Do not use keyword, substring, fence-language, or path-looking regexes for these
-questions. Deterministic gates separately own structured `path::symbol` grammar,
-repository-relative paths, file existence/readability, exact `TBD`/`TODO` markers,
-schema, IDs, source hashes, and owner-bounded E/U tables.
+Check repository paths and symbols through contextual inspection. Check plan-only
+mutation through starting Git state, agent write history, and the final diff. Do not
+recursively inventory unrelated files.
+
+Regex, keywords, headings, section order, table shape, sentence form, and template
+agreement may surface reviewer questions but cannot pass or fail plan meaning. A
+paraphrase with equivalent obligations must remain eligible to pass; same-shaped
+text with weaker scope, modality, ownership, timing, or behavior must fail.

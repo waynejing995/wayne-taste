@@ -1,30 +1,29 @@
-# Plan validator-boundary hotfix
+# Plan runtime-validator removal hotfix
 
-The live Plan tree is
-`d3ccebc7b847de603e4d74cd3523ae9281c4966f8bc2e3b8c7f0ba71fc3bf872`.
+## Reproduced failure
+
+The former `snapshot` / `check` workflow recursively opened every repository file.
+Unrelated unreadable stale `.pyc` files blocked plan authoring and pushed the agent
+to request deletion or permission changes outside plan scope. This was an evaluator
+defect, not a plan or environment defect.
 
 ## Corrected ownership
 
-- E IDs are inventoried only inside the one bounded E2E Verification Contract
-  section. E-shaped review tables elsewhere are ignored.
-- Structured `path::symbol` fields still require repository-relative grammar and a
-  readable file. Whether a symbol is genuinely defined/appropriate is contextual
-  review, not a last-token grep.
-- Exact `TBD`/`TODO` markers remain deterministic. Other wording, code fences, git
-  text, and path-looking prose are judged for meaning by execution-readiness review,
-  not global keyword/regex scans.
+- `wayne-plan/scripts/validate_plan.py` is removed.
+- Plan Markdown has no runtime grammar, heading/order, table-shape, regex, manifest,
+  or five-line blocker gate.
+- Starting `HEAD` and `git status`, agent write history, and final diff prove that
+  plan authoring changed only the new plan file.
+- Two independent AI reviews own source fidelity, U/E ownership, plan completeness,
+  and execution readiness by reading the full sources and repository context.
+- A real future non-AI consumer may justify its own narrow interface validation;
+  agent-to-agent Markdown does not.
 
-## Calibration
+## Current proof
 
-- Bounded E owner: real `E1` passes with an external `E99` decoy; missing owner
-  section fails; bounded `E2E: none` passes.
-- Surface boundary: readable file passes without pretending to prove a future
-  symbol; missing file fails.
-- Plan artifact suite: one valid normal, 20 independent invalid mutations, and five
-  valid representation/prose variants pass as expected.
-- The new exact cases prove a specific “Add validation …” instruction passes while
-  a U-surface textual-prefix collision fails.
-- Pipeline-ID calibration and Forge static remain PASS (0 errors; one size warning).
-
-No model cell was scored for this deterministic boundary change. The blind rubric
-owns the semantic questions that were removed from runtime validation.
+- Forge loader validation: PASS.
+- No runtime validator command or manifest reference remains under `wayne-plan/`.
+- The old validator-specific eval scripts are historical harness material and must
+  be migrated before they are run again; they are not runtime gates.
+- Cross-agent behavioral rerun: pending harness migration; no superiority claim is
+  made from static evidence alone.

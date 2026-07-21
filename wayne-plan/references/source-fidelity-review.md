@@ -1,14 +1,14 @@
 # Source-fidelity review protocol
 
-Use this protocol only for the independent semantic review after deterministic
-validation. The plan contract owns the requirements; this review judges meanings
-that the validator cannot prove.
+Use this protocol for the independent semantic review after drafting. The plan
+contract owns the required information; this review judges source fidelity and
+downstream transfer through contextual reading.
 
-## Source-to-ledger review
+## Source-to-plan review
 
 Read every upstream artifact completely. Build an independent obligation list
-without seeing only the ledger's selected rows, then reconcile it against the
-ledger in both directions. For each source clause, record whether it is a product
+before relying on the author's working coverage map, then reconcile source, map,
+and plan in both directions. For each source clause, record whether it is a product
 requirement, decision, review finding, rationale, example, or non-normative
 context, with the surrounding evidence that determines that classification.
 Missing or misclassified obligations fail the review.
@@ -21,10 +21,10 @@ finding.
 
 ## Seed-by-seed review
 
-Read the original matrix, source ledger, approved decision log/spec, repository,
-and unmodified plan. For every ledger seed, independently:
+Read the original matrix, approved decision log/spec, repository, working coverage
+map, and unmodified plan. For every source seed, independently:
 
-1. Read its complete `exact` source row in context. State its accepted behavior,
+1. Read its complete source row in context. State its accepted behavior,
    rejected behavior, boundary classes, order or state timing, quantities,
    modality or negation, and other qualifiers that affect observable behavior.
 2. Locate its one plan disposition: the mapped U scenario or `Dropped Seeds`
@@ -35,13 +35,13 @@ and unmodified plan. For every ledger seed, independently:
    is warranted, and identify where the behavior remains carried or why it no
    longer applies. Convenience, duplication, or low priority alone does not
    justify losing an obligation.
-4. Emit one report item with the seed ID, its exact row, disposition, preserved
+4. Emit one report item with the seed ID, source row, disposition, preserved
    semantic obligations, evidence, and `PASS` or `FAIL`. Explain every failure as
    a specific narrowing, widening, normalization, omission, or qualifier change.
 
 Any seed failure fails the source-fidelity review. Return the plan to revision,
-then re-run deterministic validation and both independent reviews. Do not infer
-semantic equivalence from seed identity, similar vocabulary, or validator success.
+then re-run both independent reviews. Do not infer semantic equivalence from seed
+identity, similar vocabulary, template agreement, or Markdown shape.
 
 ## Behavioral review fixtures
 
