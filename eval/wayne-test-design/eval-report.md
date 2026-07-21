@@ -66,3 +66,12 @@ status ownership, provider isolation, and native-evidence requirements remain; e
 headings, seven-column layout, section order, and table grammar are now advisory.
 Legacy checker results may locate evidence but no longer decide semantics. No provider
 cell was rerun for this prompt-only boundary change.
+
+## 2026-07-22 semantic evaluator migration
+
+Behavior and static checkers now emit `AI_REVIEW_REQUIRED`. Their exact headers,
+row parsing, and keywords remain frozen observations only. The static wording/Flow
+checker was removed after it reported six false “missing intent” findings against
+the approved live skill. `semantic-rubric.md` judges source fidelity, U/E ownership,
+proof-axis isolation, native capability evidence, scope, and routing; only missing
+candidate resources and Git scope are mechanical gates.
