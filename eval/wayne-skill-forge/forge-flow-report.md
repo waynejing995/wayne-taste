@@ -6,9 +6,8 @@ The original paired-trial candidate tree was
 
 ## Gates
 
-- Flow structure: PASS.
-- Calibration: PASS; missing decision, missing failure edge, missing success edge,
-  and direct loader-to-behavior bypass are all rejected.
+- Flow observations: calibrated; missing decision, missing failure edge, missing
+  success edge, and direct loader-to-behavior bypass are all detected.
 - Same malformed-child task:
 
 | Model | Validator at trial time | Behavioral smoke | Child mutation | Semantic gate |
@@ -28,3 +27,8 @@ terminology-only Flow update.
 Residual uncertainty: this targeted case exercises the loader-failure branch,
 not the full procedure/lens/router meta-eval. The existing archetype harness remains
 separate and was not staged as part of this change.
+
+Follow-up 2026-07-22: the DOT checker now emits `AI_REVIEW_REQUIRED`; node/edge
+matches are calibrated observations, not a prompt-schema verdict. The actual loader
+validator remains a hard machine gate, and the blind rubric judges whether its
+failure blocks behavioral evaluation and writing.
