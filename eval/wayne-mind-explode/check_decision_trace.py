@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that each decision-log write makes exactly one new decision durable."""
+"""Collect decision-write timing observations for semantic review."""
 
 from __future__ import annotations
 
@@ -106,11 +106,12 @@ def main() -> int:
     parser.add_argument("--provider", choices=("auto", "claude", "codex"), default="auto")
     args = parser.parse_args()
     findings = validate_trace(args.trace, args.provider)
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print("PASS: one durable append per decision")
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "provider": args.provider,
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

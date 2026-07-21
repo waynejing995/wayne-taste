@@ -187,11 +187,13 @@ def main() -> int:
         if args.mode == "three-turn"
         else check_long(args.workspace.resolve(), args.provider)
     )
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print(f"PASS: decision DAG iteration ({args.mode}) / {args.provider}")
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "mode": args.mode,
+        "provider": args.provider,
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

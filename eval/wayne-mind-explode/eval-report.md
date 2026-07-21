@@ -66,3 +66,13 @@ response. It does not count labels, bullets, punctuation, or option keywords.
 Current deterministic calibration remains green: 6 positive fixtures plus 19
 independent mutations, and 10 DAG lanes plus 18 independent DAG mutations. This is
 a regression lock for the already-restored behavior, not a new runtime rewrite.
+
+## 2026-07-22 semantic evaluator migration
+
+Trial, DAG, and write-trace checkers now emit `AI_REVIEW_REQUIRED`. Their Markdown
+row/heading/keyword and punctuation-count findings are observations; the general
+blind rubric decides decision ownership, causal expansion, convergence, approval,
+review, and handoff meaning. Native write order, review JSON/hash, actual artifacts,
+Git scope, and forbidden downstream mutations remain direct evidence. The previous
+recursive repository-content walker was replaced with starting Git state and final
+diff/untracked paths.

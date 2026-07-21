@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Frozen external checker for Wayne Mind Explode behavioral trials."""
+"""Collect design-workflow observations for blind semantic review."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from check_decision_trace import validate_trace
 
 
-IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache"}
 COMPLETE_CASES = {"complete", "gstack-ban"}
 E2E_HEADER = "| ID | Env: entrypoint | Setup | Action | Observable outcome | Status |"
 DECISION_SOURCES = {"user", "codebase", "web", "constraint", "default", "review"}
@@ -21,22 +21,6 @@ RECOMMENDATION = re.compile(r"My recommendation:|我的建议|我的推荐|建�
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def files(root: Path) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for path in root.rglob("*"):
-        relative = path.relative_to(root)
-        if path.is_file() and not any(part in IGNORED_PARTS for part in relative.parts):
-            result[relative.as_posix()] = digest(path)
-    return result
-
-
-def expected_source(case: str) -> dict[str, str]:
-    harness = Path(__file__).resolve().parent
-    expected = files(harness / "fixture")
-    expected["case.md"] = digest(harness / "cases" / case / "case.md")
-    return expected
 
 
 def load_output(path: Path) -> str:
@@ -59,23 +43,36 @@ def exactly_one(root: Path, pattern: str, label: str, findings: list[str]) -> Pa
 
 
 def check_source_boundary(repo: Path, case: str, findings: list[str]) -> None:
-    expected = expected_source(case)
-    actual = files(repo)
-    for relative, expected_digest in expected.items():
-        if relative not in actual:
-            findings.append(f"source input removed: {relative}")
-        elif actual[relative] != expected_digest:
+    del case
+    if not (repo / ".git").is_dir():
+        findings.append("trial repository has no frozen Git baseline")
+        return
+
+    def git_lines(*args: str) -> list[str]:
+        result = subprocess.run(
+            ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+        )
+        return [line for line in result.stdout.splitlines() if line]
+
+    for relative in git_lines("diff", "--name-only", "HEAD", "--"):
+        if not re.fullmatch(r"docs/decisions/[^/]+-decisions\.md", relative):
             findings.append(f"source input modified: {relative}")
+    if git_lines("rev-list", "--count", "HEAD") != ["1"]:
+        findings.append("design trial changed commit history")
 
     allowed = (
         re.compile(r"docs/decisions/[^/]+-decisions\.md"),
         re.compile(r"docs/specs/[^/]+-design\.md"),
         re.compile(r"docs/test-matrix/[^/]+-test-matrix\.md"),
         re.compile(r"docs/reviews/[^/]+\.md"),
+        re.compile(r"\.wayne/\.gitignore"),
         re.compile(r"\.wayne/checkpoints/[^/]+\.md"),
         re.compile(r"\.eval/(?:review-events\.jsonl|(?:product|engineering)-count)"),
     )
-    for relative in sorted(set(actual) - set(expected)):
+    untracked = git_lines("ls-files", "--others", "--exclude-standard")
+    for relative in untracked:
+        if "__pycache__" in Path(relative).parts or relative.endswith((".pyc", ".pyo")):
+            continue
         if not any(pattern.fullmatch(relative) for pattern in allowed):
             findings.append(f"unexpected file outside design outputs: {relative}")
 
@@ -382,7 +379,10 @@ def validate(
     repo = workspace / "repo"
     if not repo.is_dir():
         return [f"missing trial repository: {repo}"]
-    output = load_output(output_path)
+    try:
+        output = load_output(output_path)
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"no readable agent result: {type(error).__name__}"]
     if not output:
         return ["agent produced no user-visible output"]
     if case in COMPLETE_CASES:
@@ -419,11 +419,13 @@ def main() -> int:
         args.trace.resolve() if args.trace else None,
         args.provider,
     )
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print(f"PASS: {args.case}")
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "case": args.case,
+        "provider": args.provider,
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 
