@@ -10,8 +10,9 @@ Define how an approved behavior will be proved before planning or implementation
 ## Boundary and ownership
 
 Produce one durable `docs/test-matrix/` artifact; never write test code, implement,
-or execute tests. Read `_shared/pipeline-id-contract.md`, `_shared/e2e-contract.md`, and the canonical
-[matrix template](templates/test-matrix-template.md) completely.
+or execute tests. Read `_shared/pipeline-id-contract.md`, `_shared/e2e-contract.md`, and the
+[matrix template](templates/test-matrix-template.md) completely. The template is a
+readable starting point, not a Markdown grammar.
 
 The matrix has two state owners:
 
@@ -20,9 +21,9 @@ The matrix has two state owners:
 - This skill proposes behavior-level `U-SEED` rows at `☐`; `wayne-plan` re-authors,
   binds, and locks them to implementation units before `wayne-work` may set `☑`.
 
-If a spec already contains an E2E table or `E2E: none — <reason>`, absorb that
-contract verbatim exactly once, extend any missing observable paths, declare the
-matrix the new SSoT, and never maintain a second authored copy.
+If a spec already contains an E2E contract or an explicit no-E2E rationale, absorb
+its complete meaning once, extend missing observable paths, declare the matrix the
+new SSoT, and never maintain a second authored copy.
 
 An explicit user-approved path wins. Otherwise write the next unused
 `docs/test-matrix/YYYY-MM-DD-NNN-<descriptive-name>-test-matrix.md`.
@@ -117,12 +118,12 @@ and duplicate boundaries. Record only reviewer-surprising exclusions.
 
 ### C. Draft U-SEED
 
-Always write the exact heading `U-SEED (wayne-plan re-authors + locks)`. Each row
-must communicate a concrete input or precondition, action, and observable expected
+Clearly label provisional U-SEED coverage so `wayne-plan` knows it must re-author
+and lock it. Each scenario must communicate a concrete input or precondition, action, and observable expected
 result, including multiple branches when behavior requires them. This is a semantic
 scenario contract, not a required arrow count or sentence shape. Use `unit` or
-`integration` layer and Status `☐`; if none are sound, write
-`U-SEED: none — <reason>` below the heading. Do not bind rows to implementation
+`integration` layer and Status `☐`; if none are sound, state that with a reason.
+Do not bind rows to implementation
 units that do not exist yet.
 
 ### D/E. Audit E2E isolation and evidence
@@ -136,11 +137,11 @@ evidence, never a keyword or substring classification.
 
 ### F. Draft locked E rows
 
-Use the seven locked columns from `_shared/e2e-contract.md` exactly. Each row names
-one real user path, concrete process/data/entrypoint, one user-visible observable,
-one proof axis, and initial Status `⬜`. Transport proxies such as `200 OK` are not
-observables. Always emit the locked header; when no user-observable path exists,
-leave it empty and follow it with `E2E: none — <reason>`.
+Carry the information owned by `_shared/e2e-contract.md`: one real user path,
+concrete process/data/entrypoint, one user-visible observable, one proof axis, and
+initial Status `⬜`. A Markdown table is recommended, not mandatory grammar.
+Transport proxies such as `200 OK` are not observables. When no user-observable path
+exists, record an explicit reason instead of inventing a row.
 When a runtime exists only at a fixed host, port, database, cwd, or main worktree,
 pin that location in `Env: process`; naming only the start command is insufficient.
 
@@ -150,11 +151,11 @@ Require every requirement, test-relevant decision, and matched lesson to map to 
 or E row or an explicit non-testable rationale; every user path to map to E; every E
 row to have one axis, reachable prerequisites, correct provider granularity, and
 feasible evidence; and every status/column owner to remain intact.
-Summarize coverage as `R1✓ R2✓ (E2E: E1,E2 | U-SEED: S1-S4)`.
-Use deterministic checks for the table schema, IDs, enum values, statuses, and
-ownership closure. Use AI review of the complete sources for semantic coverage,
-axis correctness, reachability, observability, and capability claims; both layers
-must pass, and a lexical semantic proxy is not an additional gate.
+Summarize requirement-to-proof coverage in any compact, readable form. Use AI review
+of the complete sources and matrix for ownership, coverage, axis correctness,
+reachability, observability, capability claims, IDs, and statuses. Tables, headings,
+enums, counts, and lexical proxies may help navigation but are not separate semantic
+gates.
 
 ### H/I/J. Approve and route
 

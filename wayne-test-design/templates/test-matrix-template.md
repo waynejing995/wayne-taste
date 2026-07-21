@@ -9,6 +9,9 @@ decisions: docs/decisions/YYYY-MM-DD-<topic>-decisions.md
 
 # [Feature] Test Matrix
 
+<!-- This is a readable starting layout. Preserve the information and ownership
+     contract; adapt headings, grouping, or table presentation when clearer. -->
+
 ## Overview
 
 [What this matrix covers — 1-2 sentences. Name the feature and its source spec/plan.]
@@ -50,8 +53,7 @@ mocks discouraged.
 | S2 | [unit] | invalid | [invalid boundary and observable rejection behavior] | unit | ☐ |
 | S3 | [unit] | persistence | [write/reload boundary and observable persisted result] | integration | ☐ |
 
-[If no U-SEED row is sound, keep the heading and table header, omit example rows,
-then write `U-SEED: none — <reason>`.]
+[If no U-SEED scenario is sound, state that explicitly with a reviewable reason.]
 
 Declared gaps (reviewer-surprising dimensions deliberately excluded):
 
@@ -61,9 +63,10 @@ Declared gaps (reviewer-surprising dimensions deliberately excluded):
 
 ## Layer 2: E2E Verification Contract
 
-This layer **is** the E2E Verification Contract. Format is LOCKED by
-`_shared/e2e-contract.md` — do not redefine columns. All Status start `⬜`. **Only
-`wayne-verify` flips `⬜ → ✅ / ❌`.** A passing unit suite never touches this layer.
+This layer **is** the E2E Verification Contract. Its information and ownership come
+from `_shared/e2e-contract.md`; the table below is the recommended compact view, not
+a grammar. All Status start `⬜`. **Only `wayne-verify` flips `⬜ → ✅ / ❌`.** A
+passing unit suite never touches this layer.
 
 ### E2E Proof-Axis Audit
 

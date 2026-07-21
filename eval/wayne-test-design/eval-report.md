@@ -57,4 +57,12 @@ intent before taking the size reduction.
 
 Residual uncertainty: the provider set is intentionally small and evaluates generated
 matrix artifacts rather than a full downstream `wayne-plan`/`wayne-verify` execution.
-The locked schema, ownership, and routing surfaces are covered deterministically.
+The original trial's mechanical results are historical evidence only.
+
+## 2026-07-21 AI-matrix boundary hotfix
+
+The Test Matrix is an AI-to-AI artifact. U/E proof information, source fidelity,
+status ownership, provider isolation, and native-evidence requirements remain; exact
+headings, seven-column layout, section order, and table grammar are now advisory.
+Legacy checker results may locate evidence but no longer decide semantics. No provider
+cell was rerun for this prompt-only boundary change.
