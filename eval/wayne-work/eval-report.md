@@ -71,3 +71,9 @@ Residual uncertainty: real overlap is proven on Claude. Codex overlap cannot be
 proven while its native spawn path returns the runner error; that cell proves the
 required attempt and fail-loud serial fallback instead. Mixed-wave timing and
 shared-integration repair remain future held-out cases.
+
+Follow-up 2026-07-21: blocker line count and raw Markdown layout are no longer
+semantic gates. The blocker still carries reason, artifacts, owner, and explanation;
+an explicit caller byte contract remains authoritative. Scope proof now uses starting
+Git state, agent write history, and final diff rather than a repository manifest.
+No provider behavior cell was rerun for this prompt-only boundary hotfix.

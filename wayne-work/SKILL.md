@@ -22,7 +22,7 @@ digraph work {
     rankdir=TB;
     A [label="Load approved inputs", shape=box];
     B [label="Complete and consistent?", shape=diamond];
-    X [label="Return exact blocker", shape=doublecircle];
+    X [label="Return blocker", shape=doublecircle];
     C [label="Freeze baseline and unit graph", shape=box];
     D [label="Build ready wave", shape=box];
     E [label="Parallel-safe wave?", shape=diamond];
@@ -87,12 +87,13 @@ scope, ownership, failure, compatibility, migration, or public-interface choice 
 covered by the approved sources, stop and ask the user. Return the answer to Plan
 for revision and re-approval; never implement it directly or choose a default.
 Return the task's blocker contract.
-When the caller requires a five-line blocker, emit exactly those five non-empty
-lines with no preamble, Markdown fence, explanation outside line 5, or postscript.
+Preserve the blocker reason, affected artifacts, owner, and user-facing explanation.
+Treat any shared layout as a communication convention, not a semantic grammar. Only
+an explicit caller requirement can make exact bytes or line count normative.
 
 ### C. Freeze baseline and task graph
 
-Capture branch, status, existing dirty paths, and the source/input manifest unchanged.
+Capture starting HEAD, branch, status, existing dirty paths, and source artifacts.
 Do not create a branch or commit. Convert plan units into a dependency graph and track
 status with any runtime task mechanism; no provider-specific task/team tool is required.
 
@@ -186,10 +187,12 @@ Then audit:
 - every unit is DONE with its produces consumed where planned;
 - all requirements and decisions have implementation evidence;
 - the diff contains only plan-owned source, authorized U status changes, and work
-  state; unrelated dirty files and locked inputs are byte-identical;
+  state; starting Git status, agent write history, and final diff show no unrelated
+  or locked-input mutation;
 - every U row is `☑`, every E row remains `⬜`;
-- no TODO, partial implementation, staged file, commit, branch, or downstream
-  action was introduced.
+- no incomplete implementation, staged file, commit, branch, or downstream action
+  was introduced; judge completeness from code, tests, and plan obligations rather
+  than a substring scan.
 
 Do not claim completion while any command, unit, U row, decision, or scope gate is unresolved.
 
