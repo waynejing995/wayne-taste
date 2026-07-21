@@ -19,6 +19,12 @@ The static contract also parses the method catalog's short-circuit table: dimens
 or hash may stop later Level-1 metrics, never per-image VEL or Level 2, and hash
 equality cannot emit PASS without a pre-approved byte-identity tolerance.
 
+`check_trial.py` and `check_static.py` emit `AI_REVIEW_REQUIRED`. Their headings,
+keywords, field names, and table-row matches are observations for
+[the blind image rubric](semantic-rubric.md), not visual-semantic verdicts. Generated
+raster bytes and the bundled channel/hidden/pixel probe outputs remain direct
+machine evidence and must be supplied to the reviewer.
+
 ```bash
 uv run --no-project python eval/wayne-visual-synthesis/calibrate.py
 bash eval/wayne-visual-synthesis/prepare_trial.sh describe \
@@ -33,3 +39,6 @@ uv run --no-project python eval/wayne-visual-synthesis/check_trial.py \
   --case describe \
   --output eval/.runs/wayne-visual-synthesis/control-describe/claude-result.json
 ```
+
+If fixture images or the agent result are missing, mark the trial `invalid`; do not
+score a partial report as a behavioral loss.

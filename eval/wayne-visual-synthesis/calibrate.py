@@ -193,7 +193,10 @@ def main() -> int:
         "one VEL per image",
     )
     assert_mutation("multi-no-compare", VALID["multi-no-compare"] + "\n## Comparison\n", "emitted a comparison")
-    print(f"PASS: calibrated {len(CASES)} valid cases and 18 independent mutations")
+    print(
+        f"PASS: observations cover {len(CASES)} cases and 18 mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 

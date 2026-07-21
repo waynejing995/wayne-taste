@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Frozen deterministic checker for visual-synthesis behavior trials."""
+"""Collect visual-synthesis output observations for blind image review."""
 
 from __future__ import annotations
 
@@ -309,14 +309,27 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if not (args.workspace / "images").is_dir():
-        print("FAIL: trial workspace has no generated images")
-        return 1
-    findings = validate_text(load_output(args.output), args.case)
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print(f"PASS: {args.case}")
+        result = {
+            "trial_validity": "invalid",
+            "semantic_verdict": "AI_REVIEW_REQUIRED",
+            "case": args.case,
+            "observations": ["trial workspace has no generated images"],
+        }
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    try:
+        output = load_output(args.output)
+    except (OSError, json.JSONDecodeError) as error:
+        findings = [f"no readable agent result: {type(error).__name__}"]
+    else:
+        findings = validate_text(output, args.case)
+    result = {
+        "trial_validity": "observed",
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "case": args.case,
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

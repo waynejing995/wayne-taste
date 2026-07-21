@@ -122,7 +122,10 @@ def main() -> int:
             expect_finding(trial, f"compare short-circuit row drifted: {signal}")
             mutations += 1
 
-    print(f"PASS: calibrated static control and {mutations} independent mutations")
+    print(
+        f"PASS: static observations cover {mutations} mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 
