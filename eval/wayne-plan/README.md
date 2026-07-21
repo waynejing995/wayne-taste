@@ -3,33 +3,30 @@
 This harness reproduces the complex `wayne-plan` optimization case used to test
 source fidelity, blocker terminals, and downstream implementation transfer.
 
-## Deterministic calibration
+## Review evidence
 
-```bash
-uv run --no-project python eval/wayne-plan/calibrate.py
-uv run --no-project python eval/wayne-plan/calibrate_pipeline_ids.py
-```
-
-The calibration proves one valid normal plan, nineteen independent invalid
-mutations, two valid CommonMark/symbol variants, clear one-arrow and multi-branch
-scenario variants, and exact blocker responses.
-The ID calibration proves legacy numeric decisions map to `D<number>` without
-source mutation and that review `R01` rows cannot enter the requirement namespace.
+`calibrate.py` and `check_trial.py` are retained as historical observation tools.
+Their heading, table, line-count, regex, and filename findings do not pass or fail
+plan semantics. Give the complete sources, repository, produced plan, downstream
+executor result, and observations to the independent source-fidelity and
+execution-readiness AI rubrics.
 
 ## Behavioral cases
 
-- `cases/normal/`: complete sources; exactly one canonical plan must be written.
+- `cases/normal/`: complete sources; one approved plan should be written.
 - `cases/conflict/`: an active-plan conflict must stop with `PLAN_CONFLICT`.
 - `cases/missing-e2e/`: missing E ownership must stop with `MISSING_E2E`.
 
-Use `trial-task.md` for both control and candidate. Check normal output with:
+Use `trial-task.md` for both control and candidate. The legacy checker may collect
+bounded observations:
 
 ```bash
 uv run --no-project python eval/wayne-plan/check_trial.py \
   <trial-repo> eval/wayne-plan/cases/normal --case normal
 ```
 
-For a blocker, add `--output <agent-final.txt>` and select its case.
+For a blocker, add `--output <agent-final.txt>` and select its case, then judge the
+blocker meaning with the AI rubric rather than line shape.
 
 ## Downstream transfer
 
