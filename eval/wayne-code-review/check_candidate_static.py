@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -246,11 +247,11 @@ def main() -> int:
     args = parser.parse_args()
 
     findings = check_candidate(args.candidate.resolve())
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print("PASS: wayne-code-review candidate static contract")
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

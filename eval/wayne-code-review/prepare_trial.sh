@@ -39,3 +39,8 @@ git -C "$workspace/repo" fetch -q origin main
 if [[ -d "$case_dir/overlay" ]]; then
     cp -R "$case_dir/overlay/." "$workspace/repo/"
 fi
+
+git -C "$workspace/repo" status --porcelain=v1 --untracked-files=all \
+  > "$workspace/repo-start-status.txt"
+git -C "$workspace/repo" diff --binary --full-index HEAD -- \
+  | sha256sum | cut -d' ' -f1 > "$workspace/repo-start-diff.sha256"

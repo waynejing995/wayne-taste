@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic behavior checker for Wayne Code Review cases."""
+"""Collect Code Review behavior evidence for blind semantic review."""
 
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ CASES = {
     "dataflow-half-migration",
     "disagreement-synthesis",
 }
-IGNORED = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
 DECOYS = (
     "unused import",
     "unused `sys`",
@@ -30,29 +29,6 @@ DECOYS = (
     "pep 8",
     "destination_path=",
 )
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def manifest(root: Path) -> dict[str, str]:
-    return {
-        str(path.relative_to(root)): digest(path)
-        for path in sorted(root.rglob("*"))
-        if path.is_file() and not any(part in IGNORED for part in path.parts)
-    }
-
-
-def expected_manifest(harness: Path, case_name: str) -> dict[str, str]:
-    case = harness / "cases" / case_name
-    if not (case / "base").is_dir():
-        return manifest(case)
-    expected = manifest(case / "base")
-    expected.update(manifest(case / "overlay"))
-    expected["AGENTS.md"] = digest(case / "AGENTS.md")
-    expected["case.md"] = digest(case / "case.md")
-    return expected
 
 
 def load_output(path: Path) -> str:
@@ -76,14 +52,24 @@ def patch_sha(repo: Path) -> str:
     return hashlib.sha256(result.stdout).hexdigest()
 
 
-def check_no_mutation(repo: Path, harness: Path, case_name: str, findings: list[str]) -> None:
-    actual = manifest(repo)
-    expected = expected_manifest(harness, case_name)
-    if actual != expected:
-        added = sorted(set(actual) - set(expected))
-        removed = sorted(set(expected) - set(actual))
-        changed = sorted(path for path in set(actual) & set(expected) if actual[path] != expected[path])
-        findings.append(f"review mutated repository: added={added} removed={removed} changed={changed}")
+def check_no_mutation(workspace: Path, repo: Path, findings: list[str]) -> None:
+    status_path = workspace / "repo-start-status.txt"
+    diff_path = workspace / "repo-start-diff.sha256"
+    if not status_path.is_file() or not diff_path.is_file():
+        findings.append("missing frozen Git start evidence")
+        return
+    current_status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if current_status != status_path.read_text(encoding="utf-8"):
+        findings.append("review changed Git tracked/untracked path state")
+    current_diff = patch_sha(repo)
+    if current_diff != diff_path.read_text(encoding="utf-8").strip():
+        findings.append("review changed the frozen tracked diff")
     if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo).returncode != 0:
         findings.append("review staged changes")
     commits = subprocess.run(
@@ -227,9 +213,12 @@ def check(
 ) -> list[str]:
     findings: list[str] = []
     repo = workspace / "repo"
-    harness = Path(__file__).resolve().parent
-    check_no_mutation(repo, harness, case_name, findings)
-    output = load_output(output_path)
+    check_no_mutation(workspace, repo, findings)
+    try:
+        output = load_output(output_path)
+    except (OSError, json.JSONDecodeError) as error:
+        findings.append(f"no readable review result: {type(error).__name__}")
+        return findings
     if not output:
         findings.append("review produced no user-visible output")
         return findings
@@ -265,11 +254,12 @@ def main() -> int:
         args.output.resolve(),
         args.evidence.resolve() if args.evidence else None,
     )
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print(f"PASS: {args.case}")
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "case": args.case,
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

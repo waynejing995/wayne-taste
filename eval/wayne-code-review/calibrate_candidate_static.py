@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibrate the candidate static checker with one mutation per contract family."""
+"""Calibrate static observations, not candidate semantics."""
 
 from __future__ import annotations
 
@@ -120,7 +120,10 @@ def main() -> int:
             path.write_text(path.read_text(encoding="utf-8") + "\n" + content, encoding="utf-8")
             assert_invalid(trial, needle, name)
 
-    print(f"PASS: 1 positive and {count} independent static mutations")
+    print(
+        f"PASS: static observations cover 1 candidate and {count} mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 

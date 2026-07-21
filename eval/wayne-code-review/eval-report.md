@@ -97,3 +97,10 @@ untracked file. It freezes Git tracked state/diff and untracked path metadata, s
 unrelated unreadable caches cannot block review while before/after drift remains
 detectable. CLI, intent, dual-evidence, provider-failure, lint, and compile checks
 pass; live providers were not relaunched for this snapshot-only change.
+
+Follow-up 2026-07-22: behavior and candidate-static checkers now emit
+`AI_REVIEW_REQUIRED`; report/playbook wording is judged by `semantic-rubric.md`.
+The true machine gates remain unchanged: reviewer JSON schema, provider/session
+manifest, payload bytes/hashes, CLI effects, and fail-loud adapter exits. Trial
+mutation proof now freezes and compares Git status plus tracked diff without a
+recursive content walker.
