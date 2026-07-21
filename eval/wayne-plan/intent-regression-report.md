@@ -35,3 +35,8 @@ No partial output was repaired or scored. These cells provide no behavioral
 win/loss evidence. Acceptance of this hotfix rests on the explicit pre-slim intent,
 the current single-owner contract, and deterministic regression coverage; a future
 smaller trace-enabled presentation/lesson case should close the model-execution gap.
+
+Follow-up 2026-07-21: the old plan grammar calibration is removed. `check_trial.py`
+now emits observations with `AI_REVIEW_REQUIRED` and never treats headings, tables,
+line counts, or regex as the semantic verdict. Source-fidelity, execution-readiness,
+and downstream implementation evidence own acceptance.

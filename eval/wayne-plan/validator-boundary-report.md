@@ -25,7 +25,7 @@ defect, not a plan or environment defect.
 
 - Forge loader validation: PASS.
 - No runtime validator command or manifest reference remains under `wayne-plan/`.
-- The old validator-specific eval scripts are historical harness material and must
-  be migrated before they are run again; they are not runtime gates.
+- Validator-specific calibration scripts are removed. The remaining checker emits
+  bounded observations and always requires independent AI review for a verdict.
 - Cross-agent behavioral rerun: pending harness migration; no superiority claim is
   made from static evidence alone.

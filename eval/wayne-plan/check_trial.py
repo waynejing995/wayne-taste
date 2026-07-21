@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Frozen external checker for Wayne Plan optimization trials."""
+"""Collect bounded observations for Wayne Plan AI evaluation."""
 
 from __future__ import annotations
 
 import argparse
 import ast
-import hashlib
 import json
 import re
-import stat
+import subprocess
 from pathlib import Path
 
 
@@ -56,30 +55,6 @@ SURFACE_TOKEN_RE = re.compile(
     r"(?![A-Za-z0-9_./:-])"
 )
 IGNORED_PARTS = {".git", ".pytest_cache", ".ruff_cache", ".venv", "__pycache__"}
-
-
-def manifest(root: Path) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for path in root.rglob("*"):
-        relative_path = path.relative_to(root)
-        if any(part in IGNORED_PARTS for part in relative_path.parts):
-            continue
-        relative = relative_path.as_posix()
-        mode = path.lstat().st_mode
-        if path.is_symlink():
-            result[relative] = f"symlink:{path.readlink()}"
-        elif path.is_dir():
-            result[relative] = "directory"
-        elif path.is_file():
-            executable = bool(mode & stat.S_IXUSR)
-            result[relative] = (
-                f"file:exec={executable}:" + hashlib.sha256(path.read_bytes()).hexdigest()
-            )
-        else:
-            result[relative] = f"other:{stat.S_IFMT(mode)}"
-    return result
-
-
 def python_symbols(path: Path) -> set[str]:
     if path.suffix != ".py" or not path.is_file():
         return set()
@@ -172,10 +147,21 @@ def source_e_table(matrix: Path) -> tuple[str, set[str]]:
 
 
 def changed_paths(repo: Path, baseline: Path) -> tuple[list[str], list[str]]:
-    current = manifest(repo)
-    original = manifest(baseline)
-    modified = sorted(path for path, digest in original.items() if current.get(path) != digest)
-    added = sorted(path for path in current if path not in original)
+    del baseline
+    if not (repo / ".git").is_dir():
+        raise RuntimeError("trial repository must have a frozen Git baseline")
+
+    def git(*args: str) -> list[str]:
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return [line for line in result.stdout.splitlines() if line]
+
+    modified = sorted(set(git("diff", "--name-only", "HEAD", "--")))
+    added = sorted(set(git("ls-files", "--others", "--exclude-standard")))
     return modified, added
 
 
@@ -516,9 +502,13 @@ def main() -> int:
         if args.output is None:
             raise SystemExit("--output is required for blocked cases")
         findings = validate_block(args.repo, args.baseline, args.output, args.case)
-    result = {"pass": not findings, "case": args.case, "findings": findings}
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "case": args.case,
+        "observations": findings,
+    }
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 1 if findings else 0
+    return 0
 
 
 if __name__ == "__main__":

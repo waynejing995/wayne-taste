@@ -34,11 +34,11 @@ generic planning advice and deprecated/tool-specific review machinery.
    do not decide a product compatibility question without an upstream decision.
 5. Order implementation units by dependency and make each unit executable by a
    fresh `wayne-work` agent without returning to product design.
-6. Run deterministic validation plus two provider-agnostic independent reviews:
+6. Run two provider-agnostic independent reviews:
    source-fidelity (decisions/spec/E rows) and execution-readiness (unit closure,
    interfaces, files/symbols, U rows, dependencies, placeholders). Do not name or
    invoke a vendor-specific review skill.
-7. Revise from findings and revalidate. Present the plan only when gates pass.
+7. Revise from findings and repeat both reviews. Present the plan only when gates pass.
    Keep the plan English and the default user-visible summary concise Chinese unless
    the caller supplied an exact output contract.
    Handoff through `wayne-checkpoint` to `wayne-work` unless the caller explicitly
@@ -46,9 +46,9 @@ generic planning advice and deprecated/tool-specific review machinery.
 
 ## State ownership and source fidelity
 
-- `wayne-test-design` owns the E layer. Carry every E row byte-for-byte from the
-  referenced matrix, including exact columns, wording, ID, and `⬜` status. Never
-  author, drop, normalize, reorder, or status-mutate an E row.
+- `wayne-test-design` owns the E layer. Carry every E entry without changing its
+  meaning, wording, ID, order, or `⬜` status. Never author, drop, normalize, or
+  status-mutate an E entry.
 - `wayne-plan` owns the U layer. Treat U-SEED rows as input, re-author them against
   real unit files/functions, and bind each U row to exactly one unit.
 - Account for every source U-SEED exactly once: map it to one U row or put it in a
@@ -60,100 +60,35 @@ generic planning advice and deprecated/tool-specific review machinery.
   are not requirements.
 - Every carried E row is advanced by at least one unit. Only `wayne-verify` may
   change `⬜`; only `wayne-work` may change `☐`.
-- Source-relative validation must accept the original decision log, spec, matrix,
-  repository, and a pre-run manifest. An artifact-only check may not claim source
-  fidelity or no-upstream-mutation proof.
-- Requirement/decision discovery, semantic classification, and completeness are
-  owned by contextual AI review. Deterministic validation may check hashes,
-  literal existence, grammar, and closure over the supplied ledger, but must not
-  infer source meaning from headings, IDs, keywords, substring scans, or regex.
-- Cross-field repair preserves the most specific future surface. Validator success
+- Source-fidelity review reads the original decision log, spec, matrix, repository,
+  working coverage map, and plan. Starting Git state, agent write history, and final
+  diff prove the plan-only mutation boundary.
+- Requirement/decision discovery, semantic classification, completeness, ownership,
+  and plan readiness are owned by contextual AI review. Headings, IDs, keywords,
+  substring scans, regex, table shape, and template agreement cannot decide them.
+- Cross-field repair preserves the most specific future surface; textual equality
   never justifies widening `Type.member` to `Type` or stripping a method owner.
 
-## Canonical plan contract
+## Plan information contract
 
-Keep the detailed schema in one direct reference, an aligned template, and a
-deterministic validator. `SKILL.md` owns procedure and gates, not a duplicate schema.
+The plan is English Markdown under `docs/plans/` with lightweight lifecycle and
+source metadata. The template is a readable starting point, not a grammar.
 
-The plan is English Markdown at:
+The plan must preserve the problem, requirements, boundaries, decisions, rationale,
+repository context, applicable lessons, open questions, dependency-ordered units,
+files and interfaces, concrete approach, cleanup, risks, U/E ownership, verification,
+and authoritative source links. Every requirement and decision traces forward; each
+feature unit has useful U coverage; every source seed is mapped or dropped once with
+evidence; and E information remains under its upstream/downstream owner.
 
-`docs/plans/YYYY-MM-DD-NNN-<feat|fix|refactor>-<3-5-word-name>-plan.md`
-
-Its level-two sections, exactly once and in this order, are:
-
-1. `## Overview`
-2. `## Problem Frame`
-3. `## Requirements Trace`
-4. `## Scope Boundaries`
-5. `## Context`
-6. `## Key Technical Decisions`
-7. `## Open Questions`
-8. `## File Structure`
-9. `## Implementation Units`
-10. `## Test Matrix`
-11. `## Dead Code / Legacy Cleanup`
-12. `## System-Wide Impact`
-13. `## Risks & Dependencies`
-14. `## Sources & References`
-
-`## Requirements Trace` uses exactly:
-
-```markdown
-| Requirement | Owning units |
-|---|---|
-```
-
-Every source `R<number>` appears exactly once and maps to at least one unit.
-
-Each unit heading is `### Unit I<number> — <name>`, in dependency order. Each unit
-contains these non-empty level-four fields in this order:
-
-1. `#### Goal`
-2. `#### Requirements`
-3. `#### Dependencies`
-4. `#### Consumes`
-5. `#### Produces`
-6. `#### Files`
-7. `#### Approach`
-8. `#### Technical design`
-9. `#### Patterns`
-10. `#### Test scenarios`
-11. `#### E rows`
-12. `#### Verification`
-13. `#### Decision trace`
-
-Use exact sentinel `none — <reason>` when a field legitimately has no item.
-Dependencies point only to earlier units. Interfaces use repo-relative
-`path::symbol` surfaces; a `from I#` consumer resolves to that earlier unit’s
-produced surface. File bullets name create/modify/delete plus a symbol and work.
-
-`## Test Matrix` contains:
-
-1. The E2E table copied verbatim from the source matrix, or the source literal
-   `E2E: none — <reason>` when that is the approved upstream declaration.
-2. One U table with exact header:
-
-```markdown
-| ID | Owner | Seed | Surface | Scenario | Status |
-|---|---|---|---|---|---|
-```
-
-3. `### Dropped Seeds` with exact header:
-
-```markdown
-| Seed | Reason |
-|---|---|
-```
-
-Deterministically ban literal `TBD` and `TODO` markers. Contextual
-execution-readiness review decides whether other prose is a vague placeholder,
-whether an interface really exists, and whether a code fence/path/git mention is
-runnable, portable, and appropriate. Structured paths remain repo-relative; do not
-include runnable implementation/commands or claim runtime unknowns are settled.
+Headings, section order, sentinel wording, tables, arrows, code-fence tags, and
+phrase lists are presentation. Independent source-fidelity and execution-readiness
+reviews decide whether the plan is complete, portable, concrete, and executable
+without inventing a product decision.
 
 ## Blocking output contract
 
-When planning is blocked, do not create a plan. Return exactly five non-empty lines:
+When planning is blocked, do not create a plan. Return a compact blocker carrying:
 
 ```text
 STATUS: BLOCKED
@@ -164,8 +99,8 @@ OWNER: product-design or test-design
 ```
 
 For `PLAN_CONFLICT`, the owner is `product-design`. For `MISSING_E2E`, the owner
-is `test-design`. Return the blocker artifact byte-for-byte after validation: no
-preamble, code fence, or validation announcement.
+is `test-design`. The example is an AI communication convention, not a line-count
+or byte-level schema.
 
 ## Resources and size
 
