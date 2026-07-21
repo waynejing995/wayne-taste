@@ -68,3 +68,9 @@ live tree hash is
 User-visible manual/no-auto-advance meaning, scope/acceptance quality, and invocation
 claims moved to the blind rubric; packet fields, source paths/hashes, Skill existence,
 template structure, and repository mutation remain deterministic.
+
+Follow-up 2026-07-21: checkpoint and handoff Markdown are AI-to-AI artifacts.
+Template fields and legacy checker results are reviewer observations, not a semantic
+schema gate. Paths, hashes, Skill existence, and Git mutation evidence remain useful
+facts; the blind AI review decides ownership, completeness, routing preservation,
+and no-auto-advance meaning. No provider cell was rerun for this prompt hotfix.

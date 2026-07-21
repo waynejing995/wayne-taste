@@ -68,8 +68,9 @@ produce:
 6. **Notes** — gotchas, blockers, open questions, dead ends tried
 
 Use AI contextual reading for stage, intent, decisions, and remaining work.
-Deterministic checks may validate paths, hashes, schema, and literal state fields;
-keywords, headings, checkbox counts, and ID scans cannot decide artifact meaning.
+Git and file operations may record paths and hashes; AI review owns artifact meaning,
+ownership, and completeness. Keywords, headings, checkbox counts, table shape, and
+ID scans cannot decide those questions.
 
 ### Step 4: Write Checkpoint
 
@@ -88,7 +89,8 @@ Write to `.wayne/checkpoints/{TIMESTAMP}-{title-slug}.md`.
 **Read first, then write:** `templates/checkpoint-template.md` relative to this
 skill directory.
 
-The template is the canonical structure. Required sections:
+The template is the preferred readable layout. Carry the following information;
+adapt headings or grouping when clearer:
 - frontmatter: `title`, `status`, `branch`, `timestamp`, `pipeline_stage`, `pipeline_phase`, `decision_log`, `plan`, `spec`, `test_matrix`, `files_modified`
 - `## Working on:` (title)
 - `### Summary` (1-3 sentences)
@@ -368,9 +370,9 @@ Write the packet to `.wayne/checkpoints/{TIMESTAMP}-handoff-{stage}-to-{next}.md
 **Read first, then write:** `templates/handoff-packet.md` relative to this skill
 directory.
 
-The template is the canonical structure. It shares frontmatter and table
-conventions with `checkpoint-template.md` so formats flow between skills without
-re-parsing.
+The template is a readable starting layout. It shares familiar field names with
+`checkpoint-template.md` so agents can compare packets easily; neither template is
+a machine grammar.
 
 **Surface in chat** so the user sees the next agent and can trigger it (in
 Chinese):
