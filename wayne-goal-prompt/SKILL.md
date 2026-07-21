@@ -25,8 +25,9 @@ their protocol manually.
 
 ## Goal contract
 
-The copy-paste goal is at most 4,000 characters. Sections 1, 2, 4, 5, and 6 are
-required; section 3 appears only when correcting an in-flight attempt.
+Keep the copy-paste goal under roughly 4,000 characters when possible. The table is
+a reliable organization guide, not a Markdown grammar. Sections 1, 2, 4, 5, and 6
+carry required information; section 3 appears only for an in-flight correction.
 
 | § | Heading | Contract |
 |---|---|---|
@@ -50,7 +51,7 @@ digraph goal_prompt {
     Q [label="Ask one recommended question", shape=box];
     W [label="Wait for answer", shape=doublecircle];
     C [label="Compose bounded goal", shape=box];
-    D [label="Contract valid?", shape=diamond];
+    D [label="Goal is grounded and testable?", shape=diamond];
     R [label="Repair one contract gap", shape=box];
     E [label="Present goal and confirm cwd", shape=box];
     F [label="Goal and cwd confirmed?", shape=diamond];
@@ -111,17 +112,14 @@ names exact commands and one real entrypoint; state the tempting fake substitute
 that is forbidden. Each §6 bullet maps to a §5 observation. Omit Current correction
 on a first issue. Keep the goal at most 4,000 characters.
 
-### D. Validate the contract
+### D. Review the goal
 
-Before presenting, check heading order/cardinality, length, exact commands,
-real-path proof, secret hygiene, and §5→§6 coverage. The bundled
-`scripts/validate_goal_prompt.py` checks the artifact-local portion; semantic
-mapping still requires AI review against the complete grounded sources. For each
-script finding, name the directly observed structural invariant before revising.
-Do not reshape valid prose for a keyword, substring, punctuation, or Markdown-style
-proxy that claims to judge vagueness, executability, or source fidelity; record it
-as an evaluator defect and let the AI gate judge that meaning. Repair one real
-failed invariant without weakening it.
+Read the complete grounded sources and goal in context. Confirm that it states one
+outcome, preserves task-local boundaries, names real verification commands and the
+actual user entrypoint, protects secrets, and maps every completion claim to
+observable proof. Headings and the template help navigation; order, wording,
+backticks, phrase bans, regex, and section counts do not decide correctness.
+Repair one real semantic gap without weakening the evidence contract.
 
 ### E. Present and confirm
 

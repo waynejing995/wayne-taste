@@ -62,3 +62,9 @@ Follow-up 2026-07-20: readiness now belongs after a successful initial
 `turn/start`. The deterministic fake rejects the previous ordering by failing that
 method after goal setup and asserting that no `control/ready` marker or successful
 job ID escaped. Initialize failure and same-thread blocked/resume remain passing.
+
+Follow-up 2026-07-21: the runtime goal-Markdown validator was removed. Heading,
+phrase, backtick, and section-count checks are historical eval observations only;
+semantic composition now belongs to blind AI review. Dispatch protocol checks stay
+mechanical because the app-server and shell CLI are real non-AI consumers. The
+composition cells above were not rerun for this hotfix.
