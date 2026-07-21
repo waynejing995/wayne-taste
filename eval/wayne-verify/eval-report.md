@@ -31,8 +31,8 @@ is the gate, and the smaller always-loaded context is the tie-breaker.
 
 ## Deterministic gates
 
-- Behavior checker calibration: PASS, 9 positive lanes, 1 Flow mutation, and 48
-  independent behavior mutations.
+- Behavior observation calibration: PASS, 9 positive lanes and 48 independent
+  mutations.
 - Frozen tasks/fixtures/checker hash:
   `f4dcda56c224757ec64ad2937eeef8da1736c36fc3e788dc7e99e48981722b78`.
 - Candidate Forge validation: PASS, 0 errors and 0 warnings.
@@ -101,3 +101,10 @@ observable, and status ownership. Its Markdown table layout is now advisory beca
 agents consume it. Runtime commands, fresh events, artifacts, Git mutations, and
 status transitions remain observable evidence; blind AI review binds them to the
 correct E entry and route. No provider cell was rerun for this prompt-only change.
+
+## 2026-07-22 semantic evaluator migration
+
+`check_trial.py` now emits `AI_REVIEW_REQUIRED`; its table/status/verdict parsing is
+reviewer evidence rather than the final judgment. Runtime commands, files, process
+events, Git mutations, and event order remain direct observations. The DOT Flow
+checker was deleted because it policed prompt text without a machine consumer.

@@ -26,21 +26,26 @@ tool termination before an observable result is `invalid`, not a behavioral loss
 Every PASSED case must emit one return-only checkpoint for `wayne-ship`;
 BLOCKED/FAILED cases must emit none and must never invoke the ship skill.
 
-The checker records commands, artifacts, status transitions, mutation boundaries,
-and Flow edges. [The blind semantic rubric](semantic-rubric.md) reads the full
+The checker emits `AI_REVIEW_REQUIRED` with commands, artifacts, status-transition,
+mutation-boundary, and event-order observations. [The blind semantic
+rubric](semantic-rubric.md) reads the full
 contract and evidence to decide whether the correct E entry changed and whether the
 explanation and next route mean the right thing. Table shape, headings, keywords,
 and negation regexes do not own that judgment.
 
-## Deterministic gates
+## Evidence calibration and real machine checks
 
 ```bash
 uv run --no-project python eval/wayne-verify/calibrate.py
-uv run --no-project python eval/wayne-verify/check_flow.py wayne-verify
 uv run wayne-skill-forge/scripts/validate_skill.py <candidate-skill>
 uv run --no-project python -m py_compile eval/wayne-verify/*.py
 bash -n eval/wayne-verify/*.sh
 ```
+
+The DOT Flow checker was removed because it validated prompt text rather than a
+machine consumer. Runtime commands, files, process events, Git mutation, and native
+trace remain direct evidence, but row/table parsing and output wording are reviewer
+observations. The blind rubric supplies the final verdict.
 
 Use `prepare_trial.sh`, `run_agent.sh`, and `check_trial.py` for paired provider
 runs. `frozen-harness.sha256` locks the tasks, fixtures, intent, runner, and
