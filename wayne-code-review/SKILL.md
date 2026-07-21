@@ -120,8 +120,11 @@ Run the bundled `scripts/run_dual_review.py` once with repository, frozen base, 
 review type/routes plus the frozen intent inputs from A. When
 `WAYNE_REVIEW_OUTPUT_DIR` is set, do not override it; that
 path owns the evidence. The adapter must start exactly one Claude process and one
-Codex process in parallel with the same payload hash and read-only permissions. The
-primary host model is not a review voice and same-family subagents cannot substitute.
+Codex process in parallel with the same payload hash. Do not impose a Codex
+filesystem sandbox: the review-only packet and frozen before/after repository
+manifest own the mutation boundary. Keep the host command timeout at least as long
+as the adapter's 1,800-second default. The primary host model is not a review voice
+and same-family subagents cannot substitute.
 
 Do not manually recreate, replace, or repair adapter artifacts. Missing binary,
 authentication/provider error, timeout, malformed output, reused session, changed
