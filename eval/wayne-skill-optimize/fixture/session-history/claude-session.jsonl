@@ -1,0 +1,4 @@
+{"type":"state","decision_ids":[1],"pending":"Q2","decision_log_hash":"before-q2"}
+{"type":"user","text":"Answer Q2: use the existing queue"}
+{"type":"assistant_tool","name":"AskUserQuestion","question":"Q3 retry policy","note":"first wrong mutation: asked Q3 before persisting decision 2"}
+{"type":"assistant_tool","name":"Write","decision_ids":[1,2],"decision_log_hash":"late-q2"}
