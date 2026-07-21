@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibrate Wayne Code Review case oracles."""
+"""Calibrate Code Review observations, not report semantics."""
 
 from __future__ import annotations
 
@@ -162,11 +162,14 @@ def main() -> int:
             mutated,
             "security-only-routing",
             mutated / "output.txt",
-            "review mutated repository",
+            "changed the frozen tracked diff",
             "write boundary",
         )
 
-    print("PASS: 4 positive cases and 11 independent mutations")
+    print(
+        "PASS: observations cover 4 cases and 11 mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 

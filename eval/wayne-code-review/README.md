@@ -19,6 +19,15 @@ source bytes and cannot silently choose a different plan or spec.
 The CLI wrapper lane also proves the mutation snapshot uses Git tracked state/diff
 plus untracked path metadata and never opens unrelated untracked file contents.
 
+`check_trial.py` and `check_candidate_static.py` emit `AI_REVIEW_REQUIRED`.
+Their report wording, playbook phrases, frontmatter scans, and lexical findings are
+inputs to [the blind semantic rubric](semantic-rubric.md), not final semantic
+verdicts. Real reviewer JSON schema, payload hashes/bytes, CLI exit behavior,
+provider identity/session evidence, and adapter failure remain hard machine gates.
+
+Trial scope freezes the starting Git status and tracked diff before review, then
+compares them afterward. It never walks or hashes unrelated untracked contents.
+
 ```bash
 uv run --no-project python eval/wayne-code-review/check_intent_payload.py \
   wayne-code-review
