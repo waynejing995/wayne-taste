@@ -73,7 +73,7 @@ Required fields:
 | `base_sha` | string | Matches `trial_start.base_sha` |
 | `head_sha` | string | Matches `trial_start.head_sha` |
 | `repo_manifest_sha256` | string | Matches the frozen before manifest |
-| `sandbox` | string | Exact value `read-only` |
+| `mutation_guard` | string | Exact value `post-run-manifest` |
 | `output_sink_id` | string | Distinct neutral sink inaccessible to the peer |
 
 Both starts must occur before either `voice_end`; this proves overlapping review
@@ -152,7 +152,7 @@ Required fields:
 | Voice | Native evidence | Normalization requirements |
 |---|---|---|
 | Claude | `--verbose --output-format stream-json --forward-subagent-text`; session and `parent_tool_use_id` events | Preserve the child session ID, child payload bytes, start/result order, raw terminal output, and nested write attempts. A result-only JSON file is insufficient. |
-| Codex | `codex exec --ephemeral --sandbox read-only --json -`; JSONL session/tool events | Hash stdin as the review payload, preserve the child session ID and terminal reason, and capture all tool/write attempts. Passing the payload as an interpolated shell argument is invalid. |
+| Codex | `codex exec --ephemeral --json -`; JSONL session/tool events | Hash stdin as the review payload, preserve the child session ID and terminal reason, and capture all tool/write attempts. Passing the payload as an interpolated shell argument is invalid. |
 
 The adapters may differ; the provider-neutral review payload, frozen repository,
 permissions, task, model settings, and observable oracle must not.

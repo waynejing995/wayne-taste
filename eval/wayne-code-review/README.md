@@ -19,4 +19,6 @@ source bytes and cannot silently choose a different plan or spec.
 ```bash
 uv run --no-project python eval/wayne-code-review/check_intent_payload.py \
   wayne-code-review
+uv run --no-project python eval/wayne-code-review/check_cli_wrapper.py \
+  wayne-code-review
 ```

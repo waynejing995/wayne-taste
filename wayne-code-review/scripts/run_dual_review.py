@@ -22,6 +22,7 @@ from typing import Any
 
 SCHEMA_VERSION = "wayne-code-review/dual-review/v1"
 PROVIDERS = ("claude", "codex")
+DEFAULT_TIMEOUT_SECONDS = 1800.0
 TOP_FIELDS = {"verdict", "review_type", "patch_sha256", "findings"}
 FINDING_FIELDS = {
     "severity",
@@ -627,8 +628,6 @@ def command_specs(
         args.codex_bin,
         "exec",
         "--ephemeral",
-        "--sandbox",
-        "read-only",
         "--json",
         "--output-schema",
         str(schema_path),
@@ -724,7 +723,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--timeout-seconds",
         type=float,
-        default=float(os.environ.get("WAYNE_DUAL_REVIEW_TIMEOUT", "3600")),
+        default=float(
+            os.environ.get("WAYNE_DUAL_REVIEW_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS))
+        ),
     )
     return parser.parse_args()
 

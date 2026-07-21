@@ -88,7 +88,8 @@ attribution, and read-only boundary above.
   overlap, or nested write behavior. The runner needs stream JSON with forwarded
   subagent events.
 - Codex plain terminal text cannot prove session identity or write attempts. Use
-  JSONL and stdin, with an externally enforced read-only sandbox.
+  JSONL and stdin; enforce no mutation through the frozen before/after repository
+  manifest instead of a provider filesystem sandbox.
 - Compare the provider-neutral payload, not Claude/Codex transport wrappers.
 - A provider timeout or tool failure before a complete raw output makes the cell
   `invalid`. Do not repair partial output or treat it as `NO FINDINGS`.
