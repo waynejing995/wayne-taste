@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Frozen external checker for Wayne Triage behavioral trials."""
+"""Collect bounded observations for Wayne Triage semantic review."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
+import subprocess
 from pathlib import Path
 
 
@@ -28,28 +28,6 @@ INTERNAL = {
     "multiple-signal": ("needs-plan", "wayne-test-design"),
     "architecture": ("escalate-architecture", "wayne-mind-explode"),
 }
-IGNORED = {".git", "__pycache__", ".pytest_cache"}
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def manifest(root: Path) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for path in root.rglob("*"):
-        relative = path.relative_to(root)
-        if path.is_file() and not any(part in IGNORED for part in relative.parts):
-            result[relative.as_posix()] = digest(path)
-    return result
-
-
-def expected_source(case: str) -> dict[str, str]:
-    expected = manifest(HARNESS / "fixture")
-    expected.update(manifest(HARNESS / "cases" / case))
-    return expected
-
-
 def load_output(path: Path) -> str:
     text = path.read_text(encoding="utf-8")
     try:
@@ -75,14 +53,25 @@ def parse_frontmatter(path: Path) -> tuple[dict[str, str], str]:
     return data, match.group(2)
 
 
+def git_lines(repo: Path, *args: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [line for line in result.stdout.splitlines() if line]
+
+
 def check_source_boundary(repo: Path, case: str, findings: list[str]) -> None:
-    expected = expected_source(case)
-    actual = manifest(repo)
-    for relative, expected_digest in expected.items():
-        if relative not in actual:
-            findings.append(f"input removed: {relative}")
-        elif actual[relative] != expected_digest:
-            findings.append(f"input modified: {relative}")
+    del case
+    if not (repo / ".git").is_dir():
+        findings.append("trial repository has no frozen Git baseline")
+        return
+    for relative in git_lines(repo, "diff", "--name-only", "HEAD", "--"):
+        findings.append(f"input modified: {relative}")
+    if git_lines(repo, "rev-list", "--count", "HEAD") != ["1"]:
+        findings.append("trial commit history changed after the frozen baseline")
 
     allowed = (
         re.compile(r"\.wayne/\.gitignore"),
@@ -91,7 +80,8 @@ def check_source_boundary(repo: Path, case: str, findings: list[str]) -> None:
         re.compile(r"\.wayne/triage-reports/[^/]+\.md"),
         re.compile(r"\.wayne/checkpoints/[^/]+\.md"),
     )
-    for relative in sorted(set(actual) - set(expected)):
+    added = git_lines(repo, "ls-files", "--others", "--exclude-standard")
+    for relative in added:
         if not any(pattern.fullmatch(relative) for pattern in allowed):
             findings.append(f"unexpected mutation outside triage state: {relative}")
 
@@ -354,7 +344,10 @@ def validate(workspace: Path, case: str, output_path: Path) -> list[str]:
     repo = workspace / "repo"
     if not repo.is_dir():
         return [f"missing trial repository: {repo}"]
-    output = load_output(output_path)
+    try:
+        output = load_output(output_path)
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"no readable agent result: {type(error).__name__}"]
     if not output:
         return ["agent produced no user-visible output"]
     if case in INTERNAL or case in {"approval-denied", "external-owner"}:
@@ -373,11 +366,12 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     findings = validate(args.workspace.resolve(), args.case, args.output.resolve())
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print(f"PASS: {args.case}")
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "case": args.case,
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 
