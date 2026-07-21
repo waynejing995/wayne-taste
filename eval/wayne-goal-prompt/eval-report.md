@@ -30,9 +30,9 @@ control-pass cells. Final candidate result is 6/6 PASS with no invalid cell.
 |---|---|---|
 | Startup provider failure | FAIL: success/job ID emitted; provider reason lost | PASS: initialize and `turn/start` failures are non-zero before ready/job ID; log/reason preserved |
 | Blocked same-thread resume | FAIL: no working resume/reactivation/completion | PASS: blocked remains live; same thread set active and completes |
-| Composition checker calibration | — | PASS: 6 positives + 19 independent mutations |
-| Candidate static calibration | — | PASS: 1 positive + 53 independent mutations |
-| Goal validator calibration | — | PASS: 2 positives + 10 independent mutations |
+| Composition observation calibration | — | PASS: 6 examples + 19 bounded observations; no semantic verdict |
+| Candidate machine-resource calibration | — | PASS: 1 positive + 6 missing-resource mutations + 1 prose paraphrase |
+| Goal Markdown validator | — | REMOVED: no non-AI consumer requires its grammar |
 | Dispatch report calibration | — | PASS: 1 positive + 16 independent mutations |
 | Live-path `compose-real-path` smoke | — | PASS: Claude and Codex |
 | Python compile, shell syntax, Forge validation | legacy static failures | PASS |
@@ -68,3 +68,8 @@ phrase, backtick, and section-count checks are historical eval observations only
 semantic composition now belongs to blind AI review. Dispatch protocol checks stay
 mechanical because the app-server and shell CLI are real non-AI consumers. The
 composition cells above were not rerun for this hotfix.
+
+Follow-up 2026-07-22: the harness now enforces that boundary. Composition checks
+emit `AI_REVIEW_REQUIRED`, static prose scans are observations, and
+`semantic-rubric.md` owns the final goal judgment. Only loader/resource existence
+and the executable dispatch protocol remain hard mechanical gates.

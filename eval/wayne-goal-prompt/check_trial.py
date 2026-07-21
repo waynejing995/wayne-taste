@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic checker for Wayne Goal Prompt composition cases."""
+"""Collect bounded observations for Wayne Goal Prompt semantic review."""
 
 from __future__ import annotations
 
@@ -179,11 +179,13 @@ def main() -> int:
     parser.add_argument("--agent", required=True, choices=("claude", "codex"))
     args = parser.parse_args()
     findings = check(args.workspace.resolve(), args.case, args.agent)
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print(f"PASS: {args.case} / {args.agent}")
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "case": args.case,
+        "agent": args.agent,
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 
