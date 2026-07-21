@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibrate Wayne Test Design artifact checks."""
+"""Calibrate Wayne Test Design observations, not matrix semantics."""
 
 from __future__ import annotations
 
@@ -147,7 +147,10 @@ E2E: none — pure function has no user-observable runtime path
             findings = check(trial, case)
             if not any(needle in finding for finding in findings):
                 raise AssertionError(f"{case}/{label} escaped {needle}: {findings}")
-    print(f"PASS: 5 positive lanes and {len(mutations)} independent mutations")
+    print(
+        f"PASS: observations cover 5 lanes and {len(mutations)} mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 

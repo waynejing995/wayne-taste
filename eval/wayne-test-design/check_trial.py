@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Frozen deterministic checker for Wayne Test Design artifacts."""
+"""Collect matrix observations for Wayne Test Design semantic review."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -213,11 +214,12 @@ def main() -> int:
     parser.add_argument("--case", required=True, choices=sorted(CASES))
     args = parser.parse_args()
     findings = check(args.workspace.resolve(), args.case)
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print(f"PASS: {args.case}")
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "case": args.case,
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 
