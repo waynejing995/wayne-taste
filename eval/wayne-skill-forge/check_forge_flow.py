@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Check and calibrate the directly observable Forge loader gate."""
+"""Collect and calibrate Forge Flow observations for semantic review."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import tempfile
 from pathlib import Path
@@ -74,13 +75,15 @@ def main() -> int:
     args = parser.parse_args()
     path = args.skill / "SKILL.md"
     findings = calibrate(path) if args.calibrate else validate(path)
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    suffix = " and 4 mutations" if args.calibrate else ""
-    print(f"PASS: Forge loader-validation Flow gate{suffix}")
-    return 0
+    result: dict[str, object] = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "mode": "calibration" if args.calibrate else "observation",
+        "observations": findings,
+    }
+    if args.calibrate:
+        result["calibration_verdict"] = "FAIL" if findings else "PASS"
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 1 if args.calibrate and findings else 0
 
 
 if __name__ == "__main__":
