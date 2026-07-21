@@ -1,8 +1,8 @@
-# Subagent Dispatch — prompt templates + output contracts
+# Subagent Dispatch — prompt and evidence guides
 
 The context-discipline HARD-GATE says the main agent must not read big logs
 itself. That only holds if dispatching is *cheaper than reading it yourself* — so
-this file gives copy-paste prompts and the exact output shape to expect back.
+this file gives copy-paste prompts and the minimal evidence to expect back.
 Lower the friction and the dispatch actually happens.
 
 Two dispatch shapes: **boundary-scout** (Phase 3, one per component boundary) and
@@ -34,7 +34,7 @@ the main agent reads the merged file, not the individual transcripts.
 ## The three hard contracts (every dispatch)
 
 1. **Subagents gather evidence; the MAIN agent decides the route.** A subagent returns an evidence-level verdict about its ONE piece (`ELIMINATED/SURVIVES`, `PASS/BREAK-HERE`) — it MUST NOT emit a route verdict (`fix-now`, `needs-plan`, …) or an attribution. Routing and attribution are the main agent's exclusive job: it alone sees the whole matrix and applies the Phase-5 hard gates. Reason (from autoresearch-x): the agent that gathers evidence must not judge where it goes — that splits the decision across contexts and invites confirmation bias.
-2. **Return ONLY the structured fields below — never raw log excerpts, never narrative.** The main agent's context must not absorb the log the subagent read.
+2. **Return only the concise evidence below — never a raw log dump or long narrative.** Field names and order are guidance; the main agent's context must not absorb the log the subagent read.
 3. **Write findings into the evidence file, and also return them.** The evidence file (`<cwd>/.wayne/triage/<date>-<slug>.md`) is the SSoT; the returned fields are the summary the main agent acts on. State flows through the file, not the prompt chain.
 
 Every returned claim carries an evidence marker: `[OBSERVED]` (verbatim in a
@@ -65,7 +65,7 @@ Steps:
 2. Compare against the expected contract. Note any drop, mutation, or swallowed error (try/except, sentinel default).
 3. Append a row to the evidence file's Boundaries table and return the fields below.
 
-Return EXACTLY this block, nothing else:
+Return these facts concisely in any clear order:
 - boundary: <layerA> → <layerB>
 - data_in: <ok | describe what arrived>   [OBSERVED] <file:line>
 - data_out: <ok | describe what left>      [OBSERVED] <file:line>
@@ -83,7 +83,7 @@ Return EXACTLY this block, nothing else:
 - swallowed_signal: build.sh line 8 `export IDENTITY=${IDENTITY:-}` — empty default hides the missing secret
 ```
 
-The main agent takes back five short lines, not the 8k-line CI log the scout read.
+The main agent takes back one short evidence summary, not the 8k-line CI log.
 
 ---
 
@@ -110,7 +110,7 @@ Steps:
 2. Mark the evidence: ++ strongly consistent · + weakly · -- inconsistent (disproves) · n/a irrelevant.
 3. Append your row to the evidence file's Hypothesis matrix and return the fields below.
 
-Return EXACTLY this block, nothing else:
+Return these facts concisely in any clear order:
 - hypothesis: H<n>: <cause>
 - check_run: <what you actually did>
 - evidence: <observed fact>   [OBSERVED] <file:line>
