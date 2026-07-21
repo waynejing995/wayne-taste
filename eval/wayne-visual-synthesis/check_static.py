@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Static oracle for original visual-synthesis contracts."""
+"""Collect static visual-synthesis contract observations."""
 
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 
@@ -104,11 +105,11 @@ def main() -> int:
     parser.add_argument("skill", type=Path)
     args = parser.parse_args()
     findings = validate(args.skill.resolve())
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print("PASS: original static design contracts")
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

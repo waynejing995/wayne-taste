@@ -71,3 +71,9 @@ structured short-circuit table now makes the owner explicit: both signals stop
 later Level-1 metrics only, per-image VEL and Level 2 always continue, and PASS is
 available only under a pre-approved byte-identity tolerance. Two independent row
 mutations prove that either scope can no longer drift silently.
+
+Follow-up 2026-07-22: static and behavior checkers now emit
+`AI_REVIEW_REQUIRED`; their reference-table, heading, keyword, and output-shape
+matches are observations for `semantic-rubric.md`. Generated image bytes and real
+channel/hidden/pixel probe results remain machine evidence. A missing fixture or
+agent result is `invalid`, not an automatic skill loss.
