@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a Wayne Checkpoint handoff trial against the frozen route contract."""
+"""Collect handoff observations for Wayne Checkpoint semantic review."""
 
 from __future__ import annotations
 
@@ -60,7 +60,11 @@ def product_diff(repo: Path) -> list[str]:
 def validate(workspace: Path, case: str, output_path: Path) -> list[str]:
     findings: list[str] = []
     repo = workspace / "repo"
-    output = load_output(output_path)
+    try:
+        output = load_output(output_path)
+    except (OSError, json.JSONDecodeError) as error:
+        output = ""
+        findings.append(f"no readable agent result: {type(error).__name__}")
     findings.extend(product_diff(repo))
     packets = sorted((repo / ".wayne" / "checkpoints").glob("*.md"))
     stage, route, expected_agent, snapshot = CASES[case]
@@ -113,11 +117,12 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     findings = validate(args.workspace.resolve(), args.case, args.output.resolve())
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print(f"PASS: {args.case}")
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "case": args.case,
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

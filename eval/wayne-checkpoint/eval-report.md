@@ -74,3 +74,8 @@ Template fields and legacy checker results are reviewer observations, not a sema
 schema gate. Paths, hashes, Skill existence, and Git mutation evidence remain useful
 facts; the blind AI review decides ownership, completeness, routing preservation,
 and no-auto-advance meaning. No provider cell was rerun for this prompt hotfix.
+
+Follow-up 2026-07-22: both packet and template checkers now emit
+`AI_REVIEW_REQUIRED` and return observations only. Calibration still proves the
+observations respond to the frozen examples and mutations, but cannot turn a
+frontmatter, heading, table, or keyword match into a semantic verdict.

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Validate checkpoint templates against the single-owner artifact contract."""
+"""Collect template observations for the single-owner semantic review."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import tempfile
 from pathlib import Path
 
@@ -80,12 +81,15 @@ def main() -> int:
     parser.add_argument("--calibrate", action="store_true")
     args = parser.parse_args()
     findings = calibrate(args.skill) if args.calibrate else validate(args.skill)
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print("PASS: checkpoint template ownership" + (" and 4 mutations" if args.calibrate else ""))
-    return 0
+    result: dict[str, object] = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "mode": "calibration" if args.calibrate else "observation",
+        "observations": findings,
+    }
+    if args.calibrate:
+        result["calibration_verdict"] = "FAIL" if findings else "PASS"
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 1 if args.calibrate and findings else 0
 
 
 if __name__ == "__main__":
