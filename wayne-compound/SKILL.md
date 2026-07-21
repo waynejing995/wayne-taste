@@ -164,14 +164,10 @@ fields (`type: lesson` + `trigger`) so future workflow skills can recall it.
 **Read first, then write:** `templates/lesson-template.md` relative to this skill
 directory.
 
-The template is the canonical structure. Required sections:
-- frontmatter: `title`, `date`, `tags`, `source`, `pipeline: wayne`, `type: lesson`, `trigger`, `related`
-- `## Summary` (one-line takeaway)
-- `## Context` (when does this apply?)
-- `## Detail` (subsections: What Happened / The Insight / Code Examples)
-- `## Anti-Patterns`
-- `## Prevention`
-- `## References` (decision log, plan, repo doc)
+The vault's `SCHEMA.md` owns any frontmatter fields required by its real indexer.
+Use the template as a readable body guide: preserve takeaway, applicability,
+detail/examples, anti-patterns, prevention, and source links, but adapt headings or
+grouping when clearer. Body section names and order are not machine schema.
 
 The `trigger` field is mandatory — see "Writing a good `trigger`" below.
 
@@ -224,14 +220,10 @@ accessing the personal KB.
 
 **Read first, then write:** `${HOME}/.claude/skills/wayne-compound/templates/solution-doc-template.md`
 
-The template is the canonical structure. Required sections:
-- frontmatter: `title`, `date`, `problem_type` (bug|pattern|pitfall|how-to), `module`, `tags`
-- `# <Title>`
-- `## Problem` (1-2 sentences)
-- `## Root Cause`
-- `## Solution` (with code examples)
-- `## Prevention`
-- `## Related` (link back to KB)
+Use the template as a readable guide. Preserve metadata required by the repository,
+plus problem, root cause, solution/examples, prevention, and the KB link. Adapt body
+headings or grouping when clearer; the AI-readable solution doc has no runtime
+section grammar.
 
 Create directory if needed:
 ```bash
