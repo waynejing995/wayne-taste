@@ -27,11 +27,19 @@ The complete case also owns a provider-trace oracle: every decision must become
 durable in its own file-write event. A correct final decision log does not repair a
 batched trace.
 
+All three checkers emit `AI_REVIEW_REQUIRED`. Their row, heading, keyword,
+punctuation, and question-count findings are observations for
+[the blind workflow rubric](semantic-rubric.md), not semantic verdicts. Durable
+write events, Git start/diff evidence, review JSON/hashes, artifact creation order,
+and forbidden downstream mutations remain direct observations.
+
 The `three-options` result is judged with
 `cases/three-options/semantic-judge.md`. Run the same task with Claude and Codex;
 give the judge only the case, supplied Skill, and user-visible response, with
 provider identity hidden. Both responses must pass. The binary exception is a
 semantic claim: a response cannot earn it merely by saying “binary.”
+The general rubric also owns causal DAG depth, fact/choice ownership, convergence,
+design approval, review, and handoff semantics across the other cases.
 
 ## Calibrate
 
@@ -71,6 +79,9 @@ uv run --no-project python eval/wayne-mind-explode/check_trial.py \
 
 `control.sha256` freezes the pre-optimization skill. Generated trials, candidates,
 provider state, and traces belong under `eval/.runs/wayne-mind-explode/`.
+
+Scope evidence comes from the trial's starting commit, final diff/untracked paths,
+and native trace. The evaluator never walks or hashes unrelated repository files.
 
 The reproduced control failure from the prior complete run is:
 

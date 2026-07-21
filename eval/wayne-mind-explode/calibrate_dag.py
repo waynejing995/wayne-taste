@@ -202,7 +202,10 @@ def main() -> int:
         if not any("exactly one" in finding for finding in findings):
             raise AssertionError(f"long multiple questions not detected: {findings}")
 
-    print("PASS: 10 positive lanes and 18 independent DAG mutations")
+    print(
+        "PASS: DAG observations cover 10 lanes and 18 mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 

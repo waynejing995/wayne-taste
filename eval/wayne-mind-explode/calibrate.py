@@ -23,6 +23,14 @@ def seed(workspace: Path, case: str) -> Path:
     if overlay.is_dir():
         shutil.copytree(overlay, repo, dirs_exist_ok=True)
     shutil.copy(HARNESS / "cases" / case / "case.md", repo / "case.md")
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Eval"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "eval@example.invalid"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
     return repo
 
 
@@ -423,7 +431,10 @@ def main() -> int:
             "depth convergence gate",
         )
 
-    print("PASS: 6 positive fixtures and 19 independent mutations")
+    print(
+        "PASS: observations cover 6 fixtures and 19 mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 
