@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check and calibrate the directly observable Forge static gate."""
+"""Check and calibrate the directly observable Forge loader gate."""
 
 from __future__ import annotations
 
@@ -29,8 +29,8 @@ def validate(path: Path) -> list[str]:
     nodes = {node: (label, shape) for node, label, shape in NODE.findall(graph)}
     edges = {(source, target, label or "") for source, target, label in EDGE.findall(graph)}
     findings: list[str] = []
-    if nodes.get("V") != ("Static validation passes?", "diamond"):
-        findings.append("Flow V must be the static-validation decision")
+    if nodes.get("V") != ("Loader metadata valid?", "diamond"):
+        findings.append("Flow V must be the loader-metadata decision")
     required = {
         ("E", "V", ""),
         ("V", "R", "no"),
@@ -38,9 +38,9 @@ def validate(path: Path) -> list[str]:
     }
     missing = sorted(required - edges)
     if missing:
-        findings.append(f"static gate missing edges: {missing}")
+        findings.append(f"loader gate missing edges: {missing}")
     if ("E", "F", "") in edges:
-        findings.append("static validation bypasses its decision gate")
+        findings.append("loader validation bypasses its decision gate")
     return findings
 
 
@@ -51,7 +51,7 @@ def calibrate(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
     mutations = {
         "missing decision": text.replace(
-            '    V [label="Static validation passes?", shape=diamond];\n', ""
+            '    V [label="Loader metadata valid?", shape=diamond];\n', ""
         ),
         "missing failure edge": text.replace('    V -> R [label="no"];\n', ""),
         "missing success edge": text.replace('    V -> F [label="yes"];\n', ""),
@@ -79,7 +79,7 @@ def main() -> int:
             print(f"FAIL: {finding}")
         return 1
     suffix = " and 4 mutations" if args.calibrate else ""
-    print(f"PASS: Forge static-validation Flow gate{suffix}")
+    print(f"PASS: Forge loader-validation Flow gate{suffix}")
     return 0
 
 

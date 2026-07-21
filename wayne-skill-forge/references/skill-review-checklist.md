@@ -1,6 +1,6 @@
 # Skill review checklist
 
-Use this for a deep review after the deterministic validator. Report findings by
+Use this for a deep review after loader metadata validation. Report findings by
 severity: `critical` blocks use, `major` should be fixed, `minor` is optional.
 
 ## Contents
@@ -81,7 +81,7 @@ severity: `critical` blocks use, `major` should be fixed, `minor` is optional.
 
 ## 7. Evaluation evidence
 
-- **critical** — static validator passes.
+- **critical** — loader-required frontmatter and naming are valid.
 - **major** — new skill: candidate beats or matches strongest-model no-skill baseline.
 - **major** — existing skill: candidate does not regress against current skill.
 - **major** — control and candidate use the same model, effort, task, tools, and artifacts.
@@ -105,26 +105,16 @@ severity: `critical` blocks use, `major` should be fixed, `minor` is optional.
   and forbidden alternatives match the approved intent without normalization.
 - **critical** — contradictory approved clauses were returned upstream; the forged
   contract did not silently choose one.
-- **critical** — outputs with at least two low-freedom signals (exact grammar,
-  cross-field reference, unique owner, verbatim carry, order, machine terminal)
-  have one schema reference, one aligned template, and a deterministic validator.
-- **critical** — every bundled validator passed a valid fixture, rejected one
-  minimal mutation per independent invariant with the expected finding, tested
-  both directions of cross-record rules, passed lint/static checks, and was
-  challenged by a frozen external acceptance check.
-- **major** — the body states when the contract resource must be read and when the
-  validator must run.
-- **major** — schema facts have one owner; the body, template, and validator do not
-  define competing shapes.
-- **major** — schema/template/validator agreement was traced back to the intent;
-  self-consistency alone was not accepted as fidelity.
+- **critical** — every proposed machine schema names the actual non-AI consumer.
+- **critical** — each bundled operational script was executed on its real job.
+- **major** — machine-interface facts have one authoritative external owner.
+- **major** — an AI-readable handoff was not converted into a machine grammar.
 - **critical** — every source-relative claim names and reads its oracle inputs;
   artifact-only validation is not reported as source-fidelity proof.
 - **critical** — when exact content is supplied only at runtime, the forged skill
   rebuilds a temporary source ledger and traces each literal, owner, and
   relationship into the output and its proof.
-- **major** — semantic judgment uses behavioral cases rather than a fake keyword
-  validator.
+- **major** — semantic judgment uses behavioral cases rather than a fake keyword gate.
 
 ## Output
 

@@ -7,9 +7,8 @@ description: <180-400 characters: what judgment this lens adds, when it applies,
 
 <One sentence: the decision this lens makes more reliable.>
 
-<!-- Judgment usually stays high-freedom: use contrasting cases and behavioral
-     eval. Add a validator only for a genuinely deterministic output surface, not
-     for keywords that approximate reasoning quality. -->
+<!-- Judgment stays high-freedom: use contrasting cases and behavioral eval.
+     Add mechanical checks only when a named non-AI consumer parses the output. -->
 
 <!-- Add a Boundary section only when a neighboring lens owns a similar decision.
      Do not add an Inherits block or a body When-to-Run section. -->

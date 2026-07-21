@@ -1,26 +1,16 @@
-# Forge static-validator boundary hotfix
+# Forge loader-validator hotfix
 
-The live Forge tree is
-`f2f0802a7c45fc58b63410a07514ac66c140583a17bda800d0c1403a0cc9c9c4`.
+The validator now stays at the loader-level boundary used by the official
+skill-creator, plus Wayne's directory agreement and non-empty body. It checks only:
 
-## Corrected boundary
+- `SKILL.md` exists and has parseable YAML frontmatter;
+- frontmatter contains `name` and `description`, with only loader-supported keys;
+- `name` is lowercase kebab-case and matches the directory;
+- name and description bounds match the loader; the Markdown body is non-empty.
 
-- Duplicate level-two sections remain a deterministic error; repeated lower-level
-  headings are contextual and no longer rejected by raw text counts.
-- Flow decisions still require labeled outgoing edges and a terminal. Process node
-  IDs must exist in the Flow.
-- Flow plus Checklist co-existence no longer claims semantic duplication.
-- Resource filename presence no longer claims that a resource is useful or used.
-  Real local links still must resolve.
-- Markdown-like examples inside fenced or inline code are not links. A matching
-  prose link to the same missing target remains a deterministic error.
+It no longer parses body headings, Flowcharts, Process IDs, links, prose, line
+counts, word counts, or house style. Those are AI authoring and behavioral-eval
+questions, not loader validity.
 
-Calibration passes a valid repeated-H3 / Flow+Checklist / conditional-resource
-fixture, inline/fenced link examples, and rejects duplicate H2, unknown Process
-node, unlabeled decision-edge, and real broken-link mutations. The Forge
-static-gate Flow calibration also remains PASS.
-
-Repository scan found no new `flow-process-id` errors. Existing errors remain only
-in four not-yet-optimized skills: inherited/global routing sections in
-`wayne-distill`, `wayne-frontend-design`, `wayne-neat`, and `wayne-rescue-boot`.
-They are not part of this Forge change.
+Calibration accepts supported metadata and arbitrary valid Markdown, then rejects
+missing/malformed metadata, unknown keys, invalid/mismatched names, and empty body.

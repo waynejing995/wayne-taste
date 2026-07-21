@@ -1,6 +1,6 @@
 ---
 name: wayne-skill-forge
-description: Creates or revises lean Wayne-style skills from approved intent or wayne-distill evidence. Chooses procedure, lens, or router; preserves useful Flowcharts; protects dense output contracts with templates and validators; and A/B tests behavior. Use for "/wayne-skill-forge", "建一个 skill", "把这个做成 skill", "写个 skill", "create a skill", "scaffold a skill", or "slim this skill".
+description: Creates or revises lean Wayne-style skills from approved intent or wayne-distill evidence. Chooses procedure, lens, or router; keeps loader metadata valid; and A/B tests real behavior. Use for "/wayne-skill-forge", "建一个 skill", "把这个做成 skill", "写个 skill", "create a skill", "scaffold a skill", or "slim this skill".
 ---
 
 # Wayne Skill Forge
@@ -10,14 +10,14 @@ Turn one repeatable pattern into the smallest skill that reliably changes agent 
 ## Boundary
 
 `wayne-distill` supplies evidence; `wayne-mind-explode` converges raw ideas.
-This forge owns the complete Wayne skill format, authoring, and validation floor.
+This forge owns Wayne skill authoring, loader metadata, and behavioral evaluation.
 Do not forge one-offs, unconverged ideas, or guidance already owned by global
 `AGENTS.md` / `CLAUDE.md`.
 
 Every skill is one kebab-case directory containing `SKILL.md`. Its YAML
-frontmatter contains exactly `name` and `description`; `name` matches the
-directory, while `description` owns all triggering language. Add only resources
-the runtime needs: deterministic work in `scripts/`, conditional knowledge in
+frontmatter requires `name` and `description`, uses only loader-supported keys,
+and has `name` match the directory; `description` owns all triggering language. Add only resources
+the runtime needs: repeated operational work in `scripts/`, conditional knowledge in
 one-level `references/`, and output material in `assets/` or `templates/`.
 
 ### Start from the strongest-model baseline
@@ -54,25 +54,20 @@ such as “read first”, “think carefully”, “follow existing patterns”,
 Exceed a target only when an eval shows the additional context prevents a real
 failure. Size reduction alone is not success; behavior must remain correct.
 
-Match form to failure: skipped rule → gate plus reason; wrong shape → template;
-omitted field → required slot plus validator; conditional behavior → predicate;
+Match form to failure: skipped rule → gate plus reason; wrong shape → example;
+omitted information → explicit instruction; conditional behavior → predicate;
 repeated fragile logic → script. Add anti-patterns only from observed mistakes.
 
 ### Protect the contract before compressing
 
 Build a temporary coverage map from every approved requirement to exactly one
-owner: body, reference, template, validator, or eval. Compression starts only when
+owner: body, reference, template, or eval. Compression starts only when
 the map has no orphan requirement. Do not ship the map.
-Freeze quoted literals, table headers, sentinels, cardinalities, verbatim clauses,
-and forbidden alternatives in a temporary literal ledger. Copy them exactly into
-the schema/template/validator; do not normalize a local contract into a nicer one.
-
-If an output has exact grammar, verbatim carry, cross-field references, unique
-ownership, dependency order, or machine statuses, read
-[contract protection](references/contract-protection.md) completely. These are
-low-freedom signals: keep the schema in one reference, provide a canonical template,
-and add a deterministic validator when correctness can be checked mechanically.
-A strong model may know the domain; it cannot infer a deleted local contract.
+Preserve quoted literals only when an upstream source or real machine consumer makes
+their exact bytes normative; do not invent exactness for an AI-readable document.
+Read [contract protection](references/contract-protection.md) when an actual parser,
+API, loader, or executable consumes the output. AI-to-AI Markdown handoffs use
+semantic ownership and behavioral review, not a fabricated schema/validator pair.
 
 Cut in this order: decoration → copied global rules → generic advice → redundant
 examples → duplicated explanation. Never cut an approval/stop gate, state owner,
@@ -115,8 +110,8 @@ digraph forge {
     X [label="Stop or return to design", shape=doublecircle];
     C [label="Choose archetype and baseline", shape=box];
     D [label="Draft minimum skill", shape=box];
-    E [label="Static validation", shape=box];
-    V [label="Static validation passes?", shape=diamond];
+    E [label="Validate loader metadata", shape=box];
+    V [label="Loader metadata valid?", shape=diamond];
     F [label="Behavioral eval passes?", shape=diamond];
     R [label="Revise from observed failure", shape=box];
     G [label="User approves write?", shape=diamond];
@@ -172,47 +167,25 @@ Start from the archetype template. Write discovery metadata, then only the core
 workflow or judgment. Put conditional detail in resources. Use direct,
 conclusion-first language; never copy persona or global invariant blocks.
 When Flow exists, expand node IDs instead of duplicating its sequence.
-Complete the requirement coverage map and run the contract-density gate before
-cutting. For low-freedom outputs, make the reference the schema owner and align its
-template and validator to that owner; do not encode three independent schemas.
-Audit the drafted schema back against the approved intent, not merely against its
-own template.
-Classify checks as artifact-local or source-relative. A validator for verbatim
-carry, source completeness, or real repository surfaces must accept those upstream
-artifacts explicitly; an artifact-only validator cannot claim that coverage.
-Build two proof layers with separate jobs. Deterministic gates check directly
-observable low-freedom facts: grammar, hashes, exact literals and snapshots, IDs,
-closure, mutations, and event order. An AI source-fidelity gate reads the complete
-sources and judges intent, classification, completeness, equivalence, and causality.
-When an output has both structural and semantic requirements, both gates must pass.
-Headings, keywords, ID prefixes, substrings, counts, regex, and similarity may
-locate a bounded structure or validate its grammar; they cannot decide prose
-meaning. Do not keep a lexical semantic proxy merely because an AI gate was added.
-If it protects no independently useful structural invariant, remove it from the
-gate; if machine validation is required, expose a real structured field.
-When source content is discovered only at skill runtime, require a temporary
-runtime ledger for exact literals, ownership, and cross-record relationships; trace
-each row into the generated artifact and its validator proof. Map every independent
-machine-checkable invariant to its own check and mutation, not one broad family test.
-Before adding a gate, name the failure it prevents, the direct observable it checks,
-and why its runtime cost is lower than the failure cost. Reject a check that merely
-duplicates another gate, restates an AI judgment, or forces harmless prose rewrites.
-Consolidate cheap structural checks into one pass; rerun only after an owning input
-or artifact changes.
+Complete the requirement coverage map before cutting. Validate only the skill
+loader's real contract: parseable YAML frontmatter, required `name` and
+`description`, naming rules, directory agreement, and a non-empty body.
 
-### E. Run static validation
+For any proposed runtime schema or validator, name the non-AI consumer that parses
+it and the failure it prevents. If the next consumer is an agent reading Markdown,
+reject the mechanism and use source-grounded AI review plus behavioral eval. Regex,
+headings, keywords, counts, templates, and similarity may be evaluator observations;
+they never become a prose correctness gate by themselves.
+
+### E. Validate loader metadata
 
 ```bash
 uv run <wayne-skill-forge-dir>/scripts/validate_skill.py <skill-directory>
 ```
-Review warnings deliberately; do not silence them with padding or relocated
-duplication. For a deeper manual pass, use
-[the review checklist](references/skill-review-checklist.md).
-Execute every bundled script. A validator needs a valid fixture that exits zero,
-one minimal invalid fixture per independent invariant from the coverage map, and a
-lint pass. Each mutation must exit non-zero with its expected finding; one negative
-case does not prove a sibling relationship or the reverse direction.
-If the environment prevents execution, report static validation as incomplete.
+This checks only the same loader-level metadata expected by the official skill
+creator. It does not judge Markdown organization, Flowchart style, prose, or
+behavior. Execute and test every bundled operational script against its real job.
+If the environment prevents execution, report the incomplete proof.
 
 ### F. Run behavioral eval
 
@@ -224,13 +197,14 @@ Follow [the eval protocol](references/eval.md):
 - Run control and candidate in fresh contexts without revealing the expected fix.
 - Score success, boundaries, output, Flow, context, and resource discovery.
 - Accept only without required-behavior regression; prefer smaller when equal.
-Turn each failure into one minimal instruction, resource, or validator check.
-Run applicable deterministic checks and an independent AI semantic judge as
-separate gates. Keep invalid artifacts as evidence; never repair them by hand.
-Also run a frozen acceptance checker derived before generation; a child-authored
-validator can be self-consistent while drifting from the approved intent.
-Every checker finding must trace to a published intent/task clause; an untraceable
-expectation invalidates the evaluator, not the candidate. Treat provider, timeout,
+Turn each failure into one minimal instruction, resource, or operational script.
+Use deterministic checks only for a real machine-consumed interface, and use an
+independent AI semantic judge for agent-readable artifacts. Keep invalid artifacts
+as evidence; never repair them by hand.
+Freeze eval observations before generation and give their results to the blind AI
+judge as evidence, not as an automatic semantic verdict. Every finding must trace
+to a published intent/task clause; an untraceable expectation invalidates the
+evaluator, not the candidate. Treat provider, timeout,
 or tool-use termination before an observable result as an invalid trial, not a loss.
 
 When evaluating this forge, run the required meta-eval: old and candidate forge
@@ -241,7 +215,7 @@ the prose quality of the generated `SKILL.md`.
 ### G. Gate and write
 
 Show files and eval result in plain Chinese. Write only after approval unless the
-edit was explicitly requested. Revalidate and report changed files, proof, and
+edit was explicitly requested. Recheck loader metadata and report changed files, proof, and
 uncertainty. Do not install, sync, commit, or publish unless asked.
 
 ## Red lines
@@ -252,11 +226,10 @@ uncertainty. Do not install, sync, commit, or publish unless asked.
 - Do not duplicate Flowchart sequence in a checklist or prose phase list.
 - Do not hardcode one agent’s home-directory path in a cross-agent skill.
 - Do not call a shorter file “better” without behavioral evidence.
-- Do not remove a template or validator whose contract remains low-freedom.
+- Do not invent a schema or validator for an AI-to-AI Markdown handoff.
 - Do not claim a bundled script passes when it was only inspected.
-- Do not call schema/template/validator agreement proof of intent fidelity.
+- Do not call loader validity or template agreement proof of intent fidelity.
 - Do not let a lexical rule decide prose meaning. Adding an AI judge does not make
-  a semantic-proxy regex valid; keep only a separately useful structural check.
-- Do not replace exact structural checks with AI review. Use both gates when a
-  requirement genuinely has independent structural and semantic parts.
+  a semantic-proxy regex a runtime gate; eval may report it only as reviewer input.
+- Keep mechanical validation only where an actual non-AI consumer requires it.
 - Do not auto-forge every repeated prompt; extend an existing owner when possible.
