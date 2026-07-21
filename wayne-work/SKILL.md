@@ -200,7 +200,8 @@ Do not claim completion while any command, unit, U row, decision, or scope gate 
 
 Before returning success, write one packet under `.wayne/checkpoints/` through
 `wayne-checkpoint` return-only mode or a supplied canonical contract. Verify the file
-exists and surface its path; without either mechanism, return the exact blocker. Include
+exists and surface its path; without either mechanism, return the shared blocker
+information. Include
 plan/matrix paths, units, passing commands, changed paths, preserved scope, residual
 risks, and `next_agent: wayne-code-review`; final output repeats that literal but never invokes it.
 
