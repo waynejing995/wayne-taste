@@ -11,7 +11,9 @@ Improve one existing skill only when frozen behavioral evidence proves the chang
 
 - `wayne-distill` discovers patterns; `wayne-skill-forge` authors candidates; this
   skill owns target lock, harness, A/B execution, acceptance, and rejected edits.
-- One run changes one skill and `eval/<skill-name>/` only; return shared-owner changes separately.
+- One run changes one skill and `eval/<skill-name>/` only. Never create or edit
+  parent `eval/` files, including `.gitignore`, to support the run; return
+  shared-owner changes separately.
 
 Read `wayne-skill-forge` and its `references/eval.md` completely before building
 the harness or candidate. Do not restate their authoring and scoring contracts.

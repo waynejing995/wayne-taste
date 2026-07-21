@@ -1,4 +1,9 @@
-# Wayne Skill Optimize A/B — final7
+# Wayne Skill Optimize A/B — superseded final7
+
+This result used the retired lexical evaluator and is not evidence for the current
+candidate. The replacement harness separates deterministic integrity from Claude
+and Codex semantic source-fidelity review. A fresh paired run is required before a
+new acceptance claim.
 
 The frozen meta-eval asks each optimizer to recover and freeze the complete intent
 of the same two-commit `decision-builder` fixture. The natural task mentions only

@@ -1,0 +1,4 @@
+{"type":"state","decision_ids":[1],"pending":"Q2","decision_log_hash":"before-q2"}
+{"type":"user","text":"Answer Q2: use the existing queue"}
+{"type":"assistant_tool","name":"apply_patch","decision_ids":[1,2],"decision_log_hash":"after-q2"}
+{"type":"assistant","text":"Q3 retry policy"}
