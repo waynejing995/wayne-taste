@@ -93,3 +93,11 @@ trial was invalidated, the evaluator was changed to recognize only the controlle
 verdict token independent of presentation, and the same case was rerun fresh.
 Failure/skip route meaning is judged by the blind rubric rather than keyword or
 negation regexes.
+
+## 2026-07-21 E2E presentation boundary hotfix
+
+The E2E contract remains authoritative for user path, process, data, entrypoint,
+observable, and status ownership. Its Markdown table layout is now advisory because
+agents consume it. Runtime commands, fresh events, artifacts, Git mutations, and
+status transitions remain observable evidence; blind AI review binds them to the
+correct E entry and route. No provider cell was rerun for this prompt-only change.

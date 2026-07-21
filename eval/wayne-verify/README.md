@@ -23,13 +23,14 @@ Behavior lanes:
 
 Run every case through Claude and Codex in fresh isolated workspaces. Provider or
 tool termination before an observable result is `invalid`, not a behavioral loss.
-Every PASSED case must emit exactly one return-only checkpoint for `wayne-ship`;
+Every PASSED case must emit one return-only checkpoint for `wayne-ship`;
 BLOCKED/FAILED cases must emit none and must never invoke the ship skill.
 
-The deterministic checker owns exact verdict sentinels, Status cells, commands,
-artifacts, mutation boundaries, and Flow edges. [The blind semantic rubric](semantic-rubric.md)
-owns whether the explanation and next route mean the right thing; it is not replaced
-by keyword or negation regexes.
+The checker records commands, artifacts, status transitions, mutation boundaries,
+and Flow edges. [The blind semantic rubric](semantic-rubric.md) reads the full
+contract and evidence to decide whether the correct E entry changed and whether the
+explanation and next route mean the right thing. Table shape, headings, keywords,
+and negation regexes do not own that judgment.
 
 ## Deterministic gates
 
