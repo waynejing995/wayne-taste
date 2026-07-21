@@ -12,6 +12,8 @@ defect, not a plan or environment defect.
 - `wayne-plan/scripts/validate_plan.py` is removed.
 - Plan Markdown has no runtime grammar, heading/order, table-shape, regex, manifest,
   or five-line blocker gate.
+- Test-matrix U/E information is consumed by ownership and meaning, not one fixed
+  heading or table layout.
 - Starting `HEAD` and `git status`, agent write history, and final diff prove that
   plan authoring changed only the new plan file.
 - Two independent AI reviews own source fidelity, U/E ownership, plan completeness,
