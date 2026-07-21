@@ -10,7 +10,7 @@ Run the feature as its user runs it and decide the runtime gate from fresh evide
 ## Boundary and contract owner
 
 Read `_shared/pipeline-id-contract.md` and `_shared/e2e-contract.md` completely. They own
-the locked table, `E2E: none` declaration, and Status lifecycle. Use the exact
+the required E2E information, explicit no-E2E rationale, and Status lifecycle. Use the exact
 authoritative `docs/test-matrix/` path carried by the handoff or explicitly supplied
 by the user; never select or mutate the read-only snapshot inside a plan. Do not
 author or repair the matrix.
@@ -28,7 +28,7 @@ digraph verify {
     B [label="Runnable contract row?", shape=diamond];
     X [label="BLOCKED: return to test design", shape=doublecircle];
     K [label="Record legitimate skip", shape=box];
-    C [label="Prepare exact row environment", shape=box];
+    C [label="Prepare declared environment", shape=box];
     D [label="Start and observe readiness", shape=box];
     E [label="Process ready?", shape=diamond];
     F [label="Drive real user entrypoint", shape=box];
@@ -83,9 +83,9 @@ Record the approved requirement and why it has no user-observable path, without
 editing the contract or inventing a runtime command. Then continue through the row
 loop and final gate; a legitimate skip is neither `❌` nor `BLOCKED`.
 
-### C. Prepare the exact row environment
+### C. Prepare the declared environment
 
-Run every row in table order, including incoming `✅` or `❌`: those statuses are
+Run every E entry in its authored order, including incoming `✅` or `❌`: those statuses are
 historical, not evidence for this session. Create a run scratch directory and
 capture the pre-run contract. Use the exact host/worktree, process, data, and
 entrypoint named by the row; never substitute your cwd, another worktree, a mock,
@@ -115,8 +115,8 @@ the contract literally and retain both expected and actual evidence.
 ### P/N. Mutate only fresh Status
 
 Set `✅` only after the observable appears in this session. Set `❌` when startup,
-the user path, or the observable fails. Change only the row's Status cell; preserve
-the unit layer and every other contract cell byte-for-byte.
+the user path, or the observable fails. Change only that E entry's Status; preserve
+the unit layer and every other contract fact unchanged, regardless of presentation.
 
 ### T. Tear down and preserve evidence
 
