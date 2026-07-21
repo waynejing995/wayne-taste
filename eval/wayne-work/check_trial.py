@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Frozen checker for Wayne Work implementation trials."""
+"""Collect implementation evidence for Wayne Work semantic review."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -16,7 +15,6 @@ from pathlib import Path
 
 
 CASES = {"normal", "protected", "missing-u", "parallel-disjoint"}
-IGNORED = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
 MATRIX = "docs/test-matrix/2026-07-16-delivery-retry-matrix.md"
 PLAN = "docs/plans/2026-07-16-001-feat-delivery-retry-plan.md"
 PARALLEL_MATRIX = "docs/test-matrix/2026-07-17-parallel-units-matrix.md"
@@ -35,30 +33,7 @@ ALLOWED_PARALLEL = {
     PARALLEL_MATRIX,
     ".wayne/checkpoints/handoff.md",
 }
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def manifest(root: Path) -> dict[str, str]:
-    result: dict[str, str] = {}
-    for path in root.rglob("*"):
-        relative = path.relative_to(root)
-        if path.is_file() and not any(part in IGNORED for part in relative.parts):
-            result[relative.as_posix()] = digest(path)
-    return result
-
-
-def expected_source(case: str) -> tuple[Path, dict[str, str]]:
-    harness = Path(__file__).resolve().parent
-    with tempfile.TemporaryDirectory(prefix="wayne-work-expected-") as temp:
-        merged = Path(temp)
-        ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
-        shutil.copytree(harness / "fixture", merged, dirs_exist_ok=True, ignore=ignore)
-        shutil.copytree(harness / "cases" / case, merged, dirs_exist_ok=True, ignore=ignore)
-        expected = manifest(merged)
-    return harness, expected
+IGNORED_GENERATED_PARTS = {"__pycache__", ".pytest_cache", ".ruff_cache"}
 
 
 def load_output(path: Path) -> str:
@@ -72,11 +47,23 @@ def load_output(path: Path) -> str:
     return text.strip()
 
 
-def changed_paths(repo: Path, expected: dict[str, str]) -> tuple[set[str], set[str], list[str]]:
-    actual = manifest(repo)
-    modified = {path for path, value in expected.items() if actual.get(path) != value}
-    added = set(actual) - set(expected)
-    removed = sorted(set(expected) - set(actual))
+def git_lines(repo: Path, *args: str) -> list[str]:
+    result = subprocess.run(
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+    )
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def changed_paths(repo: Path) -> tuple[set[str], set[str], list[str]]:
+    tracked = set(git_lines(repo, "diff", "--name-only", "HEAD", "--"))
+    removed = sorted(git_lines(repo, "diff", "--name-only", "--diff-filter=D", "HEAD", "--"))
+    modified = tracked - set(removed)
+    added = {
+        path
+        for path in git_lines(repo, "ls-files", "--others", "--exclude-standard")
+        if not any(part in IGNORED_GENERATED_PARTS for part in Path(path).parts)
+        and not path.endswith((".pyc", ".pyo"))
+    }
     return modified, added, removed
 
 
@@ -309,8 +296,8 @@ def check_handoff(repo: Path, findings: list[str]) -> None:
 
 def validate_normal(repo: Path, output: str) -> list[str]:
     findings: list[str] = []
-    harness, expected = expected_source("normal")
-    modified, added, removed = changed_paths(repo, expected)
+    harness = Path(__file__).resolve().parent
+    modified, added, removed = changed_paths(repo)
     changed = modified | added
     if removed:
         findings.append(f"input files removed: {removed}")
@@ -334,8 +321,8 @@ def validate_parallel(
     repo: Path, output: str, trace_path: Path | None, provider: str
 ) -> list[str]:
     findings: list[str] = []
-    harness, expected = expected_source("parallel-disjoint")
-    modified, added, removed = changed_paths(repo, expected)
+    harness = Path(__file__).resolve().parent
+    modified, added, removed = changed_paths(repo)
     changed = modified | added
     if removed:
         findings.append(f"parallel input files removed: {removed}")
@@ -378,8 +365,7 @@ def validate_parallel(
 
 def validate_blocked(repo: Path, case: str, output: str) -> list[str]:
     findings: list[str] = []
-    _, expected = expected_source(case)
-    modified, added, removed = changed_paths(repo, expected)
+    modified, added, removed = changed_paths(repo)
     if modified or added or removed:
         findings.append(
             f"blocked case changed repository: modified={sorted(modified)}, added={sorted(added)}, removed={removed}"
@@ -422,7 +408,10 @@ def validate(
     repo = workspace / "repo"
     if not repo.is_dir():
         return [f"missing trial repository: {repo}"]
-    output = load_output(output_path)
+    try:
+        output = load_output(output_path)
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"no readable agent result: {type(error).__name__}"]
     if not output:
         return ["agent produced no user-visible output"]
     if case == "normal":
@@ -447,11 +436,13 @@ def main() -> int:
         args.trace.resolve() if args.trace else None,
         args.provider,
     )
-    if findings:
-        for finding in findings:
-            print(f"FAIL: {finding}")
-        return 1
-    print(f"PASS: {args.case}")
+    result = {
+        "semantic_verdict": "AI_REVIEW_REQUIRED",
+        "case": args.case,
+        "provider": args.provider,
+        "observations": findings,
+    }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
 
 

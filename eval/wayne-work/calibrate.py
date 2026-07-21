@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Calibrate Wayne Work success and blocking gates."""
+"""Calibrate Wayne Work observations, not artifact semantics."""
 
 from __future__ import annotations
 
@@ -417,7 +417,10 @@ def main() -> int:
             "fake event absence",
         )
 
-    print("PASS: 5 positive cells and 13 independent mutations")
+    print(
+        "PASS: observations cover 5 cells and 13 mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 

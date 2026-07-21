@@ -17,6 +17,13 @@ mini-repository.
 The normal checker injects `hidden-tests/` only after the implementation agent
 exits. Passing the visible suite alone is insufficient.
 
+`check_trial.py` emits `AI_REVIEW_REQUIRED`. Hidden/visible test results, native
+worker events, Git start/diff state, and runtime evidence are direct observations;
+the [blind semantic rubric](semantic-rubric.md) decides plan coverage, matrix
+ownership, blocker meaning, worker-contract fidelity, and handoff correctness.
+Markdown layout, line count, keywords, and regex matches are never the final
+semantic verdict.
+
 ```bash
 uv run --no-project python eval/wayne-work/calibrate.py
 bash eval/wayne-work/prepare_trial.sh normal wayne-work \
@@ -31,6 +38,9 @@ uv run --no-project python eval/wayne-work/check_trial.py \
   --output eval/.runs/wayne-work/control-normal/codex-final.txt
 ```
 
+The scope collector uses the trial's starting commit, final diff, and untracked
+paths. It does not walk, read, or hash unrelated repository files.
+
 Use `eval/wayne-work/run_agent.sh` for `parallel-disjoint`; it preserves Claude
 stream events and Codex collaboration errors for the external trace oracle.
 
@@ -38,4 +48,5 @@ stream events and Codex collaboration errors for the external trace oracle.
 ordered records for all harness files except this README, `eval-report.md`, and
 the hash file itself. Generated trials remain under gitignored `eval/.runs/`.
 
-See [the final paired result](eval-report.md).
+See [the final paired result](eval-report.md) and judge new trials with the blind
+rubric rather than the checker exit code.

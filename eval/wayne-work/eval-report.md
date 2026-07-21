@@ -37,7 +37,9 @@ per-worker contract checks, U/E ownership, scope, and durable return-only handof
 
 The normal case preserves RED → unit GREEN → full GREEN, locked tests, hidden
 tests, U-only status changes, E ownership, scope, and the review handoff. Both
-blocker cases preserve zero mutation and the exact five-line blocker contract.
+blocker cases preserve zero mutation plus the required reason, artifacts, owner,
+and explanation. The historical acceptance fixture represented those facts in five
+lines; that presentation is not the current semantic contract.
 
 The final live-path `parallel-disjoint` smoke also passed with Claude and Codex.
 
@@ -77,3 +79,10 @@ semantic gates. The blocker still carries reason, artifacts, owner, and explanat
 an explicit caller byte contract remains authoritative. Scope proof now uses starting
 Git state, agent write history, and final diff rather than a repository manifest.
 No provider behavior cell was rerun for this prompt-only boundary hotfix.
+
+Follow-up 2026-07-22: the implementation now matches that boundary. The checker no
+longer builds a recursive content manifest; it uses the starting Git commit, final
+diff, untracked paths, and commit/stage/branch evidence. It emits
+`AI_REVIEW_REQUIRED`; blocker, matrix, worker-prompt, and handoff text scans are
+observations for `semantic-rubric.md`, while real tests and native worker events
+remain executable evidence.
