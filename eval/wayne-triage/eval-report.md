@@ -58,15 +58,15 @@ passing.
 
 Residual uncertainty: the harness does not execute a real 10k-line parallel
 fan-out or mutate a live tracker. Those boundaries remain protected by the
-unchanged dispatch reference and source-manifest checks.
+unchanged dispatch reference, Git scope observations, and blind review.
 
 ## 2026-07-20 tracker-write ownership hotfix
 
 The tracker path now renders a complete proposed comment and cannot describe
-publication as part of triage. The deterministic gate checks the exact proposal
-section and unchanged tracker state; semantic completeness and publication meaning
-belong to the blind rubric, not a keyword/count proxy. The missing-section mutation
-fails as expected.
+publication as part of triage. The legacy observer locates a likely proposal
+section and records unchanged tracker state; semantic completeness and publication
+meaning belong to the blind rubric, not a heading, keyword, or count proxy. The
+missing-section mutation remains observation-calibration evidence.
 
 | Live case | Model | Structural gate | Blind semantic read |
 |---|---|---|---|
@@ -97,3 +97,12 @@ headings, field order, exact blocks, and table shape no longer decide meaning.
 Immutable tracker/Git state and real Skill/path existence remain observable facts;
 the blind rubric owns evidence completeness, routing, attribution, and handoff
 meaning. No provider cell was rerun for this prompt-only change.
+
+## 2026-07-22 semantic evaluator migration
+
+The trial checker now emits `AI_REVIEW_REQUIRED`; evidence frontmatter, headings,
+route strings, proposal landmarks, and packet fields are observations rather than
+semantic failures. Scope evidence now comes from the frozen starting commit, final
+Git diff/untracked paths, and native trace instead of recursively reading and
+hashing every repository file. The 8-route/13-mutation calibration remains an
+observation-coverage test, not a report-correctness oracle.

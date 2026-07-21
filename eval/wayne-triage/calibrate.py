@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Calibrate Wayne Triage routes, handoffs, and hard boundaries."""
+"""Calibrate Wayne Triage observations, not report semantics."""
 
 from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -23,6 +24,14 @@ def seed(workspace: Path, case: str) -> Path:
     repo = workspace / "repo"
     shutil.copytree(HARNESS / "fixture", repo)
     shutil.copytree(HARNESS / "cases" / case, repo, dirs_exist_ok=True)
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Eval"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "eval@example.invalid"],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
     return repo
 
 
@@ -281,7 +290,10 @@ def main() -> int:
         write(evidence, evidence.read_text(encoding="utf-8").replace("symptom_class: unknown", "symptom_class: crash"))
         assert_invalid(guessed, "no-match", guessed / "output.txt", "symptom_class must be", "no match")
 
-    print("PASS: 8 valid routes and 13 independent mutations")
+    print(
+        "PASS: observations cover 8 routes and 13 mutations; "
+        "semantic verdict remains AI_REVIEW_REQUIRED"
+    )
     return 0
 
 
