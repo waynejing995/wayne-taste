@@ -83,9 +83,9 @@ Read `_shared/pipeline-id-contract.md` completely. Create the log immediately wi
 `Status: in-progress` and this table:
 
 ```markdown
-| ID | Question | Decision | Rationale | Source |
-|---|---|---|---|---|
-| D1 | ... | ... | ... | user |
+| ID | Question | Decision | Rationale | Consequences | Supersedes | Source |
+|---|---|---|---|---|---|---|
+| D1 | ... | ... | ... | ... | — | user |
 ```
 
 The same file also owns the complete decision frontier:
@@ -110,6 +110,23 @@ never reuse `R<number>`, which is reserved for requirements.
 One file-write event appends exactly one new numbered row. Verify that row is
 durable before researching, asking, approving, or handing off; never batch or
 reconstruct the log later.
+
+`Consequences` records the cost this decision accepts — what it makes harder,
+slower, or irreversible — and is the field a later reader uses to judge whether the
+trade-off still holds. It never restates `Rationale`. It never lists the follow-up
+choices the decision opened: those are DAG children, and duplicating them here
+creates two encodings of one frontier. Write `—` only when the decision accepts no
+cost, and expect that to be rare.
+
+`Supersedes` is `—`, or one or more earlier decision references: a same-table
+`D<number>`, or a cross-log `docs/decisions/<file>.md::D<number>`, comma-separated.
+Never edit or delete a superseded row. The reversal is stored once, on the
+superseding row, and supersession is derived by reading forward; marking both ends
+would store one edge twice. A superseding row's `Rationale` states why the earlier
+decision was reversed, and its own `Consequences` covers the cost of reversing.
+Re-audit every descendant the superseded decision opened and append a new row for
+each one that changes; supersession never cascades automatically, and a resolved
+DAG node is never silently reopened.
 
 ### B. Research project and lessons
 

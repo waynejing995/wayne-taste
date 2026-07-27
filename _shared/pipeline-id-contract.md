@@ -26,10 +26,22 @@ Never inventory IDs by scanning a whole file for `R\d+`, `D\d+`, or similar toke
 The decision log owns decisions in exactly one table:
 
 ```markdown
-| ID | Question | Decision | Rationale | Source |
-|---|---|---|---|---|
-| D1 | ... | ... | ... | user |
+| ID | Question | Decision | Rationale | Consequences | Supersedes | Source |
+|---|---|---|---|---|---|---|
+| D1 | ... | ... | ... | ... | — | user |
 ```
+
+`Consequences` records the cost this decision accepts — what it makes harder,
+slower, or irreversible. It never restates `Rationale`, and it never lists the
+follow-up choices the decision opened; those are DAG children.
+
+`Supersedes` is `—`, or one or more earlier decision references: a same-table
+`D<number>`, or a cross-log `docs/decisions/<file>.md::D<number>`, comma-separated.
+The reversal is stored once, on the superseding row, and the superseded row is
+never edited or deleted; a reader derives supersession by reading forward. The
+superseding row's `Rationale` must state why the earlier decision was reversed.
+Descendants of a superseded decision are re-audited and any that change get their
+own new rows; supersession never cascades automatically.
 
 The approved product/spec owner assigns `R<number>` to requirements. Consumers
 recover that set by reading the source in context and recording exact clauses in a
@@ -44,11 +56,14 @@ and `U<number>` only in its Implementation Units and Test Matrix sections.
 
 ## Legacy read compatibility
 
-- A legacy decision table with the same five columns and header `#` may contain
+- A legacy five-column `ID | Question | Decision | Rationale | Source` table is
+  readable. Its missing `Consequences` and `Supersedes` values are **unknown**, not
+  `—`; consumers never invent them and never rewrite the table to add them.
+- A legacy decision table with those same five columns and header `#` may contain
   bare positive integers. Consumers map row `1` to canonical `D1`, preserving the
   complete source row as evidence.
 - A legacy three-column `ID | Decision | Rationale` table with canonical `D<number>`
-  values is also readable. Producers must use the current five-column form.
+  values is also readable. Producers must use the current seven-column form.
 - A legacy U-SEED table may use `U<number>` in its first column. Preserve that seed
   ID byte-for-byte in the ledger; it does not become a plan-owned U row.
 - A legacy U-SEED or E2E table may label its first column `#`; consumers recognize
