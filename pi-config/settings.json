@@ -1,0 +1,32 @@
+{
+  "lastChangelogVersion": "0.82.1",
+  "defaultProvider": "amd-internal-anthropic",
+  "defaultModel": "Claude-Opus-5",
+  "defaultThinkingLevel": "xhigh",
+  "theme": "catppuccin-latte",
+  "packages": [
+    "npm:pi-subagents",
+    "npm:pi-mcp-adapter",
+    "npm:@narumitw/pi-statusline",
+    "npm:pi-agent-goal",
+    "npm:@quintinshaw/pi-dynamic-workflows",
+    "npm:pi-themes",
+    "npm:context-mode",
+    "npm:@ff-labs/pi-fff",
+    "npm:@narumitw/pi-plan-mode",
+    "npm:pi-ask-user",
+    "npm:pi-markdown-preview",
+    "npm:pi-subdir-context",
+    "npm:@tintinweb/pi-tasks",
+    "npm:pi-web-search",
+    "npm:pi-render-btw",
+    "npm:@juicesharp/rpiv-advisor",
+    "npm:pi-hashline-edit-pro"
+  ],
+  "defaultProjectTrust": "always",
+  "treeFilterMode": "default",
+  "showHardwareCursor": true,
+  "steeringMode": "all",
+  "transport": "auto",
+  "quietStartup": true
+}

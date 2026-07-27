@@ -1,0 +1,82 @@
+{
+	"palette": "mono",
+	"density": "compact",
+	"separator": "none",
+	"segments": [
+		"brand",
+		"provider",
+		"model",
+		"thinking",
+		"cwd",
+		"branch",
+		"tools",
+		"context",
+		"tokens",
+		"cost",
+		"time"
+	],
+	"segmentText": {
+		"brand": {
+			"prefix": "",
+			"suffix": ""
+		},
+		"provider": {
+			"prefix": "🔌 ",
+			"suffix": ""
+		},
+		"model": {
+			"prefix": "🤖 ",
+			"suffix": ""
+		},
+		"thinking": {
+			"prefix": "🧠 ",
+			"suffix": ""
+		},
+		"cwd": {
+			"prefix": "📁 ",
+			"suffix": ""
+		},
+		"branch": {
+			"prefix": "🌿 ",
+			"suffix": ""
+		},
+		"tools": {
+			"prefix": "",
+			"suffix": ""
+		},
+		"context": {
+			"prefix": "🪟 ctx ",
+			"suffix": ""
+		},
+		"tokens": {
+			"prefix": "🔢 ",
+			"suffix": ""
+		},
+		"cost": {
+			"prefix": "💸 $",
+			"suffix": ""
+		},
+		"time": {
+			"prefix": "🕒 ",
+			"suffix": ""
+		},
+		"turn": {
+			"prefix": "🔁 #",
+			"suffix": ""
+		}
+	},
+	"extensionStatusIcons": {
+		"chrome-devtools": "🌐",
+		"codex-usage": "📊",
+		"usage": "📊",
+		"caffeinate": "💊",
+		"firecrawl": "🔥",
+		"github-pr": "🔎",
+		"goal": "🎯",
+		"lsp": "🧰",
+		"plan-mode": "📝",
+		"pisync": "🔄",
+		"subagents": "🧑‍🤝‍🧑",
+		"unknown-error-retry": "🔁"
+	}
+}

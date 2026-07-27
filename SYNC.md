@@ -1,9 +1,9 @@
 # Wayne Skills — Sync Protocol
 
 This folder (`/mnt/share/wayne-skills/`) is the **single source of truth (SSoT)**
-for all `wayne-*` skills and the shared `_shared/` library. Both AI agents —
-**Claude** and **Codex** — consume these skills via **symlinks** that point back
-here. Edit a file once; both agents see it instantly. No copying, no drift.
+for all `wayne-*` skills and the shared `_shared/` library. All three AI agents —
+**Claude**, **Codex** and **pi** — consume these skills via **symlinks** that point
+back here. Edit a file once; every agent sees it instantly. No copying, no drift.
 
 ## Topology
 
@@ -16,24 +16,29 @@ here. Edit a file once; both agents see it instantly. No copying, no drift.
 
 ~/.claude/skills/<name>  ──symlink──▶  /mnt/share/wayne-skills/<name>
 ~/.codex/skills/<name>   ──symlink──▶  /mnt/share/wayne-skills/<name>
+~/.agents/skills/<name>  ──symlink──▶  /mnt/share/wayne-skills/<name>   (pi)
 ```
 
 Because consumers are symlinks, **editing an existing skill needs no sync step** —
-the change is already live for both agents. `sync.sh` only matters when a skill is
+the change is already live for every agent. `sync.sh` only matters when a skill is
 **added or removed**.
+
+pi's own *config* (settings.json, statusline, saved workflows) is a separate
+concern with a separate linker: `pi-config/sync.sh`. `sync.sh` owns skill
+symlinks for all agents; `pi-config/sync.sh` owns pi config files.
 
 ## Daily rule
 
 | You did this | Action needed |
 |---|---|
-| Edited an existing `wayne-*/SKILL.md` or `_shared/*.md` | Nothing — symlinks make it live for both agents |
+| Edited an existing `wayne-*/SKILL.md` or `_shared/*.md` | Nothing — symlinks make it live for every agent |
 | Added a NEW skill at the SoT | Add its name to `SKILLS[]` in `sync.sh`, run `bash sync.sh` |
-| Removed a skill | Remove its name from `sync.sh`; delete the dangling symlinks in both agent dirs |
-| Set up a fresh machine | Run `bash /mnt/share/wayne-skills/sync.sh` once |
+| Removed a skill | Remove its name from `sync.sh`; delete the dangling symlinks in every agent dir |
+| Set up a fresh machine | Run `bash /mnt/share/wayne-skills/sync.sh` once, then `bash pi-config/sync.sh` for pi |
 
 ## sync.sh
 
-Idempotent. Re-points both agents' skill dirs at the SoT.
+Idempotent. Re-points every agent's skill dir at the SoT.
 
 ```bash
 bash /mnt/share/wayne-skills/sync.sh            # apply
@@ -61,8 +66,10 @@ Safety properties:
 | Item | Why |
 |---|---|
 | `wayne-context-audit` | A real dir under `~/.claude/skills/`, not a symlink — hand-managed; sync refuses to clobber it. |
-| `wayne-neat` | Present at SoT but not exposed to either agent yet. Add to `SKILLS[]` when ready. |
+| `wayne-neat` | Present at SoT but not exposed to any agent yet. Add to `SKILLS[]` when ready. |
 | `waynejing` | Claude-only today (linked under `~/.claude/skills/`, absent from Codex). Add a Codex link manually if/when wanted. |
+| `eval/` | Not a skill — the skill test harness. |
+| `pi-config/` | Not a skill — pi's own config, linked by `pi-config/sync.sh` into `~/.pi/agent/`. |
 
 ## Agent registration (beyond symlinks)
 
@@ -74,6 +81,10 @@ its routing/config:
 - **Codex** — discovers skills under `~/.codex/skills/` and routes per `~/.codex/AGENTS.md`
   ("Skills" section, proportional-effort rule). Skill tool name is lowercase `skill`
   (Claude uses uppercase `Skill`).
+- **pi** — discovers skills under `~/.agents/skills/` and routes per
+  `~/.pi/agent/AGENTS.md`, which is itself a symlink to `~/.claude/CLAUDE.md`, so pi
+  and Claude share one trigger table. A new skill needs a trigger row there once,
+  not twice.
 
 ## Path differences (Claude vs Codex)
 
