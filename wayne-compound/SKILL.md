@@ -12,7 +12,7 @@ This skill only specifies the lesson-capture / KB-write / repo-doc workflow.
 
 ## Files Written
 
-KB entries (`/work/kb/`), solution docs (`docs/solutions/<category>/`), decision log updates. Category names / frontmatter keys / section headers stay English in Chinese prose.
+KB entries (`/work/kb/`), solution docs (`docs/solutions/<category>/`). Category names / frontmatter keys / section headers stay English in Chinese prose.
 
 ## Checklist
 
@@ -237,7 +237,9 @@ mkdir -p docs/solutions/<category>/
 Link the two entries:
 - KB entry's `References` section → repo doc path
 - Repo doc's `Related` section → KB entry path
-- If a decision log exists, add a final row: `| compound | Learning captured | see KB + docs/solutions/ | — | — |`
+
+Write nothing into the decision log, spec, test matrix, or plan. Those are owned
+upstream and are read-only here (`_shared/pipeline-id-contract.md`).
 
 ---
 
