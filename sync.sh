@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Sync protocol for wayne-skills — single source of truth = THIS directory.
 #
-# Both Claude (~/.claude/skills/) and Codex (~/.codex/skills/) consume these
-# skills via SYMLINKS pointing back here. Edit a file here once; both agents see
-# it instantly. No copying, no drift.
+# Claude (~/.claude/skills/), Codex (~/.codex/skills/) and pi (~/.agents/skills/)
+# consume these skills via SYMLINKS pointing back here. Edit a file here once; all
+# agents see it instantly. No copying, no drift.
 #
 # This script is idempotent: run it any time a skill is ADDED or REMOVED at the
-# SoT to re-point both agents. Editing an existing skill needs no re-run.
+# SoT to re-point every agent. Editing an existing skill needs no re-run.
 #
 # Usage:  bash /mnt/share/wayne-skills/sync.sh [--dry-run]
 set -euo pipefail
@@ -14,9 +14,10 @@ set -euo pipefail
 SOT="/mnt/share/wayne-skills"
 CLAUDE_SKILLS="${HOME}/.claude/skills"
 CODEX_SKILLS="${HOME}/.codex/skills"
+PI_SKILLS="${HOME}/.agents/skills"
 DRY="${1:-}"
 
-# Skills to expose to BOTH agents. _shared is a library dir (referenced by
+# Skills to expose to EVERY agent. _shared is a library dir (referenced by
 # SKILL.md files), not a skill itself, but must be linked so refs resolve.
 SKILLS=(
   _shared
@@ -33,6 +34,7 @@ SKILLS=(
   wayne-rescue-boot
   wayne-ship
   wayne-skill-forge
+  wayne-skill-optimize
   wayne-test-design
   wayne-triage
   wayne-verify
@@ -43,9 +45,11 @@ SKILLS=(
 # NOTE — intentionally NOT synced:
 #   wayne-context-audit : exists as a REAL dir under ~/.claude/skills (not a
 #                         symlink); leave it alone, do not clobber.
-#   wayne-neat          : present at SoT but deliberately not exposed to either
+#   wayne-neat          : present at SoT but deliberately not exposed to any
 #                         agent yet. Add to SKILLS[] above when ready.
 #   waynejing           : Claude-only today; add a CLAUDE-only block if needed.
+#   eval, pi-config     : not skills. eval is the skill test harness; pi-config
+#                         is pi's own config, synced by pi-config/sync.sh.
 
 link_one() {
   local target="$1" linkdir="$2" name="$3"
@@ -67,7 +71,7 @@ link_one() {
   echo "LINK  ${name} -> ${target}"
 }
 
-for agentdir in "$CLAUDE_SKILLS" "$CODEX_SKILLS"; do
+for agentdir in "$CLAUDE_SKILLS" "$CODEX_SKILLS" "$PI_SKILLS"; do
   echo "=== ${agentdir} ==="
   [ -d "$agentdir" ] || { echo "SKIP agent dir absent: ${agentdir}"; continue; }
   for s in "${SKILLS[@]}"; do
@@ -76,7 +80,7 @@ for agentdir in "$CLAUDE_SKILLS" "$CODEX_SKILLS"; do
   echo
 done
 
-echo "Done. Verify with:  ls -la ${CLAUDE_SKILLS} ${CODEX_SKILLS} | grep wayne"
+echo "Done. Verify with:  ls -la ${CLAUDE_SKILLS} ${CODEX_SKILLS} ${PI_SKILLS} | grep wayne"
 
 # ── Skill-usage audit hook (informational; this script does NOT install it) ──
 # One script handles BOTH agents, bundled under wayne-context-audit/hooks/:
