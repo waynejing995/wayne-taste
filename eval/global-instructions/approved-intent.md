@@ -23,7 +23,7 @@ discovery are adapter concerns, not separate instruction candidates.
 | GI15 | Occam orders investigation but never ends RCA before all observations, reproduction, and sibling paths converge | `CLAUDE.md:59-74` | static candidate contract retains heuristic/not-stop and convergence clauses | candidate-static |
 | GI16 | Before a complex blocking question, explain the decision in plain Chinese | `CLAUDE.md:181-183` | static candidate contract retains the decision-point boundary | candidate-static |
 | GI17 | Never invoke the deprecated Claude-in-Chrome MCP surface | `CLAUDE.md:217` | static candidate contract retains the exact forbidden tool family | candidate-static |
-| GI18 | The personal KB has one fixed Obsidian vault path | `CLAUDE.md:219-220` | static candidate contract retains `/mnt/share/wayne-note/` | candidate-static |
+| GI18 | The personal KB path is resolved once from `WAYNE_KB_DIR` in `~/.wayne/config.env`; a missing configuration is a hard failure | `CLAUDE.md:217-223` | static candidate contract retains both path-registry identifiers | candidate-static |
 
 ## Reverse source audit
 

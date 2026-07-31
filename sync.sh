@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sync protocol for wayne-skills — single source of truth = THIS directory.
+# Sync protocol for wayne-skills — single source of truth = WAYNE_SKILLS_DIR.
 #
 # Claude (~/.claude/skills/), Codex (~/.codex/skills/) and pi (~/.agents/skills/)
 # consume these skills via SYMLINKS pointing back here. Edit a file here once; all
@@ -8,60 +8,53 @@
 # This script is idempotent: run it any time a skill is ADDED or REMOVED at the
 # SoT to re-point every agent. Editing an existing skill needs no re-run.
 #
-# Usage:  bash /mnt/share/wayne-skills/sync.sh [--dry-run]
+# Usage:  bash "${WAYNE_SKILLS_DIR}/sync.sh" [--dry-run]
 set -euo pipefail
 
-SOT="/mnt/share/wayne-skills"
+WAYNE_HOME="${WAYNE_HOME:-${HOME}/.wayne}"
+WAYNE_CONFIG="${WAYNE_CONFIG:-${WAYNE_HOME}/config.env}"
+if [ -r "$WAYNE_CONFIG" ]; then
+  # User-owned path registry; it only defines Wayne locations.
+  . "$WAYNE_CONFIG"
+fi
+
+SOT="${WAYNE_SKILLS_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)}"
+
+case "$SOT" in
+  /*) ;;
+  *) echo "ERROR: WAYNE_SKILLS_DIR must be an absolute path: ${SOT}" >&2; exit 1 ;;
+esac
+[ -d "$SOT" ] || { echo "ERROR: Wayne skills directory does not exist: ${SOT}" >&2; exit 1; }
 CLAUDE_SKILLS="${HOME}/.claude/skills"
+CLAUDE_RULES="${HOME}/.claude/CLAUDE.md"
 CODEX_SKILLS="${HOME}/.codex/skills"
 PI_SKILLS="${HOME}/.agents/skills"
 DRY="${1:-}"
 
 # Skills to expose to EVERY agent. _shared is a library dir (referenced by
 # SKILL.md files), not a skill itself, but must be linked so refs resolve.
-SKILLS=(
-  _shared
-  wayne-checkpoint
-  wayne-code-review
-  wayne-compound
-  wayne-cybernetics
-  wayne-distill
-  wayne-frontend-design
-  wayne-goal-prompt
-  wayne-manner
-  wayne-mind-explode
-  wayne-plan
-  wayne-rescue-boot
-  wayne-ship
-  wayne-skill-forge
-  wayne-skill-optimize
-  wayne-test-design
-  wayne-triage
-  wayne-verify
-  wayne-visual-synthesis
-  wayne-work
-)
-
-# NOTE — intentionally NOT synced:
-#   wayne-context-audit : exists as a REAL dir under ~/.claude/skills (not a
-#                         symlink); leave it alone, do not clobber.
-#   wayne-neat          : present at SoT but deliberately not exposed to any
-#                         agent yet. Add to SKILLS[] above when ready.
-#   waynejing           : Claude-only today; add a CLAUDE-only block if needed.
-#   eval, pi-config     : not skills. eval is the skill test harness; pi-config
-#                         is pi's own config, synced by pi-config/sync.sh.
+# Top-level wayne-* directories are the authoritative skill set.
+LC_COLLATE=C
+export LC_COLLATE
+SKILLS=(_shared)
+for skill_dir in "$SOT"/wayne-*; do
+  [ -d "$skill_dir" ] || continue
+  SKILLS+=("${skill_dir##*/}")
+done
+SKILLS+=(waynejing)
 
 link_one() {
   local target="$1" linkdir="$2" name="$3"
   local link="${linkdir}/${name}"
   if [ ! -e "$target" ]; then
-    echo "SKIP  ${name}: missing at SoT (${target})"
-    return
+    echo "ERROR: ${name}: missing at SoT (${target})" >&2
+    return 1
   fi
-  # Refuse to clobber a real (non-symlink) directory — that is hand-managed.
+  # A real file or directory has its own state. Do not overwrite it and do not
+  # silently leave this consumer drifted from the SoT.
   if [ -e "$link" ] && [ ! -L "$link" ]; then
-    echo "SKIP  ${name}: ${link} is a real dir, not a symlink — leaving as-is"
-    return
+    echo "ERROR: ${name}: ${link} is a real path, not a symlink" >&2
+    return 1
   fi
   if [ "$DRY" = "--dry-run" ]; then
     echo "WOULD ln -sfn ${target} ${link}"
@@ -71,9 +64,64 @@ link_one() {
   echo "LINK  ${name} -> ${target}"
 }
 
+link_global_rules() {
+  local target="${SOT}/CLAUDE.md"
+  if [ ! -f "$target" ]; then
+    echo "ERROR: missing global rules at SoT (${target})" >&2
+    return 1
+  fi
+  if [ -e "$CLAUDE_RULES" ] && [ ! -L "$CLAUDE_RULES" ]; then
+    if ! cmp -s "$target" "$CLAUDE_RULES"; then
+      echo "ERROR: ${CLAUDE_RULES} differs from ${target}; reconcile before linking" >&2
+      return 1
+    fi
+    if [ "$DRY" = "--dry-run" ]; then
+      echo "WOULD replace identical ${CLAUDE_RULES} with a symlink to ${target}"
+      return
+    fi
+    rm "$CLAUDE_RULES"
+  fi
+  if [ "$DRY" = "--dry-run" ]; then
+    echo "WOULD ln -sfn ${target} ${CLAUDE_RULES}"
+    return
+  fi
+  ln -sfn "$target" "$CLAUDE_RULES"
+  echo "LINK  global rules -> ${target}"
+}
+
+is_expected_skill() {
+  local name="$1" skill
+  for skill in "${SKILLS[@]}"; do
+    [ "$skill" = "$name" ] && return 0
+  done
+  return 1
+}
+
+remove_stale_links() {
+  local link name target
+  for link in "$1"/_shared "$1"/wayne-* "$1"/waynejing; do
+    [ -L "$link" ] || continue
+    target="$(readlink "$link")"
+    case "$target" in
+      "${SOT}"/*) ;;
+      *) continue ;;
+    esac
+    name="${link##*/}"
+    is_expected_skill "$name" && continue
+    if [ "$DRY" = "--dry-run" ]; then
+      echo "WOULD rm ${link}"
+      continue
+    fi
+    rm "$link"
+    echo "REMOVE ${name} -> ${target}"
+  done
+}
+link_global_rules
+
 for agentdir in "$CLAUDE_SKILLS" "$CODEX_SKILLS" "$PI_SKILLS"; do
   echo "=== ${agentdir} ==="
   [ -d "$agentdir" ] || { echo "SKIP agent dir absent: ${agentdir}"; continue; }
+  remove_stale_links "$agentdir"
   for s in "${SKILLS[@]}"; do
     link_one "${SOT}/${s}" "$agentdir" "$s"
   done
