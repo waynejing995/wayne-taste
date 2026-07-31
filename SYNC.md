@@ -1,22 +1,36 @@
 # Wayne Skills — Sync Protocol
 
-This folder (`/mnt/share/wayne-skills/`) is the **single source of truth (SSoT)**
-for all `wayne-*` skills and the shared `_shared/` library. All three AI agents —
-**Claude**, **Codex** and **pi** — consume these skills via **symlinks** that point
-back here. Edit a file once; every agent sees it instantly. No copying, no drift.
+This folder (the `WAYNE_SKILLS_DIR` configured in `~/.wayne/config.env`) is the
+**single source of truth (SSoT)** for global rules, all `wayne-*` skills, and the
+shared `_shared/` library. Claude, Codex, and pi consume these files via
+**symlinks** that point back here. Edit a file once; every agent sees it instantly.
+No copying, no drift.
+
+## Local path registry
+
+`~/.wayne/config.env` is the user-owned registry for external Wayne locations:
+
+```bash
+WAYNE_SKILLS_DIR="/Users/chenjingwen/.wayne/skills"
+WAYNE_KB_DIR="/mnt/share/wayne-note"
+```
+
+`WAYNE_SKILLS_DIR` must name this clone. `WAYNE_KB_DIR` may be unavailable until its
+external mount is configured; no sync operation falls back to another KB path.
 
 ## Topology
 
 ```
-/mnt/share/wayne-skills/        ← SSoT (edit here, commit here)
-  _shared/                      ← library: pipeline-id-contract.md and shared contracts
-  wayne-*/SKILL.md              ← the skills
-  sync.sh                       ← idempotent re-linker (run on add/remove)
-  SYNC.md                       ← this file
+${WAYNE_SKILLS_DIR}/             ← SSoT (edit here, commit here)
+  _shared/                       ← library: pipeline-id-contract.md and shared contracts
+  wayne-*/SKILL.md               ← the skills
+  sync.sh                         ← idempotent re-linker (run on add/remove)
+  SYNC.md                         ← this file
 
-~/.claude/skills/<name>  ──symlink──▶  /mnt/share/wayne-skills/<name>
-~/.codex/skills/<name>   ──symlink──▶  /mnt/share/wayne-skills/<name>
-~/.agents/skills/<name>  ──symlink──▶  /mnt/share/wayne-skills/<name>   (pi)
+~/.claude/CLAUDE.md          ──symlink──▶  ${WAYNE_SKILLS_DIR}/CLAUDE.md
+~/.claude/skills/<name>      ──symlink──▶  ${WAYNE_SKILLS_DIR}/<name>
+~/.codex/skills/<name>       ──symlink──▶  ${WAYNE_SKILLS_DIR}/<name>
+~/.agents/skills/<name>      ──symlink──▶  ${WAYNE_SKILLS_DIR}/<name>   (pi)
 ```
 
 Because consumers are symlinks, **editing an existing skill needs no sync step** —
@@ -32,44 +46,31 @@ symlinks for all agents; `pi-config/sync.sh` owns pi config files.
 | You did this | Action needed |
 |---|---|
 | Edited an existing `wayne-*/SKILL.md` or `_shared/*.md` | Nothing — symlinks make it live for every agent |
-| Added a NEW skill at the SoT | Add its name to `SKILLS[]` in `sync.sh`, run `bash sync.sh` |
-| Removed a skill | Remove its name from `sync.sh`; delete the dangling symlinks in every agent dir |
-| Set up a fresh machine | Run `bash /mnt/share/wayne-skills/sync.sh` once, then `bash pi-config/sync.sh` for pi |
+| Added or removed a top-level `wayne-*` skill at the SoT | Run `bash sync.sh` |
+| Set up a fresh machine | Create `~/.wayne/config.env`, clone Wayne Taste at `WAYNE_SKILLS_DIR`, then run `bash "${WAYNE_SKILLS_DIR}/sync.sh"` and `bash "${WAYNE_SKILLS_DIR}/pi-config/sync.sh"` for pi |
 
 ## sync.sh
 
 Idempotent. Re-points every agent's skill dir at the SoT.
 
 ```bash
-bash /mnt/share/wayne-skills/sync.sh            # apply
-bash /mnt/share/wayne-skills/sync.sh --dry-run  # preview, change nothing
+bash "${WAYNE_SKILLS_DIR}/sync.sh"            # apply
+bash "${WAYNE_SKILLS_DIR}/sync.sh" --dry-run  # preview, change nothing
 ```
 
 Safety properties:
 - `ln -sfn` — overwrites only stale symlinks; never follows into a target dir.
-- **Refuses to clobber a real (non-symlink) directory** — e.g. `wayne-context-audit`
-  is a hand-managed real dir under `~/.claude/skills/`, so sync leaves it untouched.
-- Skips any skill missing at the SoT (prints `SKIP`, never silently).
+- A real (non-symlink) consumer path is a hard error: sync never overwrites user state or silently leaves that agent drifted.
+- A skill missing at the SoT is a hard error.
+- Stale symlinks that target this SoT are removed; real paths and third-party symlinks are never touched.
 
 ## What is and isn't synced
 
-**Synced to BOTH agents** (the `SKILLS[]` array in `sync.sh`):
-`_shared`, `wayne-checkpoint`, `wayne-code-review`, `wayne-compound`,
-`wayne-cybernetics`, `wayne-distill`, `wayne-frontend-design`, `wayne-goal-prompt`,
-`wayne-manner`,
-`wayne-mind-explode`, `wayne-plan`, `wayne-ship`, `wayne-skill-forge`,
-`wayne-skill-optimize`, `wayne-test-design`, `wayne-triage`,
-`wayne-verify`, `wayne-visual-synthesis`, `wayne-work`.
+`sync.sh` derives the exposure list from `_shared`, every top-level `wayne-*`
+directory, and `waynejing`; no second skill registry exists to drift.
 
-**Intentionally NOT synced:**
-
-| Item | Why |
-|---|---|
-| `wayne-context-audit` | A real dir under `~/.claude/skills/`, not a symlink — hand-managed; sync refuses to clobber it. |
-| `wayne-neat` | Present at SoT but not exposed to any agent yet. Add to `SKILLS[]` when ready. |
-| `waynejing` | Claude-only today (linked under `~/.claude/skills/`, absent from Codex). Add a Codex link manually if/when wanted. |
-| `eval/` | Not a skill — the skill test harness. |
-| `pi-config/` | Not a skill — pi's own config, linked by `pi-config/sync.sh` into `~/.pi/agent/`. |
+`eval/` is the skill test harness and `pi-config/` is pi's own configuration;
+neither is a skill. `pi-config/sync.sh` links the latter into `~/.pi/agent/`.
 
 ## Agent registration (beyond symlinks)
 

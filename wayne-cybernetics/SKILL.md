@@ -15,7 +15,7 @@ This skill only specifies the cybernetics-lens application workflow.
 
 ## Files Written
 
-diagnosis report (markdown, in conversation or to a file the user names), KB research entries (`/mnt/share/wayne-note/research/`), decision log entries when the diagnosis informs a design choice.
+diagnosis report (markdown, in conversation or to a file the user names), KB research entries (`${WAYNE_KB_DIR}/research/` after resolving `~/.wayne/config.env`), decision log entries when the diagnosis informs a design choice.
 
 ## Applicability
 
@@ -153,7 +153,7 @@ Final report in Chinese (to user) — markdown, can be saved to a file the user 
 {Anything the lens couldn't answer without more information}
 ```
 
-If user asks "save this", write to `/mnt/share/wayne-note/research/YYYY-MM-DD-{slug}-cybernetics-diagnosis.md` with appropriate frontmatter.
+If user asks "save this", resolve `WAYNE_KB_DIR` from `~/.wayne/config.env`; if it is absent or unavailable, stop and report the condition. Then write to `${WAYNE_KB_DIR}/research/YYYY-MM-DD-{slug}-cybernetics-diagnosis.md` with appropriate frontmatter.
 
 ## Integration with Other Wayne Skills
 

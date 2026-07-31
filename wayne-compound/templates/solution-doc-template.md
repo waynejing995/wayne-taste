@@ -26,4 +26,4 @@ tags: [tag1, tag2]
 
 ## Related
 
-- KB: /mnt/share/wayne-note/<folder>/<filename>.md
+- KB: ${KB_DIR}/<folder>/<filename>.md

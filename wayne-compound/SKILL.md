@@ -14,14 +14,18 @@ This skill only specifies the lesson-capture / KB-write / repo-doc workflow.
 
 KB entries (`/work/kb/`), solution docs (`docs/solutions/<category>/`). Category names / frontmatter keys / section headers stay English in Chinese prose.
 
+## KB path
+
+Before reading or writing the KB, read `~/.wayne/config.env`. It must set `WAYNE_KB_DIR` to an existing absolute path; otherwise stop and report the exact condition. Use `KB_DIR` for that value in every command below.
+
 ## Checklist
 
 1. **Gather pipeline artifacts** — decision log, plan, review findings, commit messages
 2. **Extract the learning** — what was the real insight?
 3. **Classify** — bug fix, pattern, decision, how-to?
 4. **Check for duplicates** — MANDATORY before writing. Search KB and docs/solutions/ first. If anything similar exists, UPDATE or MERGE, do not create a new file. Specifically:
-   - grep both the title AND the trigger keywords across `/mnt/share/wayne-note/`
-   - list all lessons with `grep -rl "^type: lesson" /mnt/share/wayne-note/how-to/ --include="*.md"` — **read every existing lesson title + trigger before deciding to write new**
+   - grep both the title AND the trigger keywords across `${KB_DIR}/`
+   - list all lessons with `grep -rl "^type: lesson" "${KB_DIR}/how-to/" --include="*.md"` — **read every existing lesson title + trigger before deciding to write new**
    - check the current repo's `docs/solutions/`
    - **Bias strongly toward update/merge over new file.** Default action when in doubt is "extend an existing lesson", not "write a new one". A KB with 30 sharp lessons beats one with 60 overlapping ones.
    - **Merge criteria** — collapse two lessons into one when ANY of these hold:
@@ -34,7 +38,7 @@ KB entries (`/work/kb/`), solution docs (`docs/solutions/<category>/`). Category
 Search terms only locate candidates. Read each candidate's complete trigger,
 scope, cause, and prevention before an AI semantic duplicate decision; keyword,
 title, tag, or similarity overlap alone never forces merge or new-file status.
-5. **Write to KB** — `/mnt/share/wayne-note/` (primary, Obsidian-compatible)
+5. **Write to KB** — `${KB_DIR}/` (primary, Obsidian-compatible)
 6. **Write to repo** — `docs/solutions/` (secondary, in-repo discovery)
 7. **Cross-reference** — link between KB entry and repo doc
 
@@ -50,7 +54,7 @@ digraph compound {
     "Search KB + docs/solutions/\nfor duplicates" [shape=box];
     "Duplicate found?" [shape=diamond];
     "Update existing entry" [shape=box];
-    "Write new KB entry\n(/mnt/share/wayne-note/)" [shape=box];
+    "Write new KB entry\n(${KB_DIR}/)" [shape=box];
     "Write repo doc\n(docs/solutions/)" [shape=box];
     "Cross-reference\nKB <-> repo doc" [shape=box];
     "Done" [shape=doublecircle];
@@ -60,9 +64,9 @@ digraph compound {
     "Classify:\nbug / pattern / decision / how-to" -> "Search KB + docs/solutions/\nfor duplicates";
     "Search KB + docs/solutions/\nfor duplicates" -> "Duplicate found?";
     "Duplicate found?" -> "Update existing entry" [label="yes"];
-    "Duplicate found?" -> "Write new KB entry\n(/mnt/share/wayne-note/)" [label="no"];
+    "Duplicate found?" -> "Write new KB entry\n(${KB_DIR}/)" [label="no"];
     "Update existing entry" -> "Done";
-    "Write new KB entry\n(/mnt/share/wayne-note/)" -> "Write repo doc\n(docs/solutions/)";
+    "Write new KB entry\n(${KB_DIR}/)" -> "Write repo doc\n(docs/solutions/)";
     "Write repo doc\n(docs/solutions/)" -> "Cross-reference\nKB <-> repo doc";
     "Cross-reference\nKB <-> repo doc" -> "Done";
 }
@@ -127,7 +131,7 @@ Search both knowledge stores:
 
 ```bash
 # Search KB
-grep -r "<keywords>" /mnt/share/wayne-note/ --include="*.md" -l 2>/dev/null
+grep -r "<keywords>" "$KB_DIR" --include="*.md" -l 2>/dev/null
 
 # Search docs/solutions
 grep -r "<keywords>" docs/solutions/ --include="*.md" -l 2>/dev/null
@@ -142,9 +146,9 @@ If a related entry exists:
 
 ## Phase 5: Write to KB (as a Lesson)
 
-**Primary store:** `/mnt/share/wayne-note/<folder>/<kebab-title>.md`
+**Primary store:** `${KB_DIR}/<folder>/<kebab-title>.md`
 
-**Read `/mnt/share/wayne-note/SCHEMA.md` first** — it defines the Write Protocol and lesson
+**Read `${KB_DIR}/SCHEMA.md` first** — it defines the Write Protocol and lesson
 frontmatter spec. This phase defers to SCHEMA. Don't re-implement reindex /
 log / commit logic here.
 
@@ -206,7 +210,7 @@ Update the file in place if the user revises it, then proceed.
 
 ### Then follow the Write Protocol
 
-After `trigger` is confirmed, follow `/mnt/share/wayne-note/SCHEMA.md` Write Protocol:
+After `trigger` is confirmed, follow `${KB_DIR}/SCHEMA.md` Write Protocol:
 reindex → append log.md (action: `lesson`) → git commit → report files.
 
 ---
@@ -257,7 +261,7 @@ the non-obvious insights into searchable, reusable knowledge.
 
 | Aspect | CE compound | Wayne compound |
 |--------|-------------|----------------|
-| **Primary store** | `docs/solutions/` only | `/mnt/share/wayne-note/` (Obsidian) + `docs/solutions/` |
+| **Primary store** | `docs/solutions/` only | `${KB_DIR}/` (Obsidian) + `docs/solutions/` |
 | **Input** | Conversation history | Full pipeline: decision log + plan + review + commits |
 | **Decision trace** | None | Links back to specific decisions in the log |
 | **Specialized reviews** | Auto-dispatches domain experts | Skip (user can run manually) |

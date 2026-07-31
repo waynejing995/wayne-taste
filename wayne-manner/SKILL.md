@@ -1,18 +1,21 @@
 ---
 name: wayne-manner
-description: Manage and query Wayne's personal knowledge base in `/mnt/share/wayne-note/`. Use when saving lessons, recalling prior decisions, searching the KB, updating existing notes, or ingesting new findings into the vault. Trigger on "save this to KB", "search KB", "what do we know about X", "recall X", or "update KB".
+description: Manage and query Wayne's personal knowledge base at the path configured by `WAYNE_KB_DIR`. Use when saving lessons, recalling prior decisions, searching the KB, updating existing notes, or ingesting new findings into the vault. Trigger on "save this to KB", "search KB", "what do we know about X", "recall X", or "update KB".
 ---
 
 # Knowledge Base
 
-Personal KB at `/mnt/share/wayne-note/`. Obsidian-compatible markdown vault. Available from any session.
+Personal KB path is defined by `WAYNE_KB_DIR` in `~/.wayne/config.env`. It is an Obsidian-compatible markdown vault.
+
+## Resolve the vault path
+
+1. Read `~/.wayne/config.env`; it must set `WAYNE_KB_DIR` to an absolute path.
+2. If that file is missing, the variable is empty, or the directory does not exist, stop and report the exact condition. Do not substitute another path.
+3. Set `KB_DIR` to `WAYNE_KB_DIR` and use it for every operation below.
 
 ## Single source of truth
 
-**Before writing anything to /mnt/share/wayne-note, read `/mnt/share/wayne-note/SCHEMA.md` first.** That
-file defines the Write Protocol, frontmatter spec, tag taxonomy, folder layout,
-and lesson conventions. This skill defers to SCHEMA — do not re-implement those
-rules here.
+**Before writing anything to `${KB_DIR}`, read `${KB_DIR}/SCHEMA.md` first.** That file defines the Write Protocol, frontmatter spec, tag taxonomy, folder layout, and lesson conventions. This skill defers to SCHEMA — do not re-implement those rules here.
 
 ## Vault Structure
 
@@ -39,10 +42,10 @@ Trigger phrases:
 
 ## How to add an entry
 
-1. **Read `/mnt/share/wayne-note/SCHEMA.md`** (if not already read this session)
+1. **Read `"${KB_DIR}/SCHEMA.md"`** (if not already read this session)
 2. **Search for existing entries first** — don't duplicate:
    ```bash
-   grep -rl "<keyword>" /mnt/share/wayne-note/ --include="*.md"
+   grep -rl "<keyword>" "$KB_DIR" --include="*.md"
    ```
 3. **Write the file** with frontmatter per SCHEMA, in the right folder:
    - Research/tool findings → `kb/research/<kebab-title>.md`
@@ -65,7 +68,7 @@ related: [[folder/other-entry]]
 
 ## How to update an existing entry
 
-1. Find it: `grep -rl "<keyword>" /mnt/share/wayne-note/ --include="*.md"`
+1. Find it: `grep -rl "<keyword>" "$KB_DIR" --include="*.md"`
 2. Edit — append findings, update sections, bump `date` field
 3. Follow Write Protocol: reindex → append log.md → git commit
 
@@ -77,16 +80,16 @@ related: [[folder/other-entry]]
 
 ```bash
 # Full-text
-grep -r "keyword" /mnt/share/wayne-note/ --include="*.md" -l
+grep -r "keyword" "$KB_DIR" --include="*.md" -l
 
 # By tag
-grep -rl "tag-name" /mnt/share/wayne-note/ --include="*.md"
+grep -rl "tag-name" "$KB_DIR" --include="*.md"
 
 # All entries
-cat /mnt/share/wayne-note/INDEX.md
+cat "$KB_DIR/INDEX.md"
 
 # Recent activity (Write Protocol log)
-tail -50 /mnt/share/wayne-note/log.md
+tail -50 "$KB_DIR/log.md"
 ```
 
 ## Ingest a URL
@@ -95,6 +98,6 @@ For URL → KB ingestion, the `llm-wiki` skill (Hermes) handles the full pipelin
 (raw capture, summarization, cross-linking). On Claude side, do it manually:
 
 1. Fetch the page (Crawl4AI MCP if available, else manual)
-2. Save raw markdown to `/mnt/share/wayne-note/raw/articles/<slug>.md`
+2. Save raw markdown to `"${KB_DIR}/raw/articles/<slug>.md"`
 3. Write a wiki entry referencing it via `source: raw/articles/<slug>.md`
 4. Follow Write Protocol

@@ -6,10 +6,23 @@
 # 3. remind about the manual step: internal model provider + secret
 #
 # Assumes `pi` is already installed and on PATH.
-# Usage:  bash /mnt/share/wayne-skills/pi-config/bootstrap.sh
+# Usage:  bash "${WAYNE_SKILLS_DIR}/pi-config/bootstrap.sh"
 set -euo pipefail
 
-SOT="/mnt/share/wayne-skills/pi-config"
+WAYNE_HOME="${WAYNE_HOME:-${HOME}/.wayne}"
+WAYNE_CONFIG="${WAYNE_CONFIG:-${WAYNE_HOME}/config.env}"
+if [ -r "$WAYNE_CONFIG" ]; then
+  . "$WAYNE_CONFIG"
+fi
+
+SKILLS_ROOT="${WAYNE_SKILLS_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)}"
+case "$SKILLS_ROOT" in
+  /*) ;;
+  *) echo "ERROR: WAYNE_SKILLS_DIR must be an absolute path: ${SKILLS_ROOT}" >&2; exit 1 ;;
+esac
+[ -d "$SKILLS_ROOT" ] || { echo "ERROR: Wayne skills directory does not exist: ${SKILLS_ROOT}" >&2; exit 1; }
+
+SOT="${SKILLS_ROOT}/pi-config"
 SETTINGS="${SOT}/settings.json"
 
 command -v pi >/dev/null 2>&1 || { echo "ERROR: 'pi' not on PATH — install pi first."; exit 1; }

@@ -10,10 +10,23 @@
 # local), ~/.tmux.conf, and all state (auth.json, trust.json, models-store.json,
 # npm/, workflows/projects/).
 #
-# Usage:  bash /mnt/share/wayne-skills/pi-config/sync.sh [--dry-run]
+# Usage:  bash "${WAYNE_SKILLS_DIR}/pi-config/sync.sh" [--dry-run]
 set -euo pipefail
 
-SOT="/mnt/share/wayne-skills/pi-config"
+WAYNE_HOME="${WAYNE_HOME:-${HOME}/.wayne}"
+WAYNE_CONFIG="${WAYNE_CONFIG:-${WAYNE_HOME}/config.env}"
+if [ -r "$WAYNE_CONFIG" ]; then
+  . "$WAYNE_CONFIG"
+fi
+
+SKILLS_ROOT="${WAYNE_SKILLS_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)}"
+case "$SKILLS_ROOT" in
+  /*) ;;
+  *) echo "ERROR: WAYNE_SKILLS_DIR must be an absolute path: ${SKILLS_ROOT}" >&2; exit 1 ;;
+esac
+[ -d "$SKILLS_ROOT" ] || { echo "ERROR: Wayne skills directory does not exist: ${SKILLS_ROOT}" >&2; exit 1; }
+
+SOT="${SKILLS_ROOT}/pi-config"
 AGENT="${HOME}/.pi/agent"
 WF_SAVED="${HOME}/.pi/workflows/saved"
 DRY="${1:-}"
@@ -21,10 +34,12 @@ DRY="${1:-}"
 link_one() {
   local target="$1" link="$2"
   if [ ! -e "$target" ]; then
-    echo "SKIP  missing at SoT: ${target}"; return
+    echo "ERROR: missing at SoT: ${target}" >&2
+    return 1
   fi
   if [ -e "$link" ] && [ ! -L "$link" ]; then
-    echo "SKIP  ${link} is a real file, not a symlink — leaving as-is (back it up + rm to adopt)"; return
+    echo "ERROR: ${link} is a real file, not a symlink" >&2
+    return 1
   fi
   if [ "$DRY" = "--dry-run" ]; then
     echo "WOULD ln -sfn ${target} ${link}"; return

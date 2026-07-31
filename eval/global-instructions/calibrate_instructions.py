@@ -48,7 +48,7 @@ MUTATIONS: list[tuple[str, str]] = [
     ("Occam RCA convergence", "explains ALL observations + reproduces + sibling paths"),
     ("decision question language", "Before `AskUserQuestion` on complex problems: explain in plain Chinese."),
     ("forbidden browser surface", "Never use `mcp__claude-in-chrome__*`"),
-    ("personal KB path", "/mnt/share/wayne-note/"),
+    ("personal KB path", "WAYNE_KB_DIR"),
 ]
 
 

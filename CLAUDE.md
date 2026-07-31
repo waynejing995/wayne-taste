@@ -109,9 +109,6 @@ For multi-step tasks, brief plan with verify check per step:
 
 Strong success criteria let you loop independently. Weak criteria force constant clarification.
 
-## Web Search
-
-Default `WebSearch` is unreliable (backend errors). Use the `searxng` MCP server instead of `WebSearch`/`WebFetch`.
 ## Commit Format
 
 ```
@@ -217,6 +214,10 @@ Before `AskUserQuestion` on complex problems: explain in plain Chinese. No jargo
 
 Never use `mcp__claude-in-chrome__*` tools.
 
+## Wayne Paths
+
+The local path registry is `~/.wayne/config.env`. `WAYNE_SKILLS_DIR` points to the Wayne Taste clone; `WAYNE_KB_DIR` points to the external Obsidian vault.
+
 ## KB
 
-Personal knowledge base at `/mnt/share/wayne-note/`. Obsidian-compatible markdown vault.
+Personal knowledge base is `WAYNE_KB_DIR` from `~/.wayne/config.env`. It is an Obsidian-compatible markdown vault.

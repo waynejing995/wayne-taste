@@ -64,7 +64,7 @@ CONTRACTS: dict[str, tuple[str, ...]] = {
         r"Before `AskUserQuestion`[^\n]{0,100}plain Chinese",
     ),
     "forbidden browser surface": (r"Never use `mcp__claude-in-chrome__\*`",),
-    "personal KB path": (r"/mnt/share/wayne-note/",),
+    "personal KB path": (r"WAYNE_KB_DIR", r"~/.wayne/config\.env"),
 }
 
 
