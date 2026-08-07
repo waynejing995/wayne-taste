@@ -11,7 +11,7 @@ Run the feature as its user runs it and decide the runtime gate from fresh evide
 
 Read `../_shared/pipeline-id-contract.md` and `../_shared/e2e-contract.md` completely. They own
 the required E2E information, explicit no-E2E rationale, and Status lifecycle. Use the exact
-authoritative `docs/test-matrix/` path carried by the handoff or explicitly supplied
+authoritative `.wayne/runs/<topic>/test-matrix.md` path carried by the handoff or supplied
 by the user; never select or mutate the read-only snapshot inside a plan. Do not
 author or repair the matrix.
 
@@ -132,8 +132,31 @@ ship-ready while the verification process remains live.
 - Any `❌` or cleanup failure: `RUNTIME VERIFICATION: FAILED`; report expected vs
   actual evidence and return failing row IDs to `wayne-work`. No ship handoff.
 - All rows freshly `✅` and legitimate skips confirmed: `RUNTIME VERIFICATION:
-  PASSED`; report evidence, then call `wayne-checkpoint` in handoff mode with
-  `wayne-ship` as the next stage.
+  PASSED`; append one `verified` entry to the topic's living spec frontmatter
+  — `{ by: process:wayne-verify, at: <ISO 8601> }` — report evidence, then call
+  `wayne-checkpoint` in handoff mode with `wayne-ship` as the next stage.
+
+That entry is the only spec mutation this skill may make, and it is append-only:
+it records that the contract ran green, which survives the matrix. Never edit the
+spec's `## Verification` rows, and never add the entry on `BLOCKED` or `FAILED`.
+
+Append by normalizing whatever is already there, never by overwriting it:
+
+- no `verified` key: create a one-element list;
+- a bare `{ by, at }` mapping: convert it to a list preserving that event, then
+  append — OKF treats a bare mapping as a one-element list;
+- a list: append.
+
+Quote the timestamp so it stays a string:
+
+```yaml
+verified:
+  - { by: process:wayne-verify, at: "2026-05-12T10:00:00Z" }
+```
+
+Losing a prior verification event destroys the trust tier it established — a human
+sign-off overwritten by a process entry silently downgrades the spec from
+human-reviewed to machine-confirmed.
 
 `PASSED` authorizes only that return-only handoff. It never authorizes commit,
 push, PR creation, or invoking `wayne-ship`; stop after surfacing the packet.

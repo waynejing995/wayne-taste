@@ -70,7 +70,7 @@ matrix, and referenced spec completely. Validate before editing:
 - plan status is approved and no other active plan conflicts;
 - each implementation unit has goal, dependencies, consumes/produces, files,
   approach/design, patterns, test scenarios, U/E ownership, and verification;
-- plan-owned U rows and authoritative E rows at the carried `docs/test-matrix/`
+- plan-owned U rows and authoritative E rows at the carried run-scoped test matrix
   path both exist once; the plan's E snapshot matches that matrix;
 - unit file writes fit repository and plan scope boundaries;
 - no unresolved decision changes the implementation shape.

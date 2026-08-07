@@ -18,13 +18,30 @@ publish unless separately requested.
 state; it never authorizes execution. Continue only this Flow, hand off to
 `wayne-plan`, and stop. Never execute the plan or invoke `wayne-work`.
 
-Create only design artifacts:
+Create only design artifacts, and only two kinds.
 
-- `docs/decisions/YYYY-MM-DD-<topic>-decisions.md`
-- `docs/test-matrix/YYYY-MM-DD-<topic>-test-matrix.md` through `wayne-test-design`
-- `docs/specs/YYYY-MM-DD-<topic>-design.md`
-- `docs/reviews/YYYY-MM-DD-<topic>-{product|engineering}.md` as immutable evidence
+**Run-scoped, in `.wayne/runs/<topic>/`** — working state, gitignored, absorbed or
+promoted before handoff:
+
+- `decision-log.md`
+- `test-matrix.md` through `wayne-test-design`
+- `review-{product|engineering}.md` as immutable evidence for the duration of the run
+- `spec.md` while it is still `draft`
 - the handoff packet owned by `wayne-checkpoint`
+
+**Durable, in `docs/`** — one living page per topic, the sole artifact that outlives
+the run:
+
+- `docs/specs/<topic>.md` — amended in place, never re-dated
+
+`docs/specs/` holds only specs that are in force. A spec enters it exactly once, by
+being moved there when node V approves it, and leaves only by becoming
+`deprecated`. Until then it is a draft in the run directory.
+
+Nothing else goes in `docs/`. A run abandoned mid-design is the normal case, not the
+exception, and anything it left in `docs/` would sit there forever looking exactly
+like a shipped design. Keeping the whole working set outside the tracked tree
+removes that failure instead of scheduling a cleanup for it.
 
 ## Flow
 
@@ -77,66 +94,56 @@ digraph mind_explode {
 
 ## Process
 
-### A. Open decision log
+### A. Open or resume the decision log
 
-Read `../_shared/pipeline-id-contract.md` completely. Create the log immediately with
-`Status: in-progress` and this table:
+Read `../_shared/pipeline-id-contract.md` completely. Before anything else, resolve
+whether this topic already has a living spec at `docs/specs/<topic>.md`.
 
-```markdown
-| ID | Question | Decision | Rationale | Consequences | Supersedes | Source |
-|---|---|---|---|---|---|---|
-| D1 | ... | ... | ... | ... | — | user |
-```
+- **No spec.** New topic. Create the log with `Status: in-progress` and start
+  decision IDs at `D1`.
+- **Spec exists.** This run amends that spec; it never opens a second one. Read the
+  whole file — every row of its `## Decisions` table, and every spec named in a
+  `Depends on` cell. Create the log with `Status: in-progress`, and **continue that
+  spec's decision numbering**. Restarting at `D1` puts two `D1`s in one spec and
+  destroys the uniqueness its namespaced IDs depend on. An already-recorded
+  decision is reversed only by a new row naming it in `Supersedes`; never edit or
+  delete the existing row, and never silently re-decide it because it was absent
+  from this run's context.
 
-The same file also owns the complete decision frontier:
-
-```markdown
-## Decision DAG
-| Node | Parent | Kind | Decision | Status | Opens when |
-|---|---|---|---|---|---|
-```
-
-Use stable dependency-ordered node IDs. `Kind` is `fact` or `choice`; `Status` is
-`blocked`, `open`, `resolved`, or `not-applicable`; put only that literal in the
-status cell. `Decision` names the unresolved fact or choice and is never blank or
-`—`; `Opens when` contains only its activation predicate. Preserve supplied node
-boundaries and dependencies: one turn processes one node, and one answer never
-batch-resolves split nodes. Seed known roots and dependents as `open` or `blocked`,
-then add children as their parent resolves.
-
-Use source values `user`, `codebase`, `web`, `constraint`, `default`, or `review`.
-Assign the next `D<number>` without leading zeroes. Review reports use `F<number>`;
-never reuse `R<number>`, which is reserved for requirements.
-One file-write event appends exactly one new numbered row. Verify that row is
-durable before researching, asking, approving, or handing off; never batch or
-reconstruct the log later.
-
-`Consequences` records the cost this decision accepts — what it makes harder,
-slower, or irreversible — and is the field a later reader uses to judge whether the
-trade-off still holds. It never restates `Rationale`. It never lists the follow-up
-choices the decision opened: those are DAG children, and duplicating them here
-creates two encodings of one frontier. Write `—` only when the decision accepts no
-cost, and expect that to be rare.
-
-`Supersedes` is `—`, or one or more earlier decision references: a same-table
-`D<number>`, or a cross-log `docs/decisions/<file>.md::D<number>`, comma-separated.
-Never edit or delete a superseded row. The reversal is stored once, on the
-superseding row, and supersession is derived by reading forward; marking both ends
-would store one edge twice. A superseding row's `Rationale` states why the earlier
-decision was reversed, and its own `Consequences` covers the cost of reversing.
-Re-audit every descendant the superseded decision opened and append a new row for
-each one that changes; supersession never cascades automatically, and a resolved
-DAG node is never silently reopened.
+Create the run-scoped log from [the decision-log template](templates/decision-log.md),
+which carries the numbered table, the Decision DAG, and the rules governing both.
+Read it completely before appending the first row. That file is working state: it
+dies once section I absorbs its content into the living spec, so nothing durable
+may exist only there.
 
 ### B. Research project and lessons
 
-On the initial pass, research enough to seed known root and dependent nodes. Then
-select the next reachable open `fact` and process at most one before returning to P.
+On the initial pass, research enough to seed known root and dependent nodes. The
+topic's living spec and every spec it declares a `Depends on` edge to are read
+first: they are the current design, not background reading.
+
+A spec is only trustworthy as current if it says so and nothing contradicts it. Run
+both checks before believing any of them — they are pure date comparisons and need
+no understanding of the content:
+
+- `today >= stale_after` — past its own re-reconciliation date;
+- `max(verified[].at) < generated.at` — edited after it was last confirmed, so the
+  review gate that approved it no longer covers the current bytes.
+
+A spec that passes both seeds the nodes it answers as `resolved`, citing that spec
+as the source rather than re-litigating them. A spec that fails either check is
+**not** seeded resolved: it is a claim to verify, so route the nodes it touches to
+G's three-way triage against the code. No spec ever silently self-certifies just
+because it exists.
+
+Then select the next reachable open `fact` and process at most one
+before returning to P.
 Read repository instructions, relevant code, docs, architecture,
-active plans, specs, and recent history. Scan Wayne's KB for semantically matching
-lessons, prior decisions, research, how-tos, and project notes; surface matches and
-log whether the user applies or skips them. Search the web only when current
-external facts could change a design choice, and preserve the source URL in the log.
+active plans, other specs, and recent history. Scan Wayne's KB for semantically
+matching lessons, prior decisions, research, how-tos, and project notes; surface
+matches and log whether the user applies or skips them. Search the web only when
+current external facts could change a design choice, and preserve the source URL
+in the log.
 
 An evidence-backed `fact` auto-resolves without user confirmation; append its
 numbered evidence row before marking it resolved. Never seed a fact as resolved.
@@ -225,6 +232,21 @@ All design-stage E statuses remain `⬜`. Record the returned matrix path.
 
 Re-read all existing plans, specs, architecture, and repository instructions
 against the settled design. Route any contradiction to D and repeat this review.
+
+When the contradiction is between a living spec and the code, the spec is not
+presumed stale. Classify it and route accordingly:
+
+| Finding | Meaning | Action |
+|---|---|---|
+| Spec is right, code diverged | An unapproved implementation drift | Do not touch the spec; report it as a defect |
+| Spec is stale, code is right | The design moved and was never written back | Update the spec in place, appending one decision row that records why it moved |
+| The new design overrides the spec | A real design change | Obtain a user decision, then update the spec in place |
+
+Only the user chooses between these. Defaulting to "the spec is stale" launders an
+unapproved deviation into approved design, which is the one failure of this
+mechanism that causes real damage. A spec updated here has its `generated.at`
+advanced, which invalidates every earlier `verified` entry and re-arms the review
+gate.
 Trace replaced functionality and classify it `Dead`, `Legacy`, or `Shared`; obtain
 its direct callers and indirect consumers such as jobs, scripts, APIs, and external
 repositories. Obtain and log a user decision for every deletion, deprecation, or
@@ -232,11 +254,30 @@ migration. Proceed only with zero unresolved conflicts.
 
 ### I. Write spec
 
-Write the approved design to the canonical spec path. Include scope/non-goals,
-architecture and ownership, data/control flow, failure and concurrency semantics,
-observability, rollback, legacy decisions, and requirement trace. Link the test
-matrix as the single source of truth; do not copy either matrix or author a second
-E2E contract. Remove every unresolved TBD/TODO before review.
+Write the approved design following [the spec template](references/spec-template.md),
+and set `generated` to this run's actor and time. Where it is written depends on
+whether the topic is already in force:
+
+- **Topic already has `docs/specs/<topic>.md`.** Edit that file in place — sections
+  revised, `## Decisions` appended to, `generated.at` advanced. Advancing
+  `generated.at` past every `verified.at` is what re-arms the review gate, so V, U,
+  and J run again on the amended bytes. Never open a second dated file.
+- **New topic.** Write `.wayne/runs/<topic>/spec.md` with `status: draft`. It stays
+  in the run directory until node V approves it; `docs/specs/` holds only specs in
+  force, so an abandoned run leaves nothing behind.
+
+Absorb into `## Decisions` the decisions that justify this design. A fact resolved
+by reading the codebase dies with the run; a choice, and a constraint that
+eliminated an option, is carried. The run-scoped decision log is working state, not
+the durable record: whatever only it holds is lost at ship.
+
+Include scope/non-goals, architecture and ownership, data/control flow, failure and
+concurrency semantics, observability, rollback, legacy decisions, and requirement
+trace. Absorb the matrix's E2E layer into `## Verification` — the matrix is produced
+before this step and is run-scoped, so the spec is where that contract survives.
+Carry no pass/fail status: run state stays in the matrix, and the durable fact that
+this spec was verified is a `verified` frontmatter entry. Never author a second E2E
+contract. Remove every unresolved TBD/TODO before review.
 
 ### V. Approve the written spec
 
@@ -244,6 +285,11 @@ Show the canonical spec path and ask the user to approve that exact written
 revision. A prior section-by-section approval is not approval of the file bytes.
 On rejection, log one decision, revise the spec, and ask again. Start no reviewer
 until the written revision is explicitly approved.
+
+On approval of a new topic's draft, **move** `.wayne/runs/<topic>/spec.md` to
+`docs/specs/<topic>.md` and set `status: stable`. Move, never copy: two copies would
+immediately begin to disagree. From this point the reviewers in J read the file at
+its `docs/` path, and every later run amends it there.
 
 ### U. Require an independent-review mechanism
 

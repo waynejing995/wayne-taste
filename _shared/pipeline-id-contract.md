@@ -36,7 +36,8 @@ slower, or irreversible. It never restates `Rationale`, and it never lists the
 follow-up choices the decision opened; those are DAG children.
 
 `Supersedes` is `—`, or one or more earlier decision references: a same-table
-`D<number>`, or a cross-log `docs/decisions/<file>.md::D<number>`, comma-separated.
+`D<number>`, or a decision carried by another living spec, cited as
+`<slug>:D<number>`, comma-separated.
 The reversal is stored once, on the superseding row, and the superseded row is
 never edited or deleted; a reader derives supersession by reading forward. The
 superseding row's `Rationale` must state why the earlier decision was reversed.
@@ -82,15 +83,15 @@ temporary ledgers or newly authored downstream artifacts.
 | decision-log rows, DAG, status | `wayne-mind-explode` | `in-progress` → `design-approved`; downstream read-only |
 | spec requirements `R<number>` | `wayne-mind-explode` / approved product-design stage | frozen before test design and planning |
 | U-SEED definitions and seed Status | `wayne-test-design` | authored as `S<number>` + `☐`; downstream preserves source bytes |
-| authoritative E table | `wayne-test-design` | lives in one `docs/test-matrix/` artifact as `E<number>` rows |
+| authoritative E table | `wayne-test-design` | lives in one run-scoped matrix under `.wayne/runs/<topic>/` as `E<number>` rows |
 | authoritative E Status | `wayne-verify` | test design initializes `⬜`; Verify alone changes the authoritative matrix to `✅/❌` |
 | plan E snapshot | `wayne-plan` | byte-for-byte design-time derived view; remains `⬜` and is never a status owner |
 | plan structure, `I<number>`, `U<number>` definitions | `wayne-plan` | `active` while drafting → `approved` only after both independent AI reviews |
 | U Status | `wayne-work` | Plan initializes `☐`; Work alone changes it to `☑` after owned verification |
 | checkpoint/handoff snapshot | `wayne-checkpoint` | derived copy only; never changes source IDs or statuses |
 
-`wayne-work` accepts only an `approved` plan. A handoff carries the exact
-`docs/test-matrix/` path; `wayne-verify` mutates E Status only there, never in the
+`wayne-work` accepts only an `approved` plan. A handoff carries the exact matrix
+path; `wayne-verify` mutates E Status only there, never in the
 plan snapshot. A milestone or status change permits
 the next manual stage; it never authorizes a skill to invoke that stage implicitly.
 

@@ -149,7 +149,7 @@ none — control flow is fully specified by the approach
 
 ## Sources & References
 
-- **Origin:** `docs/specs/YYYY-MM-DD-topic-design.md`
-- **Decision log:** `docs/decisions/YYYY-MM-DD-topic-decisions.md`
-- **Test matrix:** `docs/test-matrix/YYYY-MM-DD-topic.md`
+- **Origin:** `docs/specs/<topic>.md`
+- **Decision log:** `.wayne/runs/<topic>/decision-log.md`
+- **Test matrix:** `.wayne/runs/<topic>/test-matrix.md`
 - **Repository evidence:** `path/to/file::symbol`

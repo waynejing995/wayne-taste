@@ -1,6 +1,6 @@
 ---
 name: wayne-compound
-description: Capture lessons learned after solving a problem or shipping a feature. Reads the full Wayne pipeline artifacts (decision log, plan, review findings) and distills into searchable KB entries and in-repo solution docs. Auto-triggers on "that worked", "it's fixed", "problem solved", or explicitly via "/wayne-compound". Use after shipping or fixing something non-trivial.
+description: Capture lessons learned after solving a problem or shipping a feature. Reads the surviving Wayne pipeline artifacts (the living spec's decisions and verification contract, plan, review findings) and distills into searchable KB entries and in-repo solution docs. Auto-triggers on "that worked", "it's fixed", "problem solved", or explicitly via "/wayne-compound". Use after shipping or fixing something non-trivial.
 ---
 
 # Wayne Compound
@@ -20,7 +20,7 @@ Before reading or writing the KB, read `~/.wayne/config.env`. It must set `WAYNE
 
 ## Checklist
 
-1. **Gather pipeline artifacts** — decision log, plan, review findings, commit messages
+1. **Gather pipeline artifacts** — spec (`## Decisions`, `## Verification`), plan, review findings, commit messages
 2. **Extract the learning** — what was the real insight?
 3. **Classify** — bug fix, pattern, decision, how-to?
 4. **Check for duplicates** — MANDATORY before writing. Search KB and docs/solutions/ first. If anything similar exists, UPDATE or MERGE, do not create a new file. Specifically:
@@ -76,11 +76,19 @@ digraph compound {
 
 ## Phase 1: Gather Pipeline Artifacts
 
-Read the exact decision log, plan, spec, review, verification, and commit references
-carried by the ship handoff or explicitly supplied by the user. Validate their
-paths and hashes before extracting lessons. Never select an artifact by modification
-time, filename order, heading, or ID-shaped text. If a standalone run has multiple
+Read the exact spec, plan, review, verification, and commit references carried by
+the ship handoff or explicitly supplied by the user. Validate their paths and
+hashes before extracting lessons. Never select an artifact by modification time,
+filename order, heading, or ID-shaped text. If a standalone run has multiple
 plausible artifact sets, ask which shipped change is authoritative.
+
+This skill runs after ship, so the run-scoped decision log and test matrix are gone
+by design. Their surviving content is the living spec: `## Decisions` carries the
+reasoning that justified the design, and `## Verification` carries the E2E
+contract. Read those, not a decision-log path — a handoff that still names one is
+stale, and a decision log that still exists is a run that never completed. The
+spec's decisions are the curated justifying subset rather than the raw research
+trail, which is what this phase wanted in the first place.
 
 For each artifact found, read it and extract:
 
@@ -119,7 +127,7 @@ Distill into:
 |----------|-----------|----------------------|-------------|
 | **Bug fix** | `how-to/` | `runtime-errors/` or specific category | Solved a bug with non-obvious root cause |
 | **Pattern** | `research/` | `patterns/` | Discovered a reusable approach |
-| **Decision** | `decisions/` | — (decision log suffices) | Made an architectural or design choice with rationale |
+| **Decision** | `decisions/` | — (the spec's `## Decisions` suffices) | Made an architectural or design choice with rationale |
 | **How-to** | `how-to/` | `integration-issues/` | Figured out how to do something that wasn't documented |
 | **Pitfall** | `how-to/` | specific category | Found a trap that others will fall into |
 
