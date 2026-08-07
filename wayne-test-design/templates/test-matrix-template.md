@@ -1,10 +1,11 @@
 ---
-title: [Feature] Test Matrix
+title: "[Feature] Test Matrix"
 type: test-matrix
 status: active
+scope: run          # working state; absorbed into the spec at ship, then deleted
 date: YYYY-MM-DD
-origin: docs/specs/YYYY-MM-DD-<topic>-design.md
-decisions: docs/decisions/YYYY-MM-DD-<topic>-decisions.md
+origin: docs/specs/<topic>.md
+decisions: <the run-scoped decision log for this run>
 ---
 
 # [Feature] Test Matrix

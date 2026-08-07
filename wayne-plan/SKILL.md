@@ -197,7 +197,7 @@ digraph wayne_plan {
 ### L. Checkpoint handoff
 
 - Unless the caller explicitly requested return-only or no-checkpoint evaluation, invoke `wayne-checkpoint` in handoff mode with the plan and Test Matrix; set the next agent to `wayne-work`.
-- Carry the exact authoritative `docs/test-matrix/` path. The E block inside the
+- Carry the exact authoritative run-scoped test-matrix path. The E block inside the
   plan is a read-only `⬜` snapshot; no downstream stage may use it as E Status SoT.
 - Plan approval and `Ready for wayne-work` are handoff states, not implementation
   authorization. Return the plan or checkpoint and stop; never invoke `wayne-work`.

@@ -10,10 +10,10 @@ snapshot: {primary repository-relative artifact}
 next_agent: {one available wayne-* Skill slug}
 trigger: manual
 goal_included: {true|false}
-decision_log: docs/decisions/{file}.md
+decision_log: .wayne/runs/{topic}/decision-log.md
 plan: docs/plans/{file}.md
-spec: docs/specs/{file}.md
-test_matrix: docs/test-matrix/{file}.md
+spec: docs/specs/{topic}.md          # .wayne/runs/{topic}/spec.md while still draft
+test_matrix: .wayne/runs/{topic}/test-matrix.md
 files_modified:
   - path/to/file1
   - path/to/file2

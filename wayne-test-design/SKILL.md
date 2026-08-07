@@ -9,10 +9,16 @@ Define how an approved behavior will be proved before planning or implementation
 
 ## Boundary and ownership
 
-Produce one durable `docs/test-matrix/` artifact; never write test code, implement,
-or execute tests. Read `../_shared/pipeline-id-contract.md`, `../_shared/e2e-contract.md`, and the
+Produce one run-scoped `.wayne/runs/<topic>/test-matrix.md`; never write test code,
+implement, or execute tests. Read `../_shared/pipeline-id-contract.md`,
+`../_shared/e2e-contract.md`, and the
 [matrix template](templates/test-matrix-template.md) completely. The template is a
 readable starting point, not a Markdown grammar.
+
+The matrix is working state for one run: it carries live Status through plan, work,
+and verify, and dies at ship. The durable home of the E2E contract is the living
+spec's `## Verification`, which `wayne-mind-explode` absorbs this matrix into at
+spec-writing time. Author the E layer so that absorption is lossless.
 
 The matrix has two state owners:
 
@@ -21,12 +27,14 @@ The matrix has two state owners:
 - This skill proposes behavior-level `U-SEED` rows at `☐`; `wayne-plan` re-authors,
   binds, and locks them to implementation units before `wayne-work` may set `☑`.
 
-If a spec already contains an E2E contract or an explicit no-E2E rationale, absorb
-its complete meaning once, extend missing observable paths, declare the matrix the
-new SSoT, and never maintain a second authored copy.
+If the topic's living spec already carries an E2E contract in `## Verification`,
+absorb its complete meaning once and extend missing observable paths. The spec
+remains the SSoT across runs; this matrix is the authoritative live copy only until
+ship. Never maintain a second authored copy.
 
-An explicit user-approved path wins. Otherwise write the next unused
-`docs/test-matrix/YYYY-MM-DD-NNN-<descriptive-name>-test-matrix.md`.
+An explicit user-approved path wins. Otherwise write
+`.wayne/runs/<topic>/test-matrix.md`, one per run — the run directory already scopes
+it, so the filename carries no date or sequence number.
 
 ## Dimension menu
 

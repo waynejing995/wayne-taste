@@ -278,11 +278,29 @@ tip. Cherry-picking a specific PR onto this branch is the same base discipline:
 
 ## Phase 8: Handoff
 
-As the final step, after the commit (and push/PR, if requested) succeeds, call
-**`wayne-checkpoint` in handoff mode** to emit a handoff packet pointing to
-`wayne-compound` as the next agent (the pipeline's lessons-capture stage). The
-handoff-packet mechanism is defined in `wayne-checkpoint` — this skill only invokes
-it; it does not implement or advance it.
+As the final step, after the commit (and push/PR, if requested) succeeds, retire the
+run-scoped artifacts, then call **`wayne-checkpoint` in handoff mode** to emit a
+handoff packet pointing to `wayne-compound` as the next agent (the pipeline's
+lessons-capture stage). The handoff-packet mechanism is defined in
+`wayne-checkpoint` — this skill only invokes it; it does not implement or advance
+it.
+
+**Retiring the run directory.** `.wayne/runs/<topic>/` is working state for one run
+and this skill owns clearing it. Because that tree is gitignored, this is hygiene
+rather than a correctness gate: a run abandoned before ship leaves nothing tracked
+either way, which is why the working set lives there instead of in `docs/`.
+
+Before clearing it, confirm the run's content actually reached the spec:
+
+1. every E row is freshly green,
+2. `docs/specs/<topic>.md` carries the absorbed E2E contract in `## Verification`
+   and the justifying reasoning in `## Decisions`,
+3. `wayne-verify` has appended its `verified` event to that spec.
+
+If any one fails, keep the directory and report which condition blocked it. The
+matrix is still the authoritative live state, and clearing it would destroy evidence
+the spec does not yet hold — but never block the commit on this: the code shipping
+and the working set being tidy are separate concerns.
 
 **Mode A — return-only.** The packet is returned/surfaced only; it does NOT
 auto-invoke `wayne-compound`. The user manually triggers the next step (say "下一步"
