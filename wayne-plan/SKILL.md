@@ -71,7 +71,7 @@ digraph wayne_plan {
 - A small, unambiguous direct request is a complete standalone Plan input; it does
   not require Mind Explode, a decision log, or a spec. Route upstream only when a
   missing WHAT choice would change scope, behavior, risk, or compatibility.
-- Read `_shared/pipeline-id-contract.md` completely. Preserve upstream bytes: map
+- Read `../_shared/pipeline-id-contract.md` completely. Preserve upstream bytes: map
   legacy numeric decision rows to `D<number>` only in the working coverage map. Use
   source meaning and artifact ownership—not headings, prefixes, keywords, or
   regex—to distinguish requirements, decisions, and review findings.

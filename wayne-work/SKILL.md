@@ -13,7 +13,7 @@ Own implementation, plan-unit tracking, test-as-you-go, integration, U status up
 and the final work handoff. Do not redesign approved behavior, author a new plan/test
 matrix, change E status, commit, branch, push, open a PR, verify, review, or ship.
 
-The plan, decision log, test matrix, repository instructions, and dirty baseline are source contracts. Read `_shared/pipeline-id-contract.md`; consume IDs only from their defining structures and never renumber upstream artifacts.
+The plan, decision log, test matrix, repository instructions, and dirty baseline are source contracts. Read `../_shared/pipeline-id-contract.md`; consume IDs only from their defining structures and never renumber upstream artifacts.
 
 ## Flow
 

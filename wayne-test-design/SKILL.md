@@ -10,7 +10,7 @@ Define how an approved behavior will be proved before planning or implementation
 ## Boundary and ownership
 
 Produce one durable `docs/test-matrix/` artifact; never write test code, implement,
-or execute tests. Read `_shared/pipeline-id-contract.md`, `_shared/e2e-contract.md`, and the
+or execute tests. Read `../_shared/pipeline-id-contract.md`, `../_shared/e2e-contract.md`, and the
 [matrix template](templates/test-matrix-template.md) completely. The template is a
 readable starting point, not a Markdown grammar.
 
@@ -137,7 +137,7 @@ evidence, never a keyword or substring classification.
 
 ### F. Draft locked E rows
 
-Carry the information owned by `_shared/e2e-contract.md`: one real user path,
+Carry the information owned by `../_shared/e2e-contract.md`: one real user path,
 concrete process/data/entrypoint, one user-visible observable, one proof axis, and
 initial Status `⬜`. A Markdown table is recommended, not mandatory grammar.
 Transport proxies such as `200 OK` are not observables. When no user-observable path
