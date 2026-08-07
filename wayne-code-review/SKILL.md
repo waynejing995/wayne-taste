@@ -124,7 +124,7 @@ Codex process in parallel with the same payload hash. Do not impose a Codex
 filesystem sandbox: the review-only packet and frozen before/after Git-native
 snapshot own the mutation boundary without opening unrelated untracked content.
 Keep the host command timeout at least as long
-as the adapter's 1,800-second default. The primary host model is not a review voice
+as the adapter's 3,600-second default (raised from 1,800s on 2026-08-04, which killed the Claude voice mid-analysis on a ~4k-line patch while Codex had already finished). The primary host model is not a review voice
 and same-family subagents cannot substitute.
 
 Do not manually recreate, replace, or repair adapter artifacts. Missing binary,
