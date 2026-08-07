@@ -22,7 +22,13 @@ from typing import Any
 
 SCHEMA_VERSION = "wayne-code-review/dual-review/v1"
 PROVIDERS = ("claude", "codex")
-DEFAULT_TIMEOUT_SECONDS = 1800.0
+# 1800s was too small twice on real reviews: on a ~4k-line / 42-file patch
+# Codex finished in ~3 minutes while Claude was killed at exit 124 mid-analysis,
+# yielding REVIEW_UNAVAILABLE and discarding one perfectly good voice. Reviewers
+# read the whole frozen patch plus every intent source, so the cost scales with
+# diff size, not with a fixed budget. Raised to 3600s (2026-08-04). Override per
+# run with --timeout-seconds or WAYNE_DUAL_REVIEW_TIMEOUT.
+DEFAULT_TIMEOUT_SECONDS = 3600.0
 TOP_FIELDS = {"verdict", "review_type", "patch_sha256", "findings"}
 FINDING_FIELDS = {
     "severity",
