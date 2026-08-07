@@ -9,7 +9,7 @@ Run the feature as its user runs it and decide the runtime gate from fresh evide
 
 ## Boundary and contract owner
 
-Read `_shared/pipeline-id-contract.md` and `_shared/e2e-contract.md` completely. They own
+Read `../_shared/pipeline-id-contract.md` and `../_shared/e2e-contract.md` completely. They own
 the required E2E information, explicit no-E2E rationale, and Status lifecycle. Use the exact
 authoritative `docs/test-matrix/` path carried by the handoff or explicitly supplied
 by the user; never select or mutate the read-only snapshot inside a plan. Do not

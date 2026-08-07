@@ -1,7 +1,7 @@
 # Wayne plan contract
 
 This file owns the semantic information a plan must carry into `wayne-work`.
-`_shared/pipeline-id-contract.md` solely owns cross-stage identifier namespaces.
+`../../_shared/pipeline-id-contract.md` solely owns cross-stage identifier namespaces.
 The template is a starting layout, not a Markdown grammar.
 
 ## Contents

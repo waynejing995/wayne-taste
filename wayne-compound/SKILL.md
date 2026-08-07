@@ -243,7 +243,7 @@ Link the two entries:
 - Repo doc's `Related` section → KB entry path
 
 Write nothing into the decision log, spec, test matrix, or plan. Those are owned
-upstream and are read-only here (`_shared/pipeline-id-contract.md`).
+upstream and are read-only here (`../_shared/pipeline-id-contract.md`).
 
 ---
 

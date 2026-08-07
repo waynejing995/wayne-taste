@@ -79,7 +79,7 @@ digraph mind_explode {
 
 ### A. Open decision log
 
-Read `_shared/pipeline-id-contract.md` completely. Create the log immediately with
+Read `../_shared/pipeline-id-contract.md` completely. Create the log immediately with
 `Status: in-progress` and this table:
 
 ```markdown

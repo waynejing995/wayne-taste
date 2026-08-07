@@ -10,7 +10,7 @@ Save and resume working state. Project-scoped — everything stays in `.wayne/ch
 This skill only specifies the save / resume / list checkpoint workflow and the
 pipeline handoff workflow.
 
-Read `_shared/pipeline-id-contract.md` before copying pipeline artifacts. Preserve
+Read `../_shared/pipeline-id-contract.md` before copying pipeline artifacts. Preserve
 IDs byte-for-byte; checkpoint never renumbers or reclassifies upstream rows.
 
 ## Files Written

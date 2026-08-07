@@ -64,7 +64,7 @@ Declared gaps (reviewer-surprising dimensions deliberately excluded):
 ## Layer 2: E2E Verification Contract
 
 This layer **is** the E2E Verification Contract. Its information and ownership come
-from `_shared/e2e-contract.md`; the table below is the recommended compact view, not
+from `../../_shared/e2e-contract.md`; the table below is the recommended compact view, not
 a grammar. All Status start `⬜`. **Only `wayne-verify` flips `⬜ → ✅ / ❌`.** A
 passing unit suite never touches this layer.
 
