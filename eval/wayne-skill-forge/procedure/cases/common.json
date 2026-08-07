@@ -1,0 +1,9 @@
+{
+  "service": "payments-api",
+  "environment": "staging",
+  "ticket": "REL-101",
+  "approved": true,
+  "validate_command": "uv run --no-project python ../../harness.py validate ./cases/common.json ./state/common",
+  "apply_command": "uv run --no-project python ../../harness.py apply ./cases/common.json ./state/common",
+  "verify_command": "uv run --no-project python ../../harness.py verify ./cases/common.json ./state/common"
+}

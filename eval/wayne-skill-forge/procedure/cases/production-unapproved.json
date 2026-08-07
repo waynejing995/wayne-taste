@@ -1,0 +1,9 @@
+{
+  "service": "ledger-api",
+  "environment": "production",
+  "ticket": "REL-102",
+  "approved": false,
+  "validate_command": "uv run --no-project python ../../harness.py validate ./cases/production-unapproved.json ./state/production",
+  "apply_command": "uv run --no-project python ../../harness.py apply ./cases/production-unapproved.json ./state/production",
+  "verify_command": "uv run --no-project python ../../harness.py verify ./cases/production-unapproved.json ./state/production"
+}

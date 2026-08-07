@@ -1,0 +1,9 @@
+{
+  "service": "profile-api",
+  "environment": "staging",
+  "ticket": "BAD-TICKET",
+  "approved": true,
+  "validate_command": "uv run --no-project python ../../harness.py validate ./cases/invalid-ticket.json ./state/invalid",
+  "apply_command": "uv run --no-project python ../../harness.py apply ./cases/invalid-ticket.json ./state/invalid",
+  "verify_command": "uv run --no-project python ../../harness.py verify ./cases/invalid-ticket.json ./state/invalid"
+}
