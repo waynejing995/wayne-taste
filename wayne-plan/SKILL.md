@@ -14,7 +14,9 @@ Produce an English implementation plan that a fresh `wayne-work` agent can execu
   `plan-complete` writeback or add a plan link there; the plan and checkpoint carry
   that relationship without creating a second state writer.
 - Stop on unresolved product behavior or compatibility policy; do not silently choose it. Do not brainstorm, design the test matrix, implement code, run the feature, commit, or ship.
-- Never invoke or depend on `gstack` or a `gstack`-named skill. Reviews must be provider-agnostic and independent of the authoring context.
+- Never invoke or depend on `gstack` or a `gstack`-named skill. Review criteria and
+  reviewer templates stay provider-agnostic and independent of the authoring
+  context; only the dispatch mechanism may be host-specific.
 - Before the final checkpoint handoff, planning may change only the new plan file.
   `wayne-checkpoint` separately owns its checkpoint artifacts. If source artifacts
   or unrelated files need edits, stop and ask the user to fix or expand scope first.
@@ -140,11 +142,20 @@ digraph wayne_plan {
 
 ### G. Run independent reviews
 
-- Dispatch two provider-agnostic reviews in fresh contexts.
-- Source-fidelity reads every decision log, spec, matrix, the working coverage map,
-  plan, and [source-fidelity protocol](references/source-fidelity-review.md). It
-  reverse-checks every source obligation and U seed, E ownership, scope, decisions,
-  rationale, and intended behavior in both directions.
+- Dispatch two reviews in fresh, isolated contexts from different model families
+  through the host's independent-review mechanism. Voice A carries the
+  [source-fidelity protocol](references/source-fidelity-review.md); voice B carries
+  the [execution-readiness protocol](references/execution-readiness-review.md).
+  Those two files own the review criteria and stay provider-agnostic.
+- In Pi, dispatch is the saved workflow `wayne-dual-review`. Pass `subject`, the
+  `artifacts` set (every decision log, spec, matrix, the working coverage map, and
+  the plan), `reviewerATemplate` and `reviewerBTemplate` as the two protocol paths,
+  and `allowedMutationPaths` as the new plan file alone. The workflow freezes the
+  artifacts outside the repository, runs both voices in parallel, and computes the
+  gate; it never edits the repository. Another host substitutes its own mechanism
+  with the same two templates.
+- Source-fidelity reverse-checks every source obligation and U seed, E ownership,
+  scope, decisions, rationale, and intended behavior in both directions.
 - Execution-readiness independently checks dependency closure, interfaces, real
   files/symbols, unit ownership, U coverage, E advancement, cleanup, placeholders,
   and whether a fresh `wayne-work` agent could execute each unit without product
@@ -155,6 +166,14 @@ digraph wayne_plan {
 - Neither reviewer may substitute headings, section order, table shape, keywords,
   substring checks, regex, a script, or template agreement for contextual reading.
   Provider/tool termination before a report is invalid and must be rerun.
+- Two voices must actually execute on different model families. A missing
+  mechanism, a failed or empty voice, or a fallback that collapses both voices onto
+  one family returns `REVIEW_UNAVAILABLE`; never claim a dual review, simulate the
+  second voice locally, or downgrade to one review.
+- A requested model is not a routed model. After the run, read the actual model of
+  each reviewer execution from the host's run metadata. If either voice fell back to
+  the session default or both resolved to one family, the run is void: return
+  `REVIEW_UNAVAILABLE` rather than reporting its gate.
 
 ### H. Revise from findings
 

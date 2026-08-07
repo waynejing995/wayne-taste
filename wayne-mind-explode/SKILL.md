@@ -247,22 +247,36 @@ until the written revision is explicitly approved.
 
 ### U. Require an independent-review mechanism
 
-Discover the provider-neutral mechanism available to the current agent and
-repository for launching isolated reviewers from heterogeneous model families.
-Record each reviewer identity. Do not hardcode one agent product's skill names,
-tools, or home paths. If two isolated heterogeneous executions cannot be started,
-return `REVIEW_UNAVAILABLE` with the missing capability and stop. Never simulate
-two voices in one local analysis or silently downgrade to a single review.
+Discover the mechanism available to the current agent and repository for launching
+isolated reviewers from heterogeneous model families, and record each reviewer
+identity. The review criteria are provider-neutral and live in the two templates
+below; only the dispatch mechanism is host-specific. In Pi, dispatch is the saved
+workflow `wayne-dual-review`: pass `subject`, the `artifacts` set (the approved spec
+revision, the decision log, and the test matrix), `reviewerATemplate`
+`references/product-review.md`, and `reviewerBTemplate`
+`references/engineering-review.md`. It freezes those bytes outside the repository,
+runs both voices in parallel, and computes the gate without editing anything.
+Another host substitutes its own mechanism with the same two templates. If two
+isolated heterogeneous executions cannot be started, if either voice fails or
+returns nothing, or if both voices collapse onto one model family, return
+`REVIEW_UNAVAILABLE` with the missing capability and stop. Never simulate two voices
+in one local analysis or silently downgrade to a single review. A requested model is
+not a routed model: after the run, read each reviewer execution's actual model from
+the host's run metadata, and void the run the same way if either voice fell back to
+the session default or both resolved to one family.
 
 ### J. Run two independent reviews
 
 Dispatch the same spec revision to two separate reviewer executions:
 
-- product voice: challenge premise, necessity, whether this is the right problem,
-  the 10-star alternative, user value, assumptions, scope, and non-goals;
-- engineering voice: challenge architecture, ownership, interfaces, data/control
-  flow, failures, edge and concurrency paths, tests, performance/capacity,
-  observability, rollback, and execution readiness.
+- product voice, carrying [the product protocol](references/product-review.md):
+  challenge premise, necessity, whether this is the right problem, the 10-star
+  alternative, user value, assumptions, scope, and non-goals;
+- engineering voice, carrying
+  [the engineering protocol](references/engineering-review.md): challenge
+  architecture, ownership, interfaces, data/control flow, failures, edge and
+  concurrency paths, tests, performance/capacity, observability, rollback, and
+  execution readiness.
 
 Preserve each run as immutable review evidence. The decision log alone owns finding
 resolutions and final outcomes; append each outcome as one `review` row. Resolve
