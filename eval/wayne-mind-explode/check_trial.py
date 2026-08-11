@@ -101,10 +101,34 @@ def resolve(repo: Path, relative: object, label: str, findings: list[str]) -> Pa
 
 
 def forbidden_advance(repo: Path, topic: str | None, label: str, findings: list[str]) -> None:
+    """Artifacts this run created or edited before it was entitled to.
+
+    An amendment run starts from an existing `docs/specs/<topic>.md`; that page is
+    a repository input, so only what changed since the baseline counts as advance.
+    """
     if topic is None:
         return  # no readable log means no topic to scope these globs to
+    try:
+        baseline = set(
+            subprocess.run(
+                ["git", "ls-files"], cwd=repo, check=True, capture_output=True, text=True
+            ).stdout.split()
+        )
+        touched = set(
+            subprocess.run(
+                ["git", "diff", "--name-only", "HEAD", "--"],
+                cwd=repo, check=True, capture_output=True, text=True,
+            ).stdout.split()
+        )
+    except (OSError, subprocess.CalledProcessError):
+        baseline, touched = set(), set()
     for pattern in forbidden_patterns(topic):
-        matches = sorted(path.as_posix() for path in repo.glob(pattern) if path.is_file())
+        matches = sorted(
+            relative
+            for path in repo.glob(pattern)
+            if path.is_file()
+            and ((relative := path.relative_to(repo).as_posix()) not in baseline or relative in touched)
+        )
         if matches:
             findings.append(f"{label} advanced past its gate: {matches}")
 
@@ -227,6 +251,11 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
                 record for record in review_decisions
                 if str(record.get("reference") or "") == relative
             ]
+            rounds = len([e for e in read_events(repo, []) if e.get("role") == role])
+            if rounds and len(outcomes) != rounds:
+                findings.append(
+                    f"{role} ran {rounds} review rounds but the log holds {len(outcomes)}"
+                )
             if not outcomes:
                 findings.append(f"decision log holds no {role} review outcome")
             elif not re.match(r"PASS\b", str(outcomes[-1].get("decision", ""))):

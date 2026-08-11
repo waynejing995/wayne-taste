@@ -66,6 +66,20 @@ def run_review(repo: Path, role: str, spec: Path) -> str:
     return process.stdout
 
 
+def review_round(number: int, role: str, verdict: str, detail: str) -> dict[str, object]:
+    return {
+        "type": "decision",
+        "id": f"D{number}",
+        "question": f"{role.title()} review outcome",
+        "decision": f"{verdict} {detail}",
+        "rationale": f"the {role} voice read the promoted revision",
+        "consequences": None,
+        "supersedes": [],
+        "source": "review",
+        "reference": f"{RUN_DIR}/review-{role}.md",
+    }
+
+
 def complete_records(approved_digest: str) -> list[dict[str, object]]:
     return [
         {
@@ -89,28 +103,10 @@ def complete_records(approved_digest: str) -> list[dict[str, object]]:
             "source": "codebase",
             "reference": "docs/architecture.md",
         },
-        {
-            "type": "decision",
-            "id": "D2",
-            "question": "Product review outcome",
-            "decision": "PASS after the acceptance gap was resolved in the spec",
-            "rationale": "Scope, non-goals, and user value are explicit",
-            "consequences": None,
-            "supersedes": [],
-            "source": "review",
-            "reference": f"{RUN_DIR}/review-product.md",
-        },
-        {
-            "type": "decision",
-            "id": "D3",
-            "question": "Engineering review outcome",
-            "decision": "PASS after decision consequences were resolved in the spec",
-            "rationale": "Ownership, failure behavior, and rollback are explicit",
-            "consequences": None,
-            "supersedes": [],
-            "source": "review",
-            "reference": f"{RUN_DIR}/review-engineering.md",
-        },
+        review_round(2, "product", "REVISE:", "every requirement needs an acceptance check"),
+        review_round(3, "engineering", "REVISE:", "every decision needs its consequences"),
+        review_round(4, "product", "PASS", "on the revised bytes"),
+        review_round(5, "engineering", "PASS", "on the revised bytes"),
         {
             "type": "node",
             "id": "N1",
@@ -249,22 +245,30 @@ One lifecycle owner keeps retry transitions observable and controllable.
 
 
 def valid_complete(workspace: Path, case: str = "complete") -> Path:
+    """Walk the real lifecycle: stage, approve, promote, review, revise, repeat."""
     repo = seed(workspace, case)
-    spec = repo / SPEC_REL
-
+    candidate = repo / f"{RUN_DIR}/spec.md"
+    page = repo / SPEC_REL
     write(repo / MATRIX_REL, matrix_text())
-    write(spec, spec_text(acceptance=False, consequences=False))
 
-    run_review(repo, "product", spec)
-    run_review(repo, "engineering", spec)
-    write(spec, spec_text(acceptance=True, consequences=True))
+    # Round one: the candidate is approved and promoted, then both voices revise.
+    write(candidate, spec_text(acceptance=False, consequences=False))
+    page.parent.mkdir(parents=True, exist_ok=True)
+    candidate.replace(page)
+    run_review(repo, "product", page)
+    run_review(repo, "engineering", page)
+
+    # A REVISE returns the page to the run directory before it is edited.
+    page.replace(candidate)
+    write(candidate, spec_text(acceptance=True, consequences=True))
+    candidate.replace(page)
+    write(repo / f"{RUN_DIR}/review-product.md", run_review(repo, "product", page))
+    write(repo / f"{RUN_DIR}/review-engineering.md", run_review(repo, "engineering", page))
+
     write(
         repo / LOG_REL,
-        decision_log.dump(complete_records(hashlib.sha256(spec.read_bytes()).hexdigest())),
+        decision_log.dump(complete_records(hashlib.sha256(page.read_bytes()).hexdigest())),
     )
-    write(repo / f"{RUN_DIR}/review-product.md", run_review(repo, "product", spec))
-    write(repo / f"{RUN_DIR}/review-engineering.md", run_review(repo, "engineering", spec))
-
     write(
         repo / ".wayne/checkpoints/handoff.md",
         f"""status: design-approved
@@ -713,7 +717,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
             orphan_outcome,
             "complete",
             orphan_outcome / "output.txt",
-            "holds no engineering review outcome",
+            "the log holds 1",
             "review outcome ownership",
         )
 
@@ -737,24 +741,11 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
             "external citation resolves",
         )
 
-        # An append-only log carries every round; the last one must be the PASS.
-        reround = clone(valid, root, "revise-then-pass")
-        log_path = reround / "repo" / LOG_REL
-        rounds = log_path.read_text(encoding="utf-8").splitlines()
-        first_round = json.loads(next(l for l in rounds if '"id":"D2"'in l))
-        first_round["id"] = "D4"
-        first_round["decision"] = "REVISE: the acceptance check was missing"
-        rounds.append(decision_log.dumps(first_round))
-        second = dict(first_round, id="D5", decision="PASS on the revised bytes")
-        rounds.append(decision_log.dumps(second))
-        write(log_path, "".join(f"{line}\n" for line in rounds))
-        assert_valid(reround, "complete", reround / "output.txt", "revise round then pass")
-
-        unresolved = clone(reround, root, "revise-not-resolved")
+        unresolved = clone(valid, root, "revise-not-resolved")
         patch(
             unresolved / "repo" / LOG_REL,
-            '"id":"D5","question":"Product review outcome","decision":"PASS on the revised bytes"',
-            '"id":"D5","question":"Product review outcome","decision":"REVISE again"',
+            '"id":"D4","question":"Product review outcome","decision":"PASS on the revised bytes"',
+            '"id":"D4","question":"Product review outcome","decision":"REVISE again"',
         )
         assert_invalid(
             unresolved,
@@ -762,6 +753,36 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
             unresolved / "output.txt",
             "last logged product review outcome is not a PASS",
             "review round resolution",
+        )
+
+        stale_seed = clone(valid, root, "stale-external-seed")
+        patch(stale_seed / "repo" / LOG_REL, '"resolved_by":"D1"', '"resolved_by":"authentication:D7"')
+        patch(
+            stale_seed / "repo/docs/specs/authentication.md",
+            "generated: { by: human:wayne, at: 2026-05-02T00:00:00Z }",
+            "generated: { by: human:wayne, at: 2026-06-01T00:00:00Z }",
+        )
+        assert_invalid(
+            stale_seed,
+            "complete",
+            stale_seed / "output.txt",
+            "edited after it was last confirmed",
+            "external seed freshness",
+        )
+
+        deprecated_seed = clone(valid, root, "deprecated-external-seed")
+        patch(deprecated_seed / "repo" / LOG_REL, '"resolved_by":"D1"', '"resolved_by":"authentication:D7"')
+        patch(
+            deprecated_seed / "repo/docs/specs/authentication.md",
+            "status: stable",
+            "status: deprecated",
+        )
+        assert_invalid(
+            deprecated_seed,
+            "complete",
+            deprecated_seed / "output.txt",
+            "cites a deprecated spec",
+            "external seed in force",
         )
 
         conflict = root / "conflict-valid"
@@ -917,7 +938,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
     print(
-        "PASS: observations cover 9 fixtures and 43 mutations; "
+        "PASS: observations cover 8 fixtures and 44 mutations; "
         "semantic verdict remains AI_REVIEW_REQUIRED"
     )
     return 0

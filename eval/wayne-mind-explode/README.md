@@ -87,6 +87,13 @@ and stay untouched; only `harness.sha256` is regenerated after calibration.
 Generated trials, candidates, provider state, and traces belong under
 `eval/.runs/wayne-mind-explode/`.
 
+The checkers read final state, plus the native write trace for decision timing.
+That bounds what they can prove: an approved digest that still matches the living
+page shows the promotion moved bytes and that nothing was edited afterwards, but it
+cannot by itself prove the run passed through move, clear, edit and re-approve in
+that order. That ordering is the blind rubric's to judge, from the trace and the
+append-only review rounds.
+
 Scope evidence comes from the trial's starting commit, final diff/untracked paths,
 and native trace. The evaluator never walks or hashes unrelated repository files.
 The only durable output a design run may leave in the tracked tree is

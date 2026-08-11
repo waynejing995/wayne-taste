@@ -110,8 +110,12 @@ because an external fact whose source cannot be reopened is not evidence.
 
 **`node.resolved_by`** is a `D<number>` in this log, or a `<slug>:D<number>` when a
 trusted living spec already answered the node and this run seeds it resolved
-rather than re-litigating it. A local reference must exist in this log, and an
-external one must name a spec that exists at `docs/specs/<slug>.md`.
+rather than re-litigating it. A local reference must exist in this log. An external
+one must name a spec that exists at `docs/specs/<slug>.md`, is not `deprecated`,
+carries that decision, and has been confirmed since it was last edited — a spec
+edited after its last `verified` entry is a claim to verify, not an answer to seed.
+Its `stale_after` is a comparison against today and belongs to review, not to a
+frozen checker.
 
 `decision.consequences` records the cost this decision accepts — what it makes
 harder, slower, or irreversible. It never restates `rationale`, and it never
