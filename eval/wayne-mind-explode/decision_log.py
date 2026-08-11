@@ -209,7 +209,15 @@ def load(path: Path, findings: list[str], repo: Path | None = None) -> Log:
             if str(record.get("source", "")).casefold() not in SOURCES:
                 findings.append(f"decision {identifier} has invalid source={record.get('source')!r}")
             for reference in record.get("supersedes", []) or []:
-                if not re.fullmatch(r"(?:[a-z0-9-]+:)?D[1-9]\d*", str(reference)):
+                citation = str(reference)
+                superseded = EXTERNAL_DECISION.match(citation)
+                if superseded:
+                    if repo is not None:
+                        trust_external(
+                            repo, superseded.group(1), citation.split(":D", 1)[1],
+                            f"decision {identifier} supersedes", findings,
+                        )
+                elif not DECISION_ID.match(citation):
                     findings.append(f"decision {identifier} supersedes malformed {reference!r}")
             provenance = record.get("reference")
             source = str(record.get("source", "")).casefold()
@@ -370,9 +378,9 @@ def trust_external(repo: Path, slug: str, number: str, label: str, findings: lis
         findings.append(f"{label} cites a spec with no frontmatter: {slug}")
         return
 
-    status = re.findall(r"^status:\s*\"?([a-z]+)\"?\s*(?:#.*)?$", head, re.MULTILINE)
-    if status == ["deprecated"]:
-        findings.append(f"{label} cites a deprecated spec: {slug}:D{number}")
+    status = re.findall(r"""^status:\s*['"]?([a-z-]+)['"]?\s*(?:#.*)?$""", head, re.MULTILINE)
+    if status != ["stable"]:
+        findings.append(f"{label} cites a spec whose status is {status}, not ['stable']: {slug}")
 
     decisions = re.search(r"^## Decisions\b(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
     body = re.sub(r"(?ms)^```.*?^```", "", decisions.group(1)) if decisions else ""
@@ -388,9 +396,9 @@ def trust_external(repo: Path, slug: str, number: str, label: str, findings: lis
     if not generated:
         findings.append(f"{label} cites a spec with no `generated.at`: {slug}")
         return
+    verified_block = re.search(r"^verified:(.*?)(?=^\w|\Z)", head, re.MULTILINE | re.DOTALL)
     confirmed = re.findall(
-        r"\bat:\s*\"?([^\s\",}]+)",
-        re.sub(r"^generated:.*$", "", head, flags=re.MULTILINE),
+        r"""\bat:\s*['"]?([^\s'",}\]]+)""", verified_block.group(1) if verified_block else ""
     )
     if confirmed and max(confirmed) < generated.group(1):
         findings.append(

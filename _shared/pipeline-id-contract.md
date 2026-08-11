@@ -112,8 +112,10 @@ because an external fact whose source cannot be reopened is not evidence.
 trusted living spec already answered the node and this run seeds it resolved
 rather than re-litigating it. A local reference must exist in this log. An external
 one must name a spec that exists at `docs/specs/<slug>.md`, is not `deprecated`,
-carries that decision, and has been confirmed since it was last edited — a spec
-edited after its last `verified` entry is a claim to verify, not an answer to seed.
+carries that decision, and has not been edited since it was last confirmed — a spec
+whose newest `verified` entry predates its `generated.at` is a claim to verify, not
+an answer to seed. Carrying no `verified` entry is approved-but-never-run, which is
+the normal state of a design this pipeline just produced, and is citable.
 Its `stale_after` is a comparison against today and belongs to review, not to a
 frozen checker.
 

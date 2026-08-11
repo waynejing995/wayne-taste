@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import subprocess
+from fnmatch import fnmatch
 from pathlib import Path
 
 import decision_log
@@ -108,29 +109,34 @@ def forbidden_advance(repo: Path, topic: str | None, label: str, findings: list[
     """
     if topic is None:
         return  # no readable log means no topic to scope these globs to
+    def nul(*args: str) -> set[str]:
+        # Paths may contain spaces; only NUL is a safe separator. `-z` is an option,
+        # so it must precede `--` or Git reads it as a pathspec.
+        out = subprocess.run(
+            ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+        ).stdout
+        return {name for name in out.split("\0") if name}
+
     try:
-        baseline = set(
-            subprocess.run(
-                ["git", "ls-files"], cwd=repo, check=True, capture_output=True, text=True
-            ).stdout.split()
-        )
-        touched = set(
-            subprocess.run(
-                ["git", "diff", "--name-only", "HEAD", "--"],
-                cwd=repo, check=True, capture_output=True, text=True,
-            ).stdout.split()
-        )
+        baseline = nul("ls-files", "-z")
+        touched = nul("diff", "--name-only", "-z", "HEAD", "--")
     except (OSError, subprocess.CalledProcessError):
         baseline, touched = set(), set()
-    for pattern in forbidden_patterns(topic):
-        matches = sorted(
-            relative
-            for path in repo.glob(pattern)
-            if path.is_file()
-            and ((relative := path.relative_to(repo).as_posix()) not in baseline or relative in touched)
-        )
-        if matches:
-            findings.append(f"{label} advanced past its gate: {matches}")
+
+    present = {
+        path.relative_to(repo).as_posix()
+        for pattern in forbidden_patterns(topic)
+        for path in repo.glob(pattern)
+        if path.is_file()
+    }
+    # A deleted baseline artifact is a mutation of the same gated path.
+    candidates = present | {
+        name for name in touched
+        if any(fnmatch(name, pattern) for pattern in forbidden_patterns(topic))
+    }
+    matches = sorted(name for name in candidates if name not in baseline or name in touched)
+    if matches:
+        findings.append(f"{label} advanced past its gate: {matches}")
 
 
 def check_source_boundary(repo: Path, topic: str | None, findings: list[str]) -> None:
@@ -251,14 +257,16 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
                 record for record in review_decisions
                 if str(record.get("reference") or "") == relative
             ]
-            rounds = len([e for e in read_events(repo, []) if e.get("role") == role])
-            if rounds and len(outcomes) != rounds:
-                findings.append(
-                    f"{role} ran {rounds} review rounds but the log holds {len(outcomes)}"
-                )
+            rounds = [e.get("verdict") for e in read_events(repo, []) if e.get("role") == role]
+            logged = [
+                "PASS" if re.match(r"PASS\b", str(record.get("decision", ""))) else "REVISE"
+                for record in outcomes
+            ]
+            if rounds and logged != rounds:
+                findings.append(f"{role} executions returned {rounds} but the log records {logged}")
             if not outcomes:
                 findings.append(f"decision log holds no {role} review outcome")
-            elif not re.match(r"PASS\b", str(outcomes[-1].get("decision", ""))):
+            elif logged[-1] != "PASS":
                 findings.append(f"the last logged {role} review outcome is not a PASS")
 
     if matrix:

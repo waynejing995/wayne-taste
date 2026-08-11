@@ -129,8 +129,13 @@ both checks before believing any of them — they are pure date comparisons and 
 no understanding of the content:
 
 - `today >= stale_after` — past its own re-reconciliation date;
-- `max(verified[].at) < generated.at` — edited after it was last confirmed, so the
-review gate that approved it no longer covers the current bytes.
+- it carries `verified` entries and the latest is older than `generated.at` — it was
+edited after it was last confirmed, so the gate that approved it no longer covers
+the current bytes.
+
+No `verified` entry at all is not staleness. `verified` records a runtime
+confirmation that only `wayne-verify` writes after ship, so a design this pipeline
+just approved has none; it is trustworthy design that has never been run.
 
 A spec that passes both seeds the nodes it answers as `resolved`, setting their
 `resolved_by` to that spec's `<slug>:D<number>` rather than re-litigating them. A spec that fails either check is
@@ -304,23 +309,26 @@ TBD/TODO before review.
 
 ### U. Require an independent-review mechanism
 
-Discover the mechanism available to the current agent and repository for launching
-isolated reviewers from heterogeneous model families, and record each reviewer
-identity. The review criteria are provider-neutral and live in the two templates
-below; only the dispatch mechanism is host-specific. In Pi, dispatch is the saved
-workflow `wayne-dual-review`: pass `subject`, the `artifacts` set (the approved spec
-revision, the decision log, and the test matrix), `reviewerATemplate`
+Establish that the mechanism exists before a page goes in force; this node
+discovers capability and does not review anything. Find how the current agent and
+repository launch isolated reviewers from heterogeneous model families, and record
+what it is. The review criteria are provider-neutral and live in the two templates
+below; only the dispatch mechanism is host-specific. In Pi, the mechanism is the saved
+workflow `wayne-dual-review`, which J later calls with `subject`, the `artifacts`
+set (the approved spec revision, the decision log, and the test matrix),
+`reviewerATemplate`
 `references/product-review.md`, and `reviewerBTemplate`
 `references/engineering-review.md`. It freezes those bytes outside the repository,
 runs both voices in parallel, and computes the gate without editing anything.
 Another host substitutes its own mechanism with the same two templates. If two
 isolated heterogeneous executions cannot be started, if either voice fails or
 returns nothing, or if both voices collapse onto one model family, return
-`REVIEW_UNAVAILABLE` with the missing capability and stop. Never simulate two voices
-in one local analysis or silently downgrade to a single review. A requested model is
-not a routed model: after the run, read each reviewer execution's actual model from
-the host's run metadata, and void the run the same way if either voice fell back to
-the session default or both resolved to one family.
+`REVIEW_UNAVAILABLE` with the missing capability and stop, before anything is
+promoted. Never simulate two voices in one local analysis or silently downgrade to
+a single review. A requested model is not a routed model: after J runs, read each
+reviewer execution's actual model from the host's run metadata, and void the run
+the same way if either voice fell back to the session default or both resolved to
+one family.
 
 ### V. Approve the written spec
 
