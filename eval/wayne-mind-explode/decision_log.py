@@ -21,6 +21,7 @@ LOG_RELATIVE = re.compile(r"(?:^|/)\.wayne/runs/[^/]+/decision-log\.jsonl$")
 DECISION_ID = re.compile(r"^D([1-9]\d*)$")
 NODE_ID = re.compile(r"^N([1-9]\d*)$")
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+LIVING_SPEC = re.compile(r"docs/specs/(?!\d{4}-\d{2}-\d{2}-)[^/]+(?<!-design)\.md")
 EXTERNAL_DECISION = re.compile(r"^([a-z0-9]+(?:-[a-z0-9]+)*):D[1-9]\d*$")
 
 # `source` values that already locate their own answer; everything else must say
@@ -222,15 +223,19 @@ def load(path: Path, findings: list[str], repo: Path | None = None) -> Log:
                 findings.append(f"web decision {identifier} carries no source URL")
             if source not in SELF_LOCATING and provenance is None:
                 findings.append(f"{source} decision {identifier} does not locate its answer")
-            if (
-                repo is not None
-                and isinstance(provenance, str)
-                and not is_url(provenance)
-                and not EXTERNAL_DECISION.match(provenance)
-                and SAFE_RELATIVE(provenance)
-                and not (repo / provenance).exists()
-            ):
-                findings.append(f"decision {identifier} references a path that does not exist: {provenance}")
+            if repo is not None and isinstance(provenance, str):
+                external_ref = EXTERNAL_DECISION.match(provenance)
+                if external_ref:
+                    trust_external(
+                        repo, external_ref.group(1), provenance.split(":D", 1)[1],
+                        f"decision {identifier}", findings,
+                    )
+                elif not is_url(provenance) and SAFE_RELATIVE(provenance):
+                    target = (repo / provenance).resolve()
+                    if repo.resolve() not in target.parents or not target.is_file():
+                        findings.append(
+                            f"decision {identifier} references a path that does not exist: {provenance}"
+                        )
             log.decisions.append(record)
         else:
             identifier = str(record.get("id", ""))
@@ -273,23 +278,11 @@ def load(path: Path, findings: list[str], repo: Path | None = None) -> Log:
             citation = str(resolved_by)
             external = EXTERNAL_DECISION.match(citation)
             if external:
-                # A trusted living spec already answered this node; that spec must
-                # exist, still be in force, and actually carry the decision cited.
                 if repo is not None:
-                    cited = repo / f"docs/specs/{external.group(1)}.md"
-                    if not cited.is_file():
-                        findings.append(
-                            f"node {identifier} cites a living spec that does not exist: {citation}"
-                        )
-                    else:
-                        spec_text = cited.read_text(encoding="utf-8")
-                        number = citation.split(":D", 1)[1]
-                        if re.search(r"^status:\s*deprecated\s*$", spec_text, re.MULTILINE):
-                            findings.append(f"node {identifier} cites a deprecated spec: {citation}")
-                        if not re.search(rf"^###\s+D{number}\b", spec_text, re.MULTILINE):
-                            findings.append(
-                                f"node {identifier} cites a decision the spec does not carry: {citation}"
-                            )
+                    trust_external(
+                        repo, external.group(1), citation.split(":D", 1)[1],
+                        f"node {identifier}", findings,
+                    )
             elif not DECISION_ID.match(citation):
                 findings.append(f"node {identifier} resolved_by={resolved_by!r} is malformed")
             elif citation not in resolved_ids:
@@ -353,6 +346,56 @@ def load(path: Path, findings: list[str], repo: Path | None = None) -> Log:
                 findings.append(f"meta.{key}={value!r} does not belong to topic {topic!r}")
 
     return log
+
+
+def frontmatter(text: str) -> str:
+    match = re.match(r"---\n(.*?)\n---\n", text, re.DOTALL)
+    return match.group(1) if match else ""
+
+
+def trust_external(repo: Path, slug: str, number: str, label: str, findings: list[str]) -> None:
+    """Every condition under which another spec's decision may be cited."""
+    relative = f"docs/specs/{slug}.md"
+    if not LIVING_SPEC.fullmatch(relative):
+        findings.append(f"{label} cites a dated snapshot, not a living page: {slug}")
+        return
+    cited = repo / relative
+    if not cited.is_file():
+        findings.append(f"{label} cites a living spec that does not exist: {slug}:D{number}")
+        return
+
+    text = cited.read_text(encoding="utf-8")
+    head = frontmatter(text)
+    if not head:
+        findings.append(f"{label} cites a spec with no frontmatter: {slug}")
+        return
+
+    status = re.findall(r"^status:\s*\"?([a-z]+)\"?\s*(?:#.*)?$", head, re.MULTILINE)
+    if status == ["deprecated"]:
+        findings.append(f"{label} cites a deprecated spec: {slug}:D{number}")
+
+    decisions = re.search(r"^## Decisions\b(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
+    body = re.sub(r"(?ms)^```.*?^```", "", decisions.group(1)) if decisions else ""
+    if len(re.findall(rf"^###\s+D{number}\b", body, re.MULTILINE)) != 1:
+        findings.append(f"{label} cites a decision the spec does not carry: {slug}:D{number}")
+
+    # Edited after it was last confirmed means the gate that approved it no longer
+    # covers these bytes. No entries at all is "approved but never run", which is
+    # the normal state of a spec this pipeline just produced, not staleness.
+    # `stale_after` compares against today and belongs to review, not to a frozen
+    # checker.
+    generated = re.search(r"^generated:.*?\bat:\s*\"?([^\s\",}]+)", head, re.MULTILINE)
+    if not generated:
+        findings.append(f"{label} cites a spec with no `generated.at`: {slug}")
+        return
+    confirmed = re.findall(
+        r"\bat:\s*\"?([^\s\",}]+)",
+        re.sub(r"^generated:.*$", "", head, flags=re.MULTILINE),
+    )
+    if confirmed and max(confirmed) < generated.group(1):
+        findings.append(
+            f"{label} seeds from a spec edited after it was last confirmed: {slug}:D{number}"
+        )
 
 
 def read(repo: Path, findings: list[str]) -> Log | None:

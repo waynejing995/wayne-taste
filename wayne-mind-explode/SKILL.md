@@ -24,7 +24,7 @@ promoted before handoff:
 
 - `decision-log.jsonl`
 - `test-matrix.md` through `wayne-test-design`
-- `review-{product|engineering}.md` as immutable evidence for the duration of the run
+- `review-{product|engineering}.md` — each voice's latest report; the log carries the rounds
 - `spec.md` — the candidate, until the user approves its exact bytes
 - the handoff packet owned by `wayne-checkpoint`
 
@@ -80,11 +80,11 @@ digraph mind_explode {
     G -> H;
     H -> D [label="yes"];
     H -> I [label="no"];
-    I -> V;
-    V -> I [label="no: revise"];
-    V -> U [label="yes"];
-    U -> J [label="yes"];
+    I -> U;
+    U -> V [label="yes"];
     U -> X [label="no"];
+    V -> I [label="no: revise"];
+    V -> J [label="yes"];
     J -> K;
     K -> R [label="no"];
     R -> V;
@@ -149,7 +149,8 @@ in the decision's `reference`. A web fact whose source cannot be reopened is not
 evidence.
 
 An evidence-backed `fact` auto-resolves without user confirmation; append its
-numbered evidence record before marking it resolved. Never seed a fact as resolved.
+numbered evidence record before marking it resolved. Never seed a fact as resolved on your own reading; only a trusted living spec's
+`<slug>:D<number>` may do that.
 Every design-relevant source fact belongs in both a `decision` record and the DAG;
 never leave it only in a prose context, notes, or summary section.
 A `choice` requires the user when it concerns intent, priority, risk, scope, or a
@@ -301,21 +302,6 @@ this spec was verified is a `verified` frontmatter entry. Never author a second 
 contract. Run the contract's four fresh-eyes checks and remove every unresolved
 TBD/TODO before review.
 
-### V. Approve the written spec
-
-Show the candidate at `.wayne/runs/<topic>/spec.md` and ask the user to approve
-that exact written revision. A prior section-by-section approval is not approval of
-the file bytes. On rejection, log one decision, revise the candidate, and ask again.
-Start no reviewer until the written revision is explicitly approved.
-
-On approval, set `written_spec_approved` to `true` and `approved_spec_sha256` to
-the digest of the approved bytes in the log's `meta` line, then
-**move** the candidate onto `docs/specs/<topic>.md` byte for byte — replacing the
-previous revision on an amendment, creating the page on a new topic. Move, never
-copy: two copies would immediately begin to disagree. Never edit during or after
-the move; the bytes the reviewers in J read are the bytes the user approved, and
-changing so much as the status line would make that untrue.
-
 ### U. Require an independent-review mechanism
 
 Discover the mechanism available to the current agent and repository for launching
@@ -335,6 +321,23 @@ in one local analysis or silently downgrade to a single review. A requested mode
 not a routed model: after the run, read each reviewer execution's actual model from
 the host's run metadata, and void the run the same way if either voice fell back to
 the session default or both resolved to one family.
+
+### V. Approve the written spec
+
+The review mechanism is already known by this point; a page must not go in force
+before it is certain that anyone can review it. Show the candidate at
+`.wayne/runs/<topic>/spec.md` and ask the user to approve
+that exact written revision. A prior section-by-section approval is not approval of
+the file bytes. On rejection, log one decision, revise the candidate, and ask again.
+Start no reviewer until the written revision is explicitly approved.
+
+On approval, set `written_spec_approved` to `true` and `approved_spec_sha256` to
+the digest of the approved bytes in the log's `meta` line, then
+**move** the candidate onto `docs/specs/<topic>.md` byte for byte — replacing the
+previous revision on an amendment, creating the page on a new topic. Move, never
+copy: two copies would immediately begin to disagree. Never edit during or after
+the move; the bytes the reviewers in J read are the bytes the user approved, and
+changing so much as the status line would make that untrue.
 
 ### J. Run two independent reviews
 
