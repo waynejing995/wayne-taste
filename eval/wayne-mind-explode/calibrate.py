@@ -717,8 +717,8 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
             orphan_outcome,
             "complete",
             orphan_outcome / "output.txt",
-            "the log holds 1",
-            "review outcome ownership",
+            "but the log records ['PASS']",
+            "review round accounting",
         )
 
         dangling = clone(valid, root, "dangling-reference")
@@ -781,9 +781,29 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
             deprecated_seed,
             "complete",
             deprecated_seed / "output.txt",
-            "cites a deprecated spec",
+            "not ['stable']",
             "external seed in force",
         )
+
+        no_outcome = clone(valid, root, "no-review-outcome")
+        log_text = (no_outcome / "repo" / LOG_REL).read_text(encoding="utf-8")
+        write(
+            no_outcome / "repo" / LOG_REL,
+            log_text.replace(f'"reference":"{RUN_DIR}/review-engineering.md"', '"reference":null'),
+        )
+        assert_invalid(
+            no_outcome,
+            "complete",
+            no_outcome / "output.txt",
+            "holds no engineering review outcome",
+            "review outcome ownership",
+        )
+
+        # A design this pipeline just produced has no `verified` entry; it must
+        # still be citable, which is the rule the previous revision made impossible.
+        never_run = clone(valid, root, "never-run-external-seed")
+        patch(never_run / "repo" / LOG_REL, '"resolved_by":"D1"', '"resolved_by":"queueing:D2"')
+        assert_valid(never_run, "complete", never_run / "output.txt", "never-run spec is citable")
 
         conflict = root / "conflict-valid"
         conflict.mkdir()
@@ -927,18 +947,29 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
             "recommendation reversal",
         )
 
+        depth_amend = clone(depth, root, "depth-amendment-edit")
+        page = depth_amend / "repo/docs/specs/webhook-depth.md"
+        write(page, page.read_text(encoding="utf-8") + "\nEdited before approval.\n")
+        assert_invalid(
+            depth_amend,
+            "depth-recommendation",
+            depth_amend / "output.txt",
+            "advanced past its gate: ['docs/specs/webhook-depth.md']",
+            "amendment edits the page too early",
+        )
+
         depth_advanced = clone(depth, root, "depth-advanced")
-        write(depth_advanced / "repo/docs/specs/webhook-depth.md", "# Premature\n")
+        write(depth_advanced / "repo/docs/specs/other-topic.md", "# Premature\n")
         assert_invalid(
             depth_advanced,
             "depth-recommendation",
             depth_advanced / "output.txt",
-            "advanced past its gate",
+            "unexpected file outside design outputs",
             "depth convergence gate",
         )
 
     print(
-        "PASS: observations cover 8 fixtures and 44 mutations; "
+        "PASS: observations cover 8 fixtures and 47 mutations; "
         "semantic verdict remains AI_REVIEW_REQUIRED"
     )
     return 0
