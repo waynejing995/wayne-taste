@@ -2,7 +2,6 @@
 name: wayne-mind-explode
 description: Converges a feature, system, or architecture idea through repository-grounded questioning into an approved decision log, test matrix, and design spec, then runs two independent design reviews and hands off to wayne-plan. Use for “brainstorm”, “mind explode”, “let's design”, “grill me”, or equivalent Chinese design requests; never use it to implement or write the implementation plan.
 ---
-
 # Wayne Mind Explode
 
 Turn an unresolved idea into approved design inputs for `wayne-plan`.
@@ -100,15 +99,15 @@ Read `../_shared/pipeline-id-contract.md` completely. Before anything else, reso
 whether this topic already has a living spec at `docs/specs/<topic>.md`.
 
 - **No spec.** New topic. Create the log with `Status: in-progress` and start
-  decision IDs at `D1`.
+decision IDs at `D1`.
 - **Spec exists.** This run amends that spec; it never opens a second one. Read the
-  whole file — every row of its `## Decisions` table, and every spec named in a
-  `Depends on` cell. Create the log with `Status: in-progress`, and **continue that
-  spec's decision numbering**. Restarting at `D1` puts two `D1`s in one spec and
-  destroys the uniqueness its namespaced IDs depend on. An already-recorded
-  decision is reversed only by a new row naming it in `Supersedes`; never edit or
-  delete the existing row, and never silently re-decide it because it was absent
-  from this run's context.
+whole file — every row of its `## Decisions` table, and every spec named in a
+`Depends on` cell. Create the log with `Status: in-progress`, and **continue that
+spec's decision numbering**. Restarting at `D1` puts two `D1`s in one spec and
+destroys the uniqueness its namespaced IDs depend on. An already-recorded
+decision is reversed only by a new row naming it in `Supersedes`; never edit or
+delete the existing row, and never silently re-decide it because it was absent
+from this run's context.
 
 Create the run-scoped log from [the decision-log template](templates/decision-log.md),
 which carries the numbered table, the Decision DAG, and the rules governing both.
@@ -128,7 +127,7 @@ no understanding of the content:
 
 - `today >= stale_after` — past its own re-reconciliation date;
 - `max(verified[].at) < generated.at` — edited after it was last confirmed, so the
-  review gate that approved it no longer covers the current bytes.
+review gate that approved it no longer covers the current bytes.
 
 A spec that passes both seeds the nodes it answers as `resolved`, citing that spec
 as the source rather than re-litigating them. A spec that fails either check is
@@ -168,7 +167,7 @@ fact or unpersisted child into the next branch.
 ### D. Ask one recommended question
 
 Interview the user relentlessly until both sides share the same design. Select the
-next reachable open `choice` from the durable DAG. Ask exactly one question and
+next reachable open `choice` from the durable DAG. Ask exactly one question  &lt;MUST&gt; with plain text, explanatory style&lt;/MUST&gt; and  
 offer three concrete options for that decision, with `My recommendation:` naming
 the option you would choose and why. For a genuinely binary decision, offer two
 and state why no third distinct option exists; never pad the list with a fake
@@ -176,8 +175,7 @@ variant. Then wait for the user's answer before moving on. One question means on
 open decision node; punctuation, sentence count, and whether the options are
 phrased interrogatively do not define cardinality. Never repeat the same decision
 as a second question in a heading or closing. Look up facts in the environment;
-put decisions to the user. Log each answer immediately. Treat `whatever`, `I don't
-care`, or any non-decision as unresolved: explain the consequence, repeat one
+put decisions to the user. Log each answer immediately. Treat `whatever`, `I don't care`, or any non-decision as unresolved: explain the consequence, repeat one
 recommendation, and wait. Never infer precedence between conflicting inputs.
 
 The recommendation is advice, never a default or a disguised approval request.
@@ -236,11 +234,13 @@ against the settled design. Route any contradiction to D and repeat this review.
 When the contradiction is between a living spec and the code, the spec is not
 presumed stale. Classify it and route accordingly:
 
-| Finding | Meaning | Action |
-|---|---|---|
-| Spec is right, code diverged | An unapproved implementation drift | Do not touch the spec; report it as a defect |
-| Spec is stale, code is right | The design moved and was never written back | Update the spec in place, appending one decision row that records why it moved |
-| The new design overrides the spec | A real design change | Obtain a user decision, then update the spec in place |
+
+| Finding                           | Meaning                                     | Action                                                                         |
+| --------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------ |
+| Spec is right, code diverged      | An unapproved implementation drift          | Do not touch the spec; report it as a defect                                   |
+| Spec is stale, code is right      | The design moved and was never written back | Update the spec in place, appending one decision row that records why it moved |
+| The new design overrides the spec | A real design change                        | Obtain a user decision, then update the spec in place                          |
+
 
 Only the user chooses between these. Defaulting to "the spec is stale" launders an
 unapproved deviation into approved design, which is the one failure of this
@@ -259,12 +259,12 @@ and set `generated` to this run's actor and time. Where it is written depends on
 whether the topic is already in force:
 
 - **Topic already has `docs/specs/<topic>.md`.** Edit that file in place — sections
-  revised, `## Decisions` appended to, `generated.at` advanced. Advancing
-  `generated.at` past every `verified.at` is what re-arms the review gate, so V, U,
-  and J run again on the amended bytes. Never open a second dated file.
+revised, `## Decisions` appended to, `generated.at` advanced. Advancing
+`generated.at` past every `verified.at` is what re-arms the review gate, so V, U,
+and J run again on the amended bytes. Never open a second dated file.
 - **New topic.** Write `.wayne/runs/<topic>/spec.md` with `status: draft`. It stays
-  in the run directory until node V approves it; `docs/specs/` holds only specs in
-  force, so an abandoned run leaves nothing behind.
+in the run directory until node V approves it; `docs/specs/` holds only specs in
+force, so an abandoned run leaves nothing behind.
 
 Absorb into `## Decisions` the decisions that justify this design. A fact resolved
 by reading the codebase dies with the run; a choice, and a constraint that
@@ -316,13 +316,13 @@ the session default or both resolved to one family.
 Dispatch the same spec revision to two separate reviewer executions:
 
 - product voice, carrying [the product protocol](references/product-review.md):
-  challenge premise, necessity, whether this is the right problem, the 10-star
-  alternative, user value, assumptions, scope, and non-goals;
+challenge premise, necessity, whether this is the right problem, the 10-star
+alternative, user value, assumptions, scope, and non-goals;
 - engineering voice, carrying
-  [the engineering protocol](references/engineering-review.md): challenge
-  architecture, ownership, interfaces, data/control flow, failures, edge and
-  concurrency paths, tests, performance/capacity, observability, rollback, and
-  execution readiness.
+[the engineering protocol](references/engineering-review.md): challenge
+architecture, ownership, interfaces, data/control flow, failures, edge and
+concurrency paths, tests, performance/capacity, observability, rollback, and
+execution readiness.
 
 Preserve each run as immutable review evidence. The decision log alone owns finding
 resolutions and final outcomes; append each outcome as one `review` row. Resolve
@@ -334,8 +334,7 @@ write review notes into the spec after those passes.
 
 Set the decision log to `Status: design-approved` and link the spec and matrix.
 Tell the user their paths and that `wayne-plan` is the next agent. Invoke
-`wayne-checkpoint` in handoff mode with those artifacts and `next agent:
-wayne-plan`; return the packet without auto-advancing. End here.
+`wayne-checkpoint` in handoff mode with those artifacts and `next agent: wayne-plan`; return the packet without auto-advancing. End here.
 
 ## Red lines
 
@@ -344,3 +343,4 @@ wayne-plan`; return the packet without auto-advancing. End here.
 - No spec before all required decisions and conflicts are resolved.
 - No duplicated E2E contract or second test-matrix owner.
 - No claimed dual review without two real executions on the final revision.
+
