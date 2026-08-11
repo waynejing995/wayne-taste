@@ -7,7 +7,10 @@
   prohibited and unavailable.
 - Do not assume a replacement review command. Discover the repository-supported
   independent-review interface from project files. Preserve each voice's latest
-  report under `docs/reviews/`; resolve `REVISE` and rerun until `PASS`.
+  report as `.wayne/runs/<topic>/review-{product|engineering}.md`; resolve
+  `REVISE` and rerun until `PASS`.
+- Run state lives in `.wayne/runs/<topic>/`. The only durable design artifact this
+  repository keeps is the living spec at `docs/specs/<topic>.md`.
 - Use `/workspace/support/test-design.md` for the test-matrix contract,
   `/workspace/support/cybernetics-lens.md` when the lens applies, and
   `/workspace/support/checkpoint.md` for the final handoff packet.

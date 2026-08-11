@@ -1,7 +1,7 @@
 apply patch
 patch: completed
-/workspace/repo/docs/decisions/topic-decisions.md
-diff --git a/repo/docs/decisions/topic-decisions.md b/repo/docs/decisions/topic-decisions.md
-+++ b/repo/docs/decisions/topic-decisions.md
-+| 1 | First | A | reason | user |
-+| 2 | Second | B | reason | user |
+/workspace/repo/.wayne/runs/topic/decision-log.jsonl
+diff --git a/repo/.wayne/runs/topic/decision-log.jsonl b/repo/.wayne/runs/topic/decision-log.jsonl
++++ b/repo/.wayne/runs/topic/decision-log.jsonl
++{"type":"decision","id":"D1","question":"First","decision":"A","rationale":"reason","consequences":"cost","supersedes":[],"source":"user"}
++{"type":"decision","id":"D2","question":"Second","decision":"B","rationale":"reason","consequences":"cost","supersedes":[],"source":"user"}

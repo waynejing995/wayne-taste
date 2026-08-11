@@ -19,18 +19,25 @@ harness=$(cd "$(dirname "$0")" && pwd)
     echo "missing skill: $skill_dir/SKILL.md" >&2
     exit 2
 }
+[[ -f "$skill_dir/../_shared/pipeline-id-contract.md" ]] || {
+    echo "missing shared contract: $skill_dir/../_shared/pipeline-id-contract.md" >&2
+    exit 2
+}
 [[ ! -e "$workspace" ]] || {
     echo "workspace already exists: $workspace" >&2
     exit 2
 }
 
-mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/support"
+mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/support" "$workspace/_shared"
 cp -a "$harness/fixture/." "$workspace/repo/"
 if [[ -d "$harness/cases/$case_name/repo" ]]; then
     cp -a "$harness/cases/$case_name/repo/." "$workspace/repo/"
 fi
 cp "$harness/cases/$case_name/case.md" "$workspace/repo/case.md"
-cp "$skill_dir/SKILL.md" "$workspace/skill/SKILL.md"
+# The whole skill, not just SKILL.md: it links its own templates and references,
+# and reads the shared pipeline contract as `../_shared/pipeline-id-contract.md`.
+cp -a "$skill_dir/." "$workspace/skill/"
+cp "$skill_dir/../_shared/pipeline-id-contract.md" "$workspace/_shared/"
 if [[ -f "$harness/cases/$case_name/task.md" ]]; then
     cp "$harness/cases/$case_name/task.md" "$workspace/task.md"
 else
@@ -41,5 +48,5 @@ cp -a "$harness/support/." "$workspace/support/"
 git -C "$workspace/repo" init -q
 git -C "$workspace/repo" config user.name "Eval Fixture"
 git -C "$workspace/repo" config user.email "eval@example.invalid"
-git -C "$workspace/repo" add .
+git -C "$workspace/repo" add -A
 git -C "$workspace/repo" commit -q -m "fixture: initial design context"

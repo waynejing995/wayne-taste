@@ -18,7 +18,7 @@ for turn in 1 2 3; do
         cp "$workspace/codex-final.txt" "$workspace/turn-$turn-output.txt"
         cp "$workspace/codex-trace.log" "$workspace/turn-$turn-trace.log"
     fi
-    mapfile -t logs < <(find "$workspace/repo/docs/decisions" -maxdepth 1 -type f -name '*-decisions.md' 2>/dev/null | sort)
+    mapfile -t logs < <(find "$workspace/repo/.wayne/runs" -mindepth 2 -maxdepth 2 -type f -name 'decision-log.jsonl' 2>/dev/null | sort)
     [[ ${#logs[@]} -eq 1 ]] || { echo "turn $turn expected one decision log" >&2; exit 1; }
-    cp "${logs[0]}" "$workspace/turn-$turn-decision-log.md"
+    cp "${logs[0]}" "$workspace/turn-$turn-decision-log.jsonl"
 done

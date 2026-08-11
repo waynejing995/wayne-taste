@@ -10,13 +10,43 @@ import re
 import subprocess
 from pathlib import Path
 
+import decision_log
 from check_decision_trace import validate_trace
 
 
 COMPLETE_CASES = {"complete", "gstack-ban"}
 E2E_HEADER = "| ID | Env: entrypoint | Setup | Action | Observable outcome | Status |"
-DECISION_SOURCES = {"user", "codebase", "web", "constraint", "default", "review"}
 RECOMMENDATION = re.compile(r"My recommendation:|我的建议|我的推荐|建议|推荐", re.IGNORECASE)
+
+# The only outputs a design run may leave in the tracked tree. Everything else it
+# produces lives under `.wayne/`, which is why an abandoned run leaves no residue.
+ALLOWED_UNTRACKED = (
+    re.compile(r"docs/specs/[^/]+\.md"),
+    re.compile(r"\.wayne/\.gitignore"),
+    re.compile(r"\.wayne/checkpoints/[^/]+\.md"),
+    re.compile(
+        r"\.wayne/runs/[^/]+/"
+        r"(?:decision-log\.jsonl|test-matrix\.md|spec\.md|review-(?:product|engineering)\.md)"
+    ),
+    re.compile(r"\.eval/(?:review-events\.jsonl|(?:product|engineering)-count)"),
+)
+# A resumed run edits its own living spec and its own run state; everything else
+# in the tracked tree is a source input the design stage may not touch.
+ALLOWED_MODIFIED = re.compile(r"docs/specs/[^/]+\.md|\.wayne/.+")
+
+# A living page is named after its topic. A leading date or a `-design` suffix is a
+# per-run snapshot, which is the thing `docs/specs/` exists to not accumulate.
+LIVING_SPEC = re.compile(r"docs/specs/(?!\d{4}-\d{2}-\d{2}-)[^/]+(?<!-design)\.md")
+
+# Artifacts that only exist once the run has advanced past its current gate.
+FORBIDDEN_ADVANCE = (
+    "docs/specs/**/*.md",
+    "docs/plans/**/*.md",
+    ".wayne/runs/*/test-matrix.md",
+    ".wayne/runs/*/review-*.md",
+    ".wayne/runs/*/spec.md",
+    ".wayne/checkpoints/**/*.md",
+)
 
 
 def digest(path: Path) -> str:
@@ -42,6 +72,32 @@ def exactly_one(root: Path, pattern: str, label: str, findings: list[str]) -> Pa
     return matches[0]
 
 
+def resolve(repo: Path, relative: object, label: str, findings: list[str]) -> Path | None:
+    """Resolve a meta path, refusing to read anything outside the trial repository."""
+    if not isinstance(relative, str) or not relative:
+        findings.append(f"decision log meta does not name the {label}")
+        return None
+    if not decision_log.SAFE_RELATIVE(relative):
+        findings.append(f"decision log meta {label} escapes the repository: {relative}")
+        return None
+    root = repo.resolve()
+    path = (root / relative).resolve()
+    if root not in path.parents:
+        findings.append(f"decision log meta {label} escapes the repository: {relative}")
+        return None
+    if not path.is_file():
+        findings.append(f"decision log meta {label} does not exist: {relative}")
+        return None
+    return path
+
+
+def forbidden_advance(repo: Path, label: str, findings: list[str]) -> None:
+    for pattern in FORBIDDEN_ADVANCE:
+        matches = sorted(path.as_posix() for path in repo.glob(pattern) if path.is_file())
+        if matches:
+            findings.append(f"{label} advanced past its gate: {matches}")
+
+
 def check_source_boundary(repo: Path, case: str, findings: list[str]) -> None:
     del case
     if not (repo / ".git").is_dir():
@@ -55,25 +111,16 @@ def check_source_boundary(repo: Path, case: str, findings: list[str]) -> None:
         return [line for line in result.stdout.splitlines() if line]
 
     for relative in git_lines("diff", "--name-only", "HEAD", "--"):
-        if not re.fullmatch(r"docs/decisions/[^/]+-decisions\.md", relative):
+        if not ALLOWED_MODIFIED.fullmatch(relative):
             findings.append(f"source input modified: {relative}")
     if git_lines("rev-list", "--count", "HEAD") != ["1"]:
         findings.append("design trial changed commit history")
 
-    allowed = (
-        re.compile(r"docs/decisions/[^/]+-decisions\.md"),
-        re.compile(r"docs/specs/[^/]+-design\.md"),
-        re.compile(r"docs/test-matrix/[^/]+-test-matrix\.md"),
-        re.compile(r"docs/reviews/[^/]+\.md"),
-        re.compile(r"\.wayne/\.gitignore"),
-        re.compile(r"\.wayne/checkpoints/[^/]+\.md"),
-        re.compile(r"\.eval/(?:review-events\.jsonl|(?:product|engineering)-count)"),
-    )
     untracked = git_lines("ls-files", "--others", "--exclude-standard")
     for relative in untracked:
         if "__pycache__" in Path(relative).parts or relative.endswith((".pyc", ".pyo")):
             continue
-        if not any(pattern.fullmatch(relative) for pattern in allowed):
+        if not any(pattern.fullmatch(relative) for pattern in ALLOWED_UNTRACKED):
             findings.append(f"unexpected file outside design outputs: {relative}")
 
     plans = sorted(path.as_posix() for path in (repo / "docs" / "plans").glob("**/*") if path.is_file())
@@ -100,59 +147,48 @@ def read_events(repo: Path, findings: list[str]) -> list[dict[str, object]]:
     return events
 
 
-def check_decision_rows(decision: Path, findings: list[str]) -> None:
-    rows: list[tuple[int, str]] = []
-    for line in decision.read_text(encoding="utf-8").splitlines():
-        if not re.match(r"^\|\s*D?\d+\s*\|", line, re.IGNORECASE):
-            continue
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) != 5:
-            findings.append(f"decision row has {len(cells)} cells instead of 5: {line}")
-            continue
-        rows.append((int(cells[0].lstrip("Dd")), cells[-1].casefold()))
-    identifiers = [identifier for identifier, _ in rows]
-    if not identifiers:
-        findings.append("decision log has no numbered decisions")
-    elif identifiers != list(range(1, len(identifiers) + 1)):
-        findings.append(f"decision ids must be unique consecutive 1..N: {identifiers}")
-    for identifier, source in rows:
-        if source not in DECISION_SOURCES:
-            findings.append(f"decision {identifier} has invalid Source={source!r}")
-
-
 def validate_complete(repo: Path, case: str, output: str) -> list[str]:
     findings: list[str] = []
     check_source_boundary(repo, case, findings)
 
-    decision = exactly_one(repo, "docs/decisions/*-decisions.md", "decision log", findings)
-    spec = exactly_one(repo, "docs/specs/*-design.md", "design spec", findings)
-    matrix = exactly_one(repo, "docs/test-matrix/*-test-matrix.md", "test matrix", findings)
+    log = decision_log.read(repo, findings)
     handoff = exactly_one(repo, ".wayne/checkpoints/*.md", "handoff packet", findings)
 
-    report_files = sorted((repo / "docs" / "reviews").glob("*.md"))
-    reports: dict[str, Path] = {}
-    for role in ("product", "engineering"):
-        matching = [
-            path
-            for path in report_files
-            if re.search(rf"^#\s+{role.title()} Review\s*$", path.read_text(encoding="utf-8"), re.MULTILINE)
-        ]
-        if len(matching) != 1:
-            findings.append(f"missing final {role} review report")
-        else:
-            report = matching[0]
-            reports[role] = report
-            if "VERDICT: PASS" not in report.read_text(encoding="utf-8"):
-                findings.append(f"final {role} review did not pass")
+    spec: Path | None = None
+    matrix: Path | None = None
+    if log is not None:
+        if str(log.meta.get("status", "")) != "design-approved":
+            findings.append(f"decision log meta.status={log.meta.get('status')!r}, expected 'design-approved'")
+        spec = resolve(repo, log.meta.get("spec"), "spec", findings)
+        matrix = resolve(repo, log.meta.get("test_matrix"), "test matrix", findings)
+        if spec is not None and not LIVING_SPEC.fullmatch(log.meta["spec"]):
+            findings.append(f"approved spec is not a living page: {log.meta['spec']}")
 
-    if decision:
-        text = decision.read_text(encoding="utf-8")
-        check_decision_rows(decision, findings)
-        if not re.search(r"^Status:\s*design-approved\s*$", text, re.MULTILINE | re.IGNORECASE):
-            findings.append("decision log is not design-approved")
-        for needle in ("product", "engineering"):
-            if needle not in text.lower():
-                findings.append(f"decision log omits {needle} review outcome")
+        unresolved = sorted(
+            identifier
+            for identifier, record in log.nodes.items()
+            if str(record.get("status", "")).casefold() not in {"resolved", "not-applicable"}
+        )
+        if unresolved:
+            findings.append(f"converged with an unresolved frontier: {unresolved}")
+
+        review_decisions = [
+            record for record in log.decisions
+            if str(record.get("source", "")).casefold() == "review"
+        ]
+        for role in ("product", "engineering"):
+            if not any(
+                role in f"{record.get('question','')} {record.get('decision','')}".casefold()
+                for record in review_decisions
+            ):
+                findings.append(f"decision log omits the {role} review outcome")
+
+        for role in ("product", "engineering"):
+            report = log.topic_dir / f"review-{role}.md"
+            if not report.is_file():
+                findings.append(f"missing final {role} review report")
+            elif "VERDICT: PASS" not in report.read_text(encoding="utf-8"):
+                findings.append(f"final {role} review did not pass")
 
     if matrix:
         matrix_text = matrix.read_text(encoding="utf-8")
@@ -172,33 +208,60 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
         spec_text = spec.read_text(encoding="utf-8")
         spec_relative = spec.relative_to(repo).as_posix()
         final_spec_digest = digest(spec)
-        if matrix:
-            matrix_relative = matrix.relative_to(repo).as_posix()
-            linked_targets = re.findall(r"\[[^]]+]\(([^)]+)\)", spec_text)
-            resolves_to_matrix = any(
-                (spec.parent / target.strip("<>").split("#", 1)[0]).resolve() == matrix.resolve()
-                for target in linked_targets
-                if target and not re.match(r"[a-z]+://", target, re.IGNORECASE)
-            )
-            if matrix_relative not in spec_text and not resolves_to_matrix:
-                findings.append("spec does not reference the test-matrix SSoT path")
+        # The spec absorbs the E2E layer; the matrix is run-scoped and dies at ship,
+        # so a link to it would dangle. Absorption is proven by the R -> proof map.
         if E2E_HEADER in spec_text:
             findings.append("spec duplicates the E2E contract owned by the test matrix")
+        def section(name: str) -> str:
+            match = re.search(rf"^## {name}\b(.*?)(?=^## |\Z)", spec_text, re.MULTILINE | re.DOTALL)
+            return match.group(1) if match else ""
+
+        requirement_section = section("Requirements")
+        verification_section = section("Verification")
+        requirements = re.findall(r"^###\s+(R[1-9]\d*)\s", requirement_section, re.MULTILINE)
+        if len(requirements) != len(set(requirements)):
+            findings.append(f"spec defines a requirement id twice: {requirements}")
+        if not requirements:
+            findings.append("spec has no numbered R<n> requirements")
+        for heading in (
+            "## Requirements",
+            "## Architecture",
+            "## Technology and frameworks",
+            "## Interfaces",
+            "## Verification",
+            "## Decisions",
+        ):
+            if heading not in spec_text:
+                findings.append(f"spec omits {heading}")
+        for requirement in requirements:
+            proofs = re.findall(rf"^\|\s*{requirement}\s*\|", verification_section, re.MULTILINE)
+            if len(proofs) != 1:
+                findings.append(f"{requirement} has {len(proofs)} verification proofs")
+        if not re.search(r"^status:\s*stable\s*$", spec_text, re.MULTILINE):
+            findings.append("approved living spec is not `status: stable`")
+        if not re.search(r"```mermaid\s*\n\s*flowchart", spec_text):
+            findings.append("spec carries no mermaid architecture diagram")
+        if len(re.findall(r"^```", section("Interfaces"), re.MULTILINE)) < 4:
+            findings.append("spec shows an interface signature without an illustrative call")
         for term in ("Plant", "Controller", "Setpoint", "Feedback"):
             if term not in spec_text:
                 findings.append(f"cybernetics analysis omits {term}")
-        for heading in ("## Assumption Challenge", "## Operational Readiness"):
-            if heading not in spec_text:
-                findings.append(f"resolved review section missing: {heading}")
 
     events = read_events(repo, findings)
+    # A spec that answers a voice on the first read legitimately passes it. Only the
+    # gstack-ban case seeds a finding, so only there is the loop itself mandatory.
+    require_loop = case == "gstack-ban"
     for role in ("product", "engineering"):
         role_events = [event for event in events if event.get("role") == role]
-        if len(role_events) < 2:
-            findings.append(f"{role} voice did not execute a revise-and-rerun loop")
+        if not role_events:
+            findings.append(f"{role} voice did not execute")
             continue
-        if role_events[0].get("verdict") != "REVISE":
-            findings.append(f"{role} voice did not surface its seeded review finding")
+        if require_loop:
+            if len(role_events) < 2:
+                findings.append(f"{role} voice did not execute a revise-and-rerun loop")
+                continue
+            if role_events[0].get("verdict") != "REVISE":
+                findings.append(f"{role} voice did not surface its seeded review finding")
         if role_events[-1].get("verdict") != "PASS":
             findings.append(f"{role} voice final verdict is not PASS")
         if final_spec_digest and role_events[-1].get("sha256") != final_spec_digest:
@@ -206,19 +269,20 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
         if spec_relative and role_events[-1].get("spec") != spec_relative:
             findings.append(f"{role} voice reviewed a different spec path")
 
+    artifacts = [path for path in (log.path if log else None, spec, matrix) if path]
     if handoff:
         handoff_text = handoff.read_text(encoding="utf-8")
         for needle in ("status: design-approved", "next_agent: wayne-plan"):
             if needle not in handoff_text:
                 findings.append(f"handoff missing {needle!r}")
-        for artifact in (decision, spec, matrix):
-            if artifact and artifact.relative_to(repo).as_posix() not in handoff_text:
+        for artifact in artifacts:
+            if artifact.relative_to(repo).as_posix() not in handoff_text:
                 findings.append(f"handoff omits {artifact.relative_to(repo).as_posix()}")
 
     if "wayne-plan" not in output:
         findings.append("user-visible handoff does not name wayne-plan")
-    for artifact in (decision, spec, matrix):
-        if artifact and artifact.relative_to(repo).as_posix() not in output:
+    for artifact in artifacts:
+        if artifact.relative_to(repo).as_posix() not in output:
             findings.append(f"user-visible handoff omits {artifact.relative_to(repo).as_posix()}")
     return findings
 
@@ -226,22 +290,16 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
 def validate_conflict(repo: Path, output: str) -> list[str]:
     findings: list[str] = []
     check_source_boundary(repo, "conflict", findings)
-    forbidden = (
-        "docs/specs/**/*.md",
-        "docs/test-matrix/**/*.md",
-        "docs/reviews/**/*.md",
-        "docs/plans/**/*.md",
-        ".wayne/checkpoints/**/*.md",
-        ".eval/review-events.jsonl",
-    )
-    for pattern in forbidden:
-        matches = sorted(path.as_posix() for path in repo.glob(pattern) if path.is_file())
-        if matches:
-            findings.append(f"conflict case advanced past its decision gate: {matches}")
+    log = decision_log.read(repo, findings)
+    if log is not None and str(log.meta.get("status", "")) == "design-approved":
+        findings.append("conflict case marked its decision log design-approved")
+    forbidden_advance(repo, "conflict case", findings)
+    if (repo / ".eval" / "review-events.jsonl").is_file():
+        findings.append("conflict case advanced past its decision gate: review events exist")
     question_marks = output.count("?") + output.count("？")
     if question_marks != 1:
         findings.append(f"conflict response must ask exactly one question; found={question_marks}")
-    if not re.search(r"My recommendation:|我的建议|建议", output, re.IGNORECASE):
+    if not RECOMMENDATION.search(output):
         findings.append("conflict response lacks a recommended resolution")
     if not re.search(r"conflict|incompatible|冲突|矛盾|无法同时|不能同时", output, re.IGNORECASE):
         findings.append("conflict response does not identify the conflicting inputs")
@@ -251,24 +309,19 @@ def validate_conflict(repo: Path, output: str) -> list[str]:
 def validate_decision_locked(repo: Path, output: str) -> list[str]:
     findings: list[str] = []
     check_source_boundary(repo, "decision-locked", findings)
-    decision = exactly_one(repo, "docs/decisions/*-decisions.md", "decision log", findings)
-    if decision:
-        text = decision.read_text(encoding="utf-8")
-        if not re.search(r"^Decision lock:\s*locked\s*$", text, re.MULTILINE | re.IGNORECASE):
-            findings.append("decision lock marker was removed")
-        if not re.search(r"^Design-section approval:\s*pending\s*$", text, re.MULTILINE | re.IGNORECASE):
-            findings.append("unapproved design sections were treated as approved")
-        if re.search(r"^Status:\s*design-approved\s*$", text, re.MULTILINE | re.IGNORECASE):
-            findings.append("decision lock was promoted to design-approved")
+    log = decision_log.read(repo, findings)
+    if log is not None:
+        if str(log.meta.get("status", "")) == "design-approved":
+            findings.append("locked frontier was promoted to design-approved")
+        unresolved = sorted(
+            identifier
+            for identifier, record in log.nodes.items()
+            if str(record.get("status", "")).casefold() not in {"resolved", "not-applicable"}
+        )
+        if unresolved:
+            findings.append(f"decision lock reopened nodes: {unresolved}")
 
-    forbidden = (
-        "docs/specs/**/*.md", "docs/test-matrix/**/*.md", "docs/reviews/**/*.md",
-        "docs/plans/**/*.md", ".wayne/checkpoints/**/*.md",
-    )
-    for pattern in forbidden:
-        matches = sorted(path.as_posix() for path in repo.glob(pattern) if path.is_file())
-        if matches:
-            findings.append(f"decision lock advanced past design approval: {matches}")
+    forbidden_advance(repo, "decision lock", findings)
 
     question_marks = output.count("?") + output.count("？")
     if question_marks != 1:
@@ -283,34 +336,22 @@ def validate_decision_locked(repo: Path, output: str) -> list[str]:
 def validate_depth_recommendation(repo: Path, output: str) -> list[str]:
     findings: list[str] = []
     check_source_boundary(repo, "depth-recommendation", findings)
-    decision = exactly_one(repo, "docs/decisions/*-decisions.md", "decision log", findings)
-    if decision:
-        text = decision.read_text(encoding="utf-8")
-        identifiers = [
-            int(match.group(1))
-            for line in text.splitlines()
-            if (match := re.match(r"^\|\s*D?(\d+)\s*\|", line, re.IGNORECASE))
-        ]
+    log = decision_log.read(repo, findings)
+    if log is not None:
+        identifiers = log.decision_ids()
         if identifiers != [1, 2, 3]:
             findings.append(f"depth case decisions are not exactly 1..3: {identifiers}")
 
-        dag_rows: list[list[str]] = []
-        in_dag = False
-        for line in text.splitlines():
-            if line.strip() == "## Decision DAG":
-                in_dag = True
-                continue
-            if in_dag and line.startswith("## "):
-                break
-            if not in_dag or not line.startswith("|"):
-                continue
-            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-            if len(cells) == 6 and cells[0].casefold() != "node" and not all(set(cell) <= {"-", ":"} for cell in cells):
-                dag_rows.append(cells)
-
-        root = [row for row in dag_rows if row[0].casefold() == "n1"]
-        if len(root) != 1 or root[0][4].casefold() != "resolved":
-            findings.append("depth case did not resolve parent N1")
+        parents = [
+            record for record in log.nodes.values()
+            if str(record.get("kind", "")).casefold() == "choice"
+            and re.search(r"topolog|inline|拓扑|内联", str(record.get("decision", "")), re.IGNORECASE)
+        ]
+        if len(parents) != 1:
+            findings.append(f"depth case has {len(parents)} topology parent nodes")
+        elif str(parents[0].get("status", "")).casefold() != "resolved":
+            findings.append("depth case did not resolve its topology parent")
+        parent_id = str(parents[0].get("id")) if len(parents) == 1 else None
 
         child_patterns = {
             "guarantee/idempotency": re.compile(r"guarantee|idempoten|duplicate|投递保证|幂等|重复", re.IGNORECASE),
@@ -322,27 +363,23 @@ def validate_depth_recommendation(repo: Path, output: str) -> list[str]:
         }
         for label, pattern in child_patterns.items():
             matches = [
-                row for row in dag_rows
-                if row[2].casefold() == "choice" and pattern.search(row[3])
+                record for record in log.nodes.values()
+                if str(record.get("kind", "")).casefold() == "choice"
+                and pattern.search(str(record.get("decision", "")))
             ]
             if len(matches) != 1:
                 findings.append(f"depth case has {len(matches)} {label} child nodes")
                 continue
-            row = matches[0]
-            if "n1" not in row[1].casefold():
-                findings.append(f"depth {label} node is not a child of N1")
-            if row[4].casefold() not in {"open", "blocked"}:
-                findings.append(f"depth {label} child status={row[4]!r}")
+            record = matches[0]
+            if parent_id and str(record.get("parent")) != parent_id:
+                findings.append(f"depth {label} node is not a child of {parent_id}")
+            if str(record.get("status", "")).casefold() not in {"open", "blocked"}:
+                findings.append(f"depth {label} child status={record.get('status')!r}")
 
-        if re.search(r"^Status:\s*design-approved\s*$", text, re.MULTILINE | re.IGNORECASE):
+        if str(log.meta.get("status", "")) == "design-approved":
             findings.append("depth case converged before child choices")
 
-    for pattern in (
-        "docs/specs/**/*.md", "docs/test-matrix/**/*.md", "docs/reviews/**/*.md",
-        "docs/plans/**/*.md", ".wayne/checkpoints/**/*.md",
-    ):
-        if any(path.is_file() for path in repo.glob(pattern)):
-            findings.append(f"depth case advanced to forbidden artifact: {pattern}")
+    forbidden_advance(repo, "depth case", findings)
 
     question_marks = output.count("?") + output.count("？")
     if question_marks != 1:

@@ -5,7 +5,7 @@ skill/support contracts, decision-log snapshots, native write/review traces,
 generated artifacts, Git state, user-visible response, and checker observations.
 Do not see control/candidate identity or the expected winner.
 
-Decide every applicable `I01`-`I24` row in `approved-intent.md`. In particular:
+Decide every applicable `I01`-`I25` row in `approved-intent.md`. In particular:
 
 - one source-grounded fact or one user-owned decision becomes durable before the
   next branch; no later reconstruction makes a batched transition correct;
@@ -19,7 +19,10 @@ Decide every applicable `I01`-`I24` row in `approved-intent.md`. In particular:
 - convergence requires an empty frontier, never a decision/turn count; a lock does
   not authorize planning or implementation;
 - matrix/spec/reviews/approval/handoff preserve their owners and order, with two
-  independent reviews over the same final spec bytes and no auto-advance.
+  independent reviews over the same final spec bytes and no auto-advance;
+- the run-scoped log is machine state and the living spec is the human artifact: a
+  reader who has never seen the run can recover the requirements, the shape of the
+  design, and why each decision was taken, from the spec alone.
 
 Headings, table columns, ID spelling, keywords, bullets, question marks, and exact
 phrasing are navigation clues only. Accept equivalent representation and reject

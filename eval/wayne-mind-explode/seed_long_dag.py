@@ -6,46 +6,87 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import decision_log
+
+TOPIC = "queued-delivery"
+LOG_RELATIVE = f".wayne/runs/{TOPIC}/decision-log.jsonl"
+
+
+def records() -> list[dict[str, object]]:
+    out: list[dict[str, object]] = [
+        {
+            "type": "meta",
+            "topic": TOPIC,
+            "status": "in-progress",
+            "spec": None,
+            "test_matrix": None,
+        }
+    ]
+    for number in range(1, 41):
+        out.append(
+            {
+                "type": "decision",
+                "id": f"D{number}",
+                "question": f"Prerequisite {number}",
+                "decision": f"Resolved choice {number}",
+                "rationale": "approved",
+                "consequences": None,
+                "supersedes": [],
+                "source": "user",
+            }
+        )
+    for number in range(1, 41):
+        out.append(
+            {
+                "type": "node",
+                "id": f"N{number}",
+                "parent": None if number == 1 else f"N{number - 1}",
+                "kind": "choice",
+                "decision": f"Resolved prerequisite {number}",
+                "status": "resolved",
+                "opens_when": None if number == 1 else "dependency resolved",
+                "resolved_by": f"D{number}",
+            }
+        )
+    out.append(
+        {
+            "type": "node",
+            "id": "N41",
+            "parent": "N40",
+            "kind": "choice",
+            "decision": "Retry exhaustion policy",
+            "status": "open",
+            "opens_when": "N40 resolved",
+            "resolved_by": None,
+        }
+    )
+    out.append(
+        {
+            "type": "node",
+            "id": "N42",
+            "parent": "N41",
+            "kind": "choice",
+            "decision": "Operator recovery after terminal exhaustion",
+            "status": "blocked",
+            "opens_when": "N41 resolved",
+            "resolved_by": None,
+        }
+    )
+    return out
+
 
 def build() -> str:
-    decisions = "\n".join(
-        f"| {number} | Prerequisite {number} | Resolved choice {number} | approved | user |"
-        for number in range(1, 41)
-    )
-    nodes = []
-    for number in range(1, 41):
-        parent = "root" if number == 1 else f"N{number - 1}"
-        nodes.append(f"| N{number} | {parent} | choice | Resolved prerequisite {number} | resolved | dependency resolved |")
-    nodes.extend(
-        [
-            "| N41 | N40 | choice | Retry exhaustion policy | open | N40 resolved |",
-            "| N42 | N41 | choice | Operator recovery after terminal exhaustion | blocked | N41 resolved |",
-        ]
-    )
-    return f"""# Decision Log: Queued Delivery
-
-Status: in-progress
-
-| # | Question | Decision | Rationale | Source |
-|---|---|---|---|---|
-{decisions}
-
-## Decision DAG
-
-| Node | Parent | Kind | Decision | Status | Opens when |
-|---|---|---|---|---|---|
-{chr(10).join(nodes)}
-"""
+    return decision_log.dump(records())
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("workspace", type=Path)
     args = parser.parse_args()
-    target = args.workspace.resolve() / "repo/docs/decisions/2026-07-20-queued-delivery-decisions.md"
+    workspace = args.workspace.resolve()
+    target = workspace / "repo" / LOG_RELATIVE
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(build(), encoding="utf-8")
-    (args.workspace.resolve() / "long-dag-before.md").write_text(build(), encoding="utf-8")
     return 0
 
 

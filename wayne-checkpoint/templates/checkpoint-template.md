@@ -5,7 +5,7 @@ branch: {branch}
 timestamp: {ISO-8601}
 pipeline_stage: {brainstorm|plan|work|review|verify|ship|compound}
 pipeline_phase: {specific phase within skill, e.g. "Phase 3: Grill" or "Wave 2"}
-decision_log: .wayne/runs/{topic}/decision-log.md
+decision_log: .wayne/runs/{topic}/decision-log.jsonl
 plan: docs/plans/{file}.md
 spec: docs/specs/{topic}.md          # .wayne/runs/{topic}/spec.md while still draft
 test_matrix: .wayne/runs/{topic}/test-matrix.md
