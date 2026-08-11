@@ -392,14 +392,13 @@ def trust_external(repo: Path, slug: str, number: str, label: str, findings: lis
     # the normal state of a spec this pipeline just produced, not staleness.
     # `stale_after` compares against today and belongs to review, not to a frozen
     # checker.
-    generated = re.search(r"^generated:.*?\bat:\s*\"?([^\s\",}]+)", head, re.MULTILINE)
+    stamp = r"""\bat:\s*['"]?([^\s'",}\]]+)"""
+    generated = re.search(rf"^generated:.*?{stamp}", head, re.MULTILINE)
     if not generated:
         findings.append(f"{label} cites a spec with no `generated.at`: {slug}")
         return
     verified_block = re.search(r"^verified:(.*?)(?=^\w|\Z)", head, re.MULTILINE | re.DOTALL)
-    confirmed = re.findall(
-        r"""\bat:\s*['"]?([^\s'",}\]]+)""", verified_block.group(1) if verified_block else ""
-    )
+    confirmed = re.findall(stamp, verified_block.group(1) if verified_block else "")
     if confirmed and max(confirmed) < generated.group(1):
         findings.append(
             f"{label} seeds from a spec edited after it was last confirmed: {slug}:D{number}"

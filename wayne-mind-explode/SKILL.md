@@ -324,7 +324,10 @@ Another host substitutes its own mechanism with the same two templates. If two
 isolated heterogeneous executions cannot be started, if either voice fails or
 returns nothing, or if both voices collapse onto one model family, return
 `REVIEW_UNAVAILABLE` with the missing capability and stop, before anything is
-promoted. Never simulate two voices in one local analysis or silently downgrade to
+promoted. If the failure only surfaces when J actually runs, move the page back to
+`.wayne/runs/<topic>/spec.md`, clear `written_spec_approved` and
+`approved_spec_sha256`, and return `REVIEW_UNAVAILABLE` from there: an in-force
+page no voice could read is worse than no page. Never simulate two voices in one local analysis or silently downgrade to
 a single review. A requested model is not a routed model: after J runs, read each
 reviewer execution's actual model from the host's run metadata, and void the run
 the same way if either voice fell back to the session default or both resolved to
