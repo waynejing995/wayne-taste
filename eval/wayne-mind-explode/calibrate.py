@@ -965,7 +965,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
             "depth-recommendation",
             depth_advanced / "output.txt",
             "unexpected file outside design outputs",
-            "depth convergence gate",
+            "depth cross-topic source boundary",
         )
 
     print(

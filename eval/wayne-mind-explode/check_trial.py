@@ -130,10 +130,14 @@ def forbidden_advance(repo: Path, topic: str | None, label: str, findings: list[
         if path.is_file()
     }
     # A deleted baseline artifact is a mutation of the same gated path.
-    candidates = present | {
-        name for name in touched
-        if any(fnmatch(name, pattern) for pattern in forbidden_patterns(topic))
-    }
+    def gated(name: str) -> bool:
+        for pattern in forbidden_patterns(topic):
+            # `**/` means "any depth including none"; fnmatch needs both spellings.
+            if fnmatch(name, pattern) or fnmatch(name, pattern.replace("**/", "")):
+                return True
+        return False
+
+    candidates = present | {name for name in touched if gated(name)}
     matches = sorted(name for name in candidates if name not in baseline or name in touched)
     if matches:
         findings.append(f"{label} advanced past its gate: {matches}")
@@ -258,10 +262,13 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
                 if str(record.get("reference") or "") == relative
             ]
             rounds = [e.get("verdict") for e in read_events(repo, []) if e.get("role") == role]
-            logged = [
-                "PASS" if re.match(r"PASS\b", str(record.get("decision", ""))) else "REVISE"
-                for record in outcomes
-            ]
+            logged = []
+            for record in outcomes:
+                stated = str(record.get("decision", ""))
+                verdict = re.match(r"(PASS|REVISE)\b", stated)
+                if not verdict:
+                    findings.append(f"logged {role} review outcome states no verdict: {stated[:40]!r}")
+                logged.append(verdict.group(1) if verdict else stated[:16])
             if rounds and logged != rounds:
                 findings.append(f"{role} executions returned {rounds} but the log records {logged}")
             if not outcomes:
