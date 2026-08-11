@@ -3,5 +3,5 @@ patch: completed
 /workspace/repo/.wayne/runs/topic/decision-log.jsonl
 diff --git a/repo/.wayne/runs/topic/decision-log.jsonl b/repo/.wayne/runs/topic/decision-log.jsonl
 +++ b/repo/.wayne/runs/topic/decision-log.jsonl
-+{"type":"decision","id":"D1","question":"First","decision":"A","rationale":"reason","consequences":"cost","supersedes":[],"source":"user"}
-+{"type":"decision","id":"D2","question":"Second","decision":"B","rationale":"reason","consequences":"cost","supersedes":[],"source":"user"}
++{"type":"decision","id":"D1","question":"First","decision":"A","rationale":"reason","consequences":"cost","supersedes":[],"source":"user","reference":null}
++{"type":"decision","id":"D2","question":"Second","decision":"B","rationale":"reason","consequences":"cost","supersedes":[],"source":"user","reference":null}

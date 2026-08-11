@@ -3,13 +3,13 @@ patch: completed
 /workspace/repo/.wayne/runs/topic/decision-log.jsonl
 diff --git a/repo/.wayne/runs/topic/decision-log.jsonl b/repo/.wayne/runs/topic/decision-log.jsonl
 +++ b/repo/.wayne/runs/topic/decision-log.jsonl
-+{"type":"node","id":"N1","parent":null,"kind":"choice","decision":"First","status":"resolved","opens_when":null,"resolved_by":"D1"}
-+{"type":"decision","id":"D1","question":"First","decision":"A","rationale":"reason","consequences":"cost","supersedes":[],"source":"user"}
-+{"type":"node","id":"N2","parent":"N1","kind":"choice","decision":"Second","status":"open","opens_when":"N1 resolved","resolved_by":null}
++{"type":"node","id":"N1","parent":null,"kind":"choice","decision":"N1","status":"resolved","opens_when":null,"resolved_by":"D1"}
++{"type":"decision","id":"D1","question":"First","decision":"A","rationale":"reason","consequences":"cost","supersedes":[],"source":"user","reference":null}
++{"type":"node","id":"N2","parent":"N1","kind":"choice","decision":"N2","status":"open","opens_when":"N1 resolved","resolved_by":null}
 apply patch
 patch: completed
 /workspace/repo/.wayne/runs/topic/decision-log.jsonl
 diff --git a/repo/.wayne/runs/topic/decision-log.jsonl b/repo/.wayne/runs/topic/decision-log.jsonl
 +++ b/repo/.wayne/runs/topic/decision-log.jsonl
-+{"type":"node","id":"N2","parent":"N1","kind":"choice","decision":"Second","status":"resolved","opens_when":"N1 resolved","resolved_by":"D2"}
-+{"type":"decision","id":"D2","question":"Second","decision":"B","rationale":"reason","consequences":"cost","supersedes":[],"source":"user"}
++{"type":"node","id":"N2","parent":"N1","kind":"choice","decision":"N2","status":"resolved","opens_when":"N1 resolved","resolved_by":"D2"}
++{"type":"decision","id":"D2","question":"Second","decision":"B","rationale":"reason","consequences":"cost","supersedes":[],"source":"user","reference":null}

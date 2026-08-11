@@ -76,7 +76,7 @@ def check(workspace: Path, provider: str) -> list[str]:
             findings.append(f"turn {turn} decision-log snapshot missing")
             continue
         turn_findings: list[str] = []
-        log = decision_log.load(path, turn_findings)
+        log = decision_log.load(path, turn_findings, workspace / "repo")
         findings.extend(f"turn {turn} {finding}" for finding in turn_findings)
         logs[turn] = log
 

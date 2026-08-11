@@ -56,6 +56,9 @@ def log(
             "status": "in-progress",
             "spec": None,
             "test_matrix": None,
+            "frontier_locked": False,
+            "written_spec_approved": False,
+            "approved_spec_sha256": None,
         }
     ]
     for index, value in enumerate(decisions, 1):
@@ -69,6 +72,7 @@ def log(
                 "consequences": None,
                 "supersedes": [],
                 "source": "codebase" if index == 1 else "user",
+                "reference": "docs/architecture.md" if index == 1 else None,
             }
         )
     resolved_by = {
@@ -117,6 +121,9 @@ OUTPUTS = {
 
 def seed(root: Path, **kwargs: object) -> Path:
     (root / "repo").mkdir(parents=True)
+    # The real trial always carries the fixture repository; a codebase decision
+    # references a file in it, so the calibration must provide one too.
+    write(root / "repo/docs/architecture.md", "# Architecture\n\nDispatcher owns delivery.\n")
     for turn in (1, 2, 3):
         states, decisions = SNAPSHOTS[turn]
         write(root / f"turn-{turn}-decision-log.jsonl", log(states, decisions, **kwargs))
@@ -126,6 +133,7 @@ def seed(root: Path, **kwargs: object) -> Path:
 
 
 def seed_long(root: Path) -> Path:
+    write(root / "repo/docs/architecture.md", "# Architecture\n\nDispatcher owns delivery.\n")
     records = long_records()
     records.append(
         {
@@ -137,6 +145,7 @@ def seed_long(root: Path) -> Path:
             "consequences": "Retained payloads cost storage",
             "supersedes": [],
             "source": "user",
+            "reference": None,
         }
     )
     for record in records:
@@ -261,6 +270,7 @@ def main() -> int:
                 "consequences": None,
                 "supersedes": [],
                 "source": "default",
+                "reference": None,
             }
         )
         path = batched / "turn-2-decision-log.jsonl"
