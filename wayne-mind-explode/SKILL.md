@@ -22,7 +22,7 @@ Create only design artifacts, and only two kinds.
 **Run-scoped, in `.wayne/runs/<topic>/`** — working state, gitignored, absorbed or
 promoted before handoff:
 
-- `decision-log.md`
+- `decision-log.jsonl`
 - `test-matrix.md` through `wayne-test-design`
 - `review-{product|engineering}.md` as immutable evidence for the duration of the run
 - `spec.md` while it is still `draft`
@@ -98,22 +98,22 @@ digraph mind_explode {
 Read `../_shared/pipeline-id-contract.md` completely. Before anything else, resolve
 whether this topic already has a living spec at `docs/specs/<topic>.md`.
 
-- **No spec.** New topic. Create the log with `Status: in-progress` and start
-decision IDs at `D1`.
+- **No spec.** New topic. Create the log with `meta.status` `in-progress` and
+start decision IDs at `D1`.
 - **Spec exists.** This run amends that spec; it never opens a second one. Read the
-whole file — every row of its `## Decisions` table, and every spec named in a
-`Depends on` cell. Create the log with `Status: in-progress`, and **continue that
-spec's decision numbering**. Restarting at `D1` puts two `D1`s in one spec and
+whole file — every entry of its `## Decisions` section, and every spec named in a
+`Depends on` line. Create the log with `meta.status` `in-progress`, and **continue
+that spec's decision numbering**. Restarting at `D1` puts two `D1`s in one spec and
 destroys the uniqueness its namespaced IDs depend on. An already-recorded
-decision is reversed only by a new row naming it in `Supersedes`; never edit or
-delete the existing row, and never silently re-decide it because it was absent
+decision is reversed only by a new record naming it in `supersedes`; never edit or
+delete the existing entry, and never silently re-decide it because it was absent
 from this run's context.
 
-Create the run-scoped log from [the decision-log template](templates/decision-log.md),
-which carries the numbered table, the Decision DAG, and the rules governing both.
-Read it completely before appending the first row. That file is working state: it
-dies once section I absorbs its content into the living spec, so nothing durable
-may exist only there.
+Seed the run-scoped log from [the template](templates/decision-log.jsonl) — one
+`meta` line. The record schema, the field semantics, and the append-versus-rewrite
+rule are all in the pipeline contract you just read; they are not restated here and
+cannot live inside a JSONL file. That log is working state: it dies once section I
+absorbs its content into the living spec, so nothing durable may exist only there.
 
 ### B. Research project and lessons
 
@@ -145,8 +145,8 @@ current external facts could change a design choice, and preserve the source URL
 in the log.
 
 An evidence-backed `fact` auto-resolves without user confirmation; append its
-numbered evidence row before marking it resolved. Never seed a fact as resolved.
-Every design-relevant source fact belongs in both the numbered log and the DAG;
+numbered evidence record before marking it resolved. Never seed a fact as resolved.
+Every design-relevant source fact belongs in both a `decision` record and the DAG;
 never leave it only in a prose context, notes, or summary section.
 A `choice` requires the user when it concerns intent, priority, risk, scope, or a
 trade-off. Ambiguous or conflicting evidence cannot resolve a fact: keep the node
@@ -159,10 +159,11 @@ Persist each real child. A broad parent answer never resolves its consequences.
 
 ### P. Persist one discovered decision
 
-Append the single discovered fact or constraint as one new row. In that same write,
-mark its node resolved and persist every child it opened as `open` or `blocked`;
-verify both row and frontier before selecting another node. Do not carry an unlogged
-fact or unpersisted child into the next branch.
+Append the single discovered fact or constraint as one new `decision` record. In
+that same write, rewrite its node's line to `resolved` with `resolved_by` set, and
+append every child it opened as `open` or `blocked`; verify both the record and the
+frontier before selecting another node. Do not carry an unlogged fact or
+unpersisted child into the next branch.
 
 ### D. Ask one recommended question
 
@@ -187,10 +188,11 @@ children.
 
 ### Q. Persist one user decision
 
-Append only the answered decision as one new row and verify it is durable before
-researching or asking the next branch. In the same write, mark that node resolved
-and persist all children opened by the answer. If the answer did not resolve the
-choice, leave it open and return to D without writing a resolved decision.
+Append only the answered decision as one new `decision` record and verify it is
+durable before researching or asking the next branch. In the same write, rewrite
+that node's line to `resolved` with `resolved_by` set, and append all children
+opened by the answer. If the answer did not resolve the choice, leave the node
+`open` and return to D without writing a decision record.
 
 ### E. Converge and approve design
 
@@ -238,7 +240,7 @@ presumed stale. Classify it and route accordingly:
 | Finding                           | Meaning                                     | Action                                                                         |
 | --------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------ |
 | Spec is right, code diverged      | An unapproved implementation drift          | Do not touch the spec; report it as a defect                                   |
-| Spec is stale, code is right      | The design moved and was never written back | Update the spec in place, appending one decision row that records why it moved |
+| Spec is stale, code is right      | The design moved and was never written back | Update the spec in place, appending one decision entry that records why it moved |
 | The new design overrides the spec | A real design change                        | Obtain a user decision, then update the spec in place                          |
 
 
@@ -254,8 +256,9 @@ migration. Proceed only with zero unresolved conflicts.
 
 ### I. Write spec
 
-Write the approved design following [the spec template](references/spec-template.md),
-and set `generated` to this run's actor and time. Where it is written depends on
+Write the approved design into [the spec skeleton](templates/spec.md), following
+[the spec contract](references/spec-contract.md), and set `generated` to this
+run's actor and time. Where it is written depends on
 whether the topic is already in force:
 
 - **Topic already has `docs/specs/<topic>.md`.** Edit that file in place — sections
@@ -266,18 +269,30 @@ and J run again on the amended bytes. Never open a second dated file.
 in the run directory until node V approves it; `docs/specs/` holds only specs in
 force, so an abandoned run leaves nothing behind.
 
+Number the approved behavior as `R<number>` in `## Requirements`, each with its
+`Current`, `Target`, and `Acceptance`. That section is the only place in the
+pipeline where a requirement is minted, and `wayne-plan` maps every one of them to
+an implementation unit; behavior left as prose is a requirement no downstream
+stage can trace.
+
+Show the shape, not only the prose. The spec's reader is a human months from now:
+a mermaid `flowchart` for architecture and state ownership, a mermaid
+`sequenceDiagram` for each non-obvious flow, an interface block carrying
+signatures plus one illustrative call, and a `## Technology and frameworks` row
+per committed choice with the constraint it imposes. A reviewer who cannot see the
+boundary cannot argue with it. Bodies and algorithms belong to the plan.
+
 Absorb into `## Decisions` the decisions that justify this design. A fact resolved
 by reading the codebase dies with the run; a choice, and a constraint that
 eliminated an option, is carried. The run-scoped decision log is working state, not
 the durable record: whatever only it holds is lost at ship.
 
-Include scope/non-goals, architecture and ownership, data/control flow, failure and
-concurrency semantics, observability, rollback, legacy decisions, and requirement
-trace. Absorb the matrix's E2E layer into `## Verification` — the matrix is produced
+Absorb the matrix's E2E layer into `## Verification` — the matrix is produced
 before this step and is run-scoped, so the spec is where that contract survives.
 Carry no pass/fail status: run state stays in the matrix, and the durable fact that
 this spec was verified is a `verified` frontmatter entry. Never author a second E2E
-contract. Remove every unresolved TBD/TODO before review.
+contract. Run the contract's four fresh-eyes checks and remove every unresolved
+TBD/TODO before review.
 
 ### V. Approve the written spec
 
@@ -325,14 +340,16 @@ concurrency paths, tests, performance/capacity, observability, rollback, and
 execution readiness.
 
 Preserve each run as immutable review evidence. The decision log alone owns finding
-resolutions and final outcomes; append each outcome as one `review` row. Resolve
+resolutions and final outcomes; append each outcome as one `decision` record with
+`"source":"review"`. Resolve
 findings in the spec, obtain approval of the revised bytes, then rerun both voices.
 Both must pass the same final bytes; any later edit makes both passes stale. Never
 write review notes into the spec after those passes.
 
 ### L. Handoff to wayne-plan
 
-Set the decision log to `Status: design-approved` and link the spec and matrix.
+Rewrite the log's `meta` line: `status` to `design-approved`, `spec` and
+`test_matrix` to their paths.
 Tell the user their paths and that `wayne-plan` is the next agent. Invoke
 `wayne-checkpoint` in handoff mode with those artifacts and `next agent: wayne-plan`; return the packet without auto-advancing. End here.
 

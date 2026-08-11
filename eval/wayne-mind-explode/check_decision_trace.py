@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Collect decision-write timing observations for semantic review."""
+"""Collect decision-write timing observations for semantic review.
+
+One write event may rewrite the meta line and any number of node lines; what it
+may not do is introduce more than one new `decision` record. That is the property
+this oracle observes, and a correct final file never repairs a batched trace.
+"""
 
 from __future__ import annotations
 
@@ -10,12 +15,28 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-DECISION_PATH = re.compile(r"(?:^|/)docs/decisions/[^/]+-decisions\.md$")
-ROW = re.compile(r"^[+ ]?\|\s*(\d+)\s*\|", re.MULTILINE)
+DECISION_PATH = re.compile(r"(?:^|/)\.wayne/runs/[^/]+/decision-log\.jsonl$")
+DECISION_ID = re.compile(r"^D([1-9]\d*)$")
 
 
-def row_ids(text: str) -> set[int]:
-    return {int(value) for value in ROW.findall(text)}
+def decision_ids(text: str) -> set[int]:
+    """Every `decision` record id introduced by this payload."""
+    found: set[int] = set()
+    for raw in text.splitlines():
+        line = raw[1:] if raw[:1] in {"+", " "} else raw
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(record, dict) or record.get("type") != "decision":
+            continue
+        match = DECISION_ID.match(str(record.get("id", "")))
+        if match:
+            found.add(int(match.group(1)))
+    return found
 
 
 def codex_batches(text: str) -> list[list[int]]:
@@ -28,7 +49,7 @@ def codex_batches(text: str) -> list[list[int]]:
         paths = [line.strip() for line in prefix.splitlines() if DECISION_PATH.search(line.strip())]
         if not paths:
             continue
-        current = row_ids(chunk)
+        current = decision_ids(chunk)
         added = sorted(current - seen)
         seen.update(current)
         if added:
@@ -48,7 +69,7 @@ def walk(value: Any) -> Iterator[dict[str, Any]]:
 
 def claude_batches(text: str) -> list[list[int]]:
     batches: list[list[int]] = []
-    seen_rows: set[int] = set()
+    seen_ids: set[int] = set()
     seen_tools: set[str] = set()
     for line in text.splitlines():
         try:
@@ -69,9 +90,9 @@ def claude_batches(text: str) -> list[list[int]]:
             content = "\n".join(
                 str(tool_input.get(key, "")) for key in ("content", "new_string", "patch")
             )
-            current = row_ids(content)
-            added = sorted(current - seen_rows)
-            seen_rows.update(current)
+            current = decision_ids(content)
+            added = sorted(current - seen_ids)
+            seen_ids.update(current)
             if added:
                 batches.append(added)
     return batches
@@ -87,8 +108,10 @@ def validate_batches(batches: list[list[int]]) -> list[str]:
     flattened = [decision for batch in batches for decision in batch]
     if len(flattened) < 2:
         findings.append(f"staged case observed only {len(flattened)} decision append")
-    if flattened and flattened != list(range(1, max(flattened) + 1)):
-        findings.append(f"decision append sequence is not exactly 1..N: {flattened}")
+    # An amendment run continues an existing spec's numbering, so the sequence is
+    # consecutive from wherever it starts rather than anchored at 1.
+    if flattened and flattened != list(range(flattened[0], flattened[0] + len(flattened))):
+        findings.append(f"decision append sequence is not consecutive: {flattened}")
     return findings
 
 

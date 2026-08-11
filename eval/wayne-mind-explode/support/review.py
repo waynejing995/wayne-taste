@@ -1,22 +1,73 @@
 #!/usr/bin/env python3
-"""Deterministic provider-neutral review voices for the design eval."""
+"""Deterministic provider-neutral review voices for the design eval.
+
+Each voice demands something the spec contract already requires, never a section
+named after the review itself: review notes must not survive in the spec.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
 
+REQUIREMENT = re.compile(r"^###\s+R[1-9]\d*\b", re.MULTILINE)
+DECISION = re.compile(r"^###\s+D[1-9]\d*\b", re.MULTILINE)
+
+
+def blocks(text: str, pattern: re.Pattern[str]) -> list[str]:
+    """Each entry ends at the next peer heading or the next H2, never at EOF.
+
+    Running the last entry to the end of the file would let an unrelated later
+    `**Acceptance**` satisfy a requirement that never carried one.
+    """
+    stops = sorted(
+        {match.start() for match in pattern.finditer(text)}
+        | {match.start() for match in re.finditer(r"^## ", text, re.MULTILINE)}
+        | {len(text)}
+    )
+    found = []
+    for start in (match.start() for match in pattern.finditer(text)):
+        end = next(stop for stop in stops if stop > start)
+        found.append(text[start:end])
+    return found
+
+
+def product_gap(text: str) -> str | None:
+    if "## Non-goals" not in text:
+        return "state the non-goals: what this deliberately does not do"
+    found = blocks(text, REQUIREMENT)
+    if not found:
+        return "number the approved behavior as R<n> requirements"
+    for field in ("**Current**", "**Target**", "**Acceptance**"):
+        if any(field not in block for block in found):
+            label = field.strip("*")
+            return f"give every R<n> requirement its {label}"
+    return None
+
+
+def engineering_gap(text: str) -> str | None:
+    if "## Rollback" not in text:
+        return "state how this is undone and what becomes unrecoverable"
+    found = blocks(text, DECISION)
+    if not found:
+        return "carry the justifying decisions as D<n> entries"
+    if any("**Consequences**" not in block for block in found):
+        return "give every D<n> decision the cost it accepts under Consequences"
+    return None
+
+
 ROLES = {
     "product": (
-        "Assumption Challenge",
         "Challenge the necessity, scope, non-goals, and user-visible value.",
+        product_gap,
     ),
     "engineering": (
-        "Operational Readiness",
         "Resolve ownership, failure behavior, concurrency, observability, and rollback.",
+        engineering_gap,
     ),
 }
 
@@ -45,11 +96,12 @@ def main() -> int:
     count = int(counter.read_text(encoding="utf-8")) + 1 if counter.exists() else 1
     counter.write_text(str(count), encoding="utf-8")
 
-    heading, focus = ROLES[role]
+    focus, detect = ROLES[role]
     text = spec.read_text(encoding="utf-8")
-    if count == 1 or f"## {heading}" not in text:
+    gap = detect(text)
+    if gap is not None:
         verdict = "REVISE"
-        detail = f"Add `## {heading}` and resolve this voice: {focus}"
+        detail = f"Resolve this in the spec itself: {gap}."
     else:
         verdict = "PASS"
         detail = f"{role} voice is satisfied after an independent reread."

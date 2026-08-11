@@ -24,10 +24,12 @@ or gstack. It owns four frozen cases:
   keywords as a semantic proxy.
 
 The complete case also owns a provider-trace oracle: every decision must become
-durable in its own file-write event. A correct final decision log does not repair a
-batched trace.
+durable in its own file-write event. One write event may rewrite the `meta` line
+and any number of node lines — that is how a node is resolved — but it may make at
+most one new `decision` record durable. A correct final decision log does not
+repair a batched trace.
 
-All three checkers emit `AI_REVIEW_REQUIRED`. Their row, heading, keyword,
+All three checkers emit `AI_REVIEW_REQUIRED`. Their record, heading, keyword,
 punctuation, and question-count findings are observations for
 [the blind workflow rubric](semantic-rubric.md), not semantic verdicts. Durable
 write events, Git start/diff evidence, review JSON/hashes, artifact creation order,
@@ -64,7 +66,10 @@ bash eval/wayne-mind-explode/prepare_trial.sh \
 ```
 
 Run `eval/run_isolated_agent.sh` from the repository root. The trial workspace
-contains only the supplied skill, support contracts, task, and fixture repository.
+contains the complete supplied skill (`skill/`, including its `templates/` and
+`references/`), the shared pipeline contract at `_shared/pipeline-id-contract.md`
+so the skill's own `../_shared/` link resolves, the support contracts, the task,
+and the fixture repository — nothing else.
 
 ## Check a trial
 
@@ -77,11 +82,15 @@ uv run --no-project python eval/wayne-mind-explode/check_trial.py \
   --provider codex
 ```
 
-`control.sha256` freezes the pre-optimization skill. Generated trials, candidates,
-provider state, and traces belong under `eval/.runs/wayne-mind-explode/`.
+`control.sha256` and `dag-control.sha256` freeze pre-optimization skill revisions
+and stay untouched; only `harness.sha256` is regenerated after calibration.
+Generated trials, candidates, provider state, and traces belong under
+`eval/.runs/wayne-mind-explode/`.
 
 Scope evidence comes from the trial's starting commit, final diff/untracked paths,
 and native trace. The evaluator never walks or hashes unrelated repository files.
+The only durable output a design run may leave in the tracked tree is
+`docs/specs/<topic>.md`; run state lives in `.wayne/runs/<topic>/`.
 
 The reproduced control failure from the prior complete run is:
 

@@ -1,0 +1,8 @@
+{"type":"meta","topic":"retry-exhaustion","status":"in-progress","spec":null,"test_matrix":null}
+{"type":"decision","id":"D1","question":"Delivery lifecycle owner","decision":"Dispatcher","rationale":"Preserve one state owner","consequences":null,"supersedes":[],"source":"codebase"}
+{"type":"decision","id":"D2","question":"Retryable failures","decision":"Transport timeout and HTTP 429/503 only","rationale":"Permanent failures must fail loud","consequences":"Permanent failures surface immediately to callers","supersedes":[],"source":"user"}
+{"type":"decision","id":"D3","question":"Attempt budget","decision":"Three total attempts","rationale":"Bound recovery load","consequences":"A slow receiver still consumes three attempts","supersedes":[],"source":"user"}
+{"type":"node","id":"N1","parent":null,"kind":"fact","decision":"Dispatcher owns the delivery lifecycle","status":"resolved","opens_when":null,"resolved_by":"D1"}
+{"type":"node","id":"N2","parent":"N1","kind":"choice","decision":"Retryable failure classes","status":"resolved","opens_when":"N1 resolved","resolved_by":"D2"}
+{"type":"node","id":"N3","parent":"N2","kind":"choice","decision":"Attempt budget","status":"resolved","opens_when":"N2 resolved","resolved_by":"D3"}
+{"type":"node","id":"N4","parent":"N3","kind":"choice","decision":"Exhaustion policy and operator recovery","status":"open","opens_when":"N3 resolved","resolved_by":null}
