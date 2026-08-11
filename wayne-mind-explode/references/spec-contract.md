@@ -28,18 +28,31 @@ something, an empty one does not.
 
 | Key | Rule |
 |---|---|
-| `status` | `draft` \| `stable` \| `deprecated`, these three values only, always written. `draft` = not yet approved and still in the run directory. `stable` = approved and in force. `deprecated` = the topic is gone, split, or merged — point `related` at the successors. Superseding a decision is a new `## Decisions` entry, never `deprecated`. |
+| `status` | `stable` \| `deprecated`, always written. `stable` = in force, and the candidate carries it too because promotion must not change a byte. `deprecated` = the topic is gone, split, or merged — point `related` at the successors. Superseding a decision is a new `## Decisions` entry, never `deprecated`. |
 | `generated` | `{ by, at }`. `by` uses the actor convention: `<producer>/<version>` for agents, `human:<id>` for people, `process:<id>` for automated processes. `at` marks the last meaningful content change. |
-| `verified` | One entry per confirmation event, each `{ by, at }`. This is where the review gate lands as data instead of prose: each independent reviewer voice appends one entry, and the user's explicit approval appends `human:<id>`. |
+| `verified` | One entry per **runtime** confirmation event, each `{ by, at }`, appended by `wayne-verify` after it exercises the real path. Design reviewers never write here: a voice that attested inside the bytes it reviewed would invalidate its own pass. Their passes live in the immutable review reports and the decision log, keyed by the digest they read. |
 | `stale_after` | Optional absolute date. Stale when `today >= stale_after`. Set it when the area moves fast enough that silent staleness would mislead; omit it when the design is genuinely settled. |
 | `sources` | Provenance. Each entry needs `resource`; give it an `id` when the body cites it, then attribute the individual claim with a markdown footnote keyed to that id — `[^adr-tls]` — never a positional index. |
 | `related` | Sibling or successor specs, as relative paths. |
 
-Consumers derive the trust tier from `verified`: no entries = unverified,
-non-human only = machine-confirmed, any `human:` = human-reviewed. Content can
-change without re-confirmation, so a `generated.at` later than every
-`verified.at` means this spec is approved-then-edited and the gate must run
-again.
+Consumers derive the trust tier from `verified`: no entries = design-approved but
+never run, any entry = confirmed against the running system, and a `human:` entry =
+a person watched it. Content can change without re-confirmation, so a
+`generated.at` later than every `verified.at` means this spec was edited after it
+was last proven and the gate must run again.
+
+## Candidate versus in force
+
+A run never edits `docs/specs/<topic>.md` directly. It stages its candidate at
+`.wayne/runs/<topic>/spec.md`, already carrying the `status: stable` it will hold
+in force, and the living page is replaced with those exact bytes only once the
+user has approved them. An amendment works the same way: it starts from the
+current in-force bytes, revises the candidate, and promotes.
+
+The point is that `docs/specs/` never holds a byte the user did not approve, and
+the bytes two independent reviewers read are the bytes that were approved. A
+workflow that promotes first and adjusts afterwards — even only the status line —
+has already broken that, because the approval no longer names what is in force.
 
 ## Sections
 

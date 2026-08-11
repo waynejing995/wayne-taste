@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -64,7 +66,7 @@ def run_review(repo: Path, role: str, spec: Path) -> str:
     return process.stdout
 
 
-def complete_records() -> list[dict[str, object]]:
+def complete_records(approved_digest: str) -> list[dict[str, object]]:
     return [
         {
             "type": "meta",
@@ -72,6 +74,9 @@ def complete_records() -> list[dict[str, object]]:
             "status": "design-approved",
             "spec": SPEC_REL,
             "test_matrix": MATRIX_REL,
+            "frontier_locked": True,
+            "written_spec_approved": True,
+            "approved_spec_sha256": approved_digest,
         },
         {
             "type": "decision",
@@ -82,6 +87,7 @@ def complete_records() -> list[dict[str, object]]:
             "consequences": "Retry work cannot be moved off the request path later without a new owner",
             "supersedes": [],
             "source": "codebase",
+            "reference": "docs/architecture.md",
         },
         {
             "type": "decision",
@@ -92,6 +98,7 @@ def complete_records() -> list[dict[str, object]]:
             "consequences": None,
             "supersedes": [],
             "source": "review",
+            "reference": f"{RUN_DIR}/review-product.md",
         },
         {
             "type": "decision",
@@ -102,6 +109,7 @@ def complete_records() -> list[dict[str, object]]:
             "consequences": None,
             "supersedes": [],
             "source": "review",
+            "reference": f"{RUN_DIR}/review-engineering.md",
         },
         {
             "type": "node",
@@ -244,13 +252,16 @@ def valid_complete(workspace: Path, case: str = "complete") -> Path:
     repo = seed(workspace, case)
     spec = repo / SPEC_REL
 
-    write(repo / LOG_REL, decision_log.dump(complete_records()))
     write(repo / MATRIX_REL, matrix_text())
     write(spec, spec_text(acceptance=False, consequences=False))
 
     run_review(repo, "product", spec)
     run_review(repo, "engineering", spec)
     write(spec, spec_text(acceptance=True, consequences=True))
+    write(
+        repo / LOG_REL,
+        decision_log.dump(complete_records(hashlib.sha256(spec.read_bytes()).hexdigest())),
+    )
     write(repo / f"{RUN_DIR}/review-product.md", run_review(repo, "product", spec))
     write(repo / f"{RUN_DIR}/review-engineering.md", run_review(repo, "engineering", spec))
 
@@ -284,6 +295,9 @@ def valid_conflict(workspace: Path) -> Path:
                     "status": "in-progress",
                     "spec": None,
                     "test_matrix": None,
+                    "frontier_locked": False,
+                    "written_spec_approved": False,
+                    "approved_spec_sha256": None,
                 },
                 {
                     "type": "decision",
@@ -294,6 +308,7 @@ def valid_conflict(workspace: Path) -> Path:
                     "consequences": "The design cannot proceed until one is dropped",
                     "supersedes": [],
                     "source": "constraint",
+                    "reference": None,
                 },
                 {
                     "type": "node",
@@ -344,6 +359,7 @@ def valid_depth_recommendation(workspace: Path) -> Path:
             "consequences": "Delivery leaves the request path and needs its own frontier",
             "supersedes": [],
             "source": "user",
+            "reference": None,
         }
     )
     for record in records:
@@ -520,7 +536,7 @@ def main() -> int:
 
         draft = clone(valid, root, "draft-spec")
         patch(draft / "repo" / SPEC_REL, "status: stable", "status: draft")
-        assert_invalid(draft, "complete", draft / "output.txt", "`status: stable`", "spec lifecycle")
+        assert_invalid(draft, "complete", draft / "output.txt", "status=['draft']", "spec lifecycle")
 
         no_tech = clone(valid, root, "no-technology")
         patch(no_tech / "repo" / SPEC_REL, "## Technology and frameworks", "## Notes")
@@ -596,13 +612,165 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
             "living-page spec",
         )
 
+        # --- the seven lanes the follow-up review demanded -------------------
+        external = clone(valid, root, "external-resolution")
+        patch(
+            external / "repo" / LOG_REL,
+            '"resolved_by":"D1"',
+            '"resolved_by":"authentication:D7"',
+        )
+        assert_valid(external, "complete", external / "output.txt", "external resolved_by")
+
+        bad_external = clone(valid, root, "malformed-resolution")
+        patch(bad_external / "repo" / LOG_REL, '"resolved_by":"D1"', '"resolved_by":"D one"')
+        assert_invalid(
+            bad_external,
+            "complete",
+            bad_external / "output.txt",
+            "is malformed",
+            "resolved_by syntax",
+        )
+
+        unsourced_web = clone(valid, root, "unsourced-web-fact")
+        patch(
+            unsourced_web / "repo" / LOG_REL,
+            '"source":"codebase","reference":"docs/architecture.md"',
+            '"source":"web","reference":null',
+        )
+        assert_invalid(
+            unsourced_web,
+            "complete",
+            unsourced_web / "output.txt",
+            "carries no source URL",
+            "web provenance",
+        )
+
+        unlocked = clone(valid, root, "approved-without-lock")
+        patch(unlocked / "repo" / LOG_REL, '"frontier_locked":true', '"frontier_locked":false')
+        assert_invalid(
+            unlocked,
+            "complete",
+            unlocked / "output.txt",
+            "approved while the frontier is unlocked",
+            "lock precedes approval",
+        )
+
+        no_target = clone(valid, root, "requirement-missing-target")
+        patch(
+            no_target / "repo" / SPEC_REL,
+            "- **Target** — up to three attempts with deterministic exponential backoff\n",
+            "",
+        )
+        assert_invalid(
+            no_target,
+            "complete",
+            no_target / "output.txt",
+            "R1 carries 0 Target lines",
+            "requirement completeness",
+        )
+
+        copied = clone(valid, root, "copied-not-moved")
+        write(copied / "repo" / f"{RUN_DIR}/spec.md", (copied / "repo" / SPEC_REL).read_text(encoding="utf-8"))
+        assert_invalid(
+            copied,
+            "complete",
+            copied / "output.txt",
+            "copied instead of moving",
+            "move never copy",
+        )
+
+        cross_topic = clone(valid, root, "cross-topic-artifact")
+        write(cross_topic / "repo/docs/specs/unrelated.md", "# Unrelated topic\n")
+        assert_invalid(
+            cross_topic,
+            "complete",
+            cross_topic / "output.txt",
+            "unexpected file outside design outputs: docs/specs/unrelated.md",
+            "topic-bound outputs",
+        )
+
+        tampered_report = clone(valid, root, "tampered-review-digest")
+        report = tampered_report / "repo" / f"{RUN_DIR}/review-product.md"
+        write(
+            report,
+            re.sub(r"^SHA256: .*$", "SHA256: " + "0" * 64, report.read_text(encoding="utf-8"), flags=re.MULTILINE),
+        )
+        assert_invalid(
+            tampered_report,
+            "complete",
+            tampered_report / "output.txt",
+            "does not name the final spec digest",
+            "review digest correlation",
+        )
+
+        orphan_outcome = clone(valid, root, "unreferenced-review-outcome")
+        patch(
+            orphan_outcome / "repo" / LOG_REL,
+            f'"reference":"{RUN_DIR}/review-engineering.md"',
+            '"reference":null',
+        )
+        assert_invalid(
+            orphan_outcome,
+            "complete",
+            orphan_outcome / "output.txt",
+            "holds no engineering review outcome",
+            "review outcome ownership",
+        )
+
+        dangling = clone(valid, root, "dangling-reference")
+        patch(dangling / "repo" / LOG_REL, '"reference":"docs/architecture.md"', '"reference":"docs/gone.md"')
+        assert_invalid(
+            dangling,
+            "complete",
+            dangling / "output.txt",
+            "references a path that does not exist",
+            "reference resolves",
+        )
+
+        phantom = clone(valid, root, "phantom-external-decision")
+        patch(phantom / "repo" / LOG_REL, '"resolved_by":"D1"', '"resolved_by":"authentication:D999"')
+        assert_invalid(
+            phantom,
+            "complete",
+            phantom / "output.txt",
+            "cites a decision the spec does not carry",
+            "external citation resolves",
+        )
+
+        # An append-only log carries every round; the last one must be the PASS.
+        reround = clone(valid, root, "revise-then-pass")
+        log_path = reround / "repo" / LOG_REL
+        rounds = log_path.read_text(encoding="utf-8").splitlines()
+        first_round = json.loads(next(l for l in rounds if '"id":"D2"'in l))
+        first_round["id"] = "D4"
+        first_round["decision"] = "REVISE: the acceptance check was missing"
+        rounds.append(decision_log.dumps(first_round))
+        second = dict(first_round, id="D5", decision="PASS on the revised bytes")
+        rounds.append(decision_log.dumps(second))
+        write(log_path, "".join(f"{line}\n" for line in rounds))
+        assert_valid(reround, "complete", reround / "output.txt", "revise round then pass")
+
+        unresolved = clone(reround, root, "revise-not-resolved")
+        patch(
+            unresolved / "repo" / LOG_REL,
+            '"id":"D5","question":"Product review outcome","decision":"PASS on the revised bytes"',
+            '"id":"D5","question":"Product review outcome","decision":"REVISE again"',
+        )
+        assert_invalid(
+            unresolved,
+            "complete",
+            unresolved / "output.txt",
+            "last logged product review outcome is not a PASS",
+            "review round resolution",
+        )
+
         conflict = root / "conflict-valid"
         conflict.mkdir()
         conflict_output = valid_conflict(conflict)
         assert_valid(conflict, "conflict", conflict_output, "positive conflict")
 
         advanced = clone(conflict, root, "conflict-advanced")
-        write(advanced / "repo/docs/specs/forbidden.md", "# Premature spec\n")
+        write(advanced / "repo/docs/specs/durable-pause.md", "# Premature spec\n")
         assert_invalid(
             advanced,
             "conflict",
@@ -628,7 +796,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
         locked_spec = clone(locked, root, "decision-locked-spec")
-        write(locked_spec / "repo/docs/specs/premature.md", "# Premature\n")
+        write(locked_spec / "repo/docs/specs/queued-webhook.md", "# Premature\n")
         assert_invalid(
             locked_spec,
             "decision-locked",
@@ -739,7 +907,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
         depth_advanced = clone(depth, root, "depth-advanced")
-        write(depth_advanced / "repo/docs/specs/premature.md", "# Premature\n")
+        write(depth_advanced / "repo/docs/specs/webhook-depth.md", "# Premature\n")
         assert_invalid(
             depth_advanced,
             "depth-recommendation",
@@ -749,7 +917,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
     print(
-        "PASS: observations cover 7 fixtures and 32 mutations; "
+        "PASS: observations cover 9 fixtures and 43 mutations; "
         "semantic verdict remains AI_REVIEW_REQUIRED"
     )
     return 0

@@ -5,7 +5,7 @@ skill/support contracts, decision-log snapshots, native write/review traces,
 generated artifacts, Git state, user-visible response, and checker observations.
 Do not see control/candidate identity or the expected winner.
 
-Decide every applicable `I01`-`I25` row in `approved-intent.md`. In particular:
+Decide every applicable `I01`-`I26` row in `approved-intent.md`. In particular:
 
 - one source-grounded fact or one user-owned decision becomes durable before the
   next branch; no later reconstruction makes a batched transition correct;

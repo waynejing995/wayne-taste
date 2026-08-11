@@ -18,35 +18,44 @@ COMPLETE_CASES = {"complete", "gstack-ban"}
 E2E_HEADER = "| ID | Env: entrypoint | Setup | Action | Observable outcome | Status |"
 RECOMMENDATION = re.compile(r"My recommendation:|我的建议|我的推荐|建议|推荐", re.IGNORECASE)
 
-# The only outputs a design run may leave in the tracked tree. Everything else it
-# produces lives under `.wayne/`, which is why an abandoned run leaves no residue.
-ALLOWED_UNTRACKED = (
-    re.compile(r"docs/specs/[^/]+\.md"),
-    re.compile(r"\.wayne/\.gitignore"),
-    re.compile(r"\.wayne/checkpoints/[^/]+\.md"),
-    re.compile(
-        r"\.wayne/runs/[^/]+/"
-        r"(?:decision-log\.jsonl|test-matrix\.md|spec\.md|review-(?:product|engineering)\.md)"
-    ),
-    re.compile(r"\.eval/(?:review-events\.jsonl|(?:product|engineering)-count)"),
-)
-# A resumed run edits its own living spec and its own run state; everything else
-# in the tracked tree is a source input the design stage may not touch.
-ALLOWED_MODIFIED = re.compile(r"docs/specs/[^/]+\.md|\.wayne/.+")
+# The only outputs a design run may leave, bound to the one topic it is designing.
+# Everything else it produces lives under `.wayne/`, which is why an abandoned run
+# leaves no residue; a second topic's artifacts are scope drift, not output.
+HARNESS_STATE = re.compile(r"\.eval/(?:review-events\.jsonl|(?:product|engineering)-count)")
+
+
+def writable(topic: str | None) -> tuple[re.Pattern[str], ...]:
+    # Without a readable topic nothing outside `.wayne/` is writable: an unknown
+    # topic is the moment to tighten, not the moment to allow every spec.
+    slug = re.escape(topic) if topic else r"(?!)"
+    return (
+        re.compile(rf"docs/specs/{slug}\.md"),
+        re.compile(r"\.wayne/\.gitignore"),
+        re.compile(r"\.wayne/checkpoints/[^/]+\.md"),
+        re.compile(
+            rf"\.wayne/runs/{slug}/"
+            rf"(?:decision-log\.jsonl|test-matrix\.md|spec\.md|review-(?:product|engineering)\.md)"
+        ),
+        HARNESS_STATE,
+    )
 
 # A living page is named after its topic. A leading date or a `-design` suffix is a
 # per-run snapshot, which is the thing `docs/specs/` exists to not accumulate.
 LIVING_SPEC = re.compile(r"docs/specs/(?!\d{4}-\d{2}-\d{2}-)[^/]+(?<!-design)\.md")
 
-# Artifacts that only exist once the run has advanced past its current gate.
-FORBIDDEN_ADVANCE = (
-    "docs/specs/**/*.md",
-    "docs/plans/**/*.md",
-    ".wayne/runs/*/test-matrix.md",
-    ".wayne/runs/*/review-*.md",
-    ".wayne/runs/*/spec.md",
-    ".wayne/checkpoints/**/*.md",
-)
+# Artifacts that only exist once the run has advanced past its current gate. They
+# are scoped to this run's topic: a living spec for some other topic is a
+# repository input, not evidence that this run advanced.
+def forbidden_patterns(topic: str | None) -> tuple[str, ...]:
+    slug = topic or "*"
+    return (
+        f"docs/specs/{slug}.md",
+        "docs/plans/**/*.md",
+        f".wayne/runs/{slug}/test-matrix.md",
+        f".wayne/runs/{slug}/review-*.md",
+        f".wayne/runs/{slug}/spec.md",
+        ".wayne/checkpoints/**/*.md",
+    )
 
 
 def digest(path: Path) -> str:
@@ -91,15 +100,17 @@ def resolve(repo: Path, relative: object, label: str, findings: list[str]) -> Pa
     return path
 
 
-def forbidden_advance(repo: Path, label: str, findings: list[str]) -> None:
-    for pattern in FORBIDDEN_ADVANCE:
+def forbidden_advance(repo: Path, topic: str | None, label: str, findings: list[str]) -> None:
+    if topic is None:
+        return  # no readable log means no topic to scope these globs to
+    for pattern in forbidden_patterns(topic):
         matches = sorted(path.as_posix() for path in repo.glob(pattern) if path.is_file())
         if matches:
             findings.append(f"{label} advanced past its gate: {matches}")
 
 
-def check_source_boundary(repo: Path, case: str, findings: list[str]) -> None:
-    del case
+def check_source_boundary(repo: Path, topic: str | None, findings: list[str]) -> None:
+    allowed = writable(topic)
     if not (repo / ".git").is_dir():
         findings.append("trial repository has no frozen Git baseline")
         return
@@ -111,16 +122,22 @@ def check_source_boundary(repo: Path, case: str, findings: list[str]) -> None:
         return [line for line in result.stdout.splitlines() if line]
 
     for relative in git_lines("diff", "--name-only", "HEAD", "--"):
-        if not ALLOWED_MODIFIED.fullmatch(relative):
+        if not any(pattern.fullmatch(relative) for pattern in allowed):
             findings.append(f"source input modified: {relative}")
     if git_lines("rev-list", "--count", "HEAD") != ["1"]:
         findings.append("design trial changed commit history")
 
-    untracked = git_lines("ls-files", "--others", "--exclude-standard")
+    # `.wayne/.gitignore` is an allowed output, so an agent could hide a cross-topic
+    # artifact behind it; enumerate ignored paths too.
+    untracked = sorted(
+        set(git_lines("ls-files", "--others", "--exclude-standard"))
+        | {line for line in git_lines("ls-files", "--others", "--ignored", "--exclude-standard")
+           if not line.startswith(".git/")}
+    )
     for relative in untracked:
         if "__pycache__" in Path(relative).parts or relative.endswith((".pyc", ".pyo")):
             continue
-        if not any(pattern.fullmatch(relative) for pattern in ALLOWED_UNTRACKED):
+        if not any(pattern.fullmatch(relative) for pattern in allowed):
             findings.append(f"unexpected file outside design outputs: {relative}")
 
     plans = sorted(path.as_posix() for path in (repo / "docs" / "plans").glob("**/*") if path.is_file())
@@ -147,15 +164,22 @@ def read_events(repo: Path, findings: list[str]) -> list[dict[str, object]]:
     return events
 
 
+def topic_of(log: "decision_log.Log | None") -> str | None:
+    """The run directory names the topic; `meta.topic` is checked against it."""
+    if log is None:
+        return None
+    return log.topic_dir.name or None
+
+
 def validate_complete(repo: Path, case: str, output: str) -> list[str]:
     findings: list[str] = []
-    check_source_boundary(repo, case, findings)
-
     log = decision_log.read(repo, findings)
+    check_source_boundary(repo, topic_of(log), findings)
     handoff = exactly_one(repo, ".wayne/checkpoints/*.md", "handoff packet", findings)
 
     spec: Path | None = None
     matrix: Path | None = None
+    report_digests: dict[str, str] = {}
     if log is not None:
         if str(log.meta.get("status", "")) != "design-approved":
             findings.append(f"decision log meta.status={log.meta.get('status')!r}, expected 'design-approved'")
@@ -163,6 +187,8 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
         matrix = resolve(repo, log.meta.get("test_matrix"), "test matrix", findings)
         if spec is not None and not LIVING_SPEC.fullmatch(log.meta["spec"]):
             findings.append(f"approved spec is not a living page: {log.meta['spec']}")
+        if spec is not None and log.meta.get("approved_spec_sha256") != digest(spec):
+            findings.append("the promoted spec is not the revision the user approved")
 
         unresolved = sorted(
             identifier
@@ -172,23 +198,39 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
         if unresolved:
             findings.append(f"converged with an unresolved frontier: {unresolved}")
 
+        if (log.topic_dir / "spec.md").is_file():
+            findings.append("candidate spec survived promotion: the run copied instead of moving")
+
         review_decisions = [
             record for record in log.decisions
             if str(record.get("source", "")).casefold() == "review"
         ]
         for role in ("product", "engineering"):
-            if not any(
-                role in f"{record.get('question','')} {record.get('decision','')}".casefold()
-                for record in review_decisions
-            ):
-                findings.append(f"decision log omits the {role} review outcome")
-
-        for role in ("product", "engineering"):
             report = log.topic_dir / f"review-{role}.md"
+            relative = report.relative_to(repo).as_posix()
             if not report.is_file():
                 findings.append(f"missing final {role} review report")
-            elif "VERDICT: PASS" not in report.read_text(encoding="utf-8"):
-                findings.append(f"final {role} review did not pass")
+            else:
+                text = report.read_text(encoding="utf-8")
+                roles = re.findall(r"^ROLE:\s*(\S+)\s*$", text, re.MULTILINE)
+                verdicts = re.findall(r"^VERDICT:\s*(\S+)\s*$", text, re.MULTILINE)
+                digests = re.findall(r"^SHA256:\s*([0-9a-f]{64})\s*$", text, re.MULTILINE)
+                if roles != [role]:
+                    findings.append(f"{role} review report names roles {roles}")
+                if verdicts != ["PASS"]:
+                    findings.append(f"final {role} review verdicts {verdicts}, expected ['PASS']")
+                if len(digests) != 1:
+                    findings.append(f"{role} review report names {len(digests)} reviewed digests")
+                else:
+                    report_digests[role] = digests[0]
+            outcomes = [
+                record for record in review_decisions
+                if str(record.get("reference") or "") == relative
+            ]
+            if not outcomes:
+                findings.append(f"decision log holds no {role} review outcome")
+            elif not re.match(r"PASS\b", str(outcomes[-1].get("decision", ""))):
+                findings.append(f"the last logged {role} review outcome is not a PASS")
 
     if matrix:
         matrix_text = matrix.read_text(encoding="utf-8")
@@ -233,12 +275,28 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
         ):
             if heading not in spec_text:
                 findings.append(f"spec omits {heading}")
+        blocks = re.split(r"(?m)^(?=###\s+R[1-9]\d*\s)", requirement_section)[1:]
+        for block in blocks:
+            name = re.match(r"###\s+(R[1-9]\d*)\s", block).group(1)
+            for field in ("Current", "Target", "Acceptance"):
+                seen = len(re.findall(rf"^-\s+\*\*{field}\*\*\s+—\s+\S", block, re.MULTILINE))
+                if seen != 1:
+                    findings.append(f"{name} carries {seen} {field} lines")
         for requirement in requirements:
             proofs = re.findall(rf"^\|\s*{requirement}\s*\|", verification_section, re.MULTILINE)
             if len(proofs) != 1:
                 findings.append(f"{requirement} has {len(proofs)} verification proofs")
-        if not re.search(r"^status:\s*stable\s*$", spec_text, re.MULTILINE):
-            findings.append("approved living spec is not `status: stable`")
+        frontmatter = re.match(r"---\n(.*?)\n---\n", spec_text, re.DOTALL)
+        header = frontmatter.group(1) if frontmatter else ""
+        if not frontmatter:
+            findings.append("spec has no frontmatter")
+        statuses = re.findall(r"^status:\s*(\S+)\s*$", header, re.MULTILINE)
+        if statuses != ["stable"]:
+            findings.append(f"approved living spec status={statuses}, expected ['stable']")
+        generated_at = re.search(r"^generated:.*\bat:\s*([^\s}]+)", header, re.MULTILINE)
+        confirmations = re.findall(r"\bat:\s*([0-9T:\-]+Z?)", re.sub(r"^generated:.*$", "", header, flags=re.MULTILINE))
+        if generated_at and any(at >= generated_at.group(1) for at in confirmations):
+            findings.append("design stage wrote a `verified` entry owned by wayne-verify")
         if not re.search(r"```mermaid\s*\n\s*flowchart", spec_text):
             findings.append("spec carries no mermaid architecture diagram")
         if len(re.findall(r"^```", section("Interfaces"), re.MULTILINE)) < 4:
@@ -268,6 +326,8 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
             findings.append(f"{role} voice did not pass the final spec revision")
         if spec_relative and role_events[-1].get("spec") != spec_relative:
             findings.append(f"{role} voice reviewed a different spec path")
+        if final_spec_digest and report_digests.get(role) != final_spec_digest:
+            findings.append(f"{role} review report does not name the final spec digest")
 
     artifacts = [path for path in (log.path if log else None, spec, matrix) if path]
     if handoff:
@@ -289,11 +349,11 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
 
 def validate_conflict(repo: Path, output: str) -> list[str]:
     findings: list[str] = []
-    check_source_boundary(repo, "conflict", findings)
     log = decision_log.read(repo, findings)
+    check_source_boundary(repo, topic_of(log), findings)
     if log is not None and str(log.meta.get("status", "")) == "design-approved":
         findings.append("conflict case marked its decision log design-approved")
-    forbidden_advance(repo, "conflict case", findings)
+    forbidden_advance(repo, topic_of(log), "conflict case", findings)
     if (repo / ".eval" / "review-events.jsonl").is_file():
         findings.append("conflict case advanced past its decision gate: review events exist")
     question_marks = output.count("?") + output.count("？")
@@ -308,11 +368,15 @@ def validate_conflict(repo: Path, output: str) -> list[str]:
 
 def validate_decision_locked(repo: Path, output: str) -> list[str]:
     findings: list[str] = []
-    check_source_boundary(repo, "decision-locked", findings)
     log = decision_log.read(repo, findings)
+    check_source_boundary(repo, topic_of(log), findings)
     if log is not None:
         if str(log.meta.get("status", "")) == "design-approved":
             findings.append("locked frontier was promoted to design-approved")
+        if not log.meta.get("frontier_locked"):
+            findings.append("the user's frontier lock was dropped")
+        if log.meta.get("written_spec_approved"):
+            findings.append("unapproved design sections were marked approved")
         unresolved = sorted(
             identifier
             for identifier, record in log.nodes.items()
@@ -321,7 +385,7 @@ def validate_decision_locked(repo: Path, output: str) -> list[str]:
         if unresolved:
             findings.append(f"decision lock reopened nodes: {unresolved}")
 
-    forbidden_advance(repo, "decision lock", findings)
+    forbidden_advance(repo, topic_of(log), "decision lock", findings)
 
     question_marks = output.count("?") + output.count("？")
     if question_marks != 1:
@@ -335,8 +399,8 @@ def validate_decision_locked(repo: Path, output: str) -> list[str]:
 
 def validate_depth_recommendation(repo: Path, output: str) -> list[str]:
     findings: list[str] = []
-    check_source_boundary(repo, "depth-recommendation", findings)
     log = decision_log.read(repo, findings)
+    check_source_boundary(repo, topic_of(log), findings)
     if log is not None:
         identifiers = log.decision_ids()
         if identifiers != [1, 2, 3]:
@@ -379,7 +443,7 @@ def validate_depth_recommendation(repo: Path, output: str) -> list[str]:
         if str(log.meta.get("status", "")) == "design-approved":
             findings.append("depth case converged before child choices")
 
-    forbidden_advance(repo, "depth case", findings)
+    forbidden_advance(repo, topic_of(log), "depth case", findings)
 
     question_marks = output.count("?") + output.count("？")
     if question_marks != 1:

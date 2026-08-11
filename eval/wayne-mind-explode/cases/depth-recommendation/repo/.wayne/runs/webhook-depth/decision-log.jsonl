@@ -1,6 +1,6 @@
-{"type":"meta","topic":"webhook-depth","status":"in-progress","spec":null,"test_matrix":null}
-{"type":"decision","id":"D1","question":"Existing queue","decision":"A reusable queue exists","rationale":"Repository architecture","consequences":null,"supersedes":[],"source":"codebase"}
-{"type":"decision","id":"D2","question":"Lifecycle owner","decision":"Dispatcher is the sole delivery lifecycle owner","rationale":"Preserve one state owner","consequences":null,"supersedes":[],"source":"codebase"}
+{"type":"meta","topic":"webhook-depth","status":"in-progress","spec":null,"test_matrix":null,"frontier_locked":false,"written_spec_approved":false,"approved_spec_sha256":null}
+{"type":"decision","id":"D1","question":"Existing queue","decision":"A reusable queue exists","rationale":"Repository architecture","consequences":null,"supersedes":[],"source":"codebase","reference":"docs/architecture.md"}
+{"type":"decision","id":"D2","question":"Lifecycle owner","decision":"Dispatcher is the sole delivery lifecycle owner","rationale":"Preserve one state owner","consequences":null,"supersedes":[],"source":"codebase","reference":"docs/architecture.md"}
 {"type":"node","id":"N1","parent":null,"kind":"fact","decision":"Existing queue availability","status":"resolved","opens_when":null,"resolved_by":"D1"}
 {"type":"node","id":"N2","parent":null,"kind":"fact","decision":"Delivery lifecycle ownership","status":"resolved","opens_when":null,"resolved_by":"D2"}
 {"type":"node","id":"N3","parent":null,"kind":"choice","decision":"Delivery topology: inline or existing queue","status":"open","opens_when":"N1 and N2 resolved","resolved_by":null}

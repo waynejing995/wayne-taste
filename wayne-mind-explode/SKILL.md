@@ -25,17 +25,18 @@ promoted before handoff:
 - `decision-log.jsonl`
 - `test-matrix.md` through `wayne-test-design`
 - `review-{product|engineering}.md` as immutable evidence for the duration of the run
-- `spec.md` while it is still `draft`
+- `spec.md` — the candidate, until the user approves its exact bytes
 - the handoff packet owned by `wayne-checkpoint`
 
 **Durable, in `docs/`** — one living page per topic, the sole artifact that outlives
 the run:
 
-- `docs/specs/<topic>.md` — amended in place, never re-dated
+- `docs/specs/<topic>.md` — replaced in place from an approved candidate, never re-dated
 
-`docs/specs/` holds only specs that are in force. A spec enters it exactly once, by
-being moved there when node V approves it, and leaves only by becoming
-`deprecated`. Until then it is a draft in the run directory.
+`docs/specs/` holds only bytes the user has approved. Each revision enters it by
+being moved there at node V and leaves only by becoming `deprecated`. Until then
+the candidate lives in the run directory, which is why an abandoned run leaves
+nothing behind and why the living page never shows unapproved design.
 
 Nothing else goes in `docs/`. A run abandoned mid-design is the normal case, not the
 exception, and anything it left in `docs/` would sit there forever looking exactly
@@ -86,7 +87,7 @@ digraph mind_explode {
     U -> X [label="no"];
     J -> K;
     K -> R [label="no"];
-    R -> J;
+    R -> V;
     K -> L [label="yes"];
 }
 ```
@@ -110,7 +111,9 @@ delete the existing entry, and never silently re-decide it because it was absent
 from this run's context.
 
 Seed the run-scoped log from [the template](templates/decision-log.jsonl) — one
-`meta` line. The record schema, the field semantics, and the append-versus-rewrite
+`meta` line, replacing `topic-slug` with this run's topic; leaving the placeholder
+makes `meta.topic` disagree with the run directory, which fails loud rather than
+quietly mislabelling the log. The record schema, the field semantics, and the append-versus-rewrite
 rule are all in the pipeline contract you just read; they are not restated here and
 cannot live inside a JSONL file. That log is working state: it dies once section I
 absorbs its content into the living spec, so nothing durable may exist only there.
@@ -129,8 +132,8 @@ no understanding of the content:
 - `max(verified[].at) < generated.at` — edited after it was last confirmed, so the
 review gate that approved it no longer covers the current bytes.
 
-A spec that passes both seeds the nodes it answers as `resolved`, citing that spec
-as the source rather than re-litigating them. A spec that fails either check is
+A spec that passes both seeds the nodes it answers as `resolved`, setting their
+`resolved_by` to that spec's `<slug>:D<number>` rather than re-litigating them. A spec that fails either check is
 **not** seeded resolved: it is a claim to verify, so route the nodes it touches to
 G's three-way triage against the code. No spec ever silently self-certifies just
 because it exists.
@@ -142,7 +145,8 @@ active plans, other specs, and recent history. Scan Wayne's KB for semantically
 matching lessons, prior decisions, research, how-tos, and project notes; surface
 matches and log whether the user applies or skips them. Search the web only when
 current external facts could change a design choice, and preserve the source URL
-in the log.
+in the decision's `reference`. A web fact whose source cannot be reopened is not
+evidence.
 
 An evidence-backed `fact` auto-resolves without user confirmation; append its
 numbered evidence record before marking it resolved. Never seed a fact as resolved.
@@ -212,6 +216,10 @@ material section and log every revision. Do not advance on assumed approval.
 Keep units single-purpose with explicit interfaces and dependencies, follow existing
 patterns, and exclude unrelated refactors.
 
+When the user freezes the decision frontier, set `frontier_locked` to `true` in the
+log's `meta` line. An empty frontier is convergence, not a lock: only the user
+locks, and the flag is what a resumed run reads to know which gate it stands at.
+
 Apply a cybernetics lens when the design involves state/lifecycle, a control plane,
 multiple readers or writers, streaming, observability, source-of-truth drift,
 feedback/retry, or workflow orchestration. Name Plant, Controller, Setpoint,
@@ -258,16 +266,15 @@ migration. Proceed only with zero unresolved conflicts.
 
 Write the approved design into [the spec skeleton](templates/spec.md), following
 [the spec contract](references/spec-contract.md), and set `generated` to this
-run's actor and time. Where it is written depends on
-whether the topic is already in force:
+run's actor and time.
 
-- **Topic already has `docs/specs/<topic>.md`.** Edit that file in place — sections
-revised, `## Decisions` appended to, `generated.at` advanced. Advancing
-`generated.at` past every `verified.at` is what re-arms the review gate, so V, U,
-and J run again on the amended bytes. Never open a second dated file.
-- **New topic.** Write `.wayne/runs/<topic>/spec.md` with `status: draft`. It stays
-in the run directory until node V approves it; `docs/specs/` holds only specs in
-force, so an abandoned run leaves nothing behind.
+Every run — new topic or amendment — stages its candidate at
+`.wayne/runs/<topic>/spec.md`, carrying the final `status: stable` it will hold in
+force. An amendment starts from the current `docs/specs/<topic>.md` bytes and
+revises them there: sections rewritten, `## Decisions` appended to, `generated.at`
+advanced. Nothing is written into `docs/specs/` at this node. The living page must
+never hold bytes the user has not approved, and staging the candidate is what makes
+the promotion in V a byte-for-byte move rather than an edit-after-approval.
 
 Number the approved behavior as `R<number>` in `## Requirements`, each with its
 `Current`, `Target`, and `Acceptance`. That section is the only place in the
@@ -296,15 +303,18 @@ TBD/TODO before review.
 
 ### V. Approve the written spec
 
-Show the canonical spec path and ask the user to approve that exact written
-revision. A prior section-by-section approval is not approval of the file bytes.
-On rejection, log one decision, revise the spec, and ask again. Start no reviewer
-until the written revision is explicitly approved.
+Show the candidate at `.wayne/runs/<topic>/spec.md` and ask the user to approve
+that exact written revision. A prior section-by-section approval is not approval of
+the file bytes. On rejection, log one decision, revise the candidate, and ask again.
+Start no reviewer until the written revision is explicitly approved.
 
-On approval of a new topic's draft, **move** `.wayne/runs/<topic>/spec.md` to
-`docs/specs/<topic>.md` and set `status: stable`. Move, never copy: two copies would
-immediately begin to disagree. From this point the reviewers in J read the file at
-its `docs/` path, and every later run amends it there.
+On approval, set `written_spec_approved` to `true` and `approved_spec_sha256` to
+the digest of the approved bytes in the log's `meta` line, then
+**move** the candidate onto `docs/specs/<topic>.md` byte for byte — replacing the
+previous revision on an amendment, creating the page on a new topic. Move, never
+copy: two copies would immediately begin to disagree. Never edit during or after
+the move; the bytes the reviewers in J read are the bytes the user approved, and
+changing so much as the status line would make that untrue.
 
 ### U. Require an independent-review mechanism
 
@@ -339,17 +349,31 @@ architecture, ownership, interfaces, data/control flow, failures, edge and
 concurrency paths, tests, performance/capacity, observability, rollback, and
 execution readiness.
 
-Preserve each run as immutable review evidence. The decision log alone owns finding
-resolutions and final outcomes; append each outcome as one `decision` record with
-`"source":"review"`. Resolve
-findings in the spec, obtain approval of the revised bytes, then rerun both voices.
-Both must pass the same final bytes; any later edit makes both passes stale. Never
-write review notes into the spec after those passes.
+Keep each voice's latest report at
+`.wayne/runs/<topic>/review-{product|engineering}.md`, naming its role, verdict,
+and the digest of the bytes it read. The decision log carries the history: append
+one `decision` record per round with `"source":"review"` and that report path in
+`reference`, and never rewrite an earlier round's record.
+
+On `REVISE`, the page in force is no longer the design being worked on, so move
+`docs/specs/<topic>.md` back to `.wayne/runs/<topic>/spec.md`, clear
+`written_spec_approved` and `approved_spec_sha256`, and revise the candidate there.
+Return to V for approval of the revised bytes, which promotes them again, then
+rerun both voices against the promoted page. `docs/specs/` therefore only ever
+holds bytes that are both approved and under review, never a half-resolved
+revision. Both must pass the same final digest, and that
+digest is `approved_spec_sha256`. Any later edit to the design content makes both
+passes stale; `wayne-verify` appending its `verified` entry after ship is a runtime
+record of that same design, not a revision of it, and is the one write to the page
+that does not re-arm this gate. Never write review notes into the spec after those
+passes, and never let a reviewer write its own pass into the bytes it reviewed.
 
 ### L. Handoff to wayne-plan
 
 Rewrite the log's `meta` line: `status` to `design-approved`, `spec` and
-`test_matrix` to their paths.
+`test_matrix` to their paths. `design-approved` requires `frontier_locked` and
+`written_spec_approved` to already be `true`; it records that both gates were
+passed, and never stands in for either.
 Tell the user their paths and that `wayne-plan` is the next agent. Invoke
 `wayne-checkpoint` in handoff mode with those artifacts and `next agent: wayne-plan`; return the packet without auto-advancing. End here.
 

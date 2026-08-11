@@ -3,7 +3,7 @@ type: Design Spec
 title: <Declarative outcome — the end state, not a task name>
 description: <one line — what this component is and what it guarantees>
 tags: [<component>, <area>]
-status: draft
+status: stable
 generated: { by: <actor>, at: <ISO 8601> }
 ---
 

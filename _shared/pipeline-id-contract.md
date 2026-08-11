@@ -28,9 +28,9 @@ object per physical line, one line per entity, no comments and no trailing comma
 Three record types, discriminated by `type`.
 
 ```jsonl
-{"type":"meta","topic":"delivery-retry","status":"in-progress","spec":null,"test_matrix":null}
+{"type":"meta","topic":"delivery-retry","status":"in-progress","spec":null,"test_matrix":null,"frontier_locked":false,"written_spec_approved":false,"approved_spec_sha256":null}
 {"type":"node","id":"N1","parent":null,"kind":"choice","decision":"How the retry budget is bounded","status":"resolved","opens_when":null,"resolved_by":"D1"}
-{"type":"decision","id":"D1","question":"...","decision":"...","rationale":"...","consequences":"...","supersedes":[],"source":"user"}
+{"type":"decision","id":"D1","question":"...","decision":"...","rationale":"...","consequences":"...","supersedes":[],"source":"user","reference":null}
 ```
 
 It is machine-oriented run state — one entity per line, one resolved decision per
@@ -62,10 +62,13 @@ Only a legacy source produces absent keys.
 | Record | Key | Type | Rule |
 |---|---|---|---|
 | `meta` | `type` | `"meta"` | exactly one record, first line |
-| `meta` | `topic` | string | the run's topic slug |
+| `meta` | `topic` | string | the run's topic slug; also names the run directory |
 | `meta` | `status` | string | `in-progress` or `design-approved` |
-| `meta` | `spec` | string \| null | repo-relative path, `null` until it exists |
-| `meta` | `test_matrix` | string \| null | repo-relative path, `null` until it exists |
+| `meta` | `spec` | string \| null | `docs/specs/<topic>.md`, `null` until the spec is in force |
+| `meta` | `test_matrix` | string \| null | `.wayne/runs/<topic>/test-matrix.md`, `null` until it exists |
+| `meta` | `frontier_locked` | boolean | the user froze the decision frontier |
+| `meta` | `written_spec_approved` | boolean | the user approved the exact written spec bytes |
+| `meta` | `approved_spec_sha256` | string \| null | the digest of the bytes the user approved; `null` until then |
 | `decision` | `type` | `"decision"` | append-only |
 | `decision` | `id` | string | `D<number>`, unique |
 | `decision` | `question` | string | what was being decided |
@@ -74,6 +77,7 @@ Only a legacy source produces absent keys.
 | `decision` | `consequences` | string \| null | see below |
 | `decision` | `supersedes` | string[] | see below; `[]` when nothing is reversed |
 | `decision` | `source` | string | `user`, `codebase`, `web`, `constraint`, `default`, or `review` |
+| `decision` | `reference` | string \| null | where the answer came from; see below |
 | `node` | `type` | `"node"` | rewritten in place |
 | `node` | `id` | string | `N<number>`, unique |
 | `node` | `parent` | string \| null | the single dependency edge a reader walks up, `null` for a root; a root may still carry `opens_when` when several earlier nodes gate it |
@@ -81,7 +85,33 @@ Only a legacy source produces absent keys.
 | `node` | `decision` | string | names the unresolved fact or choice; never empty |
 | `node` | `status` | string | `blocked`, `open`, `resolved`, or `not-applicable` |
 | `node` | `opens_when` | string \| null | the activation predicate only, `null` when the node is reachable from the start |
-| `node` | `resolved_by` | string \| null | the `D<number>` that resolved it, `null` while unresolved |
+| `node` | `resolved_by` | string \| null | the decision that resolved it, `null` while unresolved |
+
+**Lifecycle.** `frontier_locked` and `written_spec_approved` are separate user acts
+and neither is inferred. A frontier with no `open` or `blocked` node has merely
+converged; only the user locks it. Approving the written bytes requires a locked
+frontier, and `design-approved` requires both. This is the state a resumed run
+reads to know which gate it is standing at — an all-resolved DAG alone cannot tell
+it whether the user has locked anything.
+
+`approved_spec_sha256` is what makes the approval checkable. It is the digest of
+the candidate the user approved, and the living page must still hash to it: that
+is the same statement as "promotion is a byte-for-byte move" and "nothing was
+edited after approval", and it is why reviewers can be said to have read the
+approved bytes. Only `wayne-verify` writes to the spec after this point, and its
+`verified` entry is a runtime record rather than a design edit.
+
+**`decision.reference`** is where the answer came from: an `http(s)` URL, a
+repository-relative path, or a `<slug>:D<number>` citation of a decision carried by
+another living spec. It is `null` only for `user`, `constraint`, and `default`,
+whose source already locates the answer. A `codebase` decision names the file it
+read and a `review` decision names its report; a `web` decision must carry its URL,
+because an external fact whose source cannot be reopened is not evidence.
+
+**`node.resolved_by`** is a `D<number>` in this log, or a `<slug>:D<number>` when a
+trusted living spec already answered the node and this run seeds it resolved
+rather than re-litigating it. A local reference must exist in this log, and an
+external one must name a spec that exists at `docs/specs/<slug>.md`.
 
 `decision.consequences` records the cost this decision accepts — what it makes
 harder, slower, or irreversible. It never restates `rationale`, and it never

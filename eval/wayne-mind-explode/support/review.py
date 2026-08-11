@@ -97,7 +97,10 @@ def main() -> int:
     counter.write_text(str(count), encoding="utf-8")
 
     focus, detect = ROLES[role]
-    text = spec.read_text(encoding="utf-8")
+    # One read: a verdict computed from different bytes than the digest it ships
+    # would attest to a revision nobody reviewed.
+    raw = spec.read_bytes()
+    text = raw.decode("utf-8")
     gap = detect(text)
     if gap is not None:
         verdict = "REVISE"
@@ -111,15 +114,17 @@ def main() -> int:
         "attempt": count,
         "verdict": verdict,
         "spec": relative_spec,
-        "sha256": hashlib.sha256(spec.read_bytes()).hexdigest(),
+        "sha256": hashlib.sha256(raw).hexdigest(),
     }
     with (state / "review-events.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, sort_keys=True) + "\n")
 
     print(f"# {role.title()} Review")
     print()
+    print(f"ROLE: {role}")
     print(f"VERDICT: {verdict}")
     print(f"SPEC: {relative_spec}")
+    print(f"SHA256: {event['sha256']}")
     print(f"FOCUS: {focus}")
     print(f"DETAIL: {detail}")
     return 0

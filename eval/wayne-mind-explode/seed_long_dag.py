@@ -20,6 +20,9 @@ def records() -> list[dict[str, object]]:
             "status": "in-progress",
             "spec": None,
             "test_matrix": None,
+            "frontier_locked": False,
+            "written_spec_approved": False,
+            "approved_spec_sha256": None,
         }
     ]
     for number in range(1, 41):
@@ -33,6 +36,7 @@ def records() -> list[dict[str, object]]:
                 "consequences": None,
                 "supersedes": [],
                 "source": "user",
+                "reference": None,
             }
         )
     for number in range(1, 41):

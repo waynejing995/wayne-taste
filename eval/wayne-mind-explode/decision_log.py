@@ -8,16 +8,29 @@ not a second definition of it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlparse
 
 LOG_GLOB = ".wayne/runs/*/decision-log.jsonl"
 LOG_RELATIVE = re.compile(r"(?:^|/)\.wayne/runs/[^/]+/decision-log\.jsonl$")
 
 DECISION_ID = re.compile(r"^D([1-9]\d*)$")
 NODE_ID = re.compile(r"^N([1-9]\d*)$")
+SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+EXTERNAL_DECISION = re.compile(r"^([a-z0-9]+(?:-[a-z0-9]+)*):D[1-9]\d*$")
+
+# `source` values that already locate their own answer; everything else must say
+# where it came from.
+SELF_LOCATING = {"user", "constraint", "default"}
+
+
+def is_url(value: object) -> bool:
+    parsed = urlparse(str(value))
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 SOURCES = {"user", "codebase", "web", "constraint", "default", "review"}
 STATUSES = {"blocked", "open", "resolved", "not-applicable"}
@@ -47,6 +60,9 @@ SCHEMA: dict[str, dict[str, type | tuple[type, ...]]] = {
         "status": str,
         "spec": (str, type(None)),
         "test_matrix": (str, type(None)),
+        "frontier_locked": bool,
+        "written_spec_approved": bool,
+        "approved_spec_sha256": (str, type(None)),
     },
     "decision": {
         "type": str,
@@ -57,6 +73,7 @@ SCHEMA: dict[str, dict[str, type | tuple[type, ...]]] = {
         "consequences": (str, type(None)),
         "supersedes": list,
         "source": str,
+        "reference": (str, type(None)),
     },
     "node": {
         "type": str,
@@ -122,7 +139,7 @@ def find_log(repo: Path, findings: list[str]) -> Path | None:
     return matches[0]
 
 
-def load(path: Path, findings: list[str]) -> Log:
+def load(path: Path, findings: list[str], repo: Path | None = None) -> Log:
     """Parse and structurally validate one decision log."""
     log = Log(path=path)
     try:
@@ -193,6 +210,27 @@ def load(path: Path, findings: list[str]) -> Log:
             for reference in record.get("supersedes", []) or []:
                 if not re.fullmatch(r"(?:[a-z0-9-]+:)?D[1-9]\d*", str(reference)):
                     findings.append(f"decision {identifier} supersedes malformed {reference!r}")
+            provenance = record.get("reference")
+            source = str(record.get("source", "")).casefold()
+            if provenance is not None and not (
+                is_url(provenance)
+                or EXTERNAL_DECISION.match(str(provenance))
+                or SAFE_RELATIVE(str(provenance))
+            ):
+                findings.append(f"decision {identifier} reference is not locatable: {provenance!r}")
+            if source == "web" and not is_url(provenance):
+                findings.append(f"web decision {identifier} carries no source URL")
+            if source not in SELF_LOCATING and provenance is None:
+                findings.append(f"{source} decision {identifier} does not locate its answer")
+            if (
+                repo is not None
+                and isinstance(provenance, str)
+                and not is_url(provenance)
+                and not EXTERNAL_DECISION.match(provenance)
+                and SAFE_RELATIVE(provenance)
+                and not (repo / provenance).exists()
+            ):
+                findings.append(f"decision {identifier} references a path that does not exist: {provenance}")
             log.decisions.append(record)
         else:
             identifier = str(record.get("id", ""))
@@ -231,8 +269,31 @@ def load(path: Path, findings: list[str]) -> Log:
                 findings.append(f"node {identifier} precedes its parent {parent}")
         resolved_by = record.get("resolved_by")
         status = str(record.get("status", "")).casefold()
-        if resolved_by is not None and str(resolved_by) not in resolved_ids:
-            findings.append(f"node {identifier} resolved_by={resolved_by!r} does not exist")
+        if resolved_by is not None:
+            citation = str(resolved_by)
+            external = EXTERNAL_DECISION.match(citation)
+            if external:
+                # A trusted living spec already answered this node; that spec must
+                # exist, still be in force, and actually carry the decision cited.
+                if repo is not None:
+                    cited = repo / f"docs/specs/{external.group(1)}.md"
+                    if not cited.is_file():
+                        findings.append(
+                            f"node {identifier} cites a living spec that does not exist: {citation}"
+                        )
+                    else:
+                        spec_text = cited.read_text(encoding="utf-8")
+                        number = citation.split(":D", 1)[1]
+                        if re.search(r"^status:\s*deprecated\s*$", spec_text, re.MULTILINE):
+                            findings.append(f"node {identifier} cites a deprecated spec: {citation}")
+                        if not re.search(rf"^###\s+D{number}\b", spec_text, re.MULTILINE):
+                            findings.append(
+                                f"node {identifier} cites a decision the spec does not carry: {citation}"
+                            )
+            elif not DECISION_ID.match(citation):
+                findings.append(f"node {identifier} resolved_by={resolved_by!r} is malformed")
+            elif citation not in resolved_ids:
+                findings.append(f"node {identifier} resolved_by={resolved_by!r} does not exist")
         if status == "resolved" and resolved_by is None:
             findings.append(f"resolved node {identifier} has no resolved_by")
         if status != "resolved" and resolved_by is not None:
@@ -256,6 +317,28 @@ def load(path: Path, findings: list[str]) -> Log:
                 f"meta.topic={log.meta.get('topic')!r} does not match its run directory"
                 f" {path.parent.name!r}"
             )
+        locked = bool(log.meta.get("frontier_locked"))
+        approved = bool(log.meta.get("written_spec_approved"))
+        digest = log.meta.get("approved_spec_sha256")
+        if approved and not (isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)):
+            findings.append("approved spec carries no approved digest")
+        if digest is not None and not approved:
+            findings.append("unapproved spec carries an approval digest")
+        if not SLUG.match(str(log.meta.get("topic", ""))):
+            findings.append(f"meta.topic={log.meta.get('topic')!r} is not a slug")
+        if approved and not locked:
+            findings.append("written spec approved while the frontier is unlocked")
+        if str(log.meta.get("status", "")) == "design-approved" and not (locked and approved):
+            findings.append("design-approved without a locked frontier and an approved spec")
+        if locked:
+            unresolved = sorted(
+                node_id
+                for node_id, node in log.nodes.items()
+                if str(node.get("status", "")).casefold() not in {"resolved", "not-applicable"}
+            )
+            if unresolved:
+                findings.append(f"frontier locked with unresolved nodes: {unresolved}")
+
         topic = str(log.meta.get("topic", ""))
         for key, expected in (
             ("spec", f"docs/specs/{topic}.md"),
@@ -276,4 +359,4 @@ def read(repo: Path, findings: list[str]) -> Log | None:
     path = find_log(repo, findings)
     if path is None:
         return None
-    return load(path, findings)
+    return load(path, findings, repo)
