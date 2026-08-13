@@ -34,13 +34,14 @@ Use this for a deep review after loader metadata validation. Report findings by 
 
 ## 3. Size and progressive disclosure
 
-- **critical** — `SKILL.md` is under 500 lines.
-- **major** — 80–180 lines and 800–1,500 words is the normal target; excess is justified by behavioral eval evidence.
+- **critical** — `SKILL.md` is within the hard boundary in the forge's lean-defaults table.
+- **major** — it is within that table's target; excess is justified by behavioral eval evidence.
 - **major** — detailed schemas, variants, examples, and long checklists live in direct references, not the always-loaded body.
 - **major** — repeated or deterministic work is a script, not generated code.
 - **major** — every shipped resource is linked directly from `SKILL.md`.
 - **major** — no fact is duplicated between body, reference, template, or sibling skill.
-- **minor** — references above 100 lines have a table of contents.
+- **minor** — a reference past the table's TOC threshold has a table of contents.
+- **minor** — `prettier --check` passes: prose is one line per paragraph, not hard-wrapped.
 
 ## 4. Archetype fit
 
@@ -109,7 +110,7 @@ Pass / Needs improvement / Needs major revision
 ### Evidence
 - Static: <result>
 - Behavioral: <control vs candidate>
-- Size: <description chars, lines, words>
+- Size: <description chars, words>
 
 ### Findings
 - critical: <location → failure → smallest fix>
