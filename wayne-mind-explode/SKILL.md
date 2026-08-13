@@ -125,9 +125,11 @@ absorbs its content into the living spec, so nothing durable may exist only ther
 
 ### B. Research project and lessons
 
-On the initial pass, research enough to seed known root and dependent nodes. The
+On the initial pass, research enough with parallel subagents for all direction to seed known root and dependent nodes. The  
 topic's living spec and every spec it declares a `Depends on` edge to are read
 first: they are the current design, not background reading.
+
+ALSO a web research for similar topic implementation method is a must for sw stack picking and no remaking wheels!!!
 
 A spec is only trustworthy as current if it says so and nothing contradicts it. Run
 both checks before believing any of them — they are pure date comparisons and need
@@ -200,6 +202,10 @@ its key assumption and reversal condition; for each alternative name its distinc
 advantage or trade-off. Ask for the user's choice neutrally; silence, agreement
 with the framing, or acceptance of a parent node never approves this node or its
 children.
+
+sw stack is a must ask, to make sure you have a good start and avoid remaking wheels.
+
+ENTER frontend design skill, if change require the big UI change including new page add, legacy UX redesign.
 
 ### Q. Persist one user decision
 
