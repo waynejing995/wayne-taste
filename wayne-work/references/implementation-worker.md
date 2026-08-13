@@ -1,6 +1,6 @@
 # Implementation worker contract
 
-The text handed to every worker dispatched at node D, inline or native. It is written to the worker, in the second person. The main agent owns dispatch, integration, and completion; this document owns nothing but the worker's own boundary.
+The text handed to every worker dispatched at node D — native, or inline only as the recorded fallback. It is written to the worker, in the second person. The main agent owns dispatch, integration, and completion; this document owns nothing but the worker's own boundary.
 
 ---
 
