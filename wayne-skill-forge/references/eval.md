@@ -189,7 +189,7 @@ Do not optimize recall by making the description claim an entire domain. Front-l
 
 - Static validation: pass/fail
 - Description: <chars before → after>
-- SKILL.md: <lines/words before → after>
+- SKILL.md: <words before → after>
 - Verdict: accept/revise/reject
 - Residual uncertainty: <untested area>
 ```

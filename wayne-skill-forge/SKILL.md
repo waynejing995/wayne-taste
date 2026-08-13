@@ -35,12 +35,14 @@ If no evidence or local fact justifies a line, cut it. Do not encode generic adv
 
 ### Use lean defaults
 
-| Surface         |                        Target |             Hard boundary |
-| --------------- | ----------------------------: | ------------------------: |
-| `description`   |            180–400 characters |          1,024 characters |
-| `SKILL.md`      | 80–180 lines, 800–1,500 words |      fewer than 500 lines |
-| reference       |             one focused topic | add a TOC above 100 lines |
-| reference depth |        direct from `SKILL.md` | no nested reference chain |
+| Surface         |                 Target |             Hard boundary |
+| --------------- | ---------------------: | ------------------------: |
+| `description`   |     180–400 characters |          1,024 characters |
+| `SKILL.md`      |        800–1,500 words |    fewer than 4,000 words |
+| reference       |      one focused topic | add a TOC above 800 words |
+| reference depth | direct from `SKILL.md` | no nested reference chain |
+
+Budgets are in words, never lines. A line count measures how the file was wrapped, not how much an agent has to read, and this repository writes one line per paragraph.
 
 Exceed a target only when an eval shows the additional context prevents a real failure. Size reduction alone is not success; behavior must remain correct.
 
@@ -135,13 +137,16 @@ Start from the archetype template. Write discovery metadata, then only the core 
 
 For any proposed runtime schema or validator, name the non-AI consumer that parses it and the failure it prevents. If the next consumer is an agent reading Markdown, reject the mechanism and use source-grounded AI review plus behavioral eval. Regex, headings, keywords, counts, templates, and similarity may be evaluator observations; they never become a prose correctness gate by themselves.
 
-### E. Validate loader metadata
+### E. Validate loader metadata and formatting
 
 ```bash
 uv run <wayne-skill-forge-dir>/scripts/validate_skill.py <skill-directory>
+npx prettier --check <skill-directory>
 ```
 
-This checks only the same loader-level metadata expected by the official skill creator. It does not judge Markdown organization, Flowchart style, prose, or behavior. Execute and test every bundled operational script against its real job. If the environment prevents execution, report the incomplete proof.
+The validator checks only the same loader-level metadata expected by the official skill creator. It does not judge Markdown organization, Flowchart style, prose, or behavior. Execute and test every bundled operational script against its real job. If the environment prevents execution, report the incomplete proof.
+
+`prettier --check` enforces the repository's `.prettierrc`: one line per paragraph, no hard wrapping. Fix a failure with `--write` rather than by hand. Hard-wrapped prose is the default an LLM reaches for and nobody chose it here; it makes a one-word change reflow a whole paragraph and puts a single sentence across three edit anchors.
 
 ### F. Run behavioral eval
 
