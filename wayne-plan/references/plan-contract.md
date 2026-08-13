@@ -88,6 +88,14 @@ ambiguous, duplicated, or disconnected.
 - Every source requirement maps to at least one unit, and each feature unit states
   the requirements it advances. Pure cleanup explains why it has no source requirement.
 - Dependencies point only to earlier units and explain why. Independent units say so.
+- `I<number>` and `U<number>` are assigned once and never renumbered, across every
+  revision of this plan. Reordering units keeps their existing numbers in the new
+  order; splitting keeps the original number on the original concept and gives the new
+  unit the next unused one; a deletion leaves its number unused. `wayne-work` writes U
+  status against these numbers and `wayne-checkpoint` carries them, so renumbering
+  breaks references that were written against the old ones. Deepening is the likeliest
+  place to do it by accident, because a resequenced list always looks tidier numbered
+  from one.
 - Consumed and produced interfaces identify repository-relative files and the most
   specific useful symbol, owner, input/output shape, and role. A consumer from an
   earlier unit must agree semantically with what that unit produces.
