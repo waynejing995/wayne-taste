@@ -16,6 +16,19 @@ Read the living spec, the decision log, and the plan. The spec's diagrams, inter
 blocks, ownership statements, and technology constraints are the design; the plan is a
 claim about how it will be built. Compare them.
 
+## When this voice does not apply
+
+This review needs a design to compare the plan against. When the plan's origin is a
+converged direct request with no living spec, there is nothing to compare and this
+voice does not run — do not promote the request's own prose into a substitute design
+and then check the plan against it, which only confirms the plan agrees with itself.
+
+That is a declared not-applicable, never a silent omission and never a downgraded
+review: the plan records `Design conformance: none — <reason>` so a reader can
+challenge whether the origin really had no design surface. A missing or failed
+execution of an applicable voice is a different thing and returns
+`REVIEW_UNAVAILABLE`.
+
 ## Component and ownership
 
 - Every unit names the spec component, interface, or ownership surface it realizes, or

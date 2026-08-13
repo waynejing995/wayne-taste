@@ -26,6 +26,8 @@ Produce an English implementation plan that a fresh `wayne-work` agent can execu
 ```dot
 digraph wayne_plan {
     rankdir=TB;
+    S [label="Decision log present?", shape=diamond];
+    LT [label="Load lite-planning.md", shape=box];
     A [label="Discover sources", shape=box];
     B [label="Bind evidence and context", shape=box];
     C [label="Active conflict?", shape=diamond];
@@ -36,7 +38,7 @@ digraph wayne_plan {
     Y [label="MISSING_E2E", shape=doublecircle];
     E [label="Trace cleanup surfaces", shape=box];
     F [label="Draft canonical plan", shape=box];
-    G [label="All three valid, zero findings?", shape=diamond];
+    G [label="Every applicable voice valid, zero findings?", shape=diamond];
     ADJ [label="Adjudicate findings", shape=box];
     N [label="Ask about the challenged decision", shape=diamond];
     H [label="Revise from findings", shape=box];
@@ -46,6 +48,9 @@ digraph wayne_plan {
     L [label="Checkpoint handoff", shape=box];
     W [label="Ready for wayne-work", shape=doublecircle];
 
+    S -> A [label="yes"];
+    S -> LT [label="no"];
+    LT -> C;
     A -> B;
     B -> C;
     C -> X [label="yes"];
@@ -75,6 +80,23 @@ digraph wayne_plan {
 ```
 
 ## Process
+
+### S. Pick the path
+
+- Read `../_shared/pipeline-id-contract.md` completely, then answer one structural
+  question before reading anything expensive: **does this run carry a decision log?**
+- **Yes** — a design run just handed off. Continue at A: there are `R<number>`s,
+  decisions, and U-SEED rows that must be traced forward, and the standard path exists
+  to carry them.
+- **No** — a converged direct request. Load
+  [lite planning](references/lite-planning.md) and follow it; it replaces A, B, E, and
+  F, and rejoins at C. Do not read the standard template or build a working coverage
+  map — there are no upstream obligations to map.
+- This is a fact about the run's inputs, not a size judgment, so it cannot be argued
+  either way. A living spec with no decision log is still the lite path: read the spec
+  as context, cite it, amend nothing.
+- Either way, if the WHAT is unsettled, neither path applies — stop and route to
+  `wayne-mind-explode`.
 
 ### A. Discover sources
 
@@ -186,16 +208,21 @@ digraph wayne_plan {
   order, carried technology constraints, and whether every deviation is declared. A
   plan can satisfy every obligation and still build a different system, and neither
   other voice sees that — one reads clauses, the other judges the plan as written.
+  It applies only when the origin has a living spec to compare against; a converged
+  direct request with no spec records `Design conformance: none — <reason>` in the
+  plan and dispatches two voices.
 - Every review compares the starting HEAD/status, the agent's write history, and the
   current diff before checkpoint handoff. Any mutation beyond the new plan file
   fails the scope review. Git evidence is sufficient; do not scan unrelated files.
 - No reviewer may substitute headings, section order, table shape, keywords,
   substring checks, regex, a script, or template agreement for contextual reading.
   Provider/tool termination before a report is invalid and must be rerun.
-- All three voices must actually execute, and A and B must not collapse onto one model
-  family. A missing mechanism, a failed or empty voice, or that collapse returns
-  `REVIEW_UNAVAILABLE`; never claim a review that did not run, simulate a voice
-  locally, or downgrade to fewer voices.
+- Every **applicable** voice must actually execute, and A and B must not collapse onto
+  one model family. A missing mechanism, a failed or empty voice, or that collapse
+  returns `REVIEW_UNAVAILABLE`; never claim a review that did not run, simulate a voice
+  locally, or drop an applicable voice. A declared not-applicable voice is not a
+  downgrade: it is written into the plan with its reason, where a reader can challenge
+  it. Silently omitting one is.
 - A requested model is not a routed model. After the run, read the actual model of
   each reviewer execution from the host's run metadata. If a voice fell back to the
   session default, or A and B resolved to one family, the run is void: return

@@ -188,7 +188,7 @@ not a line-count or regex grammar; semantic completeness is what matters.
 
 ## 8. Review and scope proof
 
-Three independent AI reviews own acceptance:
+Independent AI reviews own acceptance:
 
 - source-fidelity reads every upstream artifact and the repository evidence, then
   checks requirements, decisions, scope, rationale, E ownership, seed disposition,
@@ -198,7 +198,10 @@ Three independent AI reviews own acceptance:
   can work without inventing a decision;
 - design-conformance checks that the plan builds the approved architecture: component
   realization, state ownership, interface signatures, flow order, carried technology
-  constraints, and whether every deviation from a named spec surface is declared.
+  constraints, and whether every deviation from a named spec surface is declared. It
+  applies only when a living spec exists to compare against; otherwise the plan records
+  `Design conformance: none — <reason>` and two voices run. A declared
+  not-applicable voice is not a downgrade; a silently omitted one is.
 
 Every review compares the recorded starting commit/status, agent write history, and
 final Git diff before checkpoint handoff. Only the new plan may change during plan
