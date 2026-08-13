@@ -57,8 +57,10 @@ Shell rules:
 
 Answer these before laying anything out. If there is no action the viewer can take, a dashboard is the wrong format.
 
-1. Who reads it? 2. What decision does it inform? 3. How often do they look?
-2. What can they do about it?
+1. Who reads it?
+2. What decision does it inform?
+3. How often do they look?
+4. What can they do about it?
 
 | Archetype            | Audience          | Cadence          | Metric count |
 | -------------------- | ----------------- | ---------------- | ------------ |
