@@ -50,7 +50,7 @@ user has approved them. An amendment works the same way: it starts from the
 current in-force bytes, revises the candidate, and promotes.
 
 The point is that `docs/specs/` never holds a byte the user did not approve, and
-the bytes two independent reviewers read are the bytes that were approved. A
+the bytes the independent reviewers read are the bytes that were approved. A
 workflow that promotes first and adjusts afterwards — even only the status line —
 has already broken that, because the approval no longer names what is in force.
 
@@ -65,6 +65,10 @@ required — a requirement without `Current` cannot be shown to have changed
 anything, and one without `Acceptance` cannot be verified. "Improve performance"
 is not a requirement; "p99 falls from 800ms to under 200ms, proven by <check>" is.
 
+It is also where normative text lives. A gate, cap, threshold, ordering, or output
+contract is written **in full at exactly one owning `R<number>`**; every other
+section that needs it cites that ID and adds only what is local to itself.
+
 **`## Verification` maps every `R<number>` to a proof.** An unmapped requirement
 is a gap, not an omission. Carry no pass/fail status: whether a run passed is
 run-scoped state owned by the test matrix, and the durable fact that this spec
@@ -77,6 +81,16 @@ not depend on dies with the run. Independent review judges these bytes, so a
 load-bearing decision left in the run-scoped log reaches the reviewer as an
 unanswered question. One entry per decision, titled with the decision itself, so
 reading only the headings gives the whole decision set.
+
+An entry is a **provenance index, not a second statement of the rule**. Where the
+decision constrains specific requirements, the entry is the decision, its rationale,
+and an exact `Governs R5, R7` line naming them — the rule itself stays on those Rs.
+A framing decision that governs no requirement (a technology pick, a boundary, an
+eliminated option) carries its own text and no link, because it has no other home.
+
+That split is what keeps a decision from being weakened in transcription: a rule
+written out twice drifts, and a spec with two versions of it has no statement of
+which one is in force. An entry that would write the rule out again cites it instead.
 
 Each entry carries its `Consequences`, and a `Depends on` line whenever a decision
 in another spec constrained this one, cited as [`<slug>:D<n>`](./<slug>.md). Only
@@ -131,8 +145,14 @@ fresh eyes and fix inline:
 3. **Ambiguity** — could any requirement be read two ways? Pick one and say it.
 4. **Scope** — is this focused enough to become one implementation plan?
 5. **Carrier leak** — walk the run-scoped decision log record by record. Each one
-   either has its normative meaning somewhere in these bytes, or an explicit reason
-   the specified behavior does not depend on it. A reviewer that spots the gap is
-   right to file it as a spec defect, and repairing it here is cheaper than a round.
+   either has a home in these bytes, or an explicit reason the specified behavior
+   does not depend on it. This is a presence sweep and nothing more: whether each
+   home carries the same obligation is judged by the carriage voice at J, because an
+   author reads their own sentence as obviously meaning what they meant.
+6. **Duplicated rule** — is any gate, cap, threshold, ordering, or output contract
+   written out in full in more than one place? The remedy is not to make the two
+   copies agree; it is to delete the one that does not own the rule and cite the
+   owning `R<number>` in its place. Two copies drift independently, and the weaker
+   one is what a downstream stage happens to read.
 
 Minor wording, stylistic preference, and uneven detail are not findings.

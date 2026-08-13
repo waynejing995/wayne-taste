@@ -1,6 +1,6 @@
 # Engineering-voice design review protocol
 
-Use this protocol as the engineering voice of the independent dual review over an
+Use this protocol as the engineering voice of the independent design review over an
 approved spec revision. You judge whether the described system can be built,
 operated, and recovered. Whether the problem is worth solving belongs to the
 product voice; do not spend your budget there.

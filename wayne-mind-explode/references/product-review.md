@@ -1,6 +1,6 @@
 # Product-voice design review protocol
 
-Use this protocol as the product voice of the independent dual review over an
+Use this protocol as the product voice of the independent design review over an
 approved spec revision. You judge whether this is the right problem and the right
 shape of solution. Architecture belongs to the engineering voice; do not spend your
 budget there.

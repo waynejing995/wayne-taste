@@ -1,6 +1,6 @@
 ---
 name: wayne-mind-explode
-description: Converges a feature, system, or architecture idea through repository-grounded questioning into an approved decision log, test matrix, and design spec, then runs two independent design reviews and hands off to wayne-plan. Use for “brainstorm”, “mind explode”, “let's design”, “grill me”, or equivalent Chinese design requests; never use it to implement or write the implementation plan.
+description: Converges a feature, system, or architecture idea through repository-grounded questioning into an approved decision log, test matrix, and design spec, then runs three independent design reviews and hands off to wayne-plan. Use for “brainstorm”, “mind explode”, “let's design”, “grill me”, or equivalent Chinese design requests; never use it to implement or write the implementation plan.
 ---
 # Wayne Mind Explode
 
@@ -60,7 +60,7 @@ digraph mind_explode {
     H [label="Conflict remains?", shape=diamond];
     I [label="Write spec", shape=box];
     V [label="Written spec approved?", shape=diamond];
-    J [label="Run two independent reviews", shape=box];
+    J [label="Run three independent reviews", shape=box];
     K [label="Both valid on the final revision, zero findings?", shape=diamond];
     ADJ [label="Adjudicate findings", shape=box];
     R [label="Revise from findings", shape=box];
@@ -307,17 +307,26 @@ signatures plus one illustrative call, and a `## Technology and frameworks` row
 per committed choice with the constraint it imposes. A reviewer who cannot see the
 boundary cannot argue with it. Bodies and algorithms belong to the plan.
 
-Absorb into `## Decisions` every decision the specified behavior depends on,
-following [the spec contract](references/spec-contract.md). The run-scoped decision
-log is working state: whatever only it holds is lost at ship, and — because the two
-voices in J judge these bytes — a load-bearing decision left behind here reaches them
-as an unanswered question they are right to raise.
+Absorb every decision the specified behavior depends on, following
+[the spec contract](references/spec-contract.md), and split it by where its rule
+belongs. A decision that constrains specific requirements has its normative text
+written on those `R<number>`s, and its `## Decisions` entry is the decision, its
+rationale, and a `Governs R5, R7` line. A framing decision governing no requirement
+keeps its text in `## Decisions`, which is its only home.
 
-Audit that literally before review. Walk the log record by record and, for each one,
-either point at where the spec carries its normative meaning or state why the
-specified behavior does not depend on it. A decision the design leans on that no
-sentence in the spec carries is a carrier leak in this node, not a reviewer error,
-and it is the majority of what the review loop then argues about.
+Never write the same rule in both places. The run-scoped decision log is working
+state: whatever only it holds is lost at ship, and — because the voices in J
+judge these bytes — a load-bearing decision left behind here reaches them as an
+unanswered question they are right to raise. But a decision transcribed twice is
+worse than one left behind: the copies drift, and the weakened one is what a
+downstream stage reads.
+
+Sweep for presence before review: walk the log record by record and either name where
+the spec carries each decision or state why the specified behavior does not depend on
+it. That is a cheap omission check and the limit of what this node can judge about its
+own transcription — whether each home carries the *same obligation* is the carriage
+voice's job at J, because the sentence you just wrote reads to you as obviously meaning
+what you meant.
 
 Absorb the matrix's E2E layer into `## Verification` — the matrix is produced
 before this step and is run-scoped, so the spec is where that contract survives.
@@ -330,26 +339,30 @@ TBD/TODO before review.
 
 Establish that the mechanism exists before a page goes in force; this node
 discovers capability and does not review anything. Find how the current agent and
-repository launch isolated reviewers from heterogeneous model families, and record
-what it is. The review criteria are provider-neutral and live in the two templates
-below; only the dispatch mechanism is host-specific. In Pi, the mechanism is the saved
+repository launch isolated reviewers, and record what it is. The review criteria are
+provider-neutral and live in the three templates below; only the dispatch mechanism is
+host-specific. In Pi, the mechanism is the saved
 workflow `wayne-dual-review`, which J later calls with `subject`, the `artifacts`
-set (the approved spec revision, the decision log, and the test matrix),
-`reviewerATemplate`
-`references/product-review.md`, and `reviewerBTemplate`
-`references/engineering-review.md`. It freezes those bytes outside the repository,
-runs both voices in parallel, and computes the gate without editing anything.
-Another host substitutes its own mechanism with the same two templates. If two
-isolated heterogeneous executions cannot be started, if either voice fails or
-returns nothing, or if both voices collapse onto one model family, return
+set (the approved spec revision, the decision log, and the test matrix), and the three
+protocol paths `references/product-review.md`,
+`references/engineering-review.md`, and `references/decision-carriage.md`. It freezes
+those bytes outside the repository,
+runs the voices in parallel, and computes the gate without editing anything.
+Another host substitutes its own mechanism with the same three templates. Product and
+engineering must land on different model families — they argue about the same bytes,
+so one family collapses them into one opinion. Carriage compares two artifacts against
+each other rather than arguing, so its independence comes from a fresh isolated
+context; it may share a family. If the isolated executions cannot be started, if any
+voice fails or
+returns nothing, or if product and engineering collapse onto one model family, return
 `REVIEW_UNAVAILABLE` with the missing capability and stop, before anything is
 promoted. If the failure only surfaces when J actually runs, move the page back to
 `.wayne/runs/<topic>/spec.md`, clear `written_spec_approved` and
 `approved_spec_sha256`, and return `REVIEW_UNAVAILABLE` from there: an in-force
-page no voice could read is worse than no page. Never simulate two voices in one local analysis or silently downgrade to
-a single review. A requested model is not a routed model: after J runs, read each
+page no voice could read is worse than no page. Never simulate a voice in one local analysis or silently downgrade to
+fewer reviews. A requested model is not a routed model: after J runs, read each
 reviewer execution's actual model from the host's run metadata, and void the run
-the same way if either voice fell back to the session default or both resolved to
+the same way if any voice fell back to the session default or product and engineering resolved to
 one family.
 
 ### V. Approve the written spec
@@ -369,9 +382,9 @@ copy: two copies would immediately begin to disagree. Never edit during or after
 the move; the bytes the reviewers in J read are the bytes the user approved, and
 changing so much as the status line would make that untrue.
 
-### J. Run two independent reviews
+### J. Run three independent reviews
 
-Dispatch the same spec revision to two separate reviewer executions:
+Dispatch the same spec revision to three separate reviewer executions:
 
 - product voice, carrying [the product protocol](references/product-review.md):
 challenge premise, necessity, whether this is the right problem, the 10-star
@@ -380,10 +393,20 @@ alternative, user value, assumptions, scope, and non-goals;
 [the engineering protocol](references/engineering-review.md): challenge
 architecture, ownership, interfaces, data/control flow, failures, edge and
 concurrency paths, tests, performance/capacity, observability, rollback, and
-execution readiness.
+execution readiness;
+- carriage voice, carrying
+[the carriage protocol](references/decision-carriage.md): compare the decision log
+against the spec obligation by obligation, and report every narrowing, widening,
+normalization, omission, or qualifier change — plus any rule the spec asserts that no
+decision authorizes.
+
+The third voice exists because node I's transcription is the one hop in this pipeline
+with no independent check. Its author cannot audit it: a self-check reads its own
+sentence as obviously carrying what it meant. The other two voices treat the spec as
+the artifact and the log as context, so neither is looking at the hop at all.
 
 Keep each voice's latest report at
-`.wayne/runs/<topic>/review-{product|engineering}.md`, naming its role, verdict,
+`.wayne/runs/<topic>/review-{product|engineering|carriage}.md`, naming its role, verdict,
 and the digest of the bytes it read. The decision log carries the history: append
 one `decision` record per round with `"source":"review"` and that report path in
 `reference`, and never rewrite an earlier round's record.
@@ -392,10 +415,10 @@ On `REVISE`, the page in force is no longer the design being worked on, so move
 `docs/specs/<topic>.md` back to `.wayne/runs/<topic>/spec.md`, clear
 `written_spec_approved` and `approved_spec_sha256`, and revise the candidate there.
 Return to V for approval of the revised bytes, which promotes them again, then
-rerun both voices against the promoted page. `docs/specs/` therefore only ever
+rerun every voice against the promoted page. `docs/specs/` therefore only ever
 holds bytes that are both approved and under review, never a half-resolved
-revision. Both must pass the same final digest, and that
-digest is `approved_spec_sha256`. Any later edit to the design content makes both
+revision. All three must pass the same final digest, and that
+digest is `approved_spec_sha256`. Any later edit to the design content makes those
 passes stale; `wayne-verify` appending its `verified` entry after ship is a runtime
 record of that same design, not a revision of it, and is the one write to the page
 that does not re-arm this gate. Never write review notes into the spec after those
@@ -445,7 +468,9 @@ Tell the user their paths and that `wayne-plan` is the next agent. Invoke
 - No question whose answer exists in the repository or approved sources.
 - No spec before all required decisions and conflicts are resolved.
 - No duplicated E2E contract or second test-matrix owner.
-- No claimed dual review without two real executions on the final revision.
+- No claimed review round without three real executions on the final revision.
+- No self-check substitutes for the carriage voice: the author of a transcription
+  cannot audit it.
 - No reviewer finding may reverse a decision; only a new record naming it in
   `supersedes` does, and only the user asks for one.
 

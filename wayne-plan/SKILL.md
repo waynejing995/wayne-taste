@@ -38,6 +38,8 @@ digraph wayne_plan {
     Y [label="MISSING_E2E", shape=doublecircle];
     E [label="Trace cleanup surfaces", shape=box];
     F [label="Draft canonical plan", shape=box];
+    DP [label="Score section confidence", shape=diamond];
+    DS [label="Strengthen selected sections", shape=box];
     G [label="Every applicable voice valid, zero findings?", shape=diamond];
     ADJ [label="Adjudicate findings", shape=box];
     N [label="Ask about the challenged decision", shape=diamond];
@@ -61,7 +63,11 @@ digraph wayne_plan {
     T -> D;
     D -> E [label="yes"];
     E -> F;
-    F -> G;
+    F -> DP;
+    DP -> G [label="no weak section"];
+    DP -> DS [label="2-5 weak"];
+    DP -> F [label="too thin to deepen"];
+    DS -> G;
     G -> J [label="yes"];
     G -> ADJ [label="no"];
     ADJ -> H [label="carrier loss / real defect"];
@@ -175,6 +181,24 @@ digraph wayne_plan {
   its semantic obligations, map or drop each seed once with evidence, add any new U
   coverage explicitly, and bind every U scenario to one unit. Keep both statuses
   under their downstream owners.
+
+### DP/DS. Score and strengthen before review
+
+- Standard path only; a lite plan skips this and goes straight to G. Read
+  [deepening](references/deepening.md), which owns the scoring, the section
+  checklists, and the post-strengthening check.
+- Review asks what is wrong and only fires on a finding. This asks what is **thin** —
+  a decision with no rationale, an Approach that restates its Goal, a test scenario
+  that names no input. None of those breaks a rule, so no voice reports them.
+- Score every section, then take one of three exits: no weak section goes straight to
+  G; two to five go to DS; **more than five, or one critical section failing most of
+  its checklist, returns to F.** A plan too thin to deepen is too thin to review — do
+  not spend three review dispatches confirming what the author already knows.
+- Strengthening dispatches read-only subagents per selected section, and may cut as
+  well as add. Its output is **not** a finding: it never enters ADJ or
+  `## Review Adjudication`, because nothing here came from a reviewer.
+- It runs on this edge and nowhere else. After G, any edit invalidates all three
+  passes.
 
 ### G. Run independent reviews
 

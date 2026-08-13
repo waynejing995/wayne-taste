@@ -123,11 +123,17 @@ sequenceDiagram
 
 ## Decisions
 
+<Each entry is a provenance index. When the decision constrains requirements, the
+ rule itself lives on those Rs and the entry links to them; only a framing decision
+ that governs no requirement carries its rule here.>
+
 ### D1 — <the decision itself, as a declarative statement>
 
 <Why. One short paragraph: the force that made this the answer, and the
 alternative it beat.[^<source-id>]>
 
+- **Governs** — <`R5, R7` — those Rs carry the normative text; omit this line for a
+  framing decision, which then states its own rule here>
 - **Consequences** — <the cost this accepts: what it makes harder, slower, or
   irreversible. Never a restatement of the rationale.>
 - **Depends on** — [`<slug>:D<n>`](./<slug>.md)
