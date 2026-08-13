@@ -36,7 +36,9 @@ digraph wayne_plan {
     Y [label="MISSING_E2E", shape=doublecircle];
     E [label="Trace cleanup surfaces", shape=box];
     F [label="Draft canonical plan", shape=box];
-    G [label="Independent reviews pass?", shape=diamond];
+    G [label="All three valid, zero findings?", shape=diamond];
+    ADJ [label="Adjudicate findings", shape=box];
+    N [label="Ask about the challenged decision", shape=diamond];
     H [label="Revise from findings", shape=box];
     J [label="Present plan", shape=box];
     K [label="Return-only requested?", shape=diamond];
@@ -55,9 +57,16 @@ digraph wayne_plan {
     D -> E [label="yes"];
     E -> F;
     F -> G;
-    G -> H [label="no"];
-    H -> F;
     G -> J [label="yes"];
+    G -> ADJ [label="no"];
+    ADJ -> H [label="carrier loss / real defect"];
+    ADJ -> N [label="challenges a decision"];
+    ADJ -> C [label="upstream product gap"];
+    ADJ -> D [label="absent E ownership"];
+    ADJ -> J [label="all remaining non-blocking"];
+    N -> ADJ [label="decision stands"];
+    N -> X [label="reopened"];
+    H -> F;
     J -> K;
     K -> R [label="yes"];
     K -> L [label="no"];
@@ -134,6 +143,11 @@ digraph wayne_plan {
   enough detail to close its real interfaces and failure paths. Never add units,
   prose, or review work to satisfy a size/depth quota.
 - Order units by dependency. Give every unit closed inputs/outputs, files and symbols, concrete control logic, test ownership, E coverage, verification, and source traces so another agent can implement it from the plan plus repository.
+- When a unit adds or changes a gate, validator, or classifier, close the
+  producer-to-judge boundary inside that unit: the author's instructions generated
+  from the judge's own constant, the rule's literal example round-tripped through the
+  judge, and a pinned snapshot of what the judge receives. See
+  `../_shared/cybernetics-lens.md` §4a.
 - Preserve the complete E contract without changing its meaning, rows, IDs, or
   status. Re-author every source seed against a real `path::symbol` without changing
   its semantic obligations, map or drop each seed once with evidence, add any new U
@@ -142,54 +156,94 @@ digraph wayne_plan {
 
 ### G. Run independent reviews
 
-- Dispatch two reviews in fresh, isolated contexts from different model families
-  through the host's independent-review mechanism. Voice A carries the
+- Dispatch three reviews in fresh, isolated contexts. Voice A carries the
   [source-fidelity protocol](references/source-fidelity-review.md); voice B carries
-  the [execution-readiness protocol](references/execution-readiness-review.md).
-  Those two files own the review criteria and stay provider-agnostic.
-- In Pi, dispatch is the saved workflow `wayne-dual-review`. Pass `subject`, the
-  `artifacts` set (every decision log, spec, matrix, the working coverage map, and
-  the plan), `reviewerATemplate` and `reviewerBTemplate` as the two protocol paths,
-  and `allowedMutationPaths` as the new plan file alone. The workflow freezes the
-  artifacts outside the repository, runs both voices in parallel, and computes the
-  gate; it never edits the repository. Another host substitutes its own mechanism
-  with the same two templates.
+  the [execution-readiness protocol](references/execution-readiness-review.md); voice C
+  carries the [design-conformance protocol](references/design-conformance-review.md).
+  Those three files own the review criteria and stay provider-agnostic.
+- A and B must land on different model families — they argue about the same plan, so a
+  shared family collapses them into one opinion. C asks a question neither of them
+  asks, against a source neither of them compares to, so its independence comes from a
+  fresh isolated context rather than a different family; it may share a family with A
+  or B.
+- In Pi, dispatch A and B through the saved workflow `wayne-dual-review` unchanged:
+  `subject`, the `artifacts` set (every decision log, spec, matrix, the working
+  coverage map, and the plan), `reviewerATemplate` and `reviewerBTemplate` as those two
+  protocol paths, and `allowedMutationPaths` as the new plan file alone. Dispatch C as
+  a separate read-only subagent over the same frozen artifacts, carrying the
+  design-conformance protocol. Neither may edit the repository. Another host
+  substitutes its own mechanism with the same three templates. A strict reviewer
+  verdict is input to ADJ, not the gate: a findings list that is not empty routes to
+  adjudication, never straight to a revision.
 - Source-fidelity reverse-checks every source obligation and U seed, E ownership,
   scope, decisions, rationale, and intended behavior in both directions.
 - Execution-readiness independently checks dependency closure, interfaces, real
   files/symbols, unit ownership, U coverage, E advancement, cleanup, placeholders,
   and whether a fresh `wayne-work` agent could execute each unit without product
   redesign or inventing behavior.
-- Both reviews compare the starting HEAD/status, the agent's write history, and the
+- Design-conformance independently checks that the plan builds the approved
+  architecture: component realization, state ownership, interface signatures, flow
+  order, carried technology constraints, and whether every deviation is declared. A
+  plan can satisfy every obligation and still build a different system, and neither
+  other voice sees that — one reads clauses, the other judges the plan as written.
+- Every review compares the starting HEAD/status, the agent's write history, and the
   current diff before checkpoint handoff. Any mutation beyond the new plan file
   fails the scope review. Git evidence is sufficient; do not scan unrelated files.
-- Neither reviewer may substitute headings, section order, table shape, keywords,
+- No reviewer may substitute headings, section order, table shape, keywords,
   substring checks, regex, a script, or template agreement for contextual reading.
   Provider/tool termination before a report is invalid and must be rerun.
-- Two voices must actually execute on different model families. A missing
-  mechanism, a failed or empty voice, or a fallback that collapses both voices onto
-  one family returns `REVIEW_UNAVAILABLE`; never claim a dual review, simulate the
-  second voice locally, or downgrade to one review.
+- All three voices must actually execute, and A and B must not collapse onto one model
+  family. A missing mechanism, a failed or empty voice, or that collapse returns
+  `REVIEW_UNAVAILABLE`; never claim a review that did not run, simulate a voice
+  locally, or downgrade to fewer voices.
 - A requested model is not a routed model. After the run, read the actual model of
-  each reviewer execution from the host's run metadata. If either voice fell back to
-  the session default or both resolved to one family, the run is void: return
+  each reviewer execution from the host's run metadata. If a voice fell back to the
+  session default, or A and B resolved to one family, the run is void: return
   `REVIEW_UNAVAILABLE` rather than reporting its gate.
+
+### ADJ. Adjudicate findings
+
+- Read [the adjudication contract](../_shared/finding-adjudication.md) completely; it
+  owns the dispositions, the challenge route, and the gate. A reviewer judges the
+  plan's bytes and has no standing over the decisions behind them, so classifying
+  findings against the decision log is this node's job and no reviewer's. Any non-empty
+  findings set arrives here whatever verdict the voices returned; only two valid
+  executions reporting zero findings skip this node.
+- Classify every finding before any plan byte changes. `CARRIER_LOSS` and
+  `REAL_DEFECT` go to H; an undecided product question goes to C; absent E ownership
+  goes to D; a finding contradicting a decision still in force goes to N.
+- Record each finding's disposition, its owning `D<number>`, the evidence, the action,
+  and the user outcome in the plan's review record. Create no separate artifact.
+- Proceed to J once every finding is resolved by a revision or non-blocking. A
+  finding the user already rejected never re-blocks, however many rounds raise it.
+
+### N. Ask about the challenged decision
+
+- Ask the user one question carrying the `D<number>` and what it decided, the finding
+  verbatim, and what evidence or risk the reviewer has that was not on the table when
+  the decision was made. Never edit the plan to make the finding go away.
+- If the decision stands, record the rejection and return to ADJ with that finding
+  permanently non-blocking.
+- If the user reopens it, stop. Reversal is a new decision record naming the old one
+  in `supersedes`, and this skill may not write the decision log: return
+  `PLAN_CONFLICT` naming the decision and route the reversal upstream.
 
 ### H. Revise from findings
 
+- Only findings ADJ classified `CARRIER_LOSS` or `REAL_DEFECT` reach this node.
 - Fix the smallest owning surface: upstream gap, plan content, template guidance, or
   coverage-map transcription. Never change an upstream source inside this procedure.
 - Preserve the intended owner/member and semantic obligation; do not weaken a
   requirement or rename a surface merely to make text look consistent.
-- Repeat both reviews after every plan revision. If a finding exposes an unresolved
+- Repeat every review after every plan revision. If a finding exposes an unresolved
   product decision or absent E ownership, follow C or D instead of inventing a
   default. Ask the user when repository evidence cannot close a required choice.
 
 ### J. Present the plan
 
-- Present only after both reviews pass. Then set plan status from `active` to
-  `approved` and confirm the final scope diff before handoff. Unless the caller
-  supplied an exact response contract, summarize the
+- Present only after all three reviews pass adjudication. Then set plan status from
+  `active` to `approved` and confirm the final scope diff before handoff. Unless the
+  caller supplied an exact response contract, summarize the
   approved plan and evidence concisely in Chinese while the plan file remains
   English. Report its path; discard temporary working notes after the review record
   no longer needs them.

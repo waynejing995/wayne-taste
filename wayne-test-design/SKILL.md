@@ -69,6 +69,31 @@ Before writing E rows, classify each candidate by exactly one primary proof axis
 - A supported weaker functional mode may bypass strict attestation only when its
   observable visibly requires the literal `POLICY UNVERIFIED`; it never satisfies
   the strict capability requirement.
+- Declare every row's kind and proof layer per `../_shared/e2e-contract.md`. Axis and
+  layer answer different questions: the axis says what the row proves, the layer says
+  where the evidence is taken. A row whose claim names a person doing something is
+  never closable from below that layer, however green the service call is. Every user
+  goal gets exactly one `goal-walk` row at that user's own layer; prerequisite,
+  attestation, aggregate, and cleanup rows stay `path`.
+
+## UI control graph
+
+When the behavior reaches a user interface, model it before writing rows:
+
+- **Nodes** — reachable states: a page, a tab, a dialog, one step inside a dialog.
+- **Controls** — every visible control on each node: button, link, form submit, menu
+  item.
+- **Edges** — one `edge` row per control, asserting the state change it produces.
+
+Coverage then becomes checkable in both directions: a control enumerated on a node
+and appearing in no edge row is a hole in the matrix, and a node no edge reaches is
+unreachable product. The `goal-walk` rows sit on top of that graph, crossing those
+nodes end to end.
+
+A rendered component is a node property, never an edge. A DOM test with a mocked
+handler proves the handler is bound, not that it does anything. A screenshot cannot
+tell a dead control from a live one, because a dead control looks perfect. Only the
+state change after the action is evidence.
 
 ## Flow
 
@@ -143,22 +168,38 @@ behavior an E row claims to prove. The axis cell is a structured enum; whether t
 scenario actually proves that axis is an AI judgment over the complete behavior and
 evidence, never a keyword or substring classification.
 
+When a UI is involved, enumerate the control graph in that same audit: the nodes, the
+controls visible on each, and the edge row covering each control. Enumerating what
+exists is the limit of this audit — a control the product needs and nobody wrote
+cannot appear in it, which is why the goal-walk rows are audited against the user's
+goals rather than against the graph.
+
 ### F. Draft locked E rows
 
-Carry the information owned by `../_shared/e2e-contract.md`: one real user path,
-concrete process/data/entrypoint, one user-visible observable, one proof axis, and
-initial Status `⬜`. A Markdown table is recommended, not mandatory grammar.
+Carry the information owned by `../_shared/e2e-contract.md`: one real user path, one
+kind, one proof layer, concrete process/data/entrypoint, one user-visible observable,
+one proof axis, and initial Status `⬜`. A Markdown table is recommended, not mandatory
+grammar.
 Transport proxies such as `200 OK` are not observables. When no user-observable path
 exists, record an explicit reason instead of inventing a row.
 When a runtime exists only at a fixed host, port, database, cwd, or main worktree,
 pin that location in `Env: process`; naming only the start command is insufficient.
 
+A `goal-walk` row's observable is the terminal state of the goal, never an optimistic
+intermediate: an input box that emptied is not evidence, the message appearing in the
+transcript with an answer beside it is. Each stop along the walk also names the
+surrounding surfaces it checks — nav highlight, sidebar, status line — because a panel
+rendering nothing and a panel saying "nothing yet" are identical to a smoke test and
+opposite to a reader.
+
 ### G. Cross-check
 
 Require every requirement, test-relevant decision, and matched lesson to map to a U
 or E row or an explicit non-testable rationale; every user path to map to E; every E
-row to have one axis, reachable prerequisites, correct provider granularity, and
-feasible evidence; and every status/column owner to remain intact.
+row to have one axis, one declared proof layer no weaker than its claim, reachable
+prerequisites, correct provider granularity, and feasible evidence; every user goal to
+have exactly one `goal-walk` row; every control enumerated in the control graph to
+appear as exactly one `edge` row; and every status/column owner to remain intact.
 Summarize requirement-to-proof coverage in any compact, readable form. Use AI review
 of the complete sources and matrix for ownership, coverage, axis correctness,
 reachability, observability, capability claims, IDs, and statuses. Tables, headings,

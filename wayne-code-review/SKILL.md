@@ -163,6 +163,26 @@ new redundancy points / drift sources (Principle #4 + #7).
 Skip for pure logic/bugfix diffs (no structural surface). Findings from the lens
 go into the Critical or Informational categories per severity.
 
+### Mandatory: Producer-Judge Check
+
+Not optional, and the "pure logic/bugfix" skip above does not reach it. Whenever the
+diff touches a gate, validator, classifier, parser, a schema some producer writes to,
+or the code that assembles any of their inputs, apply cybernetics-lens §4a:
+
+- the author's instructions are **generated** from the same constant the judge checks,
+  never copied from it — the copy that drifts is the one nobody re-reads;
+- the rule shows its literal form, and that example round-trips through the judge in a
+  test ("numbered" and `### R1` are different instructions);
+- the judge actually receives what it rules on — read the code that assembles its
+  input, not only the code that decides. A judge ruling on content it cannot see is
+  guessing, which reads as a strict or flaky gate;
+- a schema field a producer must populate carries a description, or the producer never
+  learns it exists.
+
+CRITICAL when the mismatch can refuse or accept real work; a green suite never covers
+it, because a unit test asserts the validator's behavior and never asks whether the
+author was told.
+
 ### Optional: Dataflow Lens (producer / consumer)
 
 If the diff adds, moves, or rewires a piece of state — a field, config slot,

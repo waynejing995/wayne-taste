@@ -14,6 +14,7 @@ The template is a starting layout, not a Markdown grammar.
 6. Content constraints
 7. Blocking artifact
 8. Review and scope proof
+9. Review Adjudication
 
 ## 1. Inputs and temporary evidence
 
@@ -100,6 +101,11 @@ ambiguous, duplicated, or disconnected.
 - Patterns name existing repository surfaces to follow when relevant.
 - Decision traces carry every WHAT-level decision into the units it governs. HOW-only
   detail does not need a fabricated decision, but its ownership and rationale stay clear.
+- Every unit names the spec component, interface, or ownership surface it realizes, or
+  states that it is cleanup with none. Where the unit departs from that surface it says
+  so and why, at the unit. Without this line the design-conformance review has nothing
+  to compare against, and a plan can satisfy every requirement while building a
+  different system.
 
 Paths remain repository-relative. Review meaning and repository evidence rather than
 backticks, punctuation, arrow count, or one fixed `path::symbol` sentence grammar.
@@ -182,16 +188,19 @@ not a line-count or regex grammar; semantic completeness is what matters.
 
 ## 8. Review and scope proof
 
-Two independent AI reviews own acceptance:
+Three independent AI reviews own acceptance:
 
 - source-fidelity reads every upstream artifact and the repository evidence, then
   checks requirements, decisions, scope, rationale, E ownership, seed disposition,
   and semantic equivalence in both directions;
 - execution-readiness checks unit closure, dependencies, interfaces, real files and
   symbols, cleanup, U ownership, E advancement, risks, and whether a fresh executor
-  can work without inventing a decision.
+  can work without inventing a decision;
+- design-conformance checks that the plan builds the approved architecture: component
+  realization, state ownership, interface signatures, flow order, carried technology
+  constraints, and whether every deviation from a named spec surface is declared.
 
-Both reviews compare the recorded starting commit/status, agent write history, and
+Every review compares the recorded starting commit/status, agent write history, and
 final Git diff before checkpoint handoff. Only the new plan may change during plan
 authoring; `wayne-checkpoint` later owns its own artifacts. A required change to a
 source artifact or unrelated file means the plan input or scope is incomplete: stop and ask the user.
@@ -201,3 +210,26 @@ permission repair to prove scope.
 Templates, Markdown shape, hash ledgers, section counts, and scripts do not prove
 plan correctness. If future tooling introduces a real non-AI plan consumer, add
 mechanical validation only for that consumer's published interface.
+
+## 9. Review Adjudication
+
+The plan owns one `## Review Adjudication` section: the record of what each review
+finding was classified as and what happened to it.
+`../../_shared/finding-adjudication.md`
+owns the dispositions and the gate; this section is where a plan stores the outcome, and
+no separate artifact is created for it.
+
+One row per finding:
+
+| Field | Content |
+|---|---|
+| Finding | `F<number>` and the reviewer voice that raised it |
+| Disposition | `CARRIER_LOSS` / `REAL_DEFECT` / `CHALLENGES_DECISION` / `UPSTREAM_GAP` |
+| Decision | the `D<number>` it rests on, or `none` |
+| Evidence | the bytes the classification rests on |
+| Action | the revision made, the route taken, or `none — non-blocking` |
+| User outcome | required for `CHALLENGES_DECISION`: `stands` or `reopened`; otherwise `n/a` |
+
+A finding recorded `stands` is permanently non-blocking for this plan; a later round
+raising it again adds no row and blocks nothing. `reopened` is terminal for the plan:
+the reversal is an upstream decision record, so the plan returns `PLAN_CONFLICT`.

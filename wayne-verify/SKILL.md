@@ -77,6 +77,10 @@ Validate each `E2E: none — <reason>` against the actual requirement. Accept a 
 only when no user-observable path exists. If it hides a real path, reject it and
 require test design to author a row; do not write or execute a replacement yourself.
 
+A row whose kind or proof layer is missing, or whose declared layer sits below what its
+claim names, is `BLOCKED` and returns to `wayne-test-design`. Never choose a layer for a
+row: picking the convenient one is how a service call closes a row about a button.
+
 ### K. Record a legitimate skip
 
 Record the approved requirement and why it has no user-observable path, without
@@ -101,9 +105,13 @@ or drive a dependent entrypoint as proof.
 ### F. Drive the real user entrypoint
 
 Perform the row's `User path` through its declared entrypoint exactly as a user
-would: browser interaction for UI, real client requests for HTTP, or the real CLI
-command. A unit test, internal function, helper, mock, or direct API shortcut is not
-an E2E substitute.
+would, at the row's declared proof layer: browser interaction for UI, real client
+requests for HTTP, or the real CLI command. A unit test, internal function, helper,
+mock, or direct API shortcut is not an E2E substitute, and a service call that
+produces the same effect is not evidence that the control produces it.
+
+On a `goal-walk` row, walk every stop and check the surrounding surfaces the row
+names. Not arriving is `❌`, however correct each intermediate step looked.
 
 ### G. Capture the real observable
 
@@ -111,6 +119,13 @@ Capture the declared user-visible result in the scratch directory: rendered UI,
 response/artifact, or actual external/file/DB state. `200 OK`, no exception, and a
 true return value are transport signals, not proof. Compare the observed value with
 the contract literally and retain both expected and actual evidence.
+
+A hang produces no state and no error, so nothing contradicts the assertion. Bound the
+drive with a timeout and log `request`, `response`, and `requestfailed` together: a
+probe listening only for responses reports "no request was made", which is a different
+bug and sends the next agent to the wrong place. Timeout expiry is `❌` with the
+in-flight request as its evidence. An optimistic UI clear is not the observable either
+— the box emptying looks exactly like a successful send.
 
 ### P/N. Mutate only fresh Status
 
