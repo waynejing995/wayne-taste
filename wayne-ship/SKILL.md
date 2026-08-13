@@ -5,18 +5,13 @@ description: Commit and ship changes following Wayne commit conventions. 1 commi
 
 # Wayne Ship
 
-Commit and ship changes with strict commit conventions.
-Every commit is atomic (1 feature / 1 fix / 1 request), signed-off, and Jira-tagged.
+Commit and ship changes with strict commit conventions. Every commit is atomic (1 feature / 1 fix / 1 request), signed-off, and Jira-tagged.
 
 <HARD-GATE>
 BOTH gates MUST pass before any commit. No exceptions.
 
-1. `wayne-code-review` (static) MUST provide a valid PASS artifact for the exact
-   current frozen patch hash. If it is absent or stale, invoke it first.
-2. `wayne-verify` (runtime) MUST pass: the E2E Verification Contract table must be
-   all ✅ — no remaining ⬜ (unverified), no ❌ (broken) — OR the work legitimately
-   declared `E2E: none — <reason>` (no user-observable path to verify). If
-   the carried verification evidence is absent or stale, invoke it first.
+1. `wayne-code-review` (static) MUST provide a valid PASS artifact for the exact current frozen patch hash. If it is absent or stale, invoke it first.
+2. `wayne-verify` (runtime) MUST pass: the E2E Verification Contract table must be all ✅ — no remaining ⬜ (unverified), no ❌ (broken) — OR the work legitimately declared `E2E: none — <reason>` (no user-observable path to verify). If the carried verification evidence is absent or stale, invoke it first.
 </HARD-GATE>
 
 This skill only specifies the per-feature commit + push + PR workflow.
@@ -80,13 +75,9 @@ digraph ship {
 
 Before any commit work, consume the exact upstream gate artifacts:
 
-1. Validate the code-review manifest, two provider identities, verdict, and frozen
-   patch hash against the current diff. Ship does not re-judge review semantics.
-2. Validate the exact authoritative matrix path and fresh Verify evidence. Status
-   glyphs are structural state; legitimacy of `E2E: none` comes from Verify's AI
-   review of the actual requirements, not substring presence.
-3. If either artifact is missing, invalid, unavailable, or stale, run its owning
-   skill and stop unless the new artifact passes.
+1. Validate the code-review manifest, two provider identities, verdict, and frozen patch hash against the current diff. Ship does not re-judge review semantics.
+2. Validate the exact authoritative matrix path and fresh Verify evidence. Status glyphs are structural state; legitimacy of `E2E: none` comes from Verify's AI review of the actual requirements, not substring presence.
+3. If either artifact is missing, invalid, unavailable, or stale, run its owning skill and stop unless the new artifact passes.
 
 Never accept a `PASS`/`PASSED` word in chat or report prose as gate evidence.
 
@@ -102,6 +93,7 @@ git log --oneline -5
 ```
 
 Understand:
+
 - What files changed and why
 - Whether changes are staged or unstaged
 - Recent commit history for context
@@ -113,6 +105,7 @@ Understand:
 Split changes into atomic groups. Each group = 1 commit.
 
 Rules:
+
 - **1 commit = 1 feature / 1 fix / 1 request.** No bundles.
 - Related files go together (e.g., model + migration + test = 1 commit)
 - Unrelated changes get separate commits
@@ -177,7 +170,7 @@ EOF
 ### Commit Message Rules
 
 | Field | Rule |
-|-------|------|
+| --- | --- |
 | **Line 1** | `<JIRA-TICKET> - short title` (or `feat:/topic` / `fix:/topic` if no ticket) |
 | **[why]** | Business/user reason, not technical detail |
 | **[how]** | Technical approach, brief |
@@ -219,29 +212,24 @@ git push origin <branch>
 
 ### Determine the base branch — NEVER hardcode `main`
 
-The PR target (and the branch a fix is cut from / rebased onto) is often a
-long-lived integration branch, **not** `main`. Detect it; do not assume.
+The PR target (and the branch a fix is cut from / rebased onto) is often a long-lived integration branch, **not** `main`. Detect it; do not assume.
 
 Resolution order (first hit wins):
 
-1. **User said it** — honor an explicit "target/base `feature/backend-integration`"
-   verbatim. This overrides everything below.
-2. **This branch's upstream** — `git rev-parse --abbrev-ref --symbolic-full-name @{u}`
-   gives `origin/<base>` when the working branch was cut from a remote branch.
+1. **User said it** — honor an explicit "target/base `feature/backend-integration`" verbatim. This overrides everything below.
+2. **This branch's upstream** — `git rev-parse --abbrev-ref --symbolic-full-name @{u}` gives `origin/<base>` when the working branch was cut from a remote branch.
 3. **Fork point** — the remote branch this one diverged from:
    ```bash
    git log --decorate --oneline --first-parent -20   # eyeball the branch it forked off
    # or the repo's configured default target:
    gh repo view --json defaultBranchRef -q .defaultBranchRef.name
    ```
-4. **Only then** fall back to the repo default — and say so out loud so the user
-   can correct it.
+4. **Only then** fall back to the repo default — and say so out loud so the user can correct it.
 
-State the resolved base in the commit plan (Phase 5) and confirm before opening
-the PR. When in doubt, ask — a PR opened against the wrong base is a visible,
-annoying mistake to unwind.
+State the resolved base in the commit plan (Phase 5) and confirm before opening the PR. When in doubt, ask — a PR opened against the wrong base is a visible, annoying mistake to unwind.
 
 For PR creation, pass the resolved base explicitly — do not let `gh` default it:
+
 ```bash
 gh pr create --base "<resolved-base-branch>" \
   --title "<same as commit title>" --body "$(cat <<'EOF'
@@ -260,8 +248,7 @@ EOF
 
 ### Cutting / rebasing a fix branch off a non-main base
 
-When the request is "checkout a branch based on remote `<base>` and fix it" or
-"rebase to latest remote":
+When the request is "checkout a branch based on remote `<base>` and fix it" or "rebase to latest remote":
 
 ```bash
 git fetch origin
@@ -270,41 +257,25 @@ git switch -c <fix-branch> origin/<resolved-base>   # cut from the REMOTE tip, n
 git fetch origin && git rebase origin/<resolved-base>   # rebase onto latest remote before PR
 ```
 
-Rebase onto the remote base (not a local copy) so the PR is against the current
-tip. Cherry-picking a specific PR onto this branch is the same base discipline:
-`git cherry-pick <sha>` after confirming the branch is current.
+Rebase onto the remote base (not a local copy) so the PR is against the current tip. Cherry-picking a specific PR onto this branch is the same base discipline: `git cherry-pick <sha>` after confirming the branch is current.
 
 ---
 
 ## Phase 8: Handoff
 
-As the final step, after the commit (and push/PR, if requested) succeeds, retire the
-run-scoped artifacts, then call **`wayne-checkpoint` in handoff mode** to emit a
-handoff packet pointing to `wayne-compound` as the next agent (the pipeline's
-lessons-capture stage). The handoff-packet mechanism is defined in
-`wayne-checkpoint` — this skill only invokes it; it does not implement or advance
-it.
+As the final step, after the commit (and push/PR, if requested) succeeds, retire the run-scoped artifacts, then call **`wayne-checkpoint` in handoff mode** to emit a handoff packet pointing to `wayne-compound` as the next agent (the pipeline's lessons-capture stage). The handoff-packet mechanism is defined in `wayne-checkpoint` — this skill only invokes it; it does not implement or advance it.
 
-**Retiring the run directory.** `.wayne/runs/<topic>/` is working state for one run
-and this skill owns clearing it. Because that tree is gitignored, this is hygiene
-rather than a correctness gate: a run abandoned before ship leaves nothing tracked
-either way, which is why the working set lives there instead of in `docs/`.
+**Retiring the run directory.** `.wayne/runs/<topic>/` is working state for one run and this skill owns clearing it. Because that tree is gitignored, this is hygiene rather than a correctness gate: a run abandoned before ship leaves nothing tracked either way, which is why the working set lives there instead of in `docs/`.
 
 Before clearing it, confirm the run's content actually reached the spec:
 
 1. every E row is freshly green,
-2. `docs/specs/<topic>.md` carries the absorbed E2E contract in `## Verification`
-   and the justifying reasoning in `## Decisions`,
+2. `docs/specs/<topic>.md` carries the absorbed E2E contract in `## Verification` and the justifying reasoning in `## Decisions`,
 3. `wayne-verify` has appended its `verified` event to that spec.
 
-If any one fails, keep the directory and report which condition blocked it. The
-matrix is still the authoritative live state, and clearing it would destroy evidence
-the spec does not yet hold — but never block the commit on this: the code shipping
-and the working set being tidy are separate concerns.
+If any one fails, keep the directory and report which condition blocked it. The matrix is still the authoritative live state, and clearing it would destroy evidence the spec does not yet hold — but never block the commit on this: the code shipping and the working set being tidy are separate concerns.
 
-**Mode A — return-only.** The packet is returned/surfaced only; it does NOT
-auto-invoke `wayne-compound`. The user manually triggers the next step (say "下一步"
-/ "继续" / "go").
+**Mode A — return-only.** The packet is returned/surfaced only; it does NOT auto-invoke `wayne-compound`. The user manually triggers the next step (say "下一步" / "继续" / "go").
 
 ---
 
@@ -316,6 +287,7 @@ wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne
 ```
 
 This is the commit step. It only runs after:
+
 1. Implementation is complete (`wayne-work`)
 2. Dual-voice review has passed (`wayne-code-review`)
 3. Runtime verification has passed (`wayne-verify` — E2E contract all ✅, or `E2E: none` declared)

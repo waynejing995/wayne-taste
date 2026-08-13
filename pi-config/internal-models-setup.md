@@ -1,18 +1,13 @@
 # Internal Model Provider Setup (pi)
 
-How to wire the AMD internal models into pi on a new machine. This is **not
-shipped as a live config** because it is machine/proxy/secret specific — follow
-this guide to reconstruct `~/.pi/agent/models.json` by hand.
+How to wire the AMD internal models into pi on a new machine. This is **not shipped as a live config** because it is machine/proxy/secret specific — follow this guide to reconstruct `~/.pi/agent/models.json` by hand.
 
 Docs: `pi` custom models → `docs/models.md` in the pi package.
 
 ## Prerequisites
 
-- A local proxy that injects real credentials, listening on `http://127.0.0.1:8888`
-  (Anthropic-compatible at `/`, OpenAI-compatible at `/openai`).
-- For the OpenAI/APIM path: an APIM subscription key. **Never hardcode it.** Put it
-  in an env var and reference it from `models.json` (`${AMD_APIM_KEY}`), or use a
-  secret-manager command (`"!op read '...'"`). See "Secrets" below.
+- A local proxy that injects real credentials, listening on `http://127.0.0.1:8888` (Anthropic-compatible at `/`, OpenAI-compatible at `/openai`).
+- For the OpenAI/APIM path: an APIM subscription key. **Never hardcode it.** Put it in an env var and reference it from `models.json` (`${AMD_APIM_KEY}`), or use a secret-manager command (`"!op read '...'"`). See "Secrets" below.
 
 ## `~/.pi/agent/models.json`
 
@@ -64,27 +59,18 @@ Three providers. Keys shown as placeholders — substitute your own mechanism.
 
 pi thinking levels: `off, minimal, low, medium, high, xhigh, max`.
 
-- **Claude (amd-internal-anthropic):** `"xhigh": "xhigh"` exposes the extended
-  xhigh level (the default map only goes through `high`). `forceAdaptiveThinking`
-  is required for these adaptive-thinking Anthropic models via the proxy.
-- **GPT-5.6 (sol/terra):** supports `none, low, medium, high, xhigh, max` — but
-  **not `minimal`**. The map exposes `xhigh`/`max` and sets `minimal: null` to
-  hide the unsupported level. Default is `medium`.
-- **GPT-5.5 and the base `anthropic` proxy models:** no map needed (standard
-  levels through `high`; xhigh/max not exposed).
+- **Claude (amd-internal-anthropic):** `"xhigh": "xhigh"` exposes the extended xhigh level (the default map only goes through `high`). `forceAdaptiveThinking` is required for these adaptive-thinking Anthropic models via the proxy.
+- **GPT-5.6 (sol/terra):** supports `none, low, medium, high, xhigh, max` — but **not `minimal`**. The map exposes `xhigh`/`max` and sets `minimal: null` to hide the unsupported level. Default is `medium`.
+- **GPT-5.5 and the base `anthropic` proxy models:** no map needed (standard levels through `high`; xhigh/max not exposed).
 
 ## Secrets — never commit the key
 
 The only real secret is the APIM subscription key. Options, cleanest first:
 
-1. **Env var** (used above): `export AMD_APIM_KEY=...` in `~/.bashrc` (or a
-   machine-local untracked file). `models.json` references `${AMD_APIM_KEY}`.
-2. **Secret manager command:** `"apiKey": "!op read 'op://vault/amd/apim'"` —
-   resolved at request time.
+1. **Env var** (used above): `export AMD_APIM_KEY=...` in `~/.bashrc` (or a machine-local untracked file). `models.json` references `${AMD_APIM_KEY}`.
+2. **Secret manager command:** `"apiKey": "!op read 'op://vault/amd/apim'"` — resolved at request time.
 
-The Anthropic proxy entries use a literal placeholder (`PROXY_INJECTS_REAL_KEY`)
-because the local proxy injects the real credential; pi just needs a non-empty
-value so the model shows as authed in `/model`.
+The Anthropic proxy entries use a literal placeholder (`PROXY_INJECTS_REAL_KEY`) because the local proxy injects the real credential; pi just needs a non-empty value so the model shows as authed in `/model`.
 
 ## Verify
 
@@ -92,6 +78,4 @@ value so the model shows as authed in `/model`.
 pi --list-models | grep -E "Claude-Opus-4.8|gpt-5.6"
 ```
 
-Reload `/model` in-session (the file reloads each time you open `/model`; no
-restart needed). If a model shows but is unavailable, auth (env var / proxy) is
-not resolving.
+Reload `/model` in-session (the file reloads each time you open `/model`; no restart needed). If a model shows but is unavailable, auth (env var / proxy) is not resolving.

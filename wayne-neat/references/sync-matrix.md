@@ -1,6 +1,7 @@
 # Sync Matrix — change type → which files to edit
 
 When unsure "this change touches what?", consult this table. Two directions to scan:
+
 - **Forward** (what to add): given a code-layer change, which doc-layer files need updates?
 - **Reverse** (what to remove): given current CLAUDE.md / memory state, what does NOT belong?
 
@@ -9,7 +10,7 @@ When unsure "this change touches what?", consult this table. Two directions to s
 CLAUDE.md / AGENTS.md is not a changelog. Anti-patterns to strip:
 
 | Anti-pattern | Action |
-|---|---|
+| --- | --- |
 | `> 2026-MM-DD X feature shipped, see docs/Y.md` blockquote narrative | Delete — pointer role belongs to the "deep docs" pointer table; narrative belongs in `git log` / `/changelog` / `docs/CHANGES.md` |
 | Mechanism / data flow / scoring formulas duplicated from docs/ | Delete — AI editing this area will read docs anyway; CLAUDE.md keeps boundary rules only |
 | "New feature shipped" narrative ≥ 7 days stable | Either fold into project overview or delete pure history |
@@ -33,7 +34,7 @@ Test: **if the next AI writing code doesn't see this line, will it make a mistak
 ## Forward — code change → doc files to update
 
 | What happened in conversation | Files to edit (by audience) |
-|---|---|
+| --- | --- |
 | New API / route | Project root markdown route inventory · `docs/integration-guide.md` API table · `docs/architecture.md` Routes section |
 | New / renamed env var | Project root markdown env table · `docs/operator-guide.md` env section · `docs/integration-guide.md` (if downstream configures it) · `.env.example` |
 | New DB table / column | Project root markdown DB section · `docs/architecture.md` Data Model |
@@ -61,7 +62,7 @@ Test: **if the next AI writing code doesn't see this line, will it make a mistak
 ## Memory-layer changes
 
 | Situation | Handling |
-|---|---|
+| --- | --- |
 | Stale fact | Edit the memory file, also update its `description:` |
 | Relative time ("today" / "recently" / "今天") | Convert to absolute date (`2026-04-29`) |
 | Duplicate (multiple memories about same thing) | Merge into one, update `MEMORY.md` index line |
@@ -101,7 +102,7 @@ Different agents store cross-session knowledge in different places. Phase 1 inve
 ### Claude Code
 
 | Purpose | Path |
-|---|---|
+| --- | --- |
 | Cross-session memory (per project) | `~/.claude/projects/<encoded-project-path>/memory/` |
 | Memory index | `~/.claude/projects/<...>/memory/MEMORY.md` |
 | Global instructions | `~/.claude/CLAUDE.md` |
@@ -113,7 +114,7 @@ Memory files use YAML frontmatter: `name`, `description`, `metadata.type` (one o
 ### OpenAI Codex
 
 | Purpose | Path |
-|---|---|
+| --- | --- |
 | Cross-session instructions (global) | `~/.codex/AGENTS.md` or `$CODEX_HOME/AGENTS.md` |
 | Project instructions | Project root `AGENTS.md` (nestable) |
 | Project override | `AGENTS.override.md` (overrides same-dir AGENTS.md) |
@@ -126,7 +127,7 @@ Also check for `TEAM_GUIDE.md` or `.agents.md` — Codex fallback names.
 ### OpenCode
 
 | Purpose | Path |
-|---|---|
+| --- | --- |
 | Global config | `~/.config/opencode/` |
 | Project config | `.opencode/` |
 | Skills (project) | `.opencode/skills/`, `.claude/skills/`, `.codex/skills/` are all scanned |
@@ -137,6 +138,7 @@ OpenCode reads both Claude Code and Codex skill directories — installing under
 ### Agent has no memory system
 
 Skip the memory layer. Spend everything on:
+
 - Project root markdown (CLAUDE.md / AGENTS.md / equivalent)
 - README.md
 - docs/
@@ -146,6 +148,7 @@ Memory is bonus; docs are the floor.
 ### Multi-agent project coexistence
 
 If a project is used by both Claude Code and Codex users:
+
 - Put both `CLAUDE.md` and `AGENTS.md` at the project root — symlink or maintain both
 - OR one main file + the other a one-line `See CLAUDE.md` pointer
 - docs/ and README are platform-neutral — single copy

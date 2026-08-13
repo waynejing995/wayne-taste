@@ -156,8 +156,12 @@ def compare(path_a: str, path_b: str, l1_threshold: int) -> dict:
 @click.command()
 @click.argument("image_a", type=click.Path(exists=True))
 @click.argument("image_b", type=click.Path(exists=True))
-@click.option("--l1-threshold", default=5, show_default=True,
-              help="Per-pixel L1 (channel-sum) above which a diff counts as 'strong'.")
+@click.option(
+    "--l1-threshold",
+    default=5,
+    show_default=True,
+    help="Per-pixel L1 (channel-sum) above which a diff counts as 'strong'.",
+)
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON on stdout.")
 @click.option("-v", "--verbose", is_flag=True)
 def main(image_a, image_b, l1_threshold, as_json, verbose):
@@ -175,10 +179,12 @@ def main(image_a, image_b, l1_threshold, as_json, verbose):
     print(f"dims:  {result['dims']['a']} vs {result['dims']['b']}")
     print(f"hash:  {'MATCH' if result.get('hash', {}).get('match') else 'differ'}")
     if result.get("verdict_hint") in ("byte-identical", "dimension-mismatch"):
-        print(f"-> {result['verdict_hint']}: {result.get('note','')}")
+        print(f"-> {result['verdict_hint']}: {result.get('note', '')}")
         return
-    print(f"changed: {p['changed_px']} px ({p['changed_pct']}%)  max_l1={p['max_l1']}  "
-          f"strong(>{p['l1_threshold']})={p['strong_diff_px']}")
+    print(
+        f"changed: {p['changed_px']} px ({p['changed_pct']}%)  max_l1={p['max_l1']}  "
+        f"strong(>{p['l1_threshold']})={p['strong_diff_px']}"
+    )
     print(f"bbox:  {p.get('any_bbox')}  centroid={p.get('centroid')}")
     print(f"color families: {p['diff_color_families']}")
     print(f"components: {p['components']}  signed_bias={p['signed_bias']}")

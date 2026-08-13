@@ -9,6 +9,7 @@ set of installed local skills under ~/.claude/skills/, and reports:
 
 Read-only. Prints a markdown report to stdout.
 """
+
 import json
 import os
 import sys
@@ -43,10 +44,7 @@ def load_events(path):
 def installed_skills(d):
     if not os.path.isdir(d):
         return set()
-    return {
-        n for n in os.listdir(d)
-        if os.path.isfile(os.path.join(d, n, "SKILL.md"))
-    }
+    return {n for n in os.listdir(d) if os.path.isfile(os.path.join(d, n, "SKILL.md"))}
 
 
 def days_idle(iso):

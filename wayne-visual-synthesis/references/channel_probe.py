@@ -32,12 +32,16 @@ from PIL import Image
 
 
 CHANNEL_NAMES = {
-    "RGB": ["R", "G", "B"], "RGBA": ["R", "G", "B", "A"],
-    "LA": ["L", "A"], "L": ["L"],
+    "RGB": ["R", "G", "B"],
+    "RGBA": ["R", "G", "B", "A"],
+    "LA": ["L", "A"],
+    "L": ["L"],
     "CMYK": ["C", "M", "Y", "K"],
     "YCbCr": ["Y", "Cb", "Cr"],
     "HSV": ["H", "S", "V"],
-    "I": ["I"], "F": ["F"], "P": ["P"],
+    "I": ["I"],
+    "F": ["F"],
+    "P": ["P"],
 }
 
 
@@ -63,6 +67,7 @@ def _load(path: str):
 
 def _channel_stats(ch: np.ndarray) -> dict:
     from scipy.ndimage import label
+
     vmin, vmax = int(ch.min()), int(ch.max())
     std = float(ch.std())
     # "structure" = the channel is not flat AND has spatially contiguous regions
@@ -73,7 +78,9 @@ def _channel_stats(ch: np.ndarray) -> dict:
     sizes = np.bincount(lab.ravel())[1:] if ncomp else np.array([])
     big = int((sizes >= 25).sum()) if sizes.size else 0
     return {
-        "min": vmin, "max": vmax, "range": vmax - vmin,
+        "min": vmin,
+        "max": vmax,
+        "range": vmax - vmin,
         "std": round(std, 3),
         "constant": vmin == vmax,
         "dominant_value": dominant,
@@ -85,8 +92,7 @@ def _channel_stats(ch: np.ndarray) -> dict:
 
 def probe_one(path: str, dump_dir: str | None) -> dict:
     arr, names, mode = _load(path)
-    out = {"image": path, "mode": mode, "size": [arr.shape[1], arr.shape[0]],
-           "channels": {}}
+    out = {"image": path, "mode": mode, "size": [arr.shape[1], arr.shape[0]], "channels": {}}
 
     # Composite baseline = what the naked human-visible view shows. Only meaningful
     # for display models (RGB/RGBA/L). For CMYK/YCbCr/HSV the "flattened view" is a
@@ -113,14 +119,14 @@ def probe_one(path: str, dump_dir: str | None) -> dict:
         if dump_dir:
             Path(dump_dir).mkdir(parents=True, exist_ok=True)
             Image.fromarray(arr[:, :, i].astype(np.uint8), "L").save(
-                str(Path(dump_dir) / f"{Path(path).stem}_{nm}.png"))
+                str(Path(dump_dir) / f"{Path(path).stem}_{nm}.png")
+            )
 
     out["composite_std"] = round(composite_std, 3)
     out["composite_is_display_model"] = is_display
     out["hidden_content_channels"] = hidden
     if hidden:
-        out["warning"] = (f"channels {hidden} carry structure not visible in the "
-                          f"naked composite — inspect them directly")
+        out["warning"] = f"channels {hidden} carry structure not visible in the naked composite — inspect them directly"
     return out
 
 
@@ -148,8 +154,7 @@ def probe_diff(a: str, b: str, dump_dir: str | None) -> dict:
     for i, nm in enumerate(names):
         d = np.abs(A[:, :, i] - B[:, :, i])
         changed = int((d > 0).sum())
-        ch_out[nm] = {"changed_px": changed, "max_delta": int(d.max()),
-                      "mean_delta": round(float(d.mean()), 5)}
+        ch_out[nm] = {"changed_px": changed, "max_delta": int(d.max()), "mean_delta": round(float(d.mean()), 5)}
         # differs in this channel but the visible composite doesn't show it
         if changed > 0 and (nm in never_visible or comp_changed == 0 or not is_display):
             invisible.append(nm)
@@ -161,8 +166,10 @@ def probe_diff(a: str, b: str, dump_dir: str | None) -> dict:
     out["composite_changed_px"] = comp_changed if comp_diff is not None else None
     out["diff_only_in_channels"] = invisible
     if invisible:
-        out["warning"] = (f"channels {invisible} differ but the RGB composite does "
-                          f"not fully show it — a plain visual/RGB diff would miss this")
+        out["warning"] = (
+            f"channels {invisible} differ but the RGB composite does "
+            f"not fully show it — a plain visual/RGB diff would miss this"
+        )
     return out
 
 
@@ -200,8 +207,10 @@ def main(image_a, image_b, dump_dir, as_json, verbose):
         else:
             print("no channel-hidden diff detected")
     else:
-        print(f"mode: {result['mode']}  size: {result['size']}  composite_std={result['composite_std']} "
-              f"(display_model={result['composite_is_display_model']})")
+        print(
+            f"mode: {result['mode']}  size: {result['size']}  composite_std={result['composite_std']} "
+            f"(display_model={result['composite_is_display_model']})"
+        )
         for nm, s in result["channels"].items():
             tag = " <-- carries structure" if s["carries_structure"] else ""
             print(f"  {nm}: range={s['range']} std={s['std']} blobs={s['structured_blobs']}{tag}")

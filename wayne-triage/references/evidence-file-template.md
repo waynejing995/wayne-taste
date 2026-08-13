@@ -1,10 +1,6 @@
 # Evidence File Guide
 
-The single source of truth for one triage. Use this layout as a shared guide at
-`<cwd>/.wayne/triage/<date>-<slug>.md`. Named landing information survives context
-compression better than an essay, but headings, field order, and table shape are
-not a machine schema. Every subagent writes concise evidence into this file, and
-the main agent reads the evidence file rather than raw subagent logs.
+The single source of truth for one triage. Use this layout as a shared guide at `<cwd>/.wayne/triage/<date>-<slug>.md`. Named landing information survives context compression better than an essay, but headings, field order, and table shape are not a machine schema. Every subagent writes concise evidence into this file, and the main agent reads the evidence file rather than raw subagent logs.
 
 ## Why landing fields, not prose
 
@@ -22,9 +18,7 @@ Unmarked claims are treated as OBSERVED — so if you didn't observe it, mark it
 
 ## Suggested frontmatter
 
-Use YAML frontmatter when it helps index `.wayne/triage/`. The seen-before check
-matches failures by concept, not keyword or exact field presence. Preserve the
-meaning below even when an equivalent layout is clearer.
+Use YAML frontmatter when it helps index `.wayne/triage/`. The seen-before check matches failures by concept, not keyword or exact field presence. Preserve the meaning below even when an equivalent layout is clearer.
 
 ```yaml
 ---

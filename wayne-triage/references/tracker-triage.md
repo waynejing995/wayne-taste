@@ -1,22 +1,12 @@
 # Tracker Triage — GitHub issue / external PR / Jira ticket
 
-The tracker surface of wayne-triage. A tracker item is a failure report with
-metadata: it needs the same spine (evidence SSoT → verify → root-cause enough to
-route → human-gate route), plus category/state classification and a durable
-handoff brief. **A PR is an issue with attached code** — same states, verify
-against the diff.
+The tracker surface of wayne-triage. A tracker item is a failure report with metadata: it needs the same spine (evidence SSoT → verify → root-cause enough to route → human-gate route), plus category/state classification and a durable handoff brief. **A PR is an issue with attached code** — same states, verify against the diff.
 
-Adapted from mattpocock/skills `triage` (MIT). Wayne deltas: data is fetched
-user-driven (never guessed); findings land in the `.wayne/triage/` evidence file;
-routing maps to Wayne pipeline stages; and — the key Wayne difference —
-**triage only PROPOSES a comment; it never publishes or mutates the tracker.**
+Adapted from mattpocock/skills `triage` (MIT). Wayne deltas: data is fetched user-driven (never guessed); findings land in the `.wayne/triage/` evidence file; routing maps to Wayne pipeline stages; and — the key Wayne difference — **triage only PROPOSES a comment; it never publishes or mutates the tracker.**
 
 ## Triage proposes; it does not publish
 
-Triage is a decision layer, not the tracker's write layer. It MUST NOT add/remove
-labels, change status/state, assign, or close/transition an item — those touch
-shared board state that others read, and per Wayne blast-radius discipline are
-authorized, human-driven actions, not something triage does as a side effect.
+Triage is a decision layer, not the tracker's write layer. It MUST NOT add/remove labels, change status/state, assign, or close/transition an item — those touch shared board state that others read, and per Wayne blast-radius discipline are authorized, human-driven actions, not something triage does as a side effect.
 
 - Triage's tracker output is a **complete proposed comment** that states the recommendation (category, suggested route, reasoning, brief).
 - Publication and any label/state/transition change belong to a separate tracker-write owner, or require explicit additional user authorization outside this triage pass.
@@ -30,26 +20,23 @@ Triage does NOT decide where the data lives or auto-call an API. Per Phase 0:
 - User gave the fetch method → run exactly that: `gh issue view 42`, `gh pr view 88 --json ...`, or for Jira the **wayne `cvs-jira-workflow`** skill / the fetch command the user named.
 - Neither → ask "how should I pull it?" Then follow the answer.
 
-Triage reads the fetched item; it never owns the fetch or the eventual write-back
-transition (Jira transitions → `cvs-jira-workflow`).
+Triage reads the fetched item; it never owns the fetch or the eventual write-back transition (Jira transitions → `cvs-jira-workflow`).
 
 ## Category + state (classification — recommended in a proposal, not written back)
 
 Two category roles: `bug` (something broken) · `enhancement` (new feature/change).
 
-Five state roles — triage's internal routing vocabulary. Recommend exactly one in
-the proposed comment; do NOT apply it as a label.
+Five state roles — triage's internal routing vocabulary. Recommend exactly one in the proposed comment; do NOT apply it as a label.
 
 | State (recommendation) | Meaning | Maps toward |
-|---|---|---|
+| --- | --- | --- |
 | `needs-triage` | not yet evaluated | keep triaging |
 | `needs-info` | waiting on reporter (repro/detail insufficient) | out of pipeline — comment the questions, await |
 | `ready-for-agent` | fully specified, an AFK agent can take it | Wayne pipeline (see route table in SKILL.md) |
 | `ready-for-human` | needs human judgment / access / manual test | route-to-owner |
 | `wontfix` | should not be actioned | recommend close (human/`cvs-jira-workflow` does it) |
 
-Recommend exactly one category + one state. Conflicting signals → flag it in the
-proposal and ask the maintainer; do not decide it silently.
+Recommend exactly one category + one state. Conflicting signals → flag it in the proposal and ask the maintainer; do not decide it silently.
 
 ## Tracker intake steps
 
@@ -70,24 +57,18 @@ proposal and ask the maintainer; do not decide it silently.
 
 ## Verify → repro is the fix-route gate
 
-The Bug gate (SKILL.md Phase 5) applies to the tracker surface verbatim: a bug
-cannot route toward a fix without a repro / failing test. On the tracker surface,
-a failed or insufficient repro is not a dead end — it's the `needs-info` route,
-with specific proposed questions back to the reporter.
+The Bug gate (SKILL.md Phase 5) applies to the tracker surface verbatim: a bug cannot route toward a fix without a repro / failing test. On the tracker surface, a failed or insufficient repro is not a dead end — it's the `needs-info` route, with specific proposed questions back to the reporter.
 
 ## Durable handoff brief (for ready-for-agent / ready-for-human)
 
-The brief is the contract the next stage works from — it may sit for days while
-the codebase moves. Write it durable:
+The brief is the contract the next stage works from — it may sit for days while the codebase moves. Write it durable:
 
 - **Behavioral, not procedural** — what the system should do, not how to code it.
 - **Interfaces / contracts, NEVER file:line** — name types, signatures, config shapes; paths and line numbers go stale.
 - **Complete, testable acceptance criteria** — each independently verifiable.
 - **Explicit out-of-scope** — what NOT to touch, so the next stage doesn't gold-plate.
 
-Use `templates/triage-report.md` for the brief body. For a Wayne-pipeline route,
-this brief becomes the "next prompt" payload of the `wayne-checkpoint handoff`
-packet (SKILL.md Phase 5).
+Use `templates/triage-report.md` for the brief body. For a Wayne-pipeline route, this brief becomes the "next prompt" payload of the `wayne-checkpoint handoff` packet (SKILL.md Phase 5).
 
 ## `needs-info` template
 

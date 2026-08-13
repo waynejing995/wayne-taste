@@ -6,6 +6,7 @@
 - **Touchstone**: late-90s Apple iMac G3 ads, Windows Vista Aero, the original iPod aqua buttons, MySpace pages
 
 **Palette**
+
 - Ground: electric ice blue `#A3D5FF` or chrome silver `#E0E4EA`
 - Glass accents: cyan `#5FC9F8` → magenta `#FF66C4` (the iridescent / oil-slick gradient)
 - Chrome: brushed-steel highlights at `#C4C9D2` to `#F2F4F8`
@@ -13,6 +14,7 @@
 - Ink: `#000000` or `#FFFFFF` depending on ground
 
 **Typography**
+
 - Display: a chunky rounded sans with personality — Frutiger, Eurostile, or Sharp Grotesk in heavy weight; sometimes a chrome-effect treatment
 - Body: friendly humanist sans like Frutiger or Avenir at 14–16px
 - Numerals love an LCD / digital-readout treatment for hero counters
@@ -27,6 +29,7 @@
 **Motion**: bouncy springs, glow pulses, lens flare sweeps. Anything that recalls early-Flash interactions.
 
 **Signature moves**
+
 - Glassy translucent buttons with an inner top highlight (faking aqua / lozenge)
 - Iridescent oil-slick gradients on hero / character imagery
 - Chrome-effect type with sparkle overlays
@@ -35,15 +38,18 @@
 - Floating circular orbs / bubbles drifting in the background
 
 **Avoid**
+
 - Sharp corners
 - Muted / earthy palettes — Y2K is bright and synthetic
 - Restrained typography — Y2K is exuberant
 - Anything that reads as "tasteful 2020s minimalism"
 
 **AI prompt seed**
+
 > Y2K retrofuturism scene, chrome silver and ice-blue iridescent gradient background, floating glass orbs with cyan and magenta oil-slick reflections, lens flare in upper right, single bright translucent pill-shaped button, late-1990s techno-optimism vibe, 16:9.
 
 **Don't use when**
+
 - The brand has no nostalgic / retro / playful claim
 - The audience is enterprise / professional — this recipe is consumer-fashion-music coded
 - Long-form readability matters (Y2K is for moments, not for reading)

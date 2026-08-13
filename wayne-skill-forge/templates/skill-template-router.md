@@ -17,7 +17,7 @@ description: <180-400 characters: what situation family this routes, when to use
      level below SKILL.md and owns its complete procedure. -->
 
 | Observable signal | Playbook | Result |
-|---|---|---|
+| --- | --- | --- |
 | <checkable condition A> | `references/<playbook-a>.md` | <one line> |
 | <checkable condition B> | `references/<playbook-b>.md` | <one line> |
 | <checkable condition C> | `references/<playbook-c>.md` | <one line> |

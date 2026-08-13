@@ -37,9 +37,7 @@ def validate(skill_dir: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
         text = skill_path.read_text(encoding="utf-8")
         match = FRONTMATTER_RE.match(text)
         if not match:
-            findings.append(
-                finding("frontmatter", "missing or malformed YAML frontmatter")
-            )
+            findings.append(finding("frontmatter", "missing or malformed YAML frontmatter"))
         else:
             body = match.group(2)
             try:
@@ -49,9 +47,7 @@ def validate(skill_dir: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
                 data = None
 
             if not isinstance(data, dict):
-                findings.append(
-                    finding("frontmatter", "frontmatter must be a mapping")
-                )
+                findings.append(finding("frontmatter", "frontmatter must be a mapping"))
             else:
                 keys = set(data)
                 unexpected = keys - ALLOWED_FRONTMATTER
@@ -67,9 +63,7 @@ def validate(skill_dir: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
                     )
                 name = data.get("name")
                 if not isinstance(name, str) or not NAME_RE.fullmatch(name):
-                    findings.append(
-                        finding("name", "name must be lowercase kebab-case")
-                    )
+                    findings.append(finding("name", "name must be lowercase kebab-case"))
                 elif name != skill_dir.name:
                     findings.append(
                         finding(
@@ -81,11 +75,7 @@ def validate(skill_dir: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
                     findings.append(finding("name-length", "name exceeds 64 characters"))
                 description = data.get("description")
                 if not isinstance(description, str) or not description.strip():
-                    findings.append(
-                        finding(
-                            "description", "description must be a non-empty string"
-                        )
-                    )
+                    findings.append(finding("description", "description must be a non-empty string"))
                 else:
                     description_text = description.strip()
                     if "<" in description_text or ">" in description_text:
@@ -116,9 +106,7 @@ def validate(skill_dir: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
 
 
 @click.command()
-@click.argument(
-    "skill_directory", type=click.Path(path_type=Path, exists=True, file_okay=False)
-)
+@click.argument("skill_directory", type=click.Path(path_type=Path, exists=True, file_okay=False))
 @click.option("--json-output", is_flag=True, help="Emit machine-readable JSON.")
 def main(skill_directory: Path, json_output: bool) -> None:
     """Validate SKILL_DIRECTORY metadata required by the skill loader."""

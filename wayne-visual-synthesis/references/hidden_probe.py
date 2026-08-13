@@ -46,7 +46,8 @@ def _load_planes(path: str):
     if arr.ndim == 2:
         arr = arr[:, :, None]
     names = {1: ["L"], 2: ["L", "A"], 3: ["R", "G", "B"], 4: ["R", "G", "B", "A"]}.get(
-        arr.shape[2], [f"C{i}" for i in range(arr.shape[2])])
+        arr.shape[2], [f"C{i}" for i in range(arr.shape[2])]
+    )
     return arr.astype(np.uint8), names
 
 
@@ -117,8 +118,7 @@ def probe(path: str, dump_dir: str | None) -> dict:
             Path(dump_dir).mkdir(parents=True, exist_ok=True)
             for b in (0, 1):
                 img = ((ch >> b) & 1).astype(np.uint8) * 255
-                Image.fromarray(img, "L").save(
-                    str(Path(dump_dir) / f"{Path(path).stem}_{nm}_bit{b}.png"))
+                Image.fromarray(img, "L").save(str(Path(dump_dir) / f"{Path(path).stem}_{nm}_bit{b}.png"))
     out["bit_planes"] = bp
     out["lsb_suspicious_channels"] = lsb_flags
 
@@ -136,8 +136,10 @@ def probe(path: str, dump_dir: str | None) -> dict:
     if lsb_flags:
         flags.append(f"LSB structure in channel(s) {lsb_flags} — possible bit-plane steganography")
     if fft["suspicious"]:
-        flags.append(f"isolated off-DC spectral peak (x{fft['peak_over_median']} median) "
-                     f"at {fft['peak_offsets_from_dc'][:3]} — possible frequency/periodic watermark")
+        flags.append(
+            f"isolated off-DC spectral peak (x{fft['peak_over_median']} median) "
+            f"at {fft['peak_offsets_from_dc'][:3]} — possible frequency/periodic watermark"
+        )
     out["flags"] = flags
     out["not_covered"] = "DCT/DWT-coefficient and deep/generative (e.g. SynthID) watermarks are NOT detected here"
     return out
@@ -162,12 +164,16 @@ def main(image, dump_dir, as_json, verbose):
     print(f"size: {result['size']}  channels: {result['channels']}")
     for nm, planes in result["bit_planes"].items():
         b0, b1 = planes[0], planes[1]
-        print(f"  {nm}: bit0 struct={b0['structure_score']} chi2={b0['chi2_vs_fair']}"
-              f"{' <--' if b0['suspicious'] else ''}  "
-              f"bit1 struct={b1['structure_score']}{' <--' if b1['suspicious'] else ''}")
+        print(
+            f"  {nm}: bit0 struct={b0['structure_score']} chi2={b0['chi2_vs_fair']}"
+            f"{' <--' if b0['suspicious'] else ''}  "
+            f"bit1 struct={b1['structure_score']}{' <--' if b1['suspicious'] else ''}"
+        )
     f = result["fft"]
-    print(f"  FFT: peak/median={f['peak_over_median']} "
-          f"peaks={f['peak_offsets_from_dc'][:3]}{' <-- periodic' if f['suspicious'] else ''}")
+    print(
+        f"  FFT: peak/median={f['peak_over_median']} "
+        f"peaks={f['peak_offsets_from_dc'][:3]}{' <-- periodic' if f['suspicious'] else ''}"
+    )
     if result["flags"]:
         for fl in result["flags"]:
             print(f"!! {fl}")

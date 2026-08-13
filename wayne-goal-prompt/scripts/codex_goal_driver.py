@@ -26,6 +26,7 @@ This also sidesteps bwrap, which fails `RTM_NEWADDR` on some hosts.
 Every protocol message is mirrored to --log as JSONL so a monitor can tail it
 (push, not poll) — same event-stream contract as the exec path.
 """
+
 import json
 import subprocess
 import sys
@@ -215,11 +216,7 @@ def main(goal_file, cwd, log_path, token_budget, poll, inbox_dir, control_dir, v
         "thread/start",
         {"cwd": cwd, "sandbox": "danger-full-access", "approvalPolicy": "never"},
     )
-    thread_id = (
-        thread.get("threadId")
-        or thread.get("thread_id")
-        or thread.get("thread", {}).get("id")
-    )
+    thread_id = thread.get("threadId") or thread.get("thread_id") or thread.get("thread", {}).get("id")
     if not thread_id:
         logger.error("no threadId in thread/start result: {}", thread)
         sys.exit(1)

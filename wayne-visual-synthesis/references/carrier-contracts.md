@@ -22,7 +22,7 @@ If DOM/SVG/accessibility tree/OCR/source text is available, use it to verify vis
 ## Required Fields
 
 | Kind | Required fields |
-|------|-----------------|
+| --- | --- |
 | `chart` | `title`, `chart_type`, `x_axis`, `y_axis`, `legend`, `series[]`, `values[]`, `trends`, `outliers`, `takeaway` |
 | `table` | `title`, `columns[]`, `rows[]`, `cells[]`, `status_markers[]`, `row_count`, `column_count` |
 | `flowchart` | `title`, `nodes[]`, `edges[]`, `edge_directions[]`, `branch_conditions[]`, `loopbacks[]`, `annotations[]` |

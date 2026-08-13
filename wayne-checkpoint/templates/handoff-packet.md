@@ -21,8 +21,7 @@ files_modified:
 
 ## Handoff: {current stage} → {next agent}
 
-This is a return-only handoff packet (Mode A). It does NOT advance the pipeline.
-The user must manually trigger the next step (say "下一步" / "继续" / "go").
+This is a return-only handoff packet (Mode A). It does NOT advance the pipeline. The user must manually trigger the next step (say "下一步" / "继续" / "go").
 
 ### Snapshot
 
@@ -40,7 +39,7 @@ Current state at the moment of handoff (same fields a checkpoint captures).
 ### Artifact References
 
 | Artifact | Path | Owner | SHA-256 | Observed state |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Decision log | `{decision_log path}` | `wayne-mind-explode` | `{sha256}` | {state at handoff time} |
 | Plan | `{plan path}` | `wayne-plan` / U Status by `wayne-work` | `{sha256}` | {state at handoff time} |
 | Spec | `{spec path}` | product-design stage | `{sha256}` | {state at handoff time} |
@@ -48,25 +47,21 @@ Current state at the moment of handoff (same fields a checkpoint captures).
 
 ### Derived Progress
 
-Summarize decisions and implementation progress briefly, always linked to the rows
-above. This is orientation only; the next agent re-reads and verifies every current
-source instead of executing from copied decisions, unit checkboxes, or E statuses.
+Summarize decisions and implementation progress briefly, always linked to the rows above. This is orientation only; the next agent re-reads and verifies every current source instead of executing from copied decisions, unit checkboxes, or E statuses.
 
 ### Next Agent
 
 `{next_agent}` — the natural next step after {current stage}.
 
-| Field | Value |
-|-------|-------|
-| Next agent | `{next_agent}` |
-| Trigger | manual — user says "下一步" / "继续" / "go" |
-| Auto-advance | NO (never) |
+| Field        | Value                                       |
+| ------------ | ------------------------------------------- |
+| Next agent   | `{next_agent}`                              |
+| Trigger      | manual — user says "下一步" / "继续" / "go" |
+| Auto-advance | NO (never)                                  |
 
 ### Next Prompt
 
-Self-contained prompt for `{next_agent}`. The next agent has NO prior context —
-this prompt stands alone (names branch, paths, units in scope, definition of done).
-Do not write "continue from before"; restate everything needed.
+Self-contained prompt for `{next_agent}`. The next agent has NO prior context — this prompt stands alone (names branch, paths, units in scope, definition of done). Do not write "continue from before"; restate everything needed.
 
 ```
 {Self-contained prompt text here. Example shape:}
@@ -83,17 +78,14 @@ Out of scope: {explicit exclusions carried from the caller}.
 
 ### Goal (optional)
 
-{Include ONLY when concrete success criteria are extractable. When present, the
-next step may loop autonomously toward the goal. When absent, delete this section
-and the next step follows its prompt/plan steps strictly. See CLAUDE.md
-"Goal-Driven Execution".}
+{Include ONLY when concrete success criteria are extractable. When present, the next step may loop autonomously toward the goal. When absent, delete this section and the next step follows its prompt/plan steps strictly. See CLAUDE.md "Goal-Driven Execution".}
 
 **Success criteria:**
 
-| # | Criterion | Verify by |
-|---|-----------|-----------|
-| 1 | {concrete, checkable outcome} | {test / command / observation} |
-| 2 | {concrete, checkable outcome} | {test / command / observation} |
+| #   | Criterion                     | Verify by                      |
+| --- | ----------------------------- | ------------------------------ |
+| 1   | {concrete, checkable outcome} | {test / command / observation} |
+| 2   | {concrete, checkable outcome} | {test / command / observation} |
 
 Loop until all criteria verified.
 

@@ -1,35 +1,24 @@
 # Subagent Dispatch — prompt and evidence guides
 
-The context-discipline HARD-GATE says the main agent must not read big logs
-itself. That only holds if dispatching is *cheaper than reading it yourself* — so
-this file gives copy-paste prompts and the minimal evidence to expect back.
-Lower the friction and the dispatch actually happens.
+The context-discipline HARD-GATE says the main agent must not read big logs itself. That only holds if dispatching is _cheaper than reading it yourself_ — so this file gives copy-paste prompts and the minimal evidence to expect back. Lower the friction and the dispatch actually happens.
 
-Two dispatch shapes: **boundary-scout** (Phase 3, one per component boundary) and
-**hypothesis-tester** (Phase 4, one per hypothesis). Both run in parallel — send
-all of them in ONE message.
+Two dispatch shapes: **boundary-scout** (Phase 3, one per component boundary) and **hypothesis-tester** (Phase 4, one per hypothesis). Both run in parallel — send all of them in ONE message.
 
 ## Fan-out: how many, and parallel vs serial
 
-Dispatch as many subagents as the work has independent pieces — often more than
-one per phase. The rule: **independent work fans out in parallel (N subagents in
-ONE message); only genuine input-dependencies go serial.**
+Dispatch as many subagents as the work has independent pieces — often more than one per phase. The rule: **independent work fans out in parallel (N subagents in ONE message); only genuine input-dependencies go serial.**
 
 | Fan-out pattern | When | Parallel? |
-|---|---|---|
+| --- | --- | --- |
 | by boundary | multi-component failure — one scout per layer boundary | ✅ one message, N scouts |
 | by hypothesis | matrix has ≥2 candidate causes — one tester each | ✅ one message, N testers |
 | by angle | ONE hypothesis has several independent checks (e.g. a flaky test: async-wait AND concurrency AND test-order testers at once) | ✅ one message, N testers |
 | by log-segment | a single huge log — slice by time window / component, one scout per slice, merge on return | ✅ one message, N scouts |
 | serial (the exception) | a step's input depends on a prior subagent's output (e.g. find the BREAK-HERE layer first, THEN deep-dive only that layer) | ❌ wait for the dependency, then dispatch |
 
-Decide with one question: *does subagent B need subagent A's result to start?* No →
-same message, parallel. Yes → serial. Never serialize independent work "to be
-safe" — that wastes the fast subagents' idle time and defeats the whole point of
-keeping the log off the main context.
+Decide with one question: _does subagent B need subagent A's result to start?_ No → same message, parallel. Yes → serial. Never serialize independent work "to be safe" — that wastes the fast subagents' idle time and defeats the whole point of keeping the log off the main context.
 
-Merging a parallel batch: all subagents append to the same evidence file (SSoT);
-the main agent reads the merged file, not the individual transcripts.
+Merging a parallel batch: all subagents append to the same evidence file (SSoT); the main agent reads the merged file, not the individual transcripts.
 
 ## The three hard contracts (every dispatch)
 
@@ -37,16 +26,13 @@ the main agent reads the merged file, not the individual transcripts.
 2. **Return only the concise evidence below — never a raw log dump or long narrative.** Field names and order are guidance; the main agent's context must not absorb the log the subagent read.
 3. **Write findings into the evidence file, and also return them.** The evidence file (`<cwd>/.wayne/triage/<date>-<slug>.md`) is the SSoT; the returned fields are the summary the main agent acts on. State flows through the file, not the prompt chain.
 
-Every returned claim carries an evidence marker: `[OBSERVED]` (verbatim in a
-log/artifact, cite `file:line`) / `[INFERRED]` / `[UNCERTAIN]`.
+Every returned claim carries an evidence marker: `[OBSERVED]` (verbatim in a log/artifact, cite `file:line`) / `[INFERRED]` / `[UNCERTAIN]`.
 
 ---
 
 ## Boundary-scout (Phase 3)
 
-Dispatch one per component boundary when the log is heavy or there are ≥2
-boundaries. Each scout reads ONE layer's slice and reports whether data crossed it
-intact.
+Dispatch one per component boundary when the log is heavy or there are ≥2 boundaries. Each scout reads ONE layer's slice and reports whether data crossed it intact.
 
 ### Prompt template
 
@@ -89,9 +75,7 @@ The main agent takes back one short evidence summary, not the 8k-line CI log.
 
 ## Hypothesis-tester (Phase 4)
 
-Dispatch one per candidate hypothesis when ≥2 need log-grep or a trial. Each
-tester tries to DISPROVE its hypothesis (elimination, not confirmation) and
-reports a matrix verdict.
+Dispatch one per candidate hypothesis when ≥2 need log-grep or a trial. Each tester tries to DISPROVE its hypothesis (elimination, not confirmation) and reports a matrix verdict.
 
 ### Prompt template
 
@@ -128,8 +112,7 @@ Return these facts concisely in any clear order:
 - verdict: ELIMINATED
 ```
 
-A `--` / ELIMINATED kills the hypothesis. The survivor with the strongest `++` and
-no `--` is the leading cause — that is what Phase 5 attributes and routes on.
+A `--` / ELIMINATED kills the hypothesis. The survivor with the strongest `++` and no `--` is the leading cause — that is what Phase 5 attributes and routes on.
 
 ---
 

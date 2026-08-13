@@ -5,8 +5,7 @@ description: Capture lessons learned after solving a problem or shipping a featu
 
 # Wayne Compound
 
-Each solved problem should make the next one easier.
-This skill captures what was learned and saves it where it can be found later.
+Each solved problem should make the next one easier. This skill captures what was learned and saves it where it can be found later.
 
 This skill only specifies the lesson-capture / KB-write / repo-doc workflow.
 
@@ -29,18 +28,13 @@ Before reading or writing the KB, read `~/.wayne/config.env`. It must set `WAYNE
    - check the current repo's `docs/solutions/`
    - **Bias strongly toward update/merge over new file.** Default action when in doubt is "extend an existing lesson", not "write a new one". A KB with 30 sharp lessons beats one with 60 overlapping ones.
    - **Merge criteria** — collapse two lessons into one when ANY of these hold:
-     * Same root cause expressed in different surfaces (e.g. CLI dispatch owner + thread-reply dispatch owner = "secondary surface shares dispatch owner")
-     * One lesson is a specific technique that the other already lists as a sub-lesson (e.g. `shape_key()` granular repaint is a sub-lesson of dashboard hotfix collapse)
-     * Two lessons cite the same decision letter / invariant / contract from different angles (e.g. contract-vs-cosmetic + cosmetic-auto-fix-triage both about OBS routing)
+     - Same root cause expressed in different surfaces (e.g. CLI dispatch owner + thread-reply dispatch owner = "secondary surface shares dispatch owner")
+     - One lesson is a specific technique that the other already lists as a sub-lesson (e.g. `shape_key()` granular repaint is a sub-lesson of dashboard hotfix collapse)
+     - Two lessons cite the same decision letter / invariant / contract from different angles (e.g. contract-vs-cosmetic + cosmetic-auto-fix-triage both about OBS routing)
    - **When merging**: keep the broader title, expand `trigger:` to cover both scenarios, add sections for each empirical instance with its own anchor (commit SHA, review seq, date), preserve all anti-patterns + prevention bullets from both, then `git rm` the absorbed file and rewrite cross-references.
    - Only write a NEW file when: (a) the topic genuinely is not covered by any existing lesson, AND (b) merging it into the closest existing lesson would dilute that lesson's trigger past usability.
 
-Search terms only locate candidates. Read each candidate's complete trigger,
-scope, cause, and prevention before an AI semantic duplicate decision; keyword,
-title, tag, or similarity overlap alone never forces merge or new-file status.
-5. **Write to KB** — `${KB_DIR}/` (primary, Obsidian-compatible)
-6. **Write to repo** — `docs/solutions/` (secondary, in-repo discovery)
-7. **Cross-reference** — link between KB entry and repo doc
+Search terms only locate candidates. Read each candidate's complete trigger, scope, cause, and prevention before an AI semantic duplicate decision; keyword, title, tag, or similarity overlap alone never forces merge or new-file status. 5. **Write to KB** — `${KB_DIR}/` (primary, Obsidian-compatible) 6. **Write to repo** — `docs/solutions/` (secondary, in-repo discovery) 7. **Cross-reference** — link between KB entry and repo doc
 
 ## Process Flow
 
@@ -76,24 +70,14 @@ digraph compound {
 
 ## Phase 1: Gather Pipeline Artifacts
 
-Read the exact spec, plan, review, verification, and commit references carried by
-the ship handoff or explicitly supplied by the user. Validate their paths and
-hashes before extracting lessons. Never select an artifact by modification time,
-filename order, heading, or ID-shaped text. If a standalone run has multiple
-plausible artifact sets, ask which shipped change is authoritative.
+Read the exact spec, plan, review, verification, and commit references carried by the ship handoff or explicitly supplied by the user. Validate their paths and hashes before extracting lessons. Never select an artifact by modification time, filename order, heading, or ID-shaped text. If a standalone run has multiple plausible artifact sets, ask which shipped change is authoritative.
 
-This skill runs after ship, so the run-scoped decision log and test matrix are gone
-by design. Their surviving content is the living spec: `## Decisions` carries the
-reasoning that justified the design, and `## Verification` carries the E2E
-contract. Read those, not a decision-log path — a handoff that still names one is
-stale, and a decision log that still exists is a run that never completed. The
-spec's decisions are the curated justifying subset rather than the raw research
-trail, which is what this phase wanted in the first place.
+This skill runs after ship, so the run-scoped decision log and test matrix are gone by design. Their surviving content is the living spec: `## Decisions` carries the reasoning that justified the design, and `## Verification` carries the E2E contract. Read those, not a decision-log path — a handoff that still names one is stale, and a decision log that still exists is a run that never completed. The spec's decisions are the curated justifying subset rather than the raw research trail, which is what this phase wanted in the first place.
 
 For each artifact found, read it and extract:
 
 | Source | What to extract |
-|--------|----------------|
+| --- | --- |
 | **Decision log** | Key decisions, rationale, surprises, things that changed mid-process |
 | **Plan** | Original approach vs what actually happened |
 | **Review findings** | Issues caught by dual-voice review, contradictions between Claude/Codex |
@@ -107,6 +91,7 @@ For each artifact found, read it and extract:
 The goal is NOT to document what happened. It's to document **what was learned**.
 
 Ask yourself:
+
 - What would have saved time if we'd known it before starting?
 - What assumption turned out to be wrong?
 - What pattern emerged that applies beyond this specific case?
@@ -114,6 +99,7 @@ Ask yourself:
 - What dead end should future-us avoid?
 
 Distill into:
+
 - **One-line takeaway** — the insight in one sentence
 - **Context** — when does this apply?
 - **Detail** — the full explanation with code examples if relevant
@@ -124,7 +110,7 @@ Distill into:
 ## Phase 3: Classify
 
 | Category | KB folder | docs/solutions/ folder | When to use |
-|----------|-----------|----------------------|-------------|
+| --- | --- | --- | --- |
 | **Bug fix** | `how-to/` | `runtime-errors/` or specific category | Solved a bug with non-obvious root cause |
 | **Pattern** | `research/` | `patterns/` | Discovered a reusable approach |
 | **Decision** | `decisions/` | — (the spec's `## Decisions` suffices) | Made an architectural or design choice with rationale |
@@ -146,6 +132,7 @@ grep -r "<keywords>" docs/solutions/ --include="*.md" -l 2>/dev/null
 ```
 
 If a related entry exists:
+
 - Read it
 - Decide: **update** (same problem, better insight) or **new** (different angle)
 - If updating, preserve the existing structure and add the new context
@@ -156,70 +143,55 @@ If a related entry exists:
 
 **Primary store:** `${KB_DIR}/<folder>/<kebab-title>.md`
 
-**Read `${KB_DIR}/SCHEMA.md` first** — it defines the Write Protocol and lesson
-frontmatter spec. This phase defers to SCHEMA. Don't re-implement reindex /
-log / commit logic here.
+**Read `${KB_DIR}/SCHEMA.md` first** — it defines the Write Protocol and lesson frontmatter spec. This phase defers to SCHEMA. Don't re-implement reindex / log / commit logic here.
 
-Compound writes a **lesson** — a regular KB page with two extra frontmatter
-fields (`type: lesson` + `trigger`) so future workflow skills can recall it.
+Compound writes a **lesson** — a regular KB page with two extra frontmatter fields (`type: lesson` + `trigger`) so future workflow skills can recall it.
 
 ### Folder placement
 
-| Category | Folder |
-|----------|--------|
-| Bug fix / pitfall | `wayne-note/how-to/<kebab-title>.md` |
-| Reusable pattern | `wayne-note/research/<kebab-title>.md` |
+| Category               | Folder                                  |
+| ---------------------- | --------------------------------------- |
+| Bug fix / pitfall      | `wayne-note/how-to/<kebab-title>.md`    |
+| Reusable pattern       | `wayne-note/research/<kebab-title>.md`  |
 | Architectural decision | `wayne-note/decisions/<kebab-title>.md` |
 
 ### Lesson format (per SCHEMA.md)
 
-**Read first, then write:** `templates/lesson-template.md` relative to this skill
-directory.
+**Read first, then write:** `templates/lesson-template.md` relative to this skill directory.
 
-The vault's `SCHEMA.md` owns any frontmatter fields required by its real indexer.
-Use the template as a readable body guide: preserve takeaway, applicability,
-detail/examples, anti-patterns, prevention, and source links, but adapt headings or
-grouping when clearer. Body section names and order are not machine schema.
+The vault's `SCHEMA.md` owns any frontmatter fields required by its real indexer. Use the template as a readable body guide: preserve takeaway, applicability, detail/examples, anti-patterns, prevention, and source links, but adapt headings or grouping when clearer. Body section names and order are not machine schema.
 
 The `trigger` field is mandatory — see "Writing a good `trigger`" below.
 
 ### Writing a good `trigger`
 
-This field is what `wayne-mind-explode` and `wayne-plan` use to recall the
-lesson before related work starts. Write it as a future-tense scenario.
+This field is what `wayne-mind-explode` and `wayne-plan` use to recall the lesson before related work starts. Write it as a future-tense scenario.
 
-| Bad | Good |
-|-----|------|
-| `"asyncio bug"` | `"用 asyncio 配合 multiprocessing 时"` |
-| `"SQLAlchemy issue"` | `"改 SQLAlchemy 查询性能或评估 N+1 风险时"` |
-| `"CLI bug"` | `"给 Click CLI 加新 subcommand 或新 option 时"` |
+| Bad                  | Good                                            |
+| -------------------- | ----------------------------------------------- |
+| `"asyncio bug"`      | `"用 asyncio 配合 multiprocessing 时"`          |
+| `"SQLAlchemy issue"` | `"改 SQLAlchemy 查询性能或评估 N+1 风险时"`     |
+| `"CLI bug"`          | `"给 Click CLI 加新 subcommand 或新 option 时"` |
 
-Bad triggers describe the problem in past tense (useless for recall).
-Good triggers describe the **scenario where the lesson applies** (matches
-future user intent).
+Bad triggers describe the problem in past tense (useless for recall). Good triggers describe the **scenario where the lesson applies** (matches future user intent).
 
 ### Confirm `trigger` with the user (MANDATORY pause)
 
-After drafting the lesson file but **before** running reindex / log / commit,
-stop and show the user the proposed `trigger` field for confirmation:
+After drafting the lesson file but **before** running reindex / log / commit, stop and show the user the proposed `trigger` field for confirmation:
 
 > 这条 lesson 的 trigger 我写成：
+>
 > > "<draft trigger>"
 >
-> 这是未来 wayne-mind-explode / wayne-plan 召回这条 lesson 的关键。
-> OK 直接用 / 改成 ... / 我来重写
+> 这是未来 wayne-mind-explode / wayne-plan 召回这条 lesson 的关键。OK 直接用 / 改成 ... / 我来重写
 
-Why this matters: `trigger` is the recall key. A bad trigger means future
-workflow skills will miss this lesson when it's most relevant. The user knows
-best what future scenarios should remind them of this. One short interaction
-now saves countless missed recalls later.
+Why this matters: `trigger` is the recall key. A bad trigger means future workflow skills will miss this lesson when it's most relevant. The user knows best what future scenarios should remind them of this. One short interaction now saves countless missed recalls later.
 
 Update the file in place if the user revises it, then proceed.
 
 ### Then follow the Write Protocol
 
-After `trigger` is confirmed, follow `${KB_DIR}/SCHEMA.md` Write Protocol:
-reindex → append log.md (action: `lesson`) → git commit → report files.
+After `trigger` is confirmed, follow `${KB_DIR}/SCHEMA.md` Write Protocol: reindex → append log.md (action: `lesson`) → git commit → report files.
 
 ---
 
@@ -227,17 +199,14 @@ reindex → append log.md (action: `lesson`) → git commit → report files.
 
 **Secondary store:** `docs/solutions/<category>/<filename>.md`
 
-This is for in-repo discovery — agents working in this repo can find it without
-accessing the personal KB.
+This is for in-repo discovery — agents working in this repo can find it without accessing the personal KB.
 
 **Read first, then write:** `${HOME}/.claude/skills/wayne-compound/templates/solution-doc-template.md`
 
-Use the template as a readable guide. Preserve metadata required by the repository,
-plus problem, root cause, solution/examples, prevention, and the KB link. Adapt body
-headings or grouping when clearer; the AI-readable solution doc has no runtime
-section grammar.
+Use the template as a readable guide. Preserve metadata required by the repository, plus problem, root cause, solution/examples, prevention, and the KB link. Adapt body headings or grouping when clearer; the AI-readable solution doc has no runtime section grammar.
 
 Create directory if needed:
+
 ```bash
 mkdir -p docs/solutions/<category>/
 ```
@@ -247,11 +216,11 @@ mkdir -p docs/solutions/<category>/
 ## Phase 7: Cross-Reference
 
 Link the two entries:
+
 - KB entry's `References` section → repo doc path
 - Repo doc's `Related` section → KB entry path
 
-Write nothing into the decision log, spec, test matrix, or plan. Those are owned
-upstream and are read-only here (`../_shared/pipeline-id-contract.md`).
+Write nothing into the decision log, spec, test matrix, or plan. Those are owned upstream and are read-only here (`../_shared/pipeline-id-contract.md`).
 
 ---
 
@@ -262,13 +231,12 @@ wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne
      (WHAT)            (HOW)        (BUILD)      (STATIC GATE)      (RUNTIME GATE)  (COMMIT)     (LEARN)
 ```
 
-This is the closing step. It reads everything upstream produced and distills
-the non-obvious insights into searchable, reusable knowledge.
+This is the closing step. It reads everything upstream produced and distills the non-obvious insights into searchable, reusable knowledge.
 
 ### What makes Wayne compound different from CE compound:
 
 | Aspect | CE compound | Wayne compound |
-|--------|-------------|----------------|
+| --- | --- | --- |
 | **Primary store** | `docs/solutions/` only | `${KB_DIR}/` (Obsidian) + `docs/solutions/` |
 | **Input** | Conversation history | Full pipeline: decision log + plan + review + commits |
 | **Decision trace** | None | Links back to specific decisions in the log |
