@@ -20,12 +20,15 @@ related: [[folder/related-entry]]
 ## Detail
 
 ### What Happened
+
 <Brief narrative of the problem and investigation>
 
 ### The Insight
+
 <The non-obvious thing we learned>
 
 ### Code Examples
+
 <Before/after, configuration, commands>
 
 ## Anti-Patterns

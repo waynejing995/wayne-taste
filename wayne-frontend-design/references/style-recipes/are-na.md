@@ -6,6 +6,7 @@
 - **Touchstone**: are.na, the Are.na annual
 
 **Palette**
+
 - Ground: `#FFFFFF`
 - Ink: `#000000`
 - Are.na blue link: `#0000EE` (the classic browser-default blue, used unironically)
@@ -14,6 +15,7 @@
 - Optional: warm cream surface `#F4F1E8` for cards
 
 **Typography**
+
 - Display & body: system serif (Times / Georgia) and / or system sans (the OS's default sans) on purpose
 - No custom font loading — the recipe leans on letting the browser pick
 - Body at 14–16px, line-height ~1.45
@@ -28,6 +30,7 @@
 **Motion**: none, or instant
 
 **Signature moves**
+
 - Underlined blue links, visited purple — left as browser default
 - Headings are just larger versions of body type, no special font
 - Tables, lists, and prose all flow without ornament
@@ -35,6 +38,7 @@
 - Cards (if used) are flat rectangles with a 1px gray border and no shadow
 
 **Avoid**
+
 - Custom fonts of any kind
 - Color other than the blue / purple link colors and the ink + ground
 - Hover animations, transitions of any kind
@@ -42,9 +46,11 @@
 - Any sense of "polish"
 
 **AI prompt seed**
+
 > Found-photograph collage on plain white paper, mixed sources, no Photoshop polish, slight imperfection, hand-cut feel, 4:3.
 
 **Don't use when**
+
 - The brand needs to feel "premium" — Are.na's recipe explicitly rejects premium signaling
 - The audience expects modern SaaS UX cues — they may bounce, reading the page as broken
 - Half-measures will be tempted — commit fully or pick another recipe; partial Are.na looks broken, not curated

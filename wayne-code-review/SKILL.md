@@ -2,11 +2,10 @@
 name: wayne-code-review
 description: Dual-voice code review combining structured analysis with adversarial cross-model challenge. Dispatches Claude subagent + Codex for independent opinions, then synthesizes. Use before merging, after completing features, or when stuck. Trigger on "review my code", "code review", "check my diff", "review before merge".
 ---
+
 # Wayne Code Review
 
-Dual-voice code review: structured analysis + adversarial cross-model challenge.
-Two independent reviewers see the same diff with fresh eyes. Neither knows what the other found.
-You synthesize, the user decides.
+Dual-voice code review: structured analysis + adversarial cross-model challenge. Two independent reviewers see the same diff with fresh eyes. Neither knows what the other found. You synthesize, the user decides.
 
 ## Inherits from ~/.claude/CLAUDE.md
 
@@ -126,120 +125,70 @@ Run `git diff origin/$BASE` and analyze the full diff against these categories:
 
 ### Critical Categories (block shipping)
 
-
-| Category                      | What to check                                                   |
-| ----------------------------- | --------------------------------------------------------------- |
-| **SQL &amp; Data Safety**     | Raw SQL interpolation, missing transactions, schema assumptions |
-| **Race Conditions**           | TOCTOU, concurrent writes, missing locks                        |
-| **Auth &amp; Trust Boundary** | LLM output used without validation, user input trusted          |
-| **Shell Injection**           | Unsanitized input in shell commands                             |
-| **Error Swallowing**          | Catch blocks that silently discard errors                       |
-
+| Category | What to check |
+| --- | --- |
+| **SQL &amp; Data Safety** | Raw SQL interpolation, missing transactions, schema assumptions |
+| **Race Conditions** | TOCTOU, concurrent writes, missing locks |
+| **Auth &amp; Trust Boundary** | LLM output used without validation, user input trusted |
+| **Shell Injection** | Unsanitized input in shell commands |
+| **Error Swallowing** | Catch blocks that silently discard errors |
 
 ### Informational Categories (flag but don't block)
 
-
-| Category                    | What to check                                   |
-| --------------------------- | ----------------------------------------------- |
-| **N+1 Queries**             | Loop-based DB calls, missing eager loading      |
-| **Type Coercion**           | Implicit type conversions, missing validations  |
-| **Missing Edge Cases**      | Empty state, null handling, boundary conditions |
-| **Documentation Staleness** | Code changed but docs not updated               |
-| **Test Coverage Gaps**      | New logic without corresponding tests           |
-
+| Category | What to check |
+| --- | --- |
+| **N+1 Queries** | Loop-based DB calls, missing eager loading |
+| **Type Coercion** | Implicit type conversions, missing validations |
+| **Missing Edge Cases** | Empty state, null handling, boundary conditions |
+| **Documentation Staleness** | Code changed but docs not updated |
+| **Test Coverage Gaps** | New logic without corresponding tests |
 
 ### Optional: Cybernetics Lens (for architectural / structural review)
 
-If the diff touches architecture (new modules, control flow, state management,
-multi-component interaction, control-plane changes), apply the cybernetics lens
-to surface structural issues a line-by-line review misses:
+If the diff touches architecture (new modules, control flow, state management, multi-component interaction, control-plane changes), apply the cybernetics lens to surface structural issues a line-by-line review misses:
 
 **Read first:** `~/.claude/skills/_shared/cybernetics-lens.md`
 
-Look for: multiple SoTs for same state (Principle #4), open-loop rules with no
-verification (Principle #2/#3), L0/L1/L2 stratification violations (Principle #5),
-new redundancy points / drift sources (Principle #4 + #7).
+Look for: multiple SoTs for same state (Principle #4), open-loop rules with no verification (Principle #2/#3), L0/L1/L2 stratification violations (Principle #5), new redundancy points / drift sources (Principle #4 + #7).
 
-Skip for pure logic/bugfix diffs (no structural surface). Findings from the lens
-go into the Critical or Informational categories per severity.
+Skip for pure logic/bugfix diffs (no structural surface). Findings from the lens go into the Critical or Informational categories per severity.
 
 ### Mandatory: Producer-Judge Check
 
-Not optional, and the "pure logic/bugfix" skip above does not reach it. Whenever the
-diff touches a gate, validator, classifier, parser, a schema some producer writes to,
-or the code that assembles any of their inputs, apply cybernetics-lens §4a:
+Not optional, and the "pure logic/bugfix" skip above does not reach it. Whenever the diff touches a gate, validator, classifier, parser, a schema some producer writes to, or the code that assembles any of their inputs, apply cybernetics-lens §4a:
 
-- the author's instructions are **generated** from the same constant the judge checks,
-  never copied from it — the copy that drifts is the one nobody re-reads;
-- the rule shows its literal form, and that example round-trips through the judge in a
-  test ("numbered" and `### R1` are different instructions);
-- the judge actually receives what it rules on — read the code that assembles its
-  input, not only the code that decides. A judge ruling on content it cannot see is
-  guessing, which reads as a strict or flaky gate;
-- a schema field a producer must populate carries a description, or the producer never
-  learns it exists.
+- the author's instructions are **generated** from the same constant the judge checks, never copied from it — the copy that drifts is the one nobody re-reads;
+- the rule shows its literal form, and that example round-trips through the judge in a test ("numbered" and `### R1` are different instructions);
+- the judge actually receives what it rules on — read the code that assembles its input, not only the code that decides. A judge ruling on content it cannot see is guessing, which reads as a strict or flaky gate;
+- a schema field a producer must populate carries a description, or the producer never learns it exists.
 
-CRITICAL when the mismatch can refuse or accept real work; a green suite never covers
-it, because a unit test asserts the validator's behavior and never asks whether the
-author was told.
+CRITICAL when the mismatch can refuse or accept real work; a green suite never covers it, because a unit test asserts the validator's behavior and never asks whether the author was told.
 
 ### Optional: Dataflow Lens (producer / consumer)
 
-If the diff adds, moves, or rewires a piece of state — a field, config slot,
-registry entry, extractor, event, cache key — trace it end to end. Every producer
-needs a consumer and every consumer needs a producer; a mismatch is a bug or dead
-weight.
+If the diff adds, moves, or rewires a piece of state — a field, config slot, registry entry, extractor, event, cache key — trace it end to end. Every producer needs a consumer and every consumer needs a producer; a mismatch is a bug or dead weight.
 
 Look for:
 
-- **Orphan producer** — value is written / declared / registered but nothing reads
-it. Verify by grepping for readers, not by assuming. A field with only a `def` /
-assignment and zero call sites is false coverage. (`delete > add`: wire it or
-remove it.)
-- **Dead consumer** — code reads / resolves / dispatches on state that no producer
-ever populates. Consumer guards silently no-op (`if x is None: return`), so the
-path is permanently unreachable — looks wired, never runs.
-- **Producer/consumer semantic drift** — same logical state produced in one place
-and consumed in another with *different semantics* (different default, different
-units, different enum encoding, hardcoded literal on one side vs resolved value
-on the other). This is the SSoT drift bug class: two encodings of one concept
-that will disagree.
-- **Dual path to the same state** — consumer reads the state directly (e.g. via
-`getattr`) while a dedicated resolver/accessor for that same state exists and is
-bypassed. Two read paths drift independently.
+- **Orphan producer** — value is written / declared / registered but nothing reads it. Verify by grepping for readers, not by assuming. A field with only a `def` / assignment and zero call sites is false coverage. (`delete > add`: wire it or remove it.)
+- **Dead consumer** — code reads / resolves / dispatches on state that no producer ever populates. Consumer guards silently no-op (`if x is None: return`), so the path is permanently unreachable — looks wired, never runs.
+- **Producer/consumer semantic drift** — same logical state produced in one place and consumed in another with _different semantics_ (different default, different units, different enum encoding, hardcoded literal on one side vs resolved value on the other). This is the SSoT drift bug class: two encodings of one concept that will disagree.
+- **Dual path to the same state** — consumer reads the state directly (e.g. via `getattr`) while a dedicated resolver/accessor for that same state exists and is bypassed. Two read paths drift independently.
 
 **Severity by consequence, not by category:**
 
-- CRITICAL when a real consumer gets a *wrong value* at runtime — e.g. a hardcoded
-literal in shared code so a second caller/tenant/team hits the wrong behavior the
-moment it exercises the path, or a default that silently misroutes.
-- INFORMATIONAL when the finding is pure dead surface (orphan producer, unreachable
-consumer) with no wrong-result path today — a `delete > add` candidate.
+- CRITICAL when a real consumer gets a _wrong value_ at runtime — e.g. a hardcoded literal in shared code so a second caller/tenant/team hits the wrong behavior the moment it exercises the path, or a default that silently misroutes.
+- INFORMATIONAL when the finding is pure dead surface (orphan producer, unreachable consumer) with no wrong-result path today — a `delete > add` candidate.
 
-Verify every dataflow claim by grep before filing it: "produced at X, consumed at
-Y (or: no consumer found)". A dataflow finding without both endpoints named is not
-yet a finding. Findings land in the Critical or Informational categories per the
-consequence rule above.
+Verify every dataflow claim by grep before filing it: "produced at X, consumed at Y (or: no consumer found)". A dataflow finding without both endpoints named is not yet a finding. Findings land in the Critical or Informational categories per the consequence rule above.
 
-**Re-arch check (when the diff rewires an existing flow).** If Phase 2 intent shows
-this is a re-architecture — moving state to a new owner, routing a value through a
-new seam, replacing a hardcoded literal with a resolved lookup — the diff must make
-the dataflow flow the way the re-arch *intends*, end to end. Half-migrations are the
-CRITICAL bug here:
+**Re-arch check (when the diff rewires an existing flow).** If Phase 2 intent shows this is a re-architecture — moving state to a new owner, routing a value through a new seam, replacing a hardcoded literal with a resolved lookup — the diff must make the dataflow flow the way the re-arch _intends_, end to end. Half-migrations are the CRITICAL bug here:
 
-- Old path left live alongside the new one → two producers, drift (the thing the
-re-arch was supposed to eliminate is still there).
-- New path wired at the producer but a consumer still reads the old source (or vice
-versa) → the re-arch silently doesn't take effect on that path.
-- New seam declared but zero consumers routed through it → orphan seam, false
-"done".
+- Old path left live alongside the new one → two producers, drift (the thing the re-arch was supposed to eliminate is still there).
+- New path wired at the producer but a consumer still reads the old source (or vice versa) → the re-arch silently doesn't take effect on that path.
+- New seam declared but zero consumers routed through it → orphan seam, false "done".
 
-Concrete shape (TRACE example): moving a team-specific value out of shared core into
-a team plugin slot means every consumer must read it via `resolve_*(ctx)` against
-the bound team — a diff that adds the slot but leaves any consumer on the old
-shared-core constant/YAML literal has NOT completed the re-arch, and the second team
-still hits the wrong value. Check every sibling consumer, not just the one the diff
-touched.
+Concrete shape (TRACE example): moving a team-specific value out of shared core into a team plugin slot means every consumer must read it via `resolve_*(ctx)` against the bound team — a diff that adds the slot but leaves any consumer on the old shared-core constant/YAML literal has NOT completed the re-arch, and the second team still hits the wrong value. Check every sibling consumer, not just the one the diff touched.
 
 ### Finding Format
 
@@ -303,11 +252,9 @@ If no issues found, output exactly: NO FINDINGS
 
 Launch both in a **single message** with two tool calls so they run concurrently:
 
-**Voice 1 — Claude Subagent:**
-Dispatch via Agent tool with `subagent_type: "general-purpose"`. Pass the shared prompt above verbatim.
+**Voice 1 — Claude Subagent:** Dispatch via Agent tool with `subagent_type: "general-purpose"`. Pass the shared prompt above verbatim.
 
-**Voice 2 — Codex:**
-First check availability:
+**Voice 2 — Codex:** First check availability:
 
 ```bash
 which codex 2>/dev/null && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
@@ -481,4 +428,3 @@ wayne-code-review → wayne-verify → wayne-ship
 - **Confidence matters** — every finding has a number, not just "maybe"
 - **No compliments** — just the problems and the fixes
 - **Chinese for discussion, English for artifacts** — questions in Chinese, findings in English
-

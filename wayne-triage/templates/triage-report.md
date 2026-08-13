@@ -19,7 +19,7 @@ stale. "The SkillConfig type should accept an optional `schedule`", not "edit
 line 42 of skill.ts".
 -->
 
-**Date:** <date>  ·  **Triaged by:** <you>  ·  **Route:** <fix-now | test-then-fix | iterate-in-a-loop | needs-plan | escalate-architecture | escalate-incident | route-to-owner | UNCERTAIN>  ·  **Next Wayne stage:** <wayne-test-design | wayne-plan | wayne-work | wayne-mind-explode | wayne-ship | — >
+**Date:** <date> · **Triaged by:** <you> · **Route:** <fix-now | test-then-fix | iterate-in-a-loop | needs-plan | escalate-architecture | escalate-incident | route-to-owner | UNCERTAIN> · **Next Wayne stage:** <wayne-test-design | wayne-plan | wayne-work | wayne-mind-explode | wayne-ship | — >
 
 ## 1. Executive summary
 
@@ -27,7 +27,7 @@ line 42 of skill.ts".
 
 ## 2. Symptom
 
-- **Verbatim:** "<exact error / log text>"  (`<file:line>`)
+- **Verbatim:** "<exact error / log text>" (`<file:line>`)
 - **Symptom class:** <crash | hang | wrong-output | perf-regression | flaky | config-env>
 - **First seen / rate:** <when> / <every time | N of M>
 
@@ -40,7 +40,7 @@ line 42 of skill.ts".
 ## 4. Root-cause analysis
 
 - **Cause category:** <logic | config | dependency | environment | infra-hardware | test-artifact | architecture>
-- **Confirmed cause:** <statement>  — evidence: `<file:line>`
+- **Confirmed cause:** <statement> — evidence: `<file:line>`
 - **Contributing factors:** <the web of causes, if not singular>
 - **Eliminated:** <hypotheses ruled out, and the `--` evidence that killed each>
 
@@ -48,7 +48,7 @@ line 42 of skill.ts".
 
 - **Symptom layer:** <where the symptom pointed>
 - **Cause layer:** <where the cause was confirmed>
-- **Verdict:** <AGREE → responsible = <component>, confidence <0.0-1.0>  |  DISAGREE → UNCERTAIN, candidates = [<A>, <B>]>
+- **Verdict:** <AGREE → responsible = <component>, confidence <0.0-1.0> | DISAGREE → UNCERTAIN, candidates = [<A>, <B>]>
 
 ## 6. Recommended next action (durable brief — behavioral, NO file:line)
 

@@ -14,7 +14,7 @@ references/style-recipes/
 This catalog is the **anchored library**; `../aesthetic-families.md` is the **school taxonomy** for vague-request conversations. The two work together:
 
 | Route | Tool | When |
-|---|---|---|
+| --- | --- | --- |
 | User has no idea — needs guidance | `../aesthetic-families.md` (6-school 3-pick conversation) | "Make me something nice" / "I don't know what style I want" |
 | User has an anchor in mind | Read **one** file here directly | "Make it Linear-style" / "Stripe Press feeling" / "Are.na vibe" |
 | Direction Advisor narrowed to a school but user wants concreteness | Read this INDEX for the school's recipes → then read the 2–3 specific recipe files | Mid-conversation handoff |
@@ -32,9 +32,10 @@ This catalog is the **anchored library**; `../aesthetic-families.md` is the **sc
 Do **not** load every recipe file up front. The entire catalog is ~1400 lines if loaded together; loading one recipe is ~50 lines. **Loading the whole catalog when you only need one recipe is the exact anti-pattern this split is designed to prevent.**
 
 Do **not** read recipe files when:
+
 - The user provided their own brand assets / Figma / codebase — extract from those instead (Asset > Spec).
 - The task is dictated by an existing UI you're extending — match the visual vocabulary already there, don't impose a recipe.
-- The user gave you a screenshot of a specific reference page — that screenshot *is* the recipe; extract directly.
+- The user gave you a screenshot of a specific reference page — that screenshot _is_ the recipe; extract directly.
 
 ---
 
@@ -48,20 +49,20 @@ Do **not** read recipe files when:
 - **Typography** — real font names with weight numbers and size guidance. No "Inter / Roboto" fallbacks unless the anchor itself uses them.
 - **Spacing system** — concrete value ladder
 - **Radius / Shadow / Motion character** — described in **design language**, not code
-- **Signature moves** — 3–5 specific, opinionated, copy-able design decisions that make this recipe *recognisable*. This is the design DNA.
+- **Signature moves** — 3–5 specific, opinionated, copy-able design decisions that make this recipe _recognisable_. This is the design DNA.
 - **Avoid** — anti-patterns inside this recipe (i.e., things that would silently turn it into AI slop)
 - **AI prompt seed** — when generating supporting imagery, what to ask for to stay in DNA
 - **Don't use when** — the boundary; situations where this recipe will misfire
 - **Footer** — peer recipes in the same school + a link back to this INDEX
 
-**These files contain no code.** Hex codes, font names, and spacing ladders are *design tokens described in words*, not code. The agent translates them to CSS / JSX in Step 3+ using the project's stack.
+**These files contain no code.** Hex codes, font names, and spacing ladders are _design tokens described in words_, not code. The agent translates them to CSS / JSX in Step 3+ using the project's stack.
 
 ---
 
 ## Index 1 — By School
 
 | School | Recipes |
-|---|---|
+| --- | --- |
 | **Editorial / Minimalist** | [`apple-hig`](./apple-hig.md) · [`muji-kenya-hara`](./muji-kenya-hara.md) · [`aesop`](./aesop.md) · [`dieter-rams-braun`](./dieter-rams-braun.md) · [`monocle-magazine`](./monocle-magazine.md) |
 | **Information Architecture** | [`pentagram`](./pentagram.md) · [`vignelli-swiss-helvetica`](./vignelli-swiss-helvetica.md) · [`bloomberg-terminal`](./bloomberg-terminal.md) · [`tufte-dataink`](./tufte-dataink.md) · [`nyt-the-daily`](./nyt-the-daily.md) |
 | **Modern Tool / Builder SaaS** | [`linear`](./linear.md) · [`vercel-mesh`](./vercel-mesh.md) · [`raycast`](./raycast.md) · [`notion-pre-ai`](./notion-pre-ai.md) |
@@ -75,7 +76,7 @@ The first 6 schools mirror the Direction Advisor's 6 schools (in `../aesthetic-f
 ## Index 2 — By Best-For
 
 | Scenario | First-choice recipes |
-|---|---|
+| --- | --- |
 | B2B SaaS / developer tools | [`linear`](./linear.md) · [`vercel-mesh`](./vercel-mesh.md) · [`raycast`](./raycast.md) · [`pentagram`](./pentagram.md) |
 | Premium consumer / lifestyle | [`aesop`](./aesop.md) · [`muji-kenya-hara`](./muji-kenya-hara.md) · [`stripe-press`](./stripe-press.md) · [`monocle-magazine`](./monocle-magazine.md) |
 | Data product / dashboard / finance | [`bloomberg-terminal`](./bloomberg-terminal.md) · [`tufte-dataink`](./tufte-dataink.md) · [`vignelli-swiss-helvetica`](./vignelli-swiss-helvetica.md) |
@@ -88,7 +89,7 @@ The first 6 schools mirror the Direction Advisor's 6 schools (in `../aesthetic-f
 ## Index 3 — By Mode (light / dark / either)
 
 | Mode | Recipes |
-|---|---|
+| --- | --- |
 | Light-first | [`apple-hig`](./apple-hig.md) · [`muji-kenya-hara`](./muji-kenya-hara.md) · [`aesop`](./aesop.md) · [`dieter-rams-braun`](./dieter-rams-braun.md) · [`monocle-magazine`](./monocle-magazine.md) · [`pentagram`](./pentagram.md) · [`nyt-the-daily`](./nyt-the-daily.md) · [`stripe-press`](./stripe-press.md) · [`headspace-meditation`](./headspace-meditation.md) · [`mailchimp-freddie`](./mailchimp-freddie.md) · [`mid-century-modern`](./mid-century-modern.md) |
 | Dark-first | [`linear`](./linear.md) · [`vercel-mesh`](./vercel-mesh.md) · [`raycast`](./raycast.md) · [`bloomberg-terminal`](./bloomberg-terminal.md) · [`field-io`](./field-io.md) · [`active-theory`](./active-theory.md) · [`resn-storytelling`](./resn-storytelling.md) · [`y2k-retrofuturism`](./y2k-retrofuturism.md) |
 | Works either way | [`vignelli-swiss-helvetica`](./vignelli-swiss-helvetica.md) · [`tufte-dataink`](./tufte-dataink.md) · [`notion-pre-ai`](./notion-pre-ai.md) · [`are-na`](./are-na.md) · [`bloomberg-businessweek-turley`](./bloomberg-businessweek-turley.md) · [`balenciaga-post-2017`](./balenciaga-post-2017.md) |
@@ -101,7 +102,7 @@ These apply across every recipe in this catalog. Violating them collapses the re
 
 ### ❌ Don't combine two recipes mid-page
 
-Pick **one** recipe and instantiate it fully. Adding "Linear with Aesop accents" or "Pentagram with a Y2K hero" usually reads as confused rather than original. Two-recipe remixes work only when the user explicitly asks and you can articulate *why* the marriage is coherent (e.g., "Aesop palette on Pentagram grid for an apothecary catalog with editorial bones").
+Pick **one** recipe and instantiate it fully. Adding "Linear with Aesop accents" or "Pentagram with a Y2K hero" usually reads as confused rather than original. Two-recipe remixes work only when the user explicitly asks and you can articulate _why_ the marriage is coherent (e.g., "Aesop palette on Pentagram grid for an apothecary catalog with editorial bones").
 
 ### ❌ Don't half-commit to brutalism / Y2K / mid-century
 
@@ -109,11 +110,11 @@ The Specialty / Genre and Brutalist / Raw recipes need full commitment. Half-Y2K
 
 ### ❌ Don't default to Inter / Roboto / Arial / system-ui as display
 
-If your chosen recipe specifies a font, use that font (or a real substitute *named in the recipe*). Defaulting to Inter erases the recipe's typographic identity, which is usually 30–40% of its signature.
+If your chosen recipe specifies a font, use that font (or a real substitute _named in the recipe_). Defaulting to Inter erases the recipe's typographic identity, which is usually 30–40% of its signature.
 
 ### ❌ Don't import every color in the palette
 
-Each recipe lists a restricted palette intentionally. If a recipe gives you 4 colors, don't add a 5th to "balance things out". The restriction *is* the recipe.
+Each recipe lists a restricted palette intentionally. If a recipe gives you 4 colors, don't add a 5th to "balance things out". The restriction _is_ the recipe.
 
 ### ❌ Don't add your own AI-default touches "to make it pop"
 

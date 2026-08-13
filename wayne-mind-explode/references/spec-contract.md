@@ -1,33 +1,21 @@
 # Design spec contract
 
-Rules for writing `docs/specs/<topic>.md`. The skeleton is
-[the spec template](../templates/spec.md); this file says what makes a filled-in
-one correct.
+Rules for writing `docs/specs/<topic>.md`. The skeleton is [the spec template](../templates/spec.md); this file says what makes a filled-in one correct.
 
 ## What this file is
 
-**A living page, and the only durable artifact of a design run.** It always
-describes the CURRENT design of its topic, never a snapshot of one run. Name it
-after the topic — `authentication.md`, not `2026-05-01-auth-design.md`. A later
-run that changes this design edits this file in place and appends to
-`## Decisions`; it never creates a second file. The DAG, research trail,
-test-matrix draft, and review reports are run-scoped and die at ship.
+**A living page, and the only durable artifact of a design run.** It always describes the CURRENT design of its topic, never a snapshot of one run. Name it after the topic — `authentication.md`, not `2026-05-01-auth-design.md`. A later run that changes this design edits this file in place and appends to `## Decisions`; it never creates a second file. The DAG, research trail, test-matrix draft, and review reports are run-scoped and die at ship.
 
-**Its reader is a human, months later.** The run-scoped
-`decision-log.jsonl` is the machine-oriented form written one record per turn;
-this is the read-optimized form of the same decisions. That is why this file uses
-prose, diagrams, and signatures where the log uses fields.
+**Its reader is a human, months later.** The run-scoped `decision-log.jsonl` is the machine-oriented form written one record per turn; this is the read-optimized form of the same decisions. That is why this file uses prose, diagrams, and signatures where the log uses fields.
 
 Change history is git. There is no changelog section.
 
 ## Frontmatter
 
-OKF v0.2. `type` is the only required field; every other key is optional and its
-absence carries meaning, so add a key only when warranted — an absent key means
-something, an empty one does not.
+OKF v0.2. `type` is the only required field; every other key is optional and its absence carries meaning, so add a key only when warranted — an absent key means something, an empty one does not.
 
 | Key | Rule |
-|---|---|
+| --- | --- |
 | `status` | `stable` \| `deprecated`, always written. `stable` = in force, and the candidate carries it too because promotion must not change a byte. `deprecated` = the topic is gone, split, or merged — point `related` at the successors. Superseding a decision is a new `## Decisions` entry, never `deprecated`. |
 | `generated` | `{ by, at }`. `by` uses the actor convention: `<producer>/<version>` for agents, `human:<id>` for people, `process:<id>` for automated processes. `at` marks the last meaningful content change. |
 | `verified` | One entry per **runtime** confirmation event, each `{ by, at }`, appended by `wayne-verify` after it exercises the real path. Design reviewers never write here: a voice that attested inside the bytes it reviewed would invalidate its own pass. Their passes live in the immutable review reports and the decision log, keyed by the digest they read. |
@@ -35,124 +23,55 @@ something, an empty one does not.
 | `sources` | Provenance. Each entry needs `resource`; give it an `id` when the body cites it, then attribute the individual claim with a markdown footnote keyed to that id — `[^adr-tls]` — never a positional index. |
 | `related` | Sibling or successor specs, as relative paths. |
 
-Consumers derive the trust tier from `verified`: no entries = design-approved but
-never run, any entry = confirmed against the running system, and a `human:` entry =
-a person watched it. Content can change without re-confirmation, so a
-`generated.at` later than every `verified.at` means this spec was edited after it
-was last proven and the gate must run again.
+Consumers derive the trust tier from `verified`: no entries = design-approved but never run, any entry = confirmed against the running system, and a `human:` entry = a person watched it. Content can change without re-confirmation, so a `generated.at` later than every `verified.at` means this spec was edited after it was last proven and the gate must run again.
 
 ## Candidate versus in force
 
-A run never edits `docs/specs/<topic>.md` directly. It stages its candidate at
-`.wayne/runs/<topic>/spec.md`, already carrying the `status: stable` it will hold
-in force, and the living page is replaced with those exact bytes only once the
-user has approved them. An amendment works the same way: it starts from the
-current in-force bytes, revises the candidate, and promotes.
+A run never edits `docs/specs/<topic>.md` directly. It stages its candidate at `.wayne/runs/<topic>/spec.md`, already carrying the `status: stable` it will hold in force, and the living page is replaced with those exact bytes only once the user has approved them. An amendment works the same way: it starts from the current in-force bytes, revises the candidate, and promotes.
 
-The point is that `docs/specs/` never holds a byte the user did not approve, and
-the bytes the independent reviewers read are the bytes that were approved. A
-workflow that promotes first and adjusts afterwards — even only the status line —
-has already broken that, because the approval no longer names what is in force.
+The point is that `docs/specs/` never holds a byte the user did not approve, and the bytes the independent reviewers read are the bytes that were approved. A workflow that promotes first and adjusts afterwards — even only the status line — has already broken that, because the approval no longer names what is in force.
 
 ## Sections
 
 Delete every section that does not apply. An empty heading is worse than none.
 
-**`## Requirements` is the sole definer of `R<number>`.** Nowhere else in the
-pipeline mints one. Each requirement is falsifiable: a verifier can write a check
-that resolves to pass or fail. `Current` / `Target` / `Acceptance` are all three
-required — a requirement without `Current` cannot be shown to have changed
-anything, and one without `Acceptance` cannot be verified. "Improve performance"
-is not a requirement; "p99 falls from 800ms to under 200ms, proven by <check>" is.
+**`## Requirements` is the sole definer of `R<number>`.** Nowhere else in the pipeline mints one. Each requirement is falsifiable: a verifier can write a check that resolves to pass or fail. `Current` / `Target` / `Acceptance` are all three required — a requirement without `Current` cannot be shown to have changed anything, and one without `Acceptance` cannot be verified. "Improve performance" is not a requirement; "p99 falls from 800ms to under 200ms, proven by <check>" is.
 
-It is also where normative text lives. A gate, cap, threshold, ordering, or output
-contract is written **in full at exactly one owning `R<number>`**; every other
-section that needs it cites that ID and adds only what is local to itself.
+It is also where normative text lives. A gate, cap, threshold, ordering, or output contract is written **in full at exactly one owning `R<number>`**; every other section that needs it cites that ID and adds only what is local to itself.
 
-**`## Verification` maps every `R<number>` to a proof.** An unmapped requirement
-is a gap, not an omission. Carry no pass/fail status: whether a run passed is
-run-scoped state owned by the test matrix, and the durable fact that this spec
-was verified is a `verified` frontmatter entry.
+**`## Verification` maps every `R<number>` to a proof.** An unmapped requirement is a gap, not an omission. Carry no pass/fail status: whether a run passed is run-scoped state owned by the test matrix, and the durable fact that this spec was verified is a `verified` frontmatter entry.
 
-**`## Decisions` carries every decision the specified behavior depends on**, not the
-research trail. A choice, a constraint that eliminated an option, and a codebase
-fact the design leans on all belong here; only a fact the specified behavior does
-not depend on dies with the run. Independent review judges these bytes, so a
-load-bearing decision left in the run-scoped log reaches the reviewer as an
-unanswered question. One entry per decision, titled with the decision itself, so
-reading only the headings gives the whole decision set.
+**`## Decisions` carries every decision the specified behavior depends on**, not the research trail. A choice, a constraint that eliminated an option, and a codebase fact the design leans on all belong here; only a fact the specified behavior does not depend on dies with the run. Independent review judges these bytes, so a load-bearing decision left in the run-scoped log reaches the reviewer as an unanswered question. One entry per decision, titled with the decision itself, so reading only the headings gives the whole decision set.
 
-An entry is a **provenance index, not a second statement of the rule**. Where the
-decision constrains specific requirements, the entry is the decision, its rationale,
-and an exact `Governs R5, R7` line naming them — the rule itself stays on those Rs.
-A framing decision that governs no requirement (a technology pick, a boundary, an
-eliminated option) carries its own text and no link, because it has no other home.
+An entry is a **provenance index, not a second statement of the rule**. Where the decision constrains specific requirements, the entry is the decision, its rationale, and an exact `Governs R5, R7` line naming them — the rule itself stays on those Rs. A framing decision that governs no requirement (a technology pick, a boundary, an eliminated option) carries its own text and no link, because it has no other home.
 
-That split is what keeps a decision from being weakened in transcription: a rule
-written out twice drifts, and a spec with two versions of it has no statement of
-which one is in force. An entry that would write the rule out again cites it instead.
+That split is what keeps a decision from being weakened in transcription: a rule written out twice drifts, and a spec with two versions of it has no statement of which one is in force. An entry that would write the rule out again cites it instead.
 
-Each entry carries its `Consequences`, and a `Depends on` line whenever a decision
-in another spec constrained this one, cited as [`<slug>:D<n>`](./<slug>.md). Only
-edges that genuinely exist; never copy a decision into a second spec, because the
-spec that owns the state or interface owns the decision and everyone else
-references it.
+Each entry carries its `Consequences`, and a `Depends on` line whenever a decision in another spec constrained this one, cited as [`<slug>:D<n>`](./<slug>.md). Only edges that genuinely exist; never copy a decision into a second spec, because the spec that owns the state or interface owns the decision and everyone else references it.
 
-It is append-only across runs. Reversing an earlier decision adds a new entry
-naming it in `Supersedes`; never edit or delete the superseded entry. IDs are
-namespaced by this file's slug — `authentication:D7` — so they stay unique when a
-script derives a repo-wide decision graph; within this file, bare `D7` is fine.
+It is append-only across runs. Reversing an earlier decision adds a new entry naming it in `Supersedes`; never edit or delete the superseded entry. IDs are namespaced by this file's slug — `authentication:D7` — so they stay unique when a script derives a repo-wide decision graph; within this file, bare `D7` is fine.
 
 ## Diagrams and code
 
 A design that can only be read as prose is not readable. Show the shape.
 
-**Diagrams are mermaid**, fenced as ```` ```mermaid ````, because they render in
-GitHub, Obsidian, and most editors without a build step. Use `flowchart` for
-component and ownership structure and `sequenceDiagram` for a flow across
-components. One diagram that carries the whole architecture beats five that each
-carry a corner of it. A diagram that merely restates the prose next to it earns
-nothing — delete one of the two.
+**Diagrams are mermaid**, fenced as ` ```mermaid `, because they render in GitHub, Obsidian, and most editors without a build step. Use `flowchart` for component and ownership structure and `sequenceDiagram` for a flow across components. One diagram that carries the whole architecture beats five that each carry a corner of it. A diagram that merely restates the prose next to it earns nothing — delete one of the two.
 
-**`## Technology and frameworks` names every technology a reader needs in order to
-understand this design**, with the role it plays, what it beat, and the constraint
-it imposes — version floor, platform limit, licence, or cost. Mark each `new` or
-`inherited`: a reader who cannot tell which choices this run made cannot tell which
-ones are open to challenge. Downstream stages copy those constraints verbatim, so a
-constraint that lives only in someone's head is a constraint the plan will break.
-Omit only infrastructure the design does not touch.
+**`## Technology and frameworks` names every technology a reader needs in order to understand this design**, with the role it plays, what it beat, and the constraint it imposes — version floor, platform limit, licence, or cost. Mark each `new` or `inherited`: a reader who cannot tell which choices this run made cannot tell which ones are open to challenge. Downstream stages copy those constraints verbatim, so a constraint that lives only in someone's head is a constraint the plan will break. Omit only infrastructure the design does not touch.
 
-**Interfaces show the boundary, then one illustrative call.** The signature block
-carries types, names, parameters, return shapes, and errors. The usage block
-carries a call site, request/response, or event payload with fake values and the
-real shape — a reviewer catches an awkward boundary from how it is called far
-faster than from its declaration. Neither block carries bodies, algorithms, or
-error-handling detail: that is the implementation plan's job, and putting it here
-creates a second source of truth that drifts the day someone writes real code.
+**Interfaces show the boundary, then one illustrative call.** The signature block carries types, names, parameters, return shapes, and errors. The usage block carries a call site, request/response, or event payload with fake values and the real shape — a reviewer catches an awkward boundary from how it is called far faster than from its declaration. Neither block carries bodies, algorithms, or error-handling detail: that is the implementation plan's job, and putting it here creates a second source of truth that drifts the day someone writes real code.
 
-Name modules and interfaces, not file paths. Interfaces survive refactors; paths
-do not.
+Name modules and interfaces, not file paths. Interfaces survive refactors; paths do not.
 
 ## Before review
 
-Approved specs contain no assumptions, open questions, TBDs, or TODOs.
-Unresolved material stays in the run-scoped log. Read the written file once with
-fresh eyes and fix inline:
+Approved specs contain no assumptions, open questions, TBDs, or TODOs. Unresolved material stays in the run-scoped log. Read the written file once with fresh eyes and fix inline:
 
 1. **Placeholders** — any `TBD`, `TODO`, unfilled `<...>`, or vague requirement.
-2. **Contradictions** — does the architecture match the requirements, and do the
-   diagrams match the prose?
+2. **Contradictions** — does the architecture match the requirements, and do the diagrams match the prose?
 3. **Ambiguity** — could any requirement be read two ways? Pick one and say it.
 4. **Scope** — is this focused enough to become one implementation plan?
-5. **Carrier leak** — walk the run-scoped decision log record by record. Each one
-   either has a home in these bytes, or an explicit reason the specified behavior
-   does not depend on it. This is a presence sweep and nothing more: whether each
-   home carries the same obligation is judged by the carriage voice at J, because an
-   author reads their own sentence as obviously meaning what they meant.
-6. **Duplicated rule** — is any gate, cap, threshold, ordering, or output contract
-   written out in full in more than one place? The remedy is not to make the two
-   copies agree; it is to delete the one that does not own the rule and cite the
-   owning `R<number>` in its place. Two copies drift independently, and the weaker
-   one is what a downstream stage happens to read.
+5. **Carrier leak** — walk the run-scoped decision log record by record. Each one either has a home in these bytes, or an explicit reason the specified behavior does not depend on it. This is a presence sweep and nothing more: whether each home carries the same obligation is judged by the carriage voice at J, because an author reads their own sentence as obviously meaning what they meant.
+6. **Duplicated rule** — is any gate, cap, threshold, ordering, or output contract written out in full in more than one place? The remedy is not to make the two copies agree; it is to delete the one that does not own the rule and cite the owning `R<number>` in its place. Two copies drift independently, and the weaker one is what a downstream stage happens to read.
 
 Minor wording, stylistic preference, and uneven detail are not findings.

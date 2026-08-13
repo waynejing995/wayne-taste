@@ -1,7 +1,6 @@
 # Wayne Control Plane — Global Invariants
 
-This file is the **single source of truth** for Wayne control-plane invariants.
-All `wayne-*` skills inherit from here and MUST NOT redeclare these rules.
+This file is the **single source of truth** for Wayne control-plane invariants. All `wayne-*` skills inherit from here and MUST NOT redeclare these rules.
 
 ## Language
 
@@ -20,6 +19,7 @@ Chat with user in Chinese (简体中文). Output files (code, docs, configs, com
 ### Single Source of Truth (SSoT)
 
 Every piece of state lives in exactly one place. Many readers, many writers — same storage.
+
 - All derived views (UI, cache, index, replicas) MUST be reconstructible from the SSoT.
 - The bug is **same-or-similar state stored with different semantics in different places**, causing drift. Example: a `loading` bool, a `state == "LOADING"` enum, an `is_busy` flag — three encodings of one concept, all liable to disagree.
 - Schema-first: define data shape (pydantic / typed dict / jsonschema) before behavior.
@@ -28,6 +28,7 @@ Every piece of state lives in exactly one place. Many readers, many writers — 
 ### Fail Loud, Don't Degrade Silently
 
 Errors must be visible. Silent degradation is the most expensive bug.
+
 - Fallback paths MUST be explicit (log warning + comment + test). Never `try/except: pass`.
 - Sentinel defaults (empty string, UTC, empty list) are traps — caller can't tell they got a fallback.
 - Before adding `try/except`, ask: "what signal am I swallowing?"
@@ -37,6 +38,7 @@ Errors must be visible. Silent degradation is the most expensive bug.
 ### Push, Don't Poll
 
 State changes get pushed via events/reactive/callbacks. Consumers do not poll.
+
 - `while True: check_X(); sleep(N)` → there is almost always a better event source.
 - `if state.changed_since_last_check()` → state owner should emit, not wait to be discovered.
 - Use framework reactive primitives (Textual `watch_*`, pydantic validators, asyncio Queue, inotify). Don't simulate them.
@@ -45,6 +47,7 @@ State changes get pushed via events/reactive/callbacks. Consumers do not poll.
 ### Delete > Add
 
 Removing code / features / config has higher priority than adding.
+
 - Before adding, ask: "what can I delete to make room?"
 - Dead code / unused config / placeholder abstractions are net liabilities.
 - 200 lines → 50 lines: rewrite. 50 lines → 10 lines: also rewrite.
@@ -54,13 +57,15 @@ Removing code / features / config has higher priority than adding.
 ### Novacula Occami (Occam's Razor)
 
 Entities must not be multiplied beyond necessity. The simplest explanation/solution that fits the facts wins.
+
 - Debugging: prefer the hypothesis requiring the fewest assumptions before reaching for exotic causes. Check the obvious first.
 - Design: fewer moving parts, fewer layers, fewer abstractions — unless complexity earns its keep.
 - When two solutions explain the same facts, pick the one with fewer entities (configs, services, branches, special cases).
 - Razor cuts assumptions, not requirements. Don't oversimplify away real constraints — cut speculation, not necessity.
 
-**RCA / root-cause work — the razor orders, it does not converge.** In debugging, Occam is a *search heuristic* (check the obvious / fewest-assumption hypothesis first), NOT a *stop condition*. Two traps:
-- "Simplest" ≠ "most likely". Real bugs are often multi-cause (race + bad fallback + tz). The simplest story fits the *symptom* but not the *full evidence chain*. Convergence threshold = explains ALL observations + reproduces + sibling paths grepped — not "this one story sounds plausible".
+**RCA / root-cause work — the razor orders, it does not converge.** In debugging, Occam is a _search heuristic_ (check the obvious / fewest-assumption hypothesis first), NOT a _stop condition_. Two traps:
+
+- "Simplest" ≠ "most likely". Real bugs are often multi-cause (race + bad fallback + tz). The simplest story fits the _symptom_ but not the _full evidence chain_. Convergence threshold = explains ALL observations + reproduces + sibling paths grepped — not "this one story sounds plausible".
 - Grabbing the first sufficiently-simple explanation and jumping to a patch is exactly how sibling-miss / wrong-target-file bugs happen. In a real system, complexity is a requirement, not speculation — the razor must not cut it away.
 
 ## Behavior
@@ -70,6 +75,7 @@ Bias toward caution over speed. Trivial tasks: use judgment.
 ### Think Before Coding
 
 Don't assume. Don't hide confusion. Surface tradeoffs.
+
 - State assumptions explicitly. Uncertain → ask.
 - Multiple interpretations → present them, don't pick silently.
 - Simpler approach exists → say so.
@@ -78,6 +84,7 @@ Don't assume. Don't hide confusion. Surface tradeoffs.
 ### Simplicity First
 
 Minimum code that solves the problem. No speculation.
+
 - No features beyond what was asked.
 - No abstractions for single-use code.
 - No "flexibility" not requested.
@@ -87,6 +94,7 @@ Minimum code that solves the problem. No speculation.
 ### Surgical Changes
 
 Touch only what you must.
+
 - Don't "improve" adjacent code, comments, formatting.
 - Don't refactor things that aren't broken.
 - Match existing style, even if you'd do it differently.
@@ -97,11 +105,13 @@ Touch only what you must.
 ### Goal-Driven Execution
 
 Define success criteria. Loop until verified.
+
 - "Add validation" → write tests for invalid inputs, make them pass.
 - "Fix the bug" → write a test reproducing it, make it pass.
 - "Refactor X" → tests pass before and after.
 
 For multi-step tasks, brief plan with verify check per step:
+
 ```
 1. [Step] → verify: [check]
 2. [Step] → verify: [check]
@@ -126,31 +136,20 @@ git commit -s
 
 1 commit = 1 feature / 1 fix / 1 request / or 1 unit if a feature is really large. No bundles.
 
-**Large feature → commit per unit yourself.** When a feature spans multiple plan
-units, commit each unit (or each self-contained logical group, when units are
-atomically coupled) as you finish it — do not wait to be told. Each commit must be
-self-consistent. Where an ordering constraint forces units to land together, group
-exactly those and say so in the commit body.
+**Large feature → commit per unit yourself.** When a feature spans multiple plan units, commit each unit (or each self-contained logical group, when units are atomically coupled) as you finish it — do not wait to be told. Each commit must be self-consistent. Where an ordering constraint forces units to land together, group exactly those and say so in the commit body.
 
-**Sign-off is the human, never the bot.** Commits MUST be signed off as
-`Jingwen Chen <Jingwen.Chen2@amd.com>`, not any `*Robot*` / `noreply` identity a
-repo-local `user.name`/`user.email` may impose. If the repo-local git identity is a
-bot, pass the human identity explicitly:
-`git commit -s --author="Jingwen Chen <Jingwen.Chen2@amd.com>"` and ensure the
-`Signed-off-by:` trailer names the human (use
-`-c user.name=... -c user.email=...` if needed). Do NOT add `Co-Authored-By`
-robot/Claude trailers. Never edit global git config to achieve this.
+**Sign-off is the human, never the bot.** Commits MUST be signed off as `Jingwen Chen <Jingwen.Chen2@amd.com>`, not any `*Robot*` / `noreply` identity a repo-local `user.name`/`user.email` may impose. If the repo-local git identity is a bot, pass the human identity explicitly: `git commit -s --author="Jingwen Chen <Jingwen.Chen2@amd.com>"` and ensure the `Signed-off-by:` trailer names the human (use `-c user.name=... -c user.email=...` if needed). Do NOT add `Co-Authored-By` robot/Claude trailers. Never edit global git config to achieve this.
 
 ## Logging (Python)
 
 All Python scripts use `loguru`:
 
-| Level | When |
-|-------|------|
-| `DEBUG` | Internal state, variable dumps |
-| `INFO` | Normal operation milestones |
-| `WARNING` | Recoverable issues, fallbacks |
-| `ERROR` | Failures preventing expected outcome |
+| Level     | When                                 |
+| --------- | ------------------------------------ |
+| `DEBUG`   | Internal state, variable dumps       |
+| `INFO`    | Normal operation milestones          |
+| `WARNING` | Recoverable issues, fallbacks        |
+| `ERROR`   | Failures preventing expected outcome |
 
 Default: `INFO`/`WARNING`/`ERROR`. `-v` flag shows `DEBUG`.
 
@@ -183,16 +182,15 @@ Before `AskUserQuestion` on complex problems: explain in plain Chinese. No jargo
 **Invocation rule: proportional effort.** Match skill overhead to task complexity.
 
 | Complexity | Action |
-|---|---|
+| --- | --- |
 | Trivial | Just do it. No skill. (typo, one-liner, lookup, explain) |
 | Simple | Direct. Skill only if explicitly requested. (small edit, add function, rename) |
 | Medium+ | Invoke relevant skill. (new feature, multi-file, ship, review) |
 
-**Always invoke** when user names a skill or slash command.
-**Never invoke** brainstorming/planning skills for tasks under ~10 lines of change.
+**Always invoke** when user names a skill or slash command. **Never invoke** brainstorming/planning skills for tasks under ~10 lines of change.
 
 | Trigger | Skill |
-|---------|-------|
+| --- | --- |
 | "brainstorm" / "design this" / "新功能想一下" / explore an idea | `wayne-mind-explode` |
 | "create a skill" / "slim this skill" / "建一个 skill" | `wayne-skill-forge` |
 | "optimize this skill" / "evolve skill" / failure-driven skill A/B | `wayne-skill-optimize` |

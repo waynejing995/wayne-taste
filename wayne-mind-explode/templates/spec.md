@@ -15,8 +15,7 @@ generated: { by: <actor>, at: <ISO 8601> }
 
 ## Problem
 
-<What breaks without this, from the user's or operator's perspective. No solution
-language here.>
+<What breaks without this, from the user's or operator's perspective. No solution language here.>
 
 ## Goals
 
@@ -46,26 +45,23 @@ flowchart LR
 
 <One paragraph the diagram cannot carry: why these boundaries.>
 
-| State | Owner | Storage |
-|---|---|---|
+| State       | Owner       | Storage          |
+| ----------- | ----------- | ---------------- |
 | <the thing> | <component> | <where it lives> |
 
-<Every piece of state gets exactly one row. If two answers exist, the design is
-not finished.>
+<Every piece of state gets exactly one row. If two answers exist, the design is not finished.>
 
 ## Technology and frameworks
 
 | Choice | Origin | Role | Why | Constraint / trade-off |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | <library, framework, service, or format> | inherited \| new | <what it does here> | <what it beat, or what it was inherited from> | <version floor, platform limit, or cost it imposes> |
 
-<Every technology a reader needs in order to understand this design, whether this
-run chose it or inherited it. Omit only infrastructure the design does not touch.>
+<Every technology a reader needs in order to understand this design, whether this run chose it or inherited it. Omit only infrastructure the design does not touch.>
 
 ## Interfaces
 
-<The boundary a reviewer argues with. Signatures, then one illustrative call —
-no bodies, no algorithms.>
+<The boundary a reviewer argues with. Signatures, then one illustrative call — no bodies, no algorithms.>
 
 ```<language>
 <signature>
@@ -94,7 +90,7 @@ sequenceDiagram
 ## Failure and concurrency
 
 | Failure | Behavior | Recovery |
-|---|---|---|
+| --- | --- | --- |
 | <mode> | <observable behavior — never silent degradation> | <retry, idempotency, ordering> |
 
 ## Observability
@@ -108,7 +104,7 @@ sequenceDiagram
 ## Legacy
 
 | Item | Class | Consumers | Decision |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | <path or component> | Dead \| Legacy \| Shared | <direct callers + jobs, scripts, APIs, other repos> | <delete \| deprecate \| migrate \| keep> |
 
 <Drop this section once the migration has landed.>
@@ -117,25 +113,20 @@ sequenceDiagram
 
 <Every `R<number>` maps to a proof. No status column.>
 
-| Requirement | Scenario | Proof |
-|---|---|---|
-| R1 | <the observable behavior> | [<test>](../../tests/e2e/<file>) |
+| Requirement | Scenario                  | Proof                            |
+| ----------- | ------------------------- | -------------------------------- |
+| R1          | <the observable behavior> | [<test>](../../tests/e2e/<file>) |
 
 ## Decisions
 
-<Each entry is a provenance index. When the decision constrains requirements, the
- rule itself lives on those Rs and the entry links to them; only a framing decision
- that governs no requirement carries its rule here.>
+<Each entry is a provenance index. When the decision constrains requirements, the rule itself lives on those Rs and the entry links to them; only a framing decision that governs no requirement carries its rule here.>
 
 ### D1 — <the decision itself, as a declarative statement>
 
-<Why. One short paragraph: the force that made this the answer, and the
-alternative it beat.[^<source-id>]>
+<Why. One short paragraph: the force that made this the answer, and the alternative it beat.[^<source-id>]>
 
-- **Governs** — <`R5, R7` — those Rs carry the normative text; omit this line for a
-  framing decision, which then states its own rule here>
-- **Consequences** — <the cost this accepts: what it makes harder, slower, or
-  irreversible. Never a restatement of the rationale.>
+- **Governs** — <`R5, R7` — those Rs carry the normative text; omit this line for a framing decision, which then states its own rule here>
+- **Consequences** — <the cost this accepts: what it makes harder, slower, or irreversible. Never a restatement of the rationale.>
 - **Depends on** — [`<slug>:D<n>`](./<slug>.md)
 - **Supersedes** — <`D<n>`, or `<slug>:D<n>`, comma-separated>
 - **Decided** — <YYYY-MM-DD, by user | codebase | web | constraint | default | review>

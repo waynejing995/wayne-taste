@@ -30,7 +30,7 @@ files_modified:
 ### Artifact References
 
 | Artifact | Path | Owner | SHA-256 | Observed state |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Decision log | `{decision_log path}` | `wayne-mind-explode` | `{sha256}` | {state at checkpoint time} |
 | Plan | `{plan path}` | `wayne-plan` / U Status by `wayne-work` | `{sha256}` | {state at checkpoint time} |
 | Spec | `{spec path}` | product-design stage | `{sha256}` | {state at checkpoint time} |
@@ -44,33 +44,32 @@ files_modified:
 
 ### Implementation Progress
 
-| Unit | Observed state | Source |
-|---|---|---|
-| I1 | {state at checkpoint time} | `{plan path}` at `{sha256}` |
-| I2 | {state at checkpoint time} | `{plan path}` at `{sha256}` |
+| Unit | Observed state             | Source                      |
+| ---- | -------------------------- | --------------------------- |
+| I1   | {state at checkpoint time} | `{plan path}` at `{sha256}` |
+| I2   | {state at checkpoint time} | `{plan path}` at `{sha256}` |
 
-This table is orientation only. `wayne-work` re-reads the authoritative plan and
-current U Status; it never executes from this checkpoint summary.
+This table is orientation only. `wayne-work` re-reads the authoritative plan and current U Status; it never executes from this checkpoint summary.
 
 ### Wave Progress (if parallel execution)
 
 {If wayne-work used waves, capture which waves are done}
 
-| Wave | Tasks | Status |
-|------|-------|--------|
-| Wave 1 | I1, I2 | DONE |
+| Wave   | Tasks  | Status                |
+| ------ | ------ | --------------------- |
+| Wave 1 | I1, I2 | DONE                  |
 | Wave 2 | I3, I4 | IN PROGRESS — I3 next |
-| Wave 3 | I5 | PENDING |
+| Wave 3 | I5     | PENDING               |
 
 ### Per-Task Review Status
 
 {Track which tasks passed spec compliance + code quality}
 
-| Unit | Spec | Quality | Notes |
-|------|------|---------|-------|
-| I1 | ✅ | ✅ | — |
-| I2 | ✅ | ✅ | — |
-| I3 | — | — | not started |
+| Unit | Spec | Quality | Notes       |
+| ---- | ---- | ------- | ----------- |
+| I1   | ✅   | ✅      | —           |
+| I2   | ✅   | ✅      | —           |
+| I3   | —    | —       | not started |
 
 ### Remaining Work
 
@@ -86,8 +85,7 @@ current U Status; it never executes from this checkpoint summary.
 
 ### Deferred Decisions
 
-{Any decisions from wayne-mind-explode that were deferred to implementation
-and haven't been resolved yet}
+{Any decisions from wayne-mind-explode that were deferred to implementation and haven't been resolved yet}
 
 - [ ] {deferred question 1}
 - [ ] {deferred question 2}

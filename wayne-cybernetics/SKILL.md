@@ -7,9 +7,7 @@ description: Apply Qian Xuesen's engineering cybernetics lens to system / archit
 
 Apply the cybernetics lens to a system / architecture / process / debug problem.
 
-This skill is a **diagnostic walker** — it reads the lens, surfaces its 8 principles
-as questions against the user's problem, and outputs a structured diagnosis with
-recommended interventions. Cross-domain: code, debug, process, KB, prompt-engineering.
+This skill is a **diagnostic walker** — it reads the lens, surfaces its 8 principles as questions against the user's problem, and outputs a structured diagnosis with recommended interventions. Cross-domain: code, debug, process, KB, prompt-engineering.
 
 This skill only specifies the cybernetics-lens application workflow.
 
@@ -20,6 +18,7 @@ diagnosis report (markdown, in conversation or to a file the user names), KB res
 ## Applicability
 
 Use this lens when the problem involves:
+
 - **Systems** — code architecture, service topology, multi-component interaction
 - **State / control** — where state lives, how it changes, who owns it
 - **Process / workflow** — handoffs, SLAs, runbooks, escalation paths
@@ -28,6 +27,7 @@ Use this lens when the problem involves:
 - **Drift** — anything that "keeps slowly going wrong"
 
 Skip for:
+
 - Single-line bug fixes (use `investigate` or just fix it)
 - Pure logic problems (no state / control surface)
 - Tasks under ~10 lines of change
@@ -72,6 +72,7 @@ Do NOT improvise from memory — the lens is the canonical methodology.
 ## Phase 2 — System Modeling (Principle #1)
 
 Apply Principle #1 first, always. Name all 5:
+
 - Plant (受控对象)
 - Controller (控制器)
 - Setpoint (设定值)
@@ -80,15 +81,14 @@ Apply Principle #1 first, always. Name all 5:
 
 If the user has not given enough context to name all 5, **stop and ask**. Use AskUserQuestion (in Chinese) for the missing piece. Do not guess.
 
-Use the system-modeling table in the final report format below. Confirm it with the
-user before proceeding to Phase 3.
+Use the system-modeling table in the final report format below. Confirm it with the user before proceeding to Phase 3.
 
 ## Phase 3 — Walk Diagnostics (Principles #2-#8)
 
 For each of the 7 remaining principles, run the lens's diagnostic question against the user's problem:
 
 | # | Principle | Diagnostic |
-|---|---|---|
+| --- | --- | --- |
 | 2 | Observability | If violated, can it be observed externally within N seconds? |
 | 3 | Controllability | Does this control input actually cause behavior change? |
 | 4 | Single SoT | How many places declare this rule / state? > 1 = drift risk |

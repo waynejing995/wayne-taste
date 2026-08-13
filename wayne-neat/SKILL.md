@@ -26,7 +26,7 @@ Code can be rewritten anytime. Docs and memory are the only bridge across sessio
 ## Four layers, four audiences — DO NOT collapse
 
 | Location | Audience | Job | Cost of drift |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Agent memory** (Claude Code: `~/.claude/projects/<...>/memory/`) | Future-you across sessions | Personal preferences, non-obvious facts, cross-project references | Next session forgets prior decisions |
 | **Project root `CLAUDE.md` / `AGENTS.md`** | The AI in this project, next session | Rules, red lines, command cheat-sheets, env vars, route inventory | Next AI takes wrong path in this repo |
 | **Project `docs/` + `README.md`** | **Other people** — human teammates, downstream devs, future AI taking over | Onboarding, architecture, **guides** (deploy / setup / operator / integration), handoff, API reference | Outsiders cannot ramp or operate |
@@ -45,7 +45,7 @@ The single biggest failure mode: every dev session adds another `> 2026-05-08 X 
 Test for any candidate line: **if the next AI writing code in this repo doesn't see this line, will it make a mistake?**
 
 | Example | Belongs in CLAUDE.md? | Why |
-|---|---|---|
+| --- | --- | --- |
 | "Prisma queries only in `modules/**/data/`" | ✅ | Boundary rule, AI must see |
 | "rsync single-file deploy needs full target path" | ✅ | Repeatable footgun |
 | "Never bare `systemctl stop aihot-worker`" | ✅ | Red line |
@@ -53,13 +53,12 @@ Test for any candidate line: **if the next AI writing code in this repo doesn't 
 | "Since 2026-04-30 anonymous reads /, /all" | ❌ | Both history and fact — fact goes in docs/ARCHITECTURE.md §8 + one line in project overview |
 | "5/8 fix details for X bug" | ❌ | Single incident — memory or delete |
 
-✅ In CLAUDE.md: hard boundaries, prohibitions, command cheat-sheets, permission model, collaboration flow, "deep docs" pointer table, footgun warnings.
-❌ Not in CLAUDE.md: historical narrative, detailed mechanism (lives in docs), single-incident postmortems, bugfix journals, "see docs/Z.md" pointer sentences (the pointer table owns that role).
+✅ In CLAUDE.md: hard boundaries, prohibitions, command cheat-sheets, permission model, collaboration flow, "deep docs" pointer table, footgun warnings. ❌ Not in CLAUDE.md: historical narrative, detailed mechanism (lives in docs), single-incident postmortems, bugfix journals, "see docs/Z.md" pointer sentences (the pointer table owns that role).
 
 ## Wayne sister-skill boundaries — do not overlap
 
 | Skill | Owns | Don't double-do |
-|---|---|---|
+| --- | --- | --- |
 | **wayne-neat** (this) | Persistent doc/memory alignment with code state | — |
 | `wayne-handoff` | One-shot Chinese chat message for a colleague — today's commits, push state, known issues | Don't write a handoff doc; that's chat-only |
 | `wayne-checkpoint` | Resumable working state for **this session's in-flight task** in `.wayne/checkpoints/` | Don't checkpoint inside neat — checkpoint is for paused work, neat is for completed reconciliation |
@@ -75,7 +74,7 @@ Feature implementation produces a trail of intermediate artifacts: brainstorms, 
 ### Detection — what counts as intermediate
 
 | Signal | Examples |
-|---|---|
+| --- | --- |
 | Filename has date prefix | `docs/2026-03-26-trace-plugin-architecture-design.md`, `docs/plans/2026-04-28-001-...-plan.md` |
 | Lives under known intermediate dirs | `docs/plans/`, `docs/decisions/`, `docs/brainstorms/`, `docs/rfcs/`, `docs/change-requests/`, `docs/proposals/` |
 | Filename contains `draft`, `wip`, `v1`, `v2`, `iter`, `proposal`, `rfc-`, `-plan`, `-decisions` | self-evident |
@@ -108,7 +107,7 @@ For each candidate intermediate doc, walk:
 For each known-issues entry, check:
 
 | State | Action |
-|---|---|
+| --- | --- |
 | Bug fix shipped (commit / PR merged) | **Delete the entry** (or move to `docs/CHANGES.md` if user maintains a changelog) |
 | Workaround documented but root cause unresolved | Keep — but verify the workaround still works |
 | Issue says "TODO investigate" + > 30 days old + no recent commits touching the area | Flag in summary as "未处理" — ask user whether to keep or close |
@@ -122,7 +121,7 @@ When the conversation included a fix that resolves a known-issues entry, **delet
 A "guide" is any doc that tells a reader **how to do something**. Common subtypes:
 
 | Guide subtype | Audience | Content |
-|---|---|---|
+| --- | --- | --- |
 | `setup-guide` / `initial-setup` / `quickstart` | First-time developer or operator | Clone → install deps → env vars → first run |
 | `deploy-guide` | Operator or release engineer | Build → push → migrate → smoke → rollback |
 | `dev-guide` / `developer-guide` | Contributor | Local dev loop, test commands, branching, PR flow |
@@ -132,6 +131,7 @@ A "guide" is any doc that tells a reader **how to do something**. Common subtype
 **Rule: every distinct deploy or setup path needs a guide.** Multiple deploy targets (local, staging, prod, customer-onsite)? Each gets a guide section or its own file. Multiple setup paths (Linux dev, Mac dev, Docker dev)? Same.
 
 When neat scans, verify:
+
 - [ ] Every script under `scripts/deploy*` / `scripts/install*` / `Makefile` deploy targets has a corresponding guide
 - [ ] Every env var in `.env.example` appears in setup-guide OR operator-guide
 - [ ] No two guides give contradictory steps for the same task — pick one canonical, others link to it
@@ -146,7 +146,7 @@ Comments are the layer **closest to code** and the most expensive to keep aligne
 ### Comment categories
 
 | Type | Example | Drift trigger | Default action |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | WHAT narration | `// returns user count` | Code shape changes | Often safe to delete (Wayne convention: code should self-describe) |
 | WHY constraint | `// avoid race with reconcile loop` | The cited constraint goes away | Verify constraint still applies; preserve if yes, fix/delete if no |
 | TODO / FIXME | `# TODO: switch to asyncio when py3.12 lands` | Trigger condition met | Resolve and delete, or restate clearly |
@@ -231,7 +231,7 @@ Phases 0/1/2/3/4/5 below describe **what each piece means**; Batches A and B des
 **Everything that doesn't depend on something else goes in ONE message.** Mix `Agent` (subagents), `Bash` (cheap mechanical scans), and `Read` (small known files) calls in the same block.
 
 | Call type | Tool | What | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Per-project doc inventory | `Agent` Explore × N projects | `ls + find + read all *.md` per project, return file table with claims | One agent per project |
 | Per-project intermediate-doc scan | `Agent` Explore × N projects | List `docs/{plans,decisions,brainstorms,rfcs,proposals,change-requests}/*.md` + body sniff for "implemented in PR/commit X" | Folded into doc-inventory agent if same project |
 | Per-project known-issues scan | `Agent` Explore × N projects | List `docs/known-issues/*.md` + `KNOWN_ISSUES.md`; for each entry note bug summary + last-modified date | Folded into doc-inventory agent if same project |
@@ -273,7 +273,7 @@ All concurrent. Main agent synthesizes when results return.
 **One message after edits land.** Verifies the edits stuck and didn't introduce new drift.
 
 | Call type | Tool | What |
-|---|---|---|
+| --- | --- | --- |
 | Per-project existence checks | `Agent` Explore × N projects | For every path / command / env var / route mentioned in the updated CLAUDE.md, verify it exists in code |
 | Per-project memory frontmatter validation | `Agent` Explore × 1 | Walk every `*.md` in memory dir, validate `name`/`description`/`metadata.type` frontmatter shape; flag violations |
 | Relative-time sweep | `Bash` × 1 | `grep -rEn "today\|yesterday\|recently\|last week\|今天\|昨天\|刚刚\|最近\|上周" docs/ CLAUDE.md ...` |
@@ -283,6 +283,7 @@ All concurrent. Main agent synthesizes when results return.
 ### Sequential — Phase 3 edits
 
 **NEVER parallelize edits.** Two reasons:
+
 1. File-level conflicts when subagents try to write the same file.
 2. Editor needs coherent mental model across edits — subagents lose context across handoffs.
 
@@ -291,6 +292,7 @@ Order within Phase 3: docs/ → CLAUDE.md/AGENTS.md → memory. External readers
 ### Proportional effort — when to skip subagents
 
 Subagents have overhead (~5-15s spinup, context cost). Skip when:
+
 - Single project + < 5 doc files + no `git log` since last sync → inline `Read`s are faster
 - No comment drift candidates flagged in commit range → skip Source C dispatch
 - No `docs/known-issues/` directory → skip the known-issues fold
@@ -312,7 +314,7 @@ Subagents have overhead (~5-15s spinup, context cost). Skip when:
 `wc -l` the candidates before any sync action:
 
 | File | Soft limit | If exceeded |
-|---|---|---|
+| --- | --- | --- |
 | `CLAUDE.md` / `AGENTS.md` (per project) | ~300 lines / ~15KB | Slim first: scan top blockquote / narrative segments → delete or migrate to docs. Keep project overview to 1-3 lines + key cheat-sheets only |
 | `~/.claude/CLAUDE.md` (global) | ~500 lines | Same drill, even stricter — global is loaded into every project |
 | `MEMORY.md` (memory index) | ~150 lines (hard truncate at 200) | Find superseded entries, single-incident postmortems, mechanism details that code already documents → delete |
@@ -404,12 +406,14 @@ API tables, env-var tables, glossaries are high-frequency structured lookups —
 ### Phase 4 — Self-check (every box must tick)
 
 **Anti-bloat (check first; fail = go back to slim pass):**
+
 - [ ] CLAUDE.md / AGENTS.md net delta ≤ +30 lines
 - [ ] No new "X shipped, see docs/Y.md" blockquote narrative entries
 - [ ] No mechanism details copied from docs/ into CLAUDE.md
 - [ ] No memory file > 100 lines
 
 **Completeness (check second):**
+
 - [ ] Every file from Phase 1 marked "no change" or "edited"
 - [ ] Every link in MEMORY.md points to an existing file
 - [ ] Every memory file's `description:` matches its current body
@@ -432,6 +436,7 @@ API tables, env-var tables, glossaries are high-frequency structured lookups —
 - [ ] **`MEMORY.md` is an index, not a memory** — no frontmatter, one line per entry
 
 **Drift coverage (Wayne addition):**
+
 - [ ] `git log` since last sync surveyed; commits touching public surfaces verified to have doc updates
 - [ ] If `LEGACY_*` markers exist, condition checked — retire if met (per `~/.claude/projects/<...>/memory/feedback_legacy_marker.md`)
 

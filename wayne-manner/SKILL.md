@@ -35,6 +35,7 @@ kb/
 ## When to invoke this skill
 
 Trigger phrases:
+
 - "save this to KB" / "add to knowledge base" / "note this down"
 - "what do we know about X" / "recall X" / "look up X in KB"
 - "search KB for X"
@@ -52,10 +53,10 @@ Trigger phrases:
    - Project notes → `kb/projects/<project-name>/<kebab-title>.md`
    - Architecture decisions → `kb/decisions/<kebab-title>.md`
    - Runbooks → `kb/how-to/<kebab-title>.md`
-4. **Follow the rest of the Write Protocol in SCHEMA.md** — reindex, append
-   log.md, git commit, report files touched.
+4. **Follow the rest of the Write Protocol in SCHEMA.md** — reindex, append log.md, git commit, report files touched.
 
 Frontmatter (per SCHEMA.md):
+
 ```yaml
 ---
 title: <Descriptive title>
@@ -73,6 +74,7 @@ related: [[folder/other-entry]]
 3. Follow Write Protocol: reindex → append log.md → git commit
 
 **Update vs new:**
+
 - Same topic, new info → update existing
 - Different angle worth standalone reference → new entry with `related:` link
 
@@ -94,8 +96,7 @@ tail -50 "$KB_DIR/log.md"
 
 ## Ingest a URL
 
-For URL → KB ingestion, the `llm-wiki` skill (Hermes) handles the full pipeline
-(raw capture, summarization, cross-linking). On Claude side, do it manually:
+For URL → KB ingestion, the `llm-wiki` skill (Hermes) handles the full pipeline (raw capture, summarization, cross-linking). On Claude side, do it manually:
 
 1. Fetch the page (Crawl4AI MCP if available, else manual)
 2. Save raw markdown to `"${KB_DIR}/raw/articles/<slug>.md"`

@@ -20,8 +20,8 @@ decisions: <repo-relative decision-log path or none — no decision log exists>
 ## Requirements Trace
 
 | Requirement | Owning units |
-|---|---|
-| R1 | I1 |
+| ----------- | ------------ |
+| R1          | I1           |
 
 ## Scope Boundaries
 
@@ -127,13 +127,13 @@ none — control flow is fully specified by the approach
 <!-- Replace this comment with the complete source E table or source E2E-none line, byte-for-byte. -->
 
 | ID | Owner | Seed | Surface | Scenario | Status |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | U1 | I1 | <exact source seed identifier> | path/to/new.py::new_symbol | <concrete input/precondition, action, branches, and observable result> | ☐ |
 
 ### Dropped Seeds
 
 | Seed | Reason |
-|---|---|
+| ---- | ------ |
 
 ## Dead Code / Legacy Cleanup
 
@@ -148,16 +148,16 @@ none — control flow is fully specified by the approach
 
 ## Risks & Dependencies
 
-| Risk or dependency | Mitigation or owner |
-|---|---|
-| <Concrete risk> | <Concrete mitigation> |
+| Risk or dependency | Mitigation or owner   |
+| ------------------ | --------------------- |
+| <Concrete risk>    | <Concrete mitigation> |
 
 ## Review Adjudication
 
 <Delete this section only when no review finding was raised.>
 
 | Finding | Disposition | Decision | Evidence | Action | User outcome |
-|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- |
 | F1 (engineering) | CARRIER_LOSS | D12 | <the bytes the classification rests on> | <revision made> | n/a |
 | F2 (product) | CHALLENGES_DECISION | D7 | <what the reviewer had that D7 did not> | none — non-blocking | stands |
 

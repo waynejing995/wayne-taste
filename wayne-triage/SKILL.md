@@ -9,19 +9,14 @@ Turn one failure or tracker item into one evidence-backed next route.
 
 ## Boundary
 
-Triage is a read-only, single-pass decision layer: intake → verify → attribute →
-route. It never implements the fix, loops until green, mutates tracker state, or
-writes the KB. A customer-visible outage gets generic mitigation such as rollback,
-drain, or capacity first; diagnosis follows.
+Triage is a read-only, single-pass decision layer: intake → verify → attribute → route. It never implements the fix, loops until green, mutates tracker state, or writes the KB. A customer-visible outage gets generic mitigation such as rollback, drain, or capacity first; diagnosis follows.
 
-Every claim and route must land in one evidence file. No root-cause evidence means
-no fix route. A `fix-now` verdict describes the next action; triage still does not
-edit product code.
+Every claim and route must land in one evidence file. No root-cause evidence means no fix route. A `fix-now` verdict describes the next action; triage still does not edit product code.
 
 ## Routes
 
 | Input signal | Load | Required route behavior |
-|---|---|---|
+| --- | --- | --- |
 | Raw crash, hang, wrong output, perf regression, flaky test, config/env failure | [symptom playbooks](references/symptom-playbooks.md) | Run every matching signal; never force one when none matches |
 | Issue, external PR, Jira ID/body | [tracker triage](references/tracker-triage.md) | Recommend one category/state and render a complete proposed comment; never publish it or change labels, state, assignee, or status |
 | Tracker item with attached failure artifact | both references | Complete tracker intake, then every matching symptom path |
@@ -72,64 +67,38 @@ digraph triage {
 
 ### A. Require user-directed data
 
-Use data already pasted, a supplied local path, or the exact fetch command/method
-the user named. With only an ID or vague reference, ask exactly one direct question
-for one missing data decision—where the item lives or how to fetch it—then wait.
-Imperative or interrogative phrasing is acceptable; semantic cardinality is not a
-punctuation count. Do not batch a second missing decision, infer a tracker, or call
-an API. Open no evidence file until data exists.
+Use data already pasted, a supplied local path, or the exact fetch command/method the user named. With only an ID or vague reference, ask exactly one direct question for one missing data decision—where the item lives or how to fetch it—then wait. Imperative or interrogative phrasing is acceptable; semantic cardinality is not a punctuation count. Do not batch a second missing decision, infer a tracker, or call an API. Open no evidence file until data exists.
 
 ### B. Select the surface
 
-Choose failure, tracker, or tracker-plus-failure from observable input and load
-only the references named in the Routes table. For a tracker enhancement, no bug
-repro is required; verify the request against the codebase and derive testable
-acceptance criteria. A tracker bug still requires a failing repro before any fix
-route.
+Choose failure, tracker, or tracker-plus-failure from observable input and load only the references named in the Routes table. For a tracker enhancement, no bug repro is required; verify the request against the codebase and derive testable acceptance criteria. A tracker bug still requires a failing repro before any fix route.
 
 ### C. Open the evidence SSoT
 
-Read [the evidence contract](references/evidence-file-template.md), then create
-exactly one `<cwd>/.wayne/triage/<date>-<slug>.md`. Quote the symptom verbatim and
-tag claims `[OBSERVED]`, `[INFERRED]`, or `[UNCERTAIN]`. Search relevant KB and
-prior triage frontmatter by concept; reuse a prior verdict only after verifying it
-still holds.
+Read [the evidence contract](references/evidence-file-template.md), then create exactly one `<cwd>/.wayne/triage/<date>-<slug>.md`. Quote the symptom verbatim and tag claims `[OBSERVED]`, `[INFERRED]`, or `[UNCERTAIN]`. Search relevant KB and prior triage frontmatter by concept; reuse a prior verdict only after verifying it still holds.
 
-Even weak data is evidence of what is missing. If no symptom playbook matches,
-fill `symptom_class: unknown`, `cause_category: unknown`, set every signal false,
-record the missing observable in the repro section, and finish as `needs-info`.
-Never select a nearby playbook merely to keep moving.
+Even weak data is evidence of what is missing. If no symptom playbook matches, fill `symptom_class: unknown`, `cause_category: unknown`, set every signal false, record the missing observable in the repro section, and finish as `needs-info`. Never select a nearby playbook merely to keep moving.
 
 ### D. Verify or reproduce
 
-Run the supplied repro or verify the quoted tracker claim. Record the exact command,
-rate, and observed result. A failed tracker repro routes `needs-info`. For heavy or
-multi-component evidence, dispatch independent scouts/testers using the bundled
-contracts; they write structured fields into the same SSoT and never choose a route.
+Run the supplied repro or verify the quoted tracker claim. Record the exact command, rate, and observed result. A failed tracker repro routes `needs-info`. For heavy or multi-component evidence, dispatch independent scouts/testers using the bundled contracts; they write structured fields into the same SSoT and never choose a route.
 
 ### F. Classify and eliminate
 
-Keep symptom pattern and cause category independent. Record all matching signals,
-`est_lines`, and `blast_radius`: shared means a public/exported interface, schema,
-migration, config default, cross-component contract, or a surface consumed in at
-least two places. Run every matching playbook.
+Keep symptom pattern and cause category independent. Record all matching signals, `est_lines`, and `blast_radius`: shared means a public/exported interface, schema, migration, config default, cross-component contract, or a surface consumed in at least two places. Run every matching playbook.
 
-Build one falsifiable hypothesis per matrix column. Test one variable at a time in
-cheapest-to-disprove order; `--` eliminates. Trace the bad value backward to its
-source and cite every matrix verdict.
+Build one falsifiable hypothesis per matrix column. Test one variable at a time in cheapest-to-disprove order; `--` eliminates. Trace the bad value backward to its source and cite every matrix verdict.
 
 ### G. Attribute without hiding conflict
 
-Compare symptom layer with confirmed cause layer. When they agree, name the owner,
-confidence, and a cited reasoning chain. When they disagree and evidence cannot
-decide, keep both candidates and select `uncertain`; never rank one away silently.
+Compare symptom layer with confirmed cause layer. When they agree, name the owner, confidence, and a cited reasoning chain. When they disagree and evidence cannot decide, keep both candidates and select `uncertain`; never rank one away silently.
 
 ### H. Select one route
 
 `route.justified_by` must name the checkable landing field that forces the verdict:
 
 | Verdict | Predicate | First next action |
-|---|---|---|
+| --- | --- | --- |
 | `fix-now` | cause certain; failing repro exists; ≤10 lines; one file; internal | `wayne-test-design` |
 | `test-then-fix` | small certain bug but failing test is still missing | `wayne-test-design` |
 | `iterate-in-a-loop` | internal; ≤100 lines; pass/fail eval exists | `wayne-test-design` |
@@ -142,32 +111,13 @@ decide, keep both candidates and select `uncertain`; never rank one away silentl
 
 ### I. Gate and hand off
 
-Present the route and stop for approval. Denial writes no checkpoint and invokes
-nothing downstream. For an approved internal route, take the exact first Skill
-from the table and invoke `wayne-checkpoint` handoff with `pipeline_stage: triage`,
-the verdict as `route`, the evidence path as `snapshot`, that one real Skill as
-`next_agent`, and `trigger: manual`. The next prompt is behavioral, names
-interfaces/contracts and acceptance criteria, excludes stale line numbers, and
-states out-of-scope. Never pass a verdict, stage chain, or external owner as an
-agent, and never auto-run the next stage.
-Surface the selected `next_agent` and manual trigger in the user-visible result.
-For every tracker surface, also render one complete `## Proposed tracker comment`
-for a separate tracker-write owner. Triage never publishes that proposal.
+Present the route and stop for approval. Denial writes no checkpoint and invokes nothing downstream. For an approved internal route, take the exact first Skill from the table and invoke `wayne-checkpoint` handoff with `pipeline_stage: triage`, the verdict as `route`, the evidence path as `snapshot`, that one real Skill as `next_agent`, and `trigger: manual`. The next prompt is behavioral, names interfaces/contracts and acceptance criteria, excludes stale line numbers, and states out-of-scope. Never pass a verdict, stage chain, or external owner as an agent, and never auto-run the next stage. Surface the selected `next_agent` and manual trigger in the user-visible result. For every tracker surface, also render one complete `## Proposed tracker comment` for a separate tracker-write owner. Triage never publishes that proposal.
 
-For `escalate-incident` or `route-to-owner`, render
-[the triage report](templates/triage-report.md) and create no checkpoint. Preserve
-the information represented by its seven suggested sections: executive summary,
-symptom, reproduction, root-cause analysis, attribution, recommended next action,
-and evidence file. The recommendation still carries route, desired behavior, key
-interfaces/contracts, acceptance criteria, out-of-scope, and handoff target, but
-headings and order are not a semantic grammar.
-For `uncertain` or `needs-info`, ask for the smallest discriminating observable
-and create no report or checkpoint.
+For `escalate-incident` or `route-to-owner`, render [the triage report](templates/triage-report.md) and create no checkpoint. Preserve the information represented by its seven suggested sections: executive summary, symptom, reproduction, root-cause analysis, attribution, recommended next action, and evidence file. The recommendation still carries route, desired behavior, key interfaces/contracts, acceptance criteria, out-of-scope, and handoff target, but headings and order are not a semantic grammar. For `uncertain` or `needs-info`, ask for the smallest discriminating observable and create no report or checkpoint.
 
 ## Red lines
 
 - No product fix, implementation plan, tracker mutation, KB write, or unrequested commit.
 - No route from a hunch, missing repro, feel-word, or uncited field.
 - No raw large-log dump returned into main context; structured fields only.
-- Use the shared handoff information contract; do not invent a second state owner
-  or make the next prompt depend on stale line numbers. Layout remains advisory.
+- Use the shared handoff information contract; do not invent a second state owner or make the next prompt depend on stale line numbers. Layout remains advisory.

@@ -31,6 +31,7 @@ Run with `uv run` (PEP 723 header pulls deps). CPU is forced — never CUDA.
 Cheap lexical signals (keyword / skill-usage) are still emitted as a weak
 cross-check, but the communities are the primary product.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,31 +45,110 @@ from pathlib import Path
 
 # substrings anywhere → machine-authored, not human intent
 _NOISE = (
-    "<command-name>", "<command-message>", "caveat:", "local command",
-    "<system-reminder", "<user-prompt-submit",
+    "<command-name>",
+    "<command-message>",
+    "caveat:",
+    "local command",
+    "<system-reminder",
+    "<user-prompt-submit",
     "review this change for security vulnerabilities",
-    "<task-notification", "<local-command-stdout", "<local-command-stderr",
-    "<tool-use-id", "task-notification", "monitor event:",
+    "<task-notification",
+    "<local-command-stdout",
+    "<local-command-stderr",
+    "<tool-use-id",
+    "task-notification",
+    "monitor event:",
     "this session is being continued from a previous",
     "you previously flagged these candidate",
 )
 # text STARTING with any of these → system turn leaked in as "user"
 _JUNK_PREFIX = (
-    "<task-notification", "<local-command-stdout", "<local-command-stderr",
-    "[request interrupted", "[request cancelled", "<tool-use-id",
-    "<system-reminder", "<command-",
+    "<task-notification",
+    "<local-command-stdout",
+    "<local-command-stderr",
+    "[request interrupted",
+    "[request cancelled",
+    "<tool-use-id",
+    "<system-reminder",
+    "<command-",
 )
 
 # low-signal words dropped from the (secondary) keyword pass
 _STOP = {
-    "the", "and", "for", "you", "this", "that", "with", "have", "are", "but",
-    "not", "can", "all", "use", "should", "would", "could", "from", "into",
-    "your", "what", "when", "where", "which", "then", "than", "them", "they",
-    "want", "need", "make", "just", "like", "now", "get", "got", "let", "see",
-    "out", "add", "run", "one", "two", "also", "any", "how", "why", "its",
-    "was", "were", "has", "had", "did", "does", "done", "will", "wont", "dont",
-    "here", "there", "some", "more", "very", "please", "okay", "yeah", "yes",
-    "claude", "codex", "code", "file", "files", "line", "lines",
+    "the",
+    "and",
+    "for",
+    "you",
+    "this",
+    "that",
+    "with",
+    "have",
+    "are",
+    "but",
+    "not",
+    "can",
+    "all",
+    "use",
+    "should",
+    "would",
+    "could",
+    "from",
+    "into",
+    "your",
+    "what",
+    "when",
+    "where",
+    "which",
+    "then",
+    "than",
+    "them",
+    "they",
+    "want",
+    "need",
+    "make",
+    "just",
+    "like",
+    "now",
+    "get",
+    "got",
+    "let",
+    "see",
+    "out",
+    "add",
+    "run",
+    "one",
+    "two",
+    "also",
+    "any",
+    "how",
+    "why",
+    "its",
+    "was",
+    "were",
+    "has",
+    "had",
+    "did",
+    "does",
+    "done",
+    "will",
+    "wont",
+    "dont",
+    "here",
+    "there",
+    "some",
+    "more",
+    "very",
+    "please",
+    "okay",
+    "yeah",
+    "yes",
+    "claude",
+    "codex",
+    "code",
+    "file",
+    "files",
+    "line",
+    "lines",
 }
 
 _WORD = re.compile(r"[a-zA-Z][a-zA-Z0-9_-]{3,}")
@@ -81,11 +161,11 @@ def log(msg: str) -> None:
 
 def _is_junk(t: str) -> bool:
     low = t.lstrip().lower()
-    return any(low.startswith(p) for p in _JUNK_PREFIX) or \
-        any(n in low for n in _NOISE)
+    return any(low.startswith(p) for p in _JUNK_PREFIX) or any(n in low for n in _NOISE)
 
 
 # --- transcript record shapes ---------------------------------------------
+
 
 def claude_prompt(rec: dict) -> "str | None":
     if rec.get("type") != "user" or rec.get("isMeta") or rec.get("isSidechain"):
@@ -94,8 +174,7 @@ def claude_prompt(rec: dict) -> "str | None":
     if isinstance(c, str):
         t = c
     elif isinstance(c, list):
-        parts = [p.get("text", "") for p in c
-                 if isinstance(p, dict) and p.get("type") == "text"]
+        parts = [p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"]
         if not parts:  # tool_result-only turn — not human intent
             return None
         t = "\n".join(parts)
@@ -119,6 +198,7 @@ def codex_prompt(rec: dict) -> "str | None":
 
 
 # --- collection ------------------------------------------------------------
+
 
 def discover(claude_dir, codex_dir):
     src = []
@@ -177,8 +257,7 @@ def collect(claude_dir, codex_dir, min_len, max_len):
             continue
 
         # Codex worker/subagent runs = machine-authored harness, not intent
-        if agent == "codex" and not (
-                isinstance(meta_source, str) and meta_source != "exec"):
+        if agent == "codex" and not (isinstance(meta_source, str) and meta_source != "exec"):
             skipped += 1
             continue
         if not prompts:
@@ -208,6 +287,7 @@ def collect(claude_dir, codex_dir, min_len, max_len):
 
 # --- semantic clustering ---------------------------------------------------
 
+
 def cluster(rows, min_sessions, knn, thresh, resolution, model_name):
     import numpy as np
     from sentence_transformers import SentenceTransformer
@@ -217,8 +297,7 @@ def cluster(rows, min_sessions, knn, thresh, resolution, model_name):
     texts = [r["text"] for r in rows]
     log(f"embedding {len(texts)} prompts on CPU ({model_name})…")
     model = SentenceTransformer(model_name, device="cpu")
-    emb = model.encode(texts, batch_size=64, normalize_embeddings=True,
-                       show_progress_bar=True)
+    emb = model.encode(texts, batch_size=64, normalize_embeddings=True, show_progress_bar=True)
     emb = np.asarray(emb, dtype=np.float32)
 
     log("building kNN similarity graph…")
@@ -226,7 +305,7 @@ def cluster(rows, min_sessions, knn, thresh, resolution, model_name):
     n = len(texts)
     edges, weights = [], []
     for i in range(n):
-        idx = np.argpartition(-sims[i], min(knn + 1, n - 1))[:knn + 1]
+        idx = np.argpartition(-sims[i], min(knn + 1, n - 1))[: knn + 1]
         for j in idx:
             if j <= i:
                 continue
@@ -239,8 +318,8 @@ def cluster(rows, min_sessions, knn, thresh, resolution, model_name):
     g = ig.Graph(n=n, edges=edges)
     g.es["weight"] = weights
     part = la.find_partition(
-        g, la.RBConfigurationVertexPartition,
-        weights="weight", resolution_parameter=resolution, seed=42)
+        g, la.RBConfigurationVertexPartition, weights="weight", resolution_parameter=resolution, seed=42
+    )
     log(f"leiden: {len(part)} communities")
 
     comms = []
@@ -262,11 +341,13 @@ def cluster(rows, min_sessions, knn, thresh, resolution, model_name):
             reps.append(r)
             if len(reps) >= 18:
                 break
-        comms.append({
-            "sessions": len(sess),
-            "prompts": len(members),
-            "representative_prompts": reps,
-        })
+        comms.append(
+            {
+                "sessions": len(sess),
+                "prompts": len(members),
+                "representative_prompts": reps,
+            }
+        )
     comms.sort(key=lambda c: (-c["sessions"], -c["prompts"]))
     for i, c in enumerate(comms, 1):
         c["rank"] = i
@@ -275,24 +356,20 @@ def cluster(rows, min_sessions, knn, thresh, resolution, model_name):
 
 # --- main ------------------------------------------------------------------
 
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="wayne-distill semantic collector")
-    ap.add_argument("--projects-dir", type=Path,
-                    default=Path.home() / ".claude" / "projects")
-    ap.add_argument("--codex-dir", type=Path,
-                    default=Path.home() / ".codex" / "sessions")
+    ap.add_argument("--projects-dir", type=Path, default=Path.home() / ".claude" / "projects")
+    ap.add_argument("--codex-dir", type=Path, default=Path.home() / ".codex" / "sessions")
     ap.add_argument("--out", type=Path, default=Path("/tmp/wayne-distill-clusters.json"))
-    ap.add_argument("--min-sessions", type=int, default=3,
-                    help="a community must span >= N distinct sessions")
-    ap.add_argument("--min-len", type=int, default=6,
-                    help="drop prompts shorter than this (chars)")
-    ap.add_argument("--max-len", type=int, default=500,
-                    help="drop prompts longer than this (chars)")
+    ap.add_argument("--min-sessions", type=int, default=3, help="a community must span >= N distinct sessions")
+    ap.add_argument("--min-len", type=int, default=6, help="drop prompts shorter than this (chars)")
+    ap.add_argument("--max-len", type=int, default=500, help="drop prompts longer than this (chars)")
     ap.add_argument("--knn", type=int, default=8)
-    ap.add_argument("--threshold", type=float, default=0.45,
-                    help="min cosine similarity for a graph edge")
-    ap.add_argument("--resolution", type=float, default=1.2,
-                    help="Leiden resolution; higher = more, smaller communities")
+    ap.add_argument("--threshold", type=float, default=0.45, help="min cosine similarity for a graph edge")
+    ap.add_argument(
+        "--resolution", type=float, default=1.2, help="Leiden resolution; higher = more, smaller communities"
+    )
     ap.add_argument("--model", default="paraphrase-multilingual-MiniLM-L12-v2")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
@@ -308,21 +385,24 @@ def main() -> int:
         log(f"WARNING: Codex dir {args.codex_dir} missing — Claude only")
 
     rows, kw_doc, kw_ex, skill_doc, skill_total, by_agent, skipped = collect(
-        claude_dir, codex_dir, args.min_len, args.max_len)
-    log(f"collected {len(rows)} unique human prompts "
-        f"by_agent={dict(by_agent)} (codex spawned/skipped={skipped})")
+        claude_dir, codex_dir, args.min_len, args.max_len
+    )
+    log(f"collected {len(rows)} unique human prompts by_agent={dict(by_agent)} (codex spawned/skipped={skipped})")
     if not rows:
         log("FATAL: no human prompts collected")
         return 1
 
-    comms = cluster(rows, args.min_sessions, args.knn, args.threshold,
-                    args.resolution, args.model)
+    comms = cluster(rows, args.min_sessions, args.knn, args.threshold, args.resolution, args.model)
 
     def recurring(counter):
         return sorted(
-            ({"word": k, "sessions": v, "examples": kw_ex[k][:3]}
-             for k, v in counter.items() if v >= args.min_sessions),
-            key=lambda d: -d["sessions"])
+            (
+                {"word": k, "sessions": v, "examples": kw_ex[k][:3]}
+                for k, v in counter.items()
+                if v >= args.min_sessions
+            ),
+            key=lambda d: -d["sessions"],
+        )
 
     digest = {
         "sources": {"claude": str(claude_dir), "codex": str(codex_dir)},
@@ -332,21 +412,22 @@ def main() -> int:
         "codex_spawned_skipped": skipped,
         "communities": comms,
         "skill_usage": sorted(
-            ({"skill": k, "sessions": skill_doc[k], "invocations": skill_total[k]}
-             for k in skill_doc), key=lambda d: -d["sessions"]),
+            ({"skill": k, "sessions": skill_doc[k], "invocations": skill_total[k]} for k in skill_doc),
+            key=lambda d: -d["sessions"],
+        ),
         "recurring_prompt_keywords": recurring(kw_doc),  # weak cross-check
     }
-    args.out.write_text(json.dumps(digest, indent=1, ensure_ascii=False),
-                        encoding="utf-8")
+    args.out.write_text(json.dumps(digest, indent=1, ensure_ascii=False), encoding="utf-8")
     log(f"wrote {args.out} ({len(comms)} communities)")
 
     by = digest["sessions_by_agent"]
-    print(f"\n# wayne-distill clusters  ({len(rows)} prompts "
-          f"[claude={by.get('claude', 0)} codex={by.get('codex', 0)}], "
-          f"{len(comms)} communities >= {args.min_sessions} sessions)\n")
+    print(
+        f"\n# wayne-distill clusters  ({len(rows)} prompts "
+        f"[claude={by.get('claude', 0)} codex={by.get('codex', 0)}], "
+        f"{len(comms)} communities >= {args.min_sessions} sessions)\n"
+    )
     for c in comms:
-        reps = " | ".join(r["text"][:46].replace("\n", " ")
-                          for r in c["representative_prompts"][:3])
+        reps = " | ".join(r["text"][:46].replace("\n", " ") for r in c["representative_prompts"][:3])
         print(f"  [{c['rank']:>2}] s={c['sessions']:>3} p={c['prompts']:>3}  {reps}")
     if args.verbose:
         print("\n## skill usage")
