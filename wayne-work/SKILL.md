@@ -118,11 +118,14 @@ Read each ready unit's real source and existing tests before writing. Confirm it
 inputs/outputs and named consumers. If code contradicts a plan assumption, stop and
 return the conflict to planning.
 
-Each worker receives one fixed unit ID; full goal, decisions, approach, and
-consumes/produces; exact allowed paths and verification; and prohibitions on commits,
-matrix/checkpoint/shared-path edits, and plan reinterpretation. Workers report actual
-paths and commands; they do not rediscover the plan or update shared state. Require
-one status: `DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`, or `BLOCKED`.
+Build each worker's packet: one fixed unit ID; full goal, decisions, approach, and
+consumes/produces; exact allowed paths; and the unit's verification command. Hand the
+packet together with [the worker contract](references/implementation-worker.md)
+verbatim — that file is the worker-facing text and owns its authority boundary,
+prohibitions, evidence duty, and return format, including the four statuses. Do not
+paraphrase it into the dispatch prompt, and do not let a worker rediscover the plan.
+
+What the main agent does with each returned status:
 
 - `DONE` enters verification.
 - `DONE_WITH_CONCERNS` enters verification only when the concern is observational;
