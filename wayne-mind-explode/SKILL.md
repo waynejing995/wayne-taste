@@ -61,7 +61,8 @@ digraph mind_explode {
     I [label="Write spec", shape=box];
     V [label="Written spec approved?", shape=diamond];
     J [label="Run two independent reviews", shape=box];
-    K [label="Both pass final revision?", shape=diamond];
+    K [label="Both valid on the final revision, zero findings?", shape=diamond];
+    ADJ [label="Adjudicate findings", shape=box];
     R [label="Revise from findings", shape=box];
     U [label="Review mechanism available?", shape=diamond];
     X [label="Stop: review unavailable", shape=doublecircle];
@@ -74,6 +75,7 @@ digraph mind_explode {
     C -> D [label="choice"];
     D -> Q;
     Q -> C;
+    Q -> ADJ [label="challenge rejected"];
     C -> E [label="empty"];
     E -> F;
     F -> G;
@@ -86,9 +88,12 @@ digraph mind_explode {
     V -> I [label="no: revise"];
     V -> J [label="yes"];
     J -> K;
-    K -> R [label="no"];
-    R -> V;
     K -> L [label="yes"];
+    K -> ADJ [label="no"];
+    ADJ -> R [label="carrier loss / real defect"];
+    ADJ -> D [label="challenges a decision / upstream gap"];
+    ADJ -> L [label="all remaining non-blocking"];
+    R -> V;
 }
 ```
 
@@ -228,7 +233,8 @@ locks, and the flag is what a resumed run reads to know which gate it stands at.
 
 Apply a cybernetics lens when the design involves state/lifecycle, a control plane,
 multiple readers or writers, streaming, observability, source-of-truth drift,
-feedback/retry, or workflow orchestration. Name Plant, Controller, Setpoint,
+feedback/retry, workflow orchestration, or a gate, validator, or classifier judging
+another component's output. Name Plant, Controller, Setpoint,
 Disturbance, and Feedback; record only relevant observability, controllability,
 ownership, stability, and minimum-control-effort findings. Skip it for a small
 single-file pure-logic change with no persistent state or integration.
@@ -295,10 +301,17 @@ signatures plus one illustrative call, and a `## Technology and frameworks` row
 per committed choice with the constraint it imposes. A reviewer who cannot see the
 boundary cannot argue with it. Bodies and algorithms belong to the plan.
 
-Absorb into `## Decisions` the decisions that justify this design. A fact resolved
-by reading the codebase dies with the run; a choice, and a constraint that
-eliminated an option, is carried. The run-scoped decision log is working state, not
-the durable record: whatever only it holds is lost at ship.
+Absorb into `## Decisions` every decision the specified behavior depends on,
+following [the spec contract](references/spec-contract.md). The run-scoped decision
+log is working state: whatever only it holds is lost at ship, and — because the two
+voices in J judge these bytes — a load-bearing decision left behind here reaches them
+as an unanswered question they are right to raise.
+
+Audit that literally before review. Walk the log record by record and, for each one,
+either point at where the spec carries its normative meaning or state why the
+specified behavior does not depend on it. A decision the design leans on that no
+sentence in the spec carries is a carrier leak in this node, not a reviewer error,
+and it is the majority of what the review loop then argues about.
 
 Absorb the matrix's E2E layer into `## Verification` — the matrix is produced
 before this step and is run-scoped, so the spec is where that contract survives.
@@ -382,6 +395,35 @@ record of that same design, not a revision of it, and is the one write to the pa
 that does not re-arm this gate. Never write review notes into the spec after those
 passes, and never let a reviewer write its own pass into the bytes it reviewed.
 
+### ADJ. Adjudicate findings against the decision log
+
+Read [the adjudication contract](../_shared/finding-adjudication.md) completely; it
+owns the dispositions, the challenge route, and the gate. A reviewer judges the spec's
+bytes and has no standing over the decisions behind them, so this node is the only
+place a locked decision is defended. Classify every finding here before any candidate
+byte changes. Any non-empty findings set arrives here whatever verdict the voices
+returned; only two valid executions reporting zero findings skip this node.
+
+Number the round's findings `F<number>` and append one `decision` record with
+`"source":"review"` whose `decision` field carries each finding's disposition and the
+`D<number>` it rests on, and whose `reference` is the report path.
+
+A `CHALLENGES_DECISION` needs a durable node before it can be asked: append one `open`
+`choice` node naming the challenged `D<number>`, then route to D, which selects it like
+any other. The question carries that `D<number>`, the finding, and the evidence the
+reviewer has that was not on the table when the decision was made. Q resolves that node
+either way:
+
+- **Stands.** One `user` decision recording the rejection, `supersedes` empty — a
+  defended decision is not reversed by defending it. Return here with that finding
+  permanently non-blocking.
+- **Reopened.** One record naming the original in `supersedes`; its descendants are
+  re-audited and the design re-enters the frontier at C.
+
+Promotion proceeds once every finding is either resolved by a revision or
+non-blocking. A finding the user already rejected never re-blocks, however many
+rounds raise it again.
+
 ### L. Handoff to wayne-plan
 
 Rewrite the log's `meta` line: `status` to `design-approved`, `spec` and
@@ -398,4 +440,6 @@ Tell the user their paths and that `wayne-plan` is the next agent. Invoke
 - No spec before all required decisions and conflicts are resolved.
 - No duplicated E2E contract or second test-matrix owner.
 - No claimed dual review without two real executions on the final revision.
+- No reviewer finding may reverse a decision; only a new record naming it in
+  `supersedes` does, and only the user asks for one.
 

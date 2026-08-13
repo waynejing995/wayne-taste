@@ -154,6 +154,37 @@ LLM agents under context pressure ignore prompts. Humans under deadline ignore d
 
 ---
 
+### 4a. 判者可见性 (Show the Rule to Whatever Is Judged by It) — derived from #2 + #4
+
+**Diagnostic**: does the component being judged read the rule it is judged by,
+generated from the same constant the judge uses? And is the judge given the thing it
+is judging?
+
+| Judged | Never shown / never sent |
+|---|---|
+| the spec's required sections | the author wrote Purpose/Scope and was refused for Problem/Goals — headings that appeared in no prompt it had seen |
+| `### R1` requirement form | the rule said "numbered", the author wrote `1.`, the parser wanted `### R1` |
+| the question graph's edges | `parent` was in the schema and validated; the tool description never mentioned it, so 82 nodes had zero edges |
+| whether answers engage ten dimensions | the classifier was sent each node's QUESTION and no answers, then refused for "no evidence" — literally true |
+
+- **Generate, do not copy.** Two lists of the same sections drift, and the copy that
+  drifts is the one nobody re-reads: the one in the prompt.
+- **Show the form, do not describe it.** "Numbered" and `### R1` are different
+  instructions. Put the literal example in, and round-trip that example through the
+  validator in a test.
+- **Check what the judge receives, not only what it decides.** A judge ruling on
+  content it cannot see is guessing, and a guess is not stable — that is where a
+  non-deterministic gate comes from. Print its rendered input before concluding it is
+  too strict or broken.
+- **A declared field with no writer is not a feature.** A schema field reaches an LLM
+  as a name, not a meaning, unless it carries a description.
+
+**Test**: for each gate, a test that the author's instructions contain every literal
+the validator checks, iterating the validator's own constant; for each judge, a pinned
+snapshot of its rendered input, so removing a field fails.
+
+---
+
 ### 5. 分层控制 (Hierarchical Control)
 
 > 控制论从基础理论 → 技术科学 → 应用技术三个层次组织。

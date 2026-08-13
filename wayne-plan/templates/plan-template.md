@@ -71,6 +71,11 @@ decisions: <repo-relative decision-log path or none — no decision log exists>
 
 - R1
 
+#### Design surface
+
+- Realizes: <spec component / interface / ownership surface, or `cleanup — none`>
+- Deviation: <none | what departs from that surface and why>
+
 #### Dependencies
 
 none — first unit
@@ -146,6 +151,15 @@ none — control flow is fully specified by the approach
 | Risk or dependency | Mitigation or owner |
 |---|---|
 | <Concrete risk> | <Concrete mitigation> |
+
+## Review Adjudication
+
+<Delete this section only when no review finding was raised.>
+
+| Finding | Disposition | Decision | Evidence | Action | User outcome |
+|---|---|---|---|---|---|
+| F1 (engineering) | CARRIER_LOSS | D12 | <the bytes the classification rests on> | <revision made> | n/a |
+| F2 (product) | CHALLENGES_DECISION | D7 | <what the reviewer had that D7 did not> | none — non-blocking | stands |
 
 ## Sources & References
 

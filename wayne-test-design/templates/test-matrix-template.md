@@ -78,12 +78,33 @@ passing unit suite never touches this layer.
 - Explicit weaker/unverified rows: [row #s → supported public mode → `POLICY UNVERIFIED` observable]
 - Capability conflicts requiring scope resolution: [requirement → missing native proof, or "none"]
 
-Each row below has one primary proof axis. A prerequisite that can fail before the target
-behavior has its own row. Flags, argv, and help text show intent, not effective capability.
+### UI Control Graph
 
-| ID | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
-|---|-----------|--------------|-----------|-----------------|----------------------|--------|
-| E1 | [human journey end to end] | [process to start] | [data it runs against] | [where user enters] | [real user-visible outcome — never "200 OK"] | ⬜ |
+[Omit this section entirely when the behavior has no user interface.]
+
+| Node (reachable state) | Visible controls | Edge rows |
+|---|---|---|
+| [overview] | [New run, Open run, Refresh] | [E2, E3, E4] |
+| [start dialog step 1] | [repo checkbox, Next (disabled until ticked)] | [E5, E6] |
+
+Every control listed appears as exactly one `edge` row; a control with no row is a hole
+in the matrix. This graph enumerates what EXISTS — it cannot show a control the product
+needs and nobody wrote, which is what the `goal-walk` rows are for.
+
+User goals walked end to end (one `goal-walk` row each, and these gate the change):
+
+- [an engineer turns a conversation into a spec] → [E1]
+
+Each row below has one primary proof axis, one kind (`goal-walk` / `edge` / `path`), and
+one proof layer. A prerequisite that can fail before the target behavior has its own
+`path` row. Flags, argv, and help text show intent, not effective capability. Evidence
+from below a row's declared proof layer never closes it.
+
+| ID | Kind | User path | Proof layer | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |
+|---|---|-----------|---|--------------|-----------|-----------------|----------------------|--------|
+| E1 | goal-walk | [the whole user goal, end to end] | [browser] | [process to start] | [data it runs against] | [where user enters] | [arrived at the goal's terminal state — never an optimistic intermediate] | ⬜ |
+| E2 | edge | [click New run on overview] | [browser] | [process to start] | [data it runs against] | [where user enters] | [the state change: URL, dialog, new list row] | ⬜ |
+| E3 | path | [prerequisite / attestation / cleanup journey] | [cli] | [process to start] | [data it runs against] | [where user enters] | [native evidence for this row's axis] | ⬜ |
 
 [If a requirement has no user-observable path, write the explicit line instead of a row:]
 E2E: none — [reason, e.g. "internal repository refactor, no behavior change"]

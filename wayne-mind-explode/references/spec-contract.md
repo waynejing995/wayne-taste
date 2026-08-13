@@ -70,11 +70,13 @@ is a gap, not an omission. Carry no pass/fail status: whether a run passed is
 run-scoped state owned by the test matrix, and the durable fact that this spec
 was verified is a `verified` frontmatter entry.
 
-**`## Decisions` carries the decisions that JUSTIFY this design**, not the
-research trail. A fact resolved by reading the codebase dies with the run; a
-choice, and a constraint that eliminated an option, belongs here. One entry per
-decision, titled with the decision itself, so reading only the headings gives the
-whole decision set.
+**`## Decisions` carries every decision the specified behavior depends on**, not the
+research trail. A choice, a constraint that eliminated an option, and a codebase
+fact the design leans on all belong here; only a fact the specified behavior does
+not depend on dies with the run. Independent review judges these bytes, so a
+load-bearing decision left in the run-scoped log reaches the reviewer as an
+unanswered question. One entry per decision, titled with the decision itself, so
+reading only the headings gives the whole decision set.
 
 Each entry carries its `Consequences`, and a `Depends on` line whenever a decision
 in another spec constrained this one, cited as [`<slug>:D<n>`](./<slug>.md). Only
@@ -128,5 +130,9 @@ fresh eyes and fix inline:
    diagrams match the prose?
 3. **Ambiguity** — could any requirement be read two ways? Pick one and say it.
 4. **Scope** — is this focused enough to become one implementation plan?
+5. **Carrier leak** — walk the run-scoped decision log record by record. Each one
+   either has its normative meaning somewhere in these bytes, or an explicit reason
+   the specified behavior does not depend on it. A reviewer that spots the gap is
+   right to file it as a spec defect, and repairing it here is cheaper than a round.
 
 Minor wording, stylistic preference, and uneven detail are not findings.
