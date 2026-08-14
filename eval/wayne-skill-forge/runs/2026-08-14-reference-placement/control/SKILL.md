@@ -52,11 +52,7 @@ Match form to failure: skipped rule → gate plus reason; wrong shape → exampl
 
 Build a temporary coverage map from every approved requirement to exactly one owner: body, reference, template, or eval. Compression starts only when the map has no orphan requirement. Do not ship the map. Preserve quoted literals only when an upstream source or real machine consumer makes their exact bytes normative; do not invent exactness for an AI-readable document. Read [contract protection](references/contract-protection.md) when an actual parser, API, loader, or executable consumes the output. AI-to-AI Markdown handoffs use semantic ownership and behavioral review, not a fabricated schema/validator pair.
 
-Compression is two operations, in order: **move**, then **cut**. Move evidence-backed, branch-conditional, long detail into `references/`; move repeated deterministic operations into `scripts/`; move output material into `templates/`. Repeated control flow that still needs judgment or branching stays in Flow and the body — scripting it moves the decision away from the agent that must make it. Only content that survives none of those moves is a cut candidate. The `SKILL.md` budget bounds always-loaded context, not the knowledge the skill is allowed to carry — treating overflow as deletion is how a skill loses what it was built to know.
-
-A reference is **optionally loaded, never optionally correct**. Moving material does not make it advisory, so the body keeps the load condition and a direct link — the reader must be able to tell, without opening it, when it is required.
-
-Then cut in this order: decoration → copied global rules → generic advice → redundant examples → duplicated explanation. Never cut an approval/stop gate, state owner, input/output contract, retry/error semantic, cross-record invariant, or verification proof merely to meet a size target.
+Cut in this order: decoration → copied global rules → generic advice → redundant examples → duplicated explanation. Never cut an approval/stop gate, state owner, input/output contract, retry/error semantic, cross-record invariant, or verification proof merely to meet a size target.
 
 ## Archetypes
 
@@ -139,8 +135,6 @@ Choose the archetype from observable task shape. Define the eval baseline first:
 
 Start from the archetype template. Write discovery metadata, then only the core workflow or judgment. Put conditional detail in resources. Use direct, conclusion-first language; never copy persona or global invariant blocks. When Flow exists, expand node IDs instead of duplicating its sequence. Complete the requirement coverage map before cutting. Validate only the skill loader's real contract: parseable YAML frontmatter, required `name` and `description`, naming rules, directory agreement, and a non-empty body.
 
-Before declaring the draft done, extend the coverage map into a resource placement decision: name the owner of every piece of detail material — body, one-level `references/`, `scripts/`, or `templates/`. Material that is both branch-conditional and long — schemas, variant tables, worked examples, full command recipes, per-case checklists — MUST move to a reference; the body then keeps the gate itself and a direct link saying when to load it. Short gates, verify conditions, and single commands stay inline. Record `No reference: <reason>` when nothing qualifies. Keep this decision in the working map and the eval evidence, never in the shipped skill. This prevents a real default failure: pressure to cut is explicit and repeated here while permission to add a resource is passive, so conditional detail gets inlined or silently dropped.
-
 For any proposed runtime schema or validator, name the non-AI consumer that parses it and the failure it prevents. If the next consumer is an agent reading Markdown, reject the mechanism and use source-grounded AI review plus behavioral eval. Regex, headings, keywords, counts, templates, and similarity may be evaluator observations; they never become a prose correctness gate by themselves.
 
 ### E. Validate loader metadata and formatting
@@ -183,4 +177,3 @@ Show files and eval result in plain Chinese. Write only after approval unless th
 - Do not let a lexical rule decide prose meaning. Adding an AI judge does not make a semantic-proxy regex a runtime gate; eval may report it only as reviewer input.
 - Keep mechanical validation only where an actual non-AI consumer requires it.
 - Do not auto-forge every repeated prompt; extend an existing owner when possible.
-- Do not ship a skill that inlines long branch-conditional material with no placement decision; leanness pressure makes this the default failure, not an unlikely one.
