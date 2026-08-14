@@ -62,13 +62,15 @@ Safety properties:
 
 `eval/` is the skill test harness and `pi-config/` is pi's own configuration; neither is a skill. `pi-config/sync.sh` links the latter into `~/.pi/agent/`.
 
-## Agent registration (beyond symlinks)
+## Agent discovery
 
-Symlinks make skill FILES reachable. Each agent also needs the skill registered in its routing/config:
+Symlinks are the whole mechanism. Every agent enumerates the skill directories it is linked into and reads each `SKILL.md` frontmatter; the `description` field is what routes a request. A new skill is live once `sync.sh` has linked it — there is no second registration step.
 
-- **Claude** — trigger table lives in `~/.claude/CLAUDE.md` (mirrored in this repo's `CLAUDE.md`). New skills need a trigger row there.
-- **Codex** — discovers skills under `~/.codex/skills/` and routes per `~/.codex/AGENTS.md` ("Skills" section, proportional-effort rule). Skill tool name is lowercase `skill` (Claude uses uppercase `Skill`).
-- **pi** — discovers skills under `~/.agents/skills/` and routes per `~/.pi/agent/AGENTS.md`, which is itself a symlink to `~/.claude/CLAUDE.md`, so pi and Claude share one trigger table. A new skill needs a trigger row there once, not twice.
+- **Claude** — `~/.claude/skills/`
+- **Codex** — `~/.codex/skills/`; skill tool name is lowercase `skill` (Claude uses uppercase `Skill`)
+- **pi** — `~/.agents/skills/`, routed by `~/.pi/agent/AGENTS.md`, itself a symlink to `~/.claude/CLAUDE.md`
+
+The trigger table in `CLAUDE.md` is a **convenience index for the human**, not a registry. Routing terms belong in the skill's own `description`, which `wayne-skill-forge` makes the single owner of triggering language. Adding a row is optional; omitting one does not make a skill undiscoverable, and a row that disagrees with the skill's `description` is drift.
 
 ## Path differences (Claude vs Codex)
 
