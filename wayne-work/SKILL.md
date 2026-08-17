@@ -9,7 +9,7 @@ Execute one approved implementation plan to a verified, review-ready diff.
 
 ## Boundary
 
-Own implementation, plan-unit tracking, test-as-you-go, integration, U status updates, and the final work handoff. Own two distinct scopes and never merge them: the per-unit conformance audit inside the implementation loop, and the single workflow-level compliance gate over the full diff. Do not redesign approved behavior, author a new plan/test matrix, change E status, commit, branch, push, open a PR, verify, ship, or perform code-quality review — that stays with `wayne-code-review`.
+Own implementation, plan-unit tracking, test-as-you-go, integration, the per-wave refinement pass, U status updates, and the final work handoff. Own three distinct scopes and never merge them: the per-unit conformance audit inside the implementation loop, the per-wave refinement over one wave's combined diff, and the single workflow-level compliance gate over the full diff. Do not redesign approved behavior, author a new plan/test matrix, change E status, commit, branch, push, open a PR, verify, ship, or perform code-quality review — that stays with `wayne-code-review`.
 
 The plan, decision log, test matrix, repository instructions, and dirty baseline are source contracts. Read `../_shared/pipeline-id-contract.md`; consume IDs only from their defining structures and never renumber upstream artifacts.
 
@@ -24,7 +24,7 @@ digraph work {
     C [label="Freeze baseline and unit graph", shape=box];
 
     subgraph cluster_unit {
-        label="per-unit loop: sees one unit only";
+        label="per-unit loop, plus the per-wave S pass";
         D [label="Build ready wave", shape=box];
         E [label="Parallel-safe wave?", shape=diamond];
         R [label="Dispatch native workers", shape=box];
@@ -32,6 +32,7 @@ digraph work {
         F [label="Inline fallback on recorded dispatch error", shape=box];
         G [label="Wave verification passes?", shape=diamond];
         T [label="Fix observed failure", shape=box];
+        S [label="Simplify wave diff", shape=box];
         H [label="Audit diff against its plan unit; tick U rows", shape=box];
         I [label="More units?", shape=diamond];
     }
@@ -54,7 +55,8 @@ digraph work {
     F -> G;
     G -> T [label="no"];
     T -> G;
-    G -> H [label="yes"];
+    G -> S [label="yes"];
+    S -> H;
     H -> I;
     I -> D [label="yes"];
     I -> J [label="no"];
@@ -67,12 +69,13 @@ digraph work {
 
 ## Process
 
-Every step is labeled with its scope, and the two scopes never merge. A `[per-unit]` step runs once per unit and is given only that unit's contract and its own diff. A `[whole-workflow]` step runs once for the run and is the only place the complete spec, decision log, plan, and full diff are read together. A per-unit step never stands in for a whole-workflow gate, and a whole-workflow concern is never audited inside the loop.
+Every step is labeled with its scope, and the whole-workflow gate is never collapsed into the loop. A `[per-unit]` step runs once per unit and is given only that unit's contract and its own diff. A `[per-wave]` step runs once per dependency wave over that wave's combined diff. A `[whole-workflow]` step runs once for the run and is the only place the complete spec, decision log, plan, and full diff are read together. A per-unit or per-wave step never stands in for a whole-workflow gate, and a whole-workflow concern is never audited inside the loop.
 
 | Scope | Steps | Runs | Reads | Compliance agent |
 | --- | --- | --- | --- | --- |
 | `[whole-workflow]` setup | A, C | once | all source contracts | no |
 | `[per-unit]` loop | D, R, F, G, H | once per unit | that unit's contract, its own diff, its verification command | no |
+| `[per-wave]` refinement | S | once per wave | the wave's combined diff, the plan's allowed paths and verification command | no |
 | `[whole-workflow]` gate | J, L | once per full diff | complete spec, decision log, plan, all units, full diff | yes — one fresh read-only agent |
 
 ### A. [whole-workflow] Load and validate inputs
@@ -95,7 +98,7 @@ Capture starting HEAD, branch, status, existing dirty paths, and source artifact
 
 For each unit, extract its full text, relevant decisions, dependencies, consumes/produces, and exact write set. Assign every path one owner. Matrix, checkpoint, shared integration files, scope state, and full verification stay main-owned; remove them from worker write sets.
 
-Build dependency waves and dispatch every unit to a native subagent worker; subagent execution is the default path, not an optimization. When at least two ready units have no producer/consumer dependency and disjoint write sets, dispatch the whole wave concurrently before awaiting one result. When a dependency or shared path prevents parallelism, dispatch one fresh worker at a time and record that specific edge or path — a serial wave is still dispatched, never inlined. Count a wave as started only when the tool returns observable worker handles or results. On an unavailable tool or dispatch error, quote the exact tool error in both handoff and final result and take the inline fallback in F; never claim parallelism. The main agent implements nothing and remains owner of scope, actual-diff audit, integration, U status, and completion.
+Build dependency waves and dispatch every unit to a native subagent worker; subagent execution is the default path, not an optimization. When at least two ready units have no producer/consumer dependency and disjoint write sets, dispatch the whole wave concurrently before awaiting one result. When a dependency or shared path prevents parallelism, dispatch one fresh worker at a time and record that specific edge or path — a serial wave is still dispatched, never inlined. Count a wave as started only when the tool returns observable worker handles or results. On an unavailable tool or dispatch error, quote the exact tool error in both handoff and final result and take the inline fallback in F; never claim parallelism. The main agent implements no unit and remains owner of scope, actual-diff audit, integration, U status, and completion. S is its one exception: the per-wave refinement edits code directly, because a worker that sees a single unit cannot make a cross-unit call. Nothing else authorizes a main-agent source edit.
 
 ### D. [per-unit] Build and start one ready wave
 
@@ -125,6 +128,12 @@ Inline execution is a fallback, not a choice: use it only after an observable na
 ### G. [per-unit] Verify and repair from evidence
 
 Run the unit's exact verification command. If it fails, connect the failure to the smallest source correction, apply it, and rerun the same command. Do not broaden scope, add speculative fallback, or swap in an easier check. A provider/tool failure is not a behavioral test result.
+
+### S. [per-wave] Simplify the wave diff
+
+Once the wave's verification is green and before the unit audit, run [wayne-simplify](../wayne-simplify/SKILL.md) over the wave's combined diff, in the main agent. A worker sees one unit and is precisely the context that cannot notice that a later unit rebuilt an earlier unit's helper; this pass is where that duplication is caught. Skip it for a single trivial unit, and never run it while a unit in the wave is still being implemented.
+
+Scope is the wave's diff and the plan's allowed paths; the baseline and re-verification both use the plan's own command, unchanged. Approved scope is frozen — unit goals, named interfaces, and U scenarios are not simplification candidates, and a unit that looks over-built returns to Plan as a scope question. The pass itself changes no U or E row, and no U row for a unit in this wave is ticked until the pass has finished: H must audit the simplified diff, not the pre-simplification one.
 
 ### H. [per-unit] Audit the diff against its plan unit and update U status
 
