@@ -51,6 +51,6 @@ with `subagent_type` and `codex exec`, and reads `../_shared/cybernetics-lens.md
 Provider neutrality was a requirement of the rejected Python-runner candidate only
 and is no longer gated.
 
-Default review is not review-only. Phase 6 auto-fixes mechanical issues, batches
-judgment calls into one question for the user, applies only user-approved fixes, and
-never commits.
+Default review is not review-only. Phase 6 auto-fixes an enumerated mechanical
+allowlist without asking, batches judgment calls into one question for the user,
+applies only those the user approved, and never commits.
