@@ -17,7 +17,8 @@ from pathlib import Path
 
 REQUIRED_NAME = "wayne-code-review"
 PROTOCOL_RESOURCE = "references/reviewer-protocol.md"
-REQUIRED_RESOURCES = (PROTOCOL_RESOURCE,)
+DESIGN_RESOURCE = "references/design-conformance.md"
+REQUIRED_RESOURCES = (PROTOCOL_RESOURCE, DESIGN_RESOURCE)
 FORBIDDEN_DEPENDENCIES = ("gstack",)
 IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
 
@@ -85,13 +86,30 @@ def has_any(text: str, patterns: tuple[str, ...], *, flags: int = re.IGNORECASE)
     return any(re.search(pattern, text, flags) for pattern in patterns)
 
 
+def normalize(text: str) -> str:
+    """Lowercase, markup-stripped, whitespace-collapsed text."""
+    stripped = text.lower().replace("*", "").replace("`", "").replace("_", " ")
+    return re.sub(r"\s+", " ", stripped).strip()
+
+
 def paragraphs(body: str) -> list[str]:
     """Lowercase, markup-stripped, whitespace-collapsed paragraphs."""
-    result: list[str] = []
-    for block in re.split(r"\n\s*\n", body):
-        normalized = block.lower().replace("*", "").replace("`", "").replace("_", " ")
-        result.append(re.sub(r"\s+", " ", normalized).strip())
-    return result
+    return [normalize(block) for block in re.split(r"\n\s*\n", body)]
+
+
+def sentences(body: str) -> list[str]:
+    """Normalized sentences; an em-dash clause stays with its sentence."""
+    return [normalize(part) for part in re.split(r"(?<=[.!?])\s|\n", body) if part.strip()]
+
+
+def refusal_clauses(sect: str) -> list[str]:
+    """Normalized bullets under a `... refuse ...:` introduction inside a section."""
+    match = re.search(
+        r"(?im)^[^\n]*\brefuse\b[^\n]*:[ \t]*\n+((?:[ \t]*[-*][ \t]+.+\n?)+)", sect
+    )
+    if not match:
+        return []
+    return [normalize(line) for line in re.findall(r"^[ \t]*[-*][ \t]+(.+)$", match.group(1), re.M)]
 
 
 def section(body: str, heading: str) -> str:
@@ -189,6 +207,150 @@ def check_candidate(root: Path) -> list[str]:
     ):
         findings.append("SKILL.md must require parallel reviewer execution")
 
+    # Phase 2 builds the rule ledger out of the project's own nested rule files, read at
+    # the frozen head: rules taken off the working tree judge an old range by whatever
+    # conventions happen to be checked out today.
+    intent = section(body, "Phase 2")
+    intent_text = normalize(intent)
+    intent_blocks = paragraphs(intent)
+
+    if not ("ledger" in intent_text and "agents.md" in intent_text and "claude.md" in intent_text):
+        findings.append(
+            "SKILL.md must build a rule ledger from the project's own AGENTS.md/CLAUDE.md files"
+        )
+
+    if not any_paragraph(
+        intent_blocks,
+        ("git show", "git cat-file"),
+        ("head sha",),
+        (
+            "never off the working tree",
+            "not off the working tree",
+            "never from the working tree",
+            "not from the working tree",
+            "never the working tree",
+            "not the working tree",
+        ),
+    ):
+        findings.append(
+            "SKILL.md must read rule files from the object store at the frozen HEAD_SHA, "
+            "not the working tree"
+        )
+
+    # A rule file deleted inside the range exists only at BASE_SHA. Probing HEAD alone
+    # would read that as "no doc governs this path" and skip the design-change check on
+    # the very diff that removed the doc.
+    if not (
+        has_any(
+            intent_text,
+            (r"for sha in .{0,20}base sha.{0,20}head sha", r"cat-file -e .{0,30}base sha"),
+        )
+        and has_any(
+            intent_text,
+            (
+                r"either endpoint",
+                r"both (?:are |were )?probed",
+                r"only one endpoint",
+                r"present at base sha and gone",
+            ),
+        )
+    ):
+        findings.append(
+            "SKILL.md must collect rule files present at either endpoint of the range"
+        )
+
+    # The design-conformance sweep is a third *finding source*: a different prompt asking a
+    # different question, dispatched outside Phase 4 so the adversarial pair stays at two.
+    design_dispatch = re.findall(
+        r"(?im)^.*\bdispatch(?:es|ed|ing)?\b.*\bdesign[- ]conformance\b.*$", body
+    )
+    if not (
+        design_dispatch
+        and has_any(
+            body, (r"\bthird\s+finding\s+source\b", r"\bthird\s+source\s+of\s+findings\b")
+        )
+    ):
+        findings.append(
+            "SKILL.md must dispatch a design-conformance agent as a third finding source"
+        )
+
+    # A design dispatch anywhere inside Phase 4 makes it a third voice, whatever it is
+    # labelled; the sweep is dispatched from the structured-review phase instead.
+    if not design_dispatch or any(line in dispatch for line in design_dispatch):
+        findings.append("SKILL.md must dispatch the design-conformance agent outside Phase 4")
+
+    # The ledger is the context only the main agent and the design agent hold; handing it to
+    # a voice buys a paraphrase of rules already held and a shallower reading of the diff.
+    if not any_paragraph(
+        dispatch_blocks,
+        ("ledger",),
+        ("never", "not "),
+        ("these two", "either prompt", "either voice", "both voices", "the two voices"),
+    ):
+        findings.append(
+            "SKILL.md must keep the rule ledger out of both adversarial voice prompts"
+        )
+
+    # A voice can be right about the bytes and wrong about this repository, so every merged
+    # finding is ruled on against the ledger before anything is fixed.
+    synthesis = section(body, "Phase 5")
+    synthesis_blocks = paragraphs(synthesis)
+
+    if not any_paragraph(
+        synthesis_blocks,
+        ("adjudicat", "rule on every", "rules on every", "ruling on every"),
+        ("ledger",),
+    ):
+        findings.append("SKILL.md must adjudicate findings against the rule ledger")
+
+    # Suppressing silently is how the identical false positive returns at every review.
+    if not any_paragraph(
+        synthesis_blocks,
+        ("rule-contradicted", "rule contradicted"),
+        ("never fix", "not fix", "do not fix", "is not fixed"),
+        ("report", "name", "cite"),
+        ("file:line",),
+    ):
+        findings.append(
+            "SKILL.md must report a rule-contradicted finding instead of fixing or dropping it"
+        )
+
+    # A design change carries its justification where a doc describes the design; where the
+    # project keeps no doc there is nothing to compare, and demanding one is not this call.
+    review = section(body, "Phase 3")
+    review_blocks = paragraphs(review)
+
+    if not any_paragraph(
+        review_blocks,
+        ("doc",),
+        ("update",),
+        (
+            "inside this same range",
+            "inside the same range",
+            "in this same range",
+            "within this range",
+            "inside this range",
+            "inside the range",
+            "in-range",
+        ),
+        ("why", "reason"),
+    ):
+        findings.append(
+            "SKILL.md must require an in-range doc update with a reason where a doc "
+            "describes the changed design"
+        )
+
+    if not has_any(
+        review,
+        (
+            r"never\s+(?:turn|make|file|raise|treat)\b[^.\n]{0,120}\bdemand\b",
+            r"never\s+demands?\b[^.\n]{0,120}\bdocs?\b",
+            r"not\s+this\s+review['\u2019]?s?\s+call",
+            r"never\s+files?\b[^.\n]{0,120}should\s+have[^.\n]{0,60}\bdocs?\b",
+        ),
+    ):
+        findings.append("SKILL.md must not demand design docs where the project keeps none")
+
     # Degradation is allowed, silence is not: a missing voice must be labelled and
     # the result must not be presented as dual-voice.
     unavailable = ("unavailable", "not available", "fails", "failed")
@@ -250,25 +412,99 @@ def check_candidate(root: Path) -> list[str]:
     ):
         findings.append("SKILL.md must state that the skill never commits")
 
-    if not any_paragraph(
-        blocks,
-        ("return-only",),
-        ("wayne-verify",),
-        ("not auto-invoke", "never auto-invoke", "no auto-invoke"),
-    ):
-        findings.append(
-            "SKILL.md must emit a return-only wayne-verify handoff that does not auto-invoke it"
-        )
+    # Phase 1 fixes an already-committed target; that pair is the only review scope.
+    target = section(body, "Phase 1")
+    target_blocks = paragraphs(target)
 
     if not any_paragraph(
-        blocks,
-        ("only gate: pass", "gate: pass is required", "requires a gate: pass"),
-        ("no wayne handoff",),
-        ("wayne-code-review-flow",),
+        target_blocks,
+        ("already committed",),
+        ("never the working tree", "not the working tree"),
     ):
         findings.append(
-            "SKILL.md must gate the wayne-verify handoff on a wayne-code-review-flow "
-            "GATE: PASS and return NO_WAYNE_HANDOFF otherwise"
+            "SKILL.md Phase 1 must fix an already-committed review target, never the working tree"
+        )
+
+    if "gh pr view" not in target or "<base>..<head>" not in target:
+        findings.append(
+            "SKILL.md Phase 1 must take the target from an open PR or an explicit "
+            "<base>..<head> commit range"
+        )
+
+    if not (
+        re.search(r"BASE_SHA=\$\(\s*git rev-parse --verify", target)
+        and re.search(r"HEAD_SHA=\$\(\s*git rev-parse --verify", target)
+    ):
+        findings.append(
+            "SKILL.md Phase 1 must resolve both endpoints with git rev-parse --verify into "
+            "BASE_SHA and HEAD_SHA"
+        )
+
+    # Refusing is the fail-loud half: an unnamed target and a dirty tree are not reviewable.
+    refusals = refusal_clauses(target)
+    if not any(
+        "no pr or range" in clause or "neither a pr nor" in clause for clause in refusals
+    ):
+        findings.append(
+            "SKILL.md Phase 1 must refuse instead of inferring a base when no PR or commit "
+            "range was given"
+        )
+    if not any(
+        "git status --porcelain" in clause
+        and ("non-empty" in clause or "not empty" in clause)
+        and ("uncommitted" in clause or "untracked" in clause)
+        and ("not in the range" in clause or "outside the range" in clause)
+        for clause in refusals
+    ):
+        findings.append(
+            "SKILL.md Phase 1 must refuse while git status --porcelain is non-empty, because "
+            "uncommitted and untracked files are outside the range"
+        )
+
+    # Every later phase and the shared reviewer prompt read that same fixed pair.
+    unscoped = [
+        line.strip()
+        for line in re.findall(r"^.*\bgit\s+(?:diff|log)\b.*$", body, re.M)
+        if not ("BASE_SHA" in line and "HEAD_SHA" in line)
+    ]
+    if unscoped:
+        findings.append(
+            "SKILL.md must scope every git diff/log to the fixed BASE_SHA..HEAD_SHA pair; "
+            f"found={unscoped}"
+        )
+
+    inferred = re.findall(r"\borigin/\S+", body)
+    if inferred:
+        findings.append(
+            f"SKILL.md must not infer a review base from an origin/ ref; found={inferred}"
+        )
+
+    # Nothing hands off automatically. `wayne-verify` stays a deliberately invoked
+    # sibling, so the mention is fine and only a routing promise is a violation.
+    packet = re.findall(
+        r"[^\n]*(?:wayne-checkpoint|handoff packet|no[_ ]wayne[_ ]handoff)[^\n]*",
+        body,
+        re.IGNORECASE,
+    )
+    if packet:
+        findings.append(
+            f"SKILL.md must not promise a wayne-checkpoint handoff; found={packet}"
+        )
+
+    routed = [
+        sentence
+        for sentence in sentences(body)
+        if "wayne-verify" in sentence
+        and re.search(
+            r"\b(?:hand(?:s|ed)?\s+off|handoff|next stage|route[sd]?|advances?\s+into|"
+            r"proceed to|then run)\b",
+            sentence,
+        )
+        and not re.search(r"\b(?:not|never|no|nor|instead of)\b", sentence)
+    ]
+    if routed:
+        findings.append(
+            f"SKILL.md must not route into wayne-verify as the next stage; found={routed}"
         )
 
     for path, text in text_files(root):

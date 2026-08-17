@@ -12,7 +12,7 @@ more. Every gate below must pass on the pristine skill.
 | Gate | Requirement |
 |---|---|
 | frontmatter | exactly `name` and `description`; `name` is `wayne-code-review`; description non-empty |
-| required resource | `references/reviewer-protocol.md` is cited in the body and exists as a non-empty regular file |
+| required resources | `references/reviewer-protocol.md` and `references/design-conformance.md` are each cited in the body and exist as non-empty regular files |
 | voice identities | the body names both Claude and Codex |
 | dispatch shape | Phase 4 contains exactly two `**Voice N — ...**` blocks, one Claude and one Codex |
 | shared prompt | a Phase 4 paragraph states both voices receive the same bytes from `references/reviewer-protocol.md` |
@@ -24,16 +24,52 @@ more. Every gate below must pass on the pristine skill.
 | user sovereignty | judgment calls route to the user, the user decides, and judgment-call fixes are applied only after approval |
 | auto-fix scope | the no-approval path is introduced by `without asking:` and enumerates at least three mechanical items |
 | no commit | the body states the skill never commits |
-| return-only handoff | a paragraph ties `return-only` and `wayne-verify` to not auto-invoking it |
-| gate precondition | a paragraph binds packet emission to `GATE: PASS` restrictively, names `wayne-code-review-flow`, and names the `NO_WAYNE_HANDOFF` refusal |
+| committed target | Phase 1 states the target is already committed and never the working tree |
+| target inputs | Phase 1 takes the target from an open PR (`gh pr view`) or an explicit `<base>..<head>` range |
+| resolved pair | Phase 1 assigns both `BASE_SHA` and `HEAD_SHA` from `git rev-parse --verify` |
+| no-target refusal | a Phase 1 refusal bullet covers "no PR or range was given" instead of inferring a base |
+| dirty-tree refusal | a Phase 1 refusal bullet ties a non-empty `git status --porcelain` to uncommitted and untracked files being outside the range |
+| fixed diff pair | every `git diff` / `git log` line in the body names both `BASE_SHA` and `HEAD_SHA`, the shared reviewer prompt included |
+| no base inference | no `origin/<ref>` survives in the body |
+| no checkpoint handoff | the body never mentions `wayne-checkpoint`, a handoff packet, or `NO_WAYNE_HANDOFF` |
+| no verify routing | no sentence routes into `wayne-verify` (hand off / next stage / advances into) without a negation, so its two deliberate sibling mentions stay legal |
 | forbidden dependency | no text file in the skill tree mentions `gstack` |
+| rule ledger | Phase 2 collects the project's own `AGENTS.md` / `CLAUDE.md` along every touched path and writes them into a ledger table |
+| frozen rule reads | those rule files are read out of the object store at `HEAD_SHA` (`git cat-file -e` / `git show`), never off the working tree |
+| either endpoint | the probe covers `BASE_SHA` as well as `HEAD_SHA`, so a rule file deleted inside the range is still collected |
+| design agent | a design-conformance agent is dispatched as a third finding source carrying `references/design-conformance.md` |
+| design agent placement | that dispatch lives outside Phase 4, so the dual-voice count there stays at exactly two |
+| ledger containment | the rule ledger goes to the design agent and to neither adversarial voice prompt |
+| ledger adjudication | Phase 5 rules every merged finding against the ledger |
+| no silent suppression | a rule-contradicted finding is reported naming the rule `file:line`, never fixed and never dropped |
+| doc justification | where a doc describes the changed design, it must be updated inside the range and say why |
+| no doc demand | the absence of a design doc is never filed as a finding |
+
+The ten ledger and design gates exist because the skill's newest logic is the part
+most easily paraphrased away. A ledger assembled from the working tree reads today's
+conventions into an old range, so `frozen rule reads` asserts the object-store form
+specifically, not merely that rules are read. `either endpoint` covers the case that
+form alone still misses: a rule file deleted inside the range exists only at
+`BASE_SHA`, and a HEAD-only probe reports "no doc governs this path" for the very
+diff that removed the doc. `design agent placement` and
+`ledger containment` are the two halves of one boundary: the design agent is a third
+*finding source*, so it must be dispatched where the voice count is not affected, and
+the ledger must not leak into the two prompts that are required to be byte-identical
+— an asymmetric hint to one voice, or a shared one to both, ends the dual-voice
+contract that CR20 gates. `no silent suppression` gates the residue of adjudication:
+a checker that only asked whether findings are adjudicated would pass a skill that
+adjudicates by deleting, which is how the same false positive returns every review.
+`doc justification` and `no doc demand` are deliberately a pair — the check is scoped
+to docs that exist, and a skill that satisfies the first by demanding docs everywhere
+fails the second.
 
 Two obligations are deliberately **not** gated here, because the accepted skill does
 not carry them:
 
-- **Frozen review bytes.** Each voice runs `git diff origin/{BASE}` itself. One
-  frozen patch with a `sha256` that both voices read belongs to the Pi saved
-  workflow `pi-config/workflows/saved/wayne-code-review-flow.json`.
+- **Frozen review bytes.** Each voice runs `git diff {BASE_SHA} {HEAD_SHA}` itself over
+  the pair Phase 1 fixed. One frozen patch with a `sha256` that both voices read
+  belongs to the Pi saved workflow
+  `pi-config/workflows/saved/wayne-code-review-flow.json`.
 - **Two valid voices or the run fails.** SKILL.md Phase 4 permits a declared,
   labelled Claude-only degradation. The hard two-voice requirement is the same
   workflow's. The skill-side residue — the degradation must be labelled — is gated.
@@ -53,6 +89,10 @@ the matching finding. It first requires zero findings on the pristine skill.
 | `empty-protocol` | blank that file | `required resource is empty` |
 | `symlink-protocol` | replace it with a symlink | `not a symlink` |
 | `unreferenced-protocol` | repoint the body link at another path | `body does not reference` |
+| `missing-design-protocol` | delete `references/design-conformance.md` | `missing required resource` |
+| `empty-design-protocol` | blank that file | `required resource is empty` |
+| `symlink-design-protocol` | replace it with a symlink | `not a symlink` |
+| `unreferenced-design-protocol` | repoint the Phase 3 dispatch link at another path | `body does not reference` |
 | `frontmatter-name` | rename the skill | `frontmatter name must be` |
 | `frontmatter-extra` | add a third frontmatter key | `frontmatter keys must be exactly` |
 | `frontmatter-duplicate` | repeat the `name` key | `duplicate frontmatter key` |
@@ -73,12 +113,28 @@ the matching finding. It first requires zero findings on the pristine skill.
 | `user-decides` | let the skill decide | `leave the decision to the user` |
 | `unapproved-fixes` | apply recommended instead of approved fixes | `judgment-call fixes only after user approval` |
 | `commits` | allow committing | `never commits` |
-| `auto-invoke` | auto-invoke `wayne-verify` | `does not auto-invoke` |
-| `ungated-handoff` | emit the packet whatever the gate said | `NO_WAYNE_HANDOFF` |
-| `no-handoff-refusal` | drop the `NO_WAYNE_HANDOFF` return | `NO_WAYNE_HANDOFF` |
+| `working-tree-target` | review the working tree instead of the commits | `already-committed review target` |
+| `no-pr-input` | drop the `gh pr view` PR input | `must take the target from an open PR` |
+| `unverified-shas` | stop resolving `HEAD_SHA` with `git rev-parse --verify` | `resolve both endpoints with git rev-parse` |
+| `no-target-refusal` | delete the "no PR or range was given" refusal bullet | `refuse instead of inferring a base` |
+| `dirty-tree-refusal` | drop `git status --porcelain` from the dirty-tree refusal | `git status --porcelain is non-empty` |
+| `inferred-diff-target` | make Phase 3 diff `HEAD~1 HEAD` instead of the fixed pair | `scope every git diff/log` |
+| `origin-inference` | fall back to `origin/HEAD` when no base is given | `infer a review base from an origin/` |
+| `checkpoint-handoff` | promise a `wayne-checkpoint` handoff packet | `promise a wayne-checkpoint handoff` |
+| `verify-routing` | hand off to `wayne-verify` as the next stage | `route into wayne-verify as the next stage` |
 | `autofix-without-allowlist` | drop the `without asking:` introduction | `enumerated mechanical allowlist` |
 | `autofix-unenumerated` | collapse the allowlist to one open-ended item | `enumerated mechanical allowlist` |
 | `forbidden-dependency` | mention `gstack` in the protocol file | `forbidden dependency` |
+| `no-rule-ledger` | delete the Phase 2 rule collection and its ledger table | `SKILL.md must build a rule ledger from the project's own AGENTS.md/CLAUDE.md files` |
+| `worktree-rules` | read the rule files off the working tree instead of `git show "$HEAD_SHA:<path>"` | `SKILL.md must read rule files from the object store at the frozen HEAD_SHA, not the working tree` |
+| `head-only-rules` | probe only `HEAD_SHA` when collecting rule files | `SKILL.md must collect rule files present at either endpoint of the range` |
+| `no-design-agent` | delete the Phase 3 design-conformance dispatch | `SKILL.md must dispatch a design-conformance agent as a third finding source` |
+| `design-agent-as-voice` | move the design agent into Phase 4 as a third voice block | `SKILL.md must dispatch the design-conformance agent outside Phase 4` |
+| `ledger-to-voices` | append the rule ledger to the shared voice prompt | `SKILL.md must keep the rule ledger out of both adversarial voice prompts` |
+| `no-adjudication` | delete the Phase 5 "Adjudicate against the ledger" section | `SKILL.md must adjudicate findings against the rule ledger` |
+| `silent-suppression` | drop a rule-contradicted finding without naming the rule | `SKILL.md must report a rule-contradicted finding instead of fixing or dropping it` |
+| `no-doc-justification` | let a design change land with the doc left describing the replaced design | `SKILL.md must require an in-range doc update with a reason where a doc describes the changed design` |
+| `demand-docs` | file the absence of a design doc as a finding | `SKILL.md must not demand design docs where the project keeps none` |
 
 Do not weaken a gate after observing candidate output. A gate that cannot fail on a
 real mutation of the skill text is not a gate.

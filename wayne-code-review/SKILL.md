@@ -21,7 +21,7 @@ This skill only specifies the dual-voice code review workflow.
 
 ## Scope: Static Only
 
-This skill is **STATIC** — it reads and analyzes the diff to find issues; it **never runs the application**. Runtime / e2e verification — actually executing the feature along the real user path to confirm it works — is `**wayne-verify`'s** job, a separate sibling skill that runs AFTER this one and BEFORE `wayne-ship`. "Does the code look correct?" is answered here; "does the feature actually work?" is answered by `wayne-verify`. Passing this review is necessary but NOT sufficient to ship.
+This skill is **STATIC** — it reads and analyzes the diff to find issues; it **never runs the application**. Runtime / e2e verification — actually executing the feature along the real user path to confirm it works — is `wayne-verify`'s job, a separate sibling skill invoked deliberately when runtime proof is wanted, not a stage this review advances into. "Does the code look correct?" is answered here; "does the feature actually work?" is not, so passing this review is necessary but NOT sufficient to ship.
 
 ## Files Written
 
@@ -31,13 +31,15 @@ review reports, finding logs, code comments. Severity tags `[CRITICAL]` / `[INFO
 
 You MUST create a task for each and complete in order:
 
-1. **Detect base branch + get diff** — determine what to review
-2. **Structured review (you)** — checklist-driven analysis of the diff
-3. **Dispatch Claude adversarial subagent** — fresh context, no checklist bias
-4. **Dispatch Codex review** — cross-model independent opinion (if available)
-5. **Synthesize dual voices** — merge findings, highlight agreements/disagreements
-6. **Fix-first resolution** — auto-fix mechanical issues, ask about judgment calls
-7. **Present to user** — user decides on all recommendations
+1. **Fix the review target** — an open PR or an explicit committed range, resolved to `BASE_SHA..HEAD_SHA`; refuse if it was not given or the tree is dirty
+2. **Read intent + build the rule ledger** — plan/spec, plus every `AGENTS.md` / `CLAUDE.md` governing a touched path
+3. **Structured review (you)** — checklist-driven analysis of the diff, judged against the ledger
+4. **Dispatch the design-conformance agent** — the repository sweep, and the only dispatch that carries the ledger
+5. **Dispatch Claude adversarial subagent** — fresh context, no checklist bias
+6. **Dispatch Codex review** — cross-model independent opinion (if available)
+7. **Synthesize + adjudicate** — merge findings, then rule on each against the ledger
+8. **Fix-first resolution** — auto-fix mechanical issues, ask about judgment calls
+9. **Present to user** — user decides on all recommendations
 
 ## Process Flow
 
@@ -45,9 +47,12 @@ You MUST create a task for each and complete in order:
 digraph review {
     rankdir=TB;
 
-    "Detect base branch\n+ get diff" [shape=box];
-    "Read existing plans/specs\nfor intent context" [shape=box];
+    "Fix review target\n(PR or committed range)" [shape=box];
+    "Target named +\ntree clean?" [shape=diamond];
+    "Refuse: name the range,\nor commit first" [shape=doublecircle];
+    "Read intent + build\nrule ledger" [shape=box];
     "Structured review\n(checklist-driven)" [shape=box];
+    "Design-conformance\nagent (carries ledger)" [shape=box];
     "Dispatch Claude\nadversarial subagent" [shape=box];
     "Codex available?" [shape=diamond];
     "Dispatch Codex\nreview + challenge" [shape=box];
@@ -55,12 +60,15 @@ digraph review {
     "Collect all findings" [shape=box];
     "Dedup + confidence merge" [shape=box];
     "Cross-model synthesis\n(agreements + disagreements)" [shape=box];
+    "Adjudicate findings\nvs rule ledger" [shape=box];
     "Fix-first:\nauto-fix mechanical" [shape=box];
     "ASK user on\njudgment calls" [shape=box];
     "Present synthesis\n(user decides)" [shape=doublecircle];
 
-    "Detect base branch\n+ get diff" -> "Read existing plans/specs\nfor intent context";
-    "Read existing plans/specs\nfor intent context" -> "Structured review\n(checklist-driven)";
+    "Fix review target\n(PR or committed range)" -> "Target named +\ntree clean?";
+    "Target named +\ntree clean?" -> "Refuse: name the range,\nor commit first" [label="no"];
+    "Target named +\ntree clean?" -> "Read intent + build\nrule ledger" [label="yes"];
+    "Read intent + build\nrule ledger" -> "Structured review\n(checklist-driven)";
     "Structured review\n(checklist-driven)" -> "Dispatch Claude\nadversarial subagent";
     "Structured review\n(checklist-driven)" -> "Codex available?";
     "Codex available?" -> "Dispatch Codex\nreview + challenge" [label="yes"];
@@ -68,9 +76,12 @@ digraph review {
     "Dispatch Claude\nadversarial subagent" -> "Collect all findings";
     "Dispatch Codex\nreview + challenge" -> "Collect all findings";
     "Skip Codex" -> "Collect all findings";
+    "Structured review\n(checklist-driven)" -> "Design-conformance\nagent (carries ledger)";
+    "Design-conformance\nagent (carries ledger)" -> "Collect all findings";
     "Collect all findings" -> "Dedup + confidence merge";
     "Dedup + confidence merge" -> "Cross-model synthesis\n(agreements + disagreements)";
-    "Cross-model synthesis\n(agreements + disagreements)" -> "Fix-first:\nauto-fix mechanical";
+    "Cross-model synthesis\n(agreements + disagreements)" -> "Adjudicate findings\nvs rule ledger";
+    "Adjudicate findings\nvs rule ledger" -> "Fix-first:\nauto-fix mechanical";
     "Fix-first:\nauto-fix mechanical" -> "ASK user on\njudgment calls";
     "ASK user on\njudgment calls" -> "Present synthesis\n(user decides)";
 }
@@ -80,48 +91,85 @@ digraph review {
 
 ---
 
-## Phase 1: Detect Base Branch + Get Diff
+## Phase 1: Fix the Review Target
+
+The target is always already committed. `wayne-work` commits per unit, so by the time this runs the work exists as commits — review those, never the working tree. A target that cannot be named by SHA cannot be confirmed afterwards, and a review whose scope nobody can restate is not a review.
+
+Take one of two inputs, and never invent either:
+
+- an open PR — `gh pr view --json number,baseRefName,headRefOid`;
+- an explicit commit range — `<base>..<head>`, such as the parent of the first unit commit through `HEAD`.
 
 ```bash
-# Detect base branch
-BASE=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null) || \
-BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||') || \
-BASE="main"
-echo "BASE: $BASE"
-
-# Get SHAs
-git fetch origin "$BASE" --quiet
-BASE_SHA=$(git merge-base origin/"$BASE" HEAD)
-HEAD_SHA=$(git rev-parse HEAD)
-echo "BASE_SHA: $BASE_SHA"
-echo "HEAD_SHA: $HEAD_SHA"
-
-# Diff stats
-git diff origin/"$BASE" --stat
-DIFF_LINES=$(git diff origin/"$BASE" --stat | tail -1 | grep -oE '[0-9]+' | head -1)
-echo "DIFF_LINES: $DIFF_LINES"
+RANGE="${1:?refuse: name the PR or commit range to review}"   # e.g. main..HEAD, HEAD~4..HEAD
+BASE_SHA=$(git rev-parse --verify "${RANGE%%..*}")
+HEAD_SHA=$(git rev-parse --verify "${RANGE##*..}")
+echo "REVIEWING: ${BASE_SHA}..${HEAD_SHA}"
+git log --oneline "${BASE_SHA}..${HEAD_SHA}"
+git diff --stat "${BASE_SHA}" "${HEAD_SHA}"
 ```
 
-If no diff exists, stop: "Nothing to review."
+Stop and refuse — do not fall back, do not guess — when:
+
+- no PR or range was given. Inferring a base is exactly how a review silently covers the wrong commits;
+- `git status --porcelain` is non-empty. Uncommitted and untracked files are not in the range, so the report would describe something other than what is on disk. Name those paths and stop; they get committed or stashed first;
+- the range is empty: "Nothing to review."
+
+`BASE_SHA..HEAD_SHA` is fixed here and is the only target for every later phase. The final report names that exact pair.
 
 ---
 
-## Phase 2: Intent Context
+## Phase 2: Intent Context and the Rule Ledger
 
-Before reviewing code quality, understand **what was supposed to be built**.
+Before reviewing code quality, understand **what was supposed to be built** and **what this repository already decided**. Both are yours to read. The voices dispatched in Phase 4 get the protocol and the diff and nothing else, so the project's own rules are context only you hold — which is exactly why deciding whether a reported symptom is a real issue _here_ is your job in Phase 5, never theirs.
 
-1. Read commit messages: `git log origin/$BASE..HEAD --oneline`
+### Intent
+
+1. Read commit messages: `git log --oneline $BASE_SHA..$HEAD_SHA`
 2. Read PR description if exists: `gh pr view --json body -q .body 2>/dev/null`
-3. Glob for plan/spec files in `docs/` — read any that reference this branch or topic
-4. Check `TODOS.md` if it exists
+3. List plan/spec files as the range had them — `git ls-tree -r --name-only "$HEAD_SHA" -- docs` — and read any that reference this branch or topic with `git show "$HEAD_SHA:<path>"`. Where the range changed or deleted one, read `git show "$BASE_SHA:<path>"` as well
+4. `git show "$HEAD_SHA:TODOS.md" 2>/dev/null`, if the range carries one
+
+Discovery and reading both go through the object store here for the same reason the rule files do: judging an old range against whatever spec happens to be checked out today produces a confident review of a change nobody made.
 
 Produce a 1-line intent summary. This frames the entire review.
+
+### Rules
+
+Repository rules nest and the deeper file wins. Collect them along the paths this diff actually touches — the directory of every changed file, then each of its ancestors up to the repository root:
+
+```bash
+# rule files present at either endpoint, along every touched path
+git diff --name-only "$BASE_SHA" "$HEAD_SHA" | xargs -r -n1 dirname | sort -u \
+| while read -r dir; do
+    while :; do
+      for f in AGENTS.md CLAUDE.md; do
+        [ "$dir" = "." ] && p="$f" || p="$dir/$f"
+        for sha in "$BASE_SHA" "$HEAD_SHA"; do
+          git cat-file -e "$sha:$p" 2>/dev/null && { echo "$p"; break; }
+        done
+      done
+      [ "$dir" = "." ] && break
+      dir=$(dirname "$dir")
+    done
+  done | sort -u
+```
+
+Read each one out of the object store — `git show "$HEAD_SHA:<path>"`, and `git show "$BASE_SHA:<path>"` for the version this range started from — never off the working tree. An explicit range's `HEAD_SHA` is routinely not the checked-out commit, and rules read from disk would judge an old range by today's conventions. A path can exist at only one endpoint, which is why both are probed: one present at `BASE_SHA` and gone at `HEAD_SHA` is not an absent doc, it is a **deleted** one, and deleting the doc that described a design is itself a design change that owes a reason. The difference between the two versions is exactly what the design-change check in Phase 3 rules on.
+
+Add whatever equivalent this repo keeps its conventions in, plus the plan/spec from above, then write the **rule ledger**: one row per rule that bears on a changed line.
+
+| Rule | Source | Governs |
+| --- | --- | --- |
+| state owner is the session store, no per-view copies | `docs/AGENTS.md:14` | `app/views/**` |
+
+A rule nobody can map back to a hunk is noise and stays out; an ancestor rule a deeper file overrides stays out too — record the winner, not the history. Fail loud on the rest: a rule file you could not read gets named in the final report, because a review that quietly ran without the project's rules answered a different question than the one asked.
 
 ---
 
 ## Phase 3: Structured Review (You)
 
-Run `git diff origin/$BASE` and analyze the full diff against these categories:
+Run `git diff $BASE_SHA $HEAD_SHA` and analyze the full diff against these categories:
 
 ### Critical Categories (block shipping)
 
@@ -142,6 +190,49 @@ Run `git diff origin/$BASE` and analyze the full diff against these categories:
 | **Missing Edge Cases** | Empty state, null handling, boundary conditions |
 | **Documentation Staleness** | Code changed but docs not updated |
 | **Test Coverage Gaps** | New logic without corresponding tests |
+
+### Mandatory: Conformance to the Rule Ledger
+
+The Phase 2 ledger is the spec you review against — not your taste, and not the average of what other repositories do. Every conformance finding names two places or it is not a finding: the rule at `source file:line`, and the code at `diff file:line`.
+
+Per governed hunk, exactly one of three:
+
+- **Conforms** — nothing to report. Silence here is the normal case.
+- **Violates** — the code contradicts a rule still in force and nothing in the range says otherwise. CRITICAL when the rule guards a runtime contract (state ownership, fail-loud, layer boundary, forbidden dependency); INFORMATIONAL when it is a convention nothing breaks at runtime.
+- **Changes the design** — the diff moves state to a new owner, crosses a module or layer boundary, alters an interface contract, or replaces an existing mechanism. That is legitimate; what makes it legitimate travels with the diff:
+  - **where a doc describes the affected design** — a ledger rule file, or a design doc under `docs/` — it is updated **inside this same range** and says **why**. Compare it across `BASE_SHA..HEAD_SHA`: a doc left describing the replaced design is drift, and the next reader follows the doc; an update with no reason cannot be weighed the next time the rule gets in someone's way. Where no doc describes it, this half does not apply: no finding, and nothing to say about it — the report's `Rules read` line already carries what was and was not there. Never turn the absence into a demand that the project start writing design docs; that is not this review's call.
+  - **always** — the new design **holds against the design still in force everywhere else**. A doc records intent; it never migrates code. Walk the seams the diff did not touch: sibling consumers of the state that moved, call sites still assuming the old ownership, ordering, lifetime, units, or nullability, persisted rows and configs and schemas written under the old rules, and any other doc still describing the replaced mechanism. Where the project keeps no design docs — the common case — reconstruct the old design from the code: `git grep -n <pattern> "$HEAD_SHA"`, never the working tree, which may sit on another commit. A missing doc is not permission, and silence is not compatibility. Name the survivors you found by `file:line`.
+
+A stale or unexplained doc where one exists is CRITICAL — it leaves a rule whose origin nobody can reconstruct, pointing the next reader at a design that is gone. A change that contradicts the surviving design is CRITICAL with or without docs; that is the repository disagreeing with itself at runtime, the change that reviews clean and breaks a caller nobody re-read. Neither is auto-fixed: the doc text and the reason are the author's words, not yours, and a migration is real work the user scopes. State what you found plainly — "justification present at `docs/AGENTS.md:14`", "no design doc governs `app/jobs/`", "3 unmigrated readers of the old owner" — and let the user decide.
+
+### Dispatch: the design-conformance agent
+
+Judging that last outcome is a repository sweep — every sibling consumer, every doc still describing the old mechanism, every caller holding the old invariant — and running it inline burns the context you need for judgment. Delegate the sweep; keep the verdict.
+
+Dispatch one subagent carrying [the design conformance protocol](references/design-conformance.md) verbatim, then exactly this and nothing more:
+
+```
+TARGET
+Run `git diff {BASE_SHA} {HEAD_SHA}`. Read file bytes with `git show {HEAD_SHA}:<path>` — the working tree may sit on another commit.
+
+INTENT
+{1-line intent summary}
+
+RULE LEDGER
+{the Phase 2 table, verbatim}
+
+OUTPUT
+One block per finding, nothing before or after them:
+SEVERITY: CRITICAL or INFORMATIONAL
+CONFIDENCE: 1-10
+FILE: path
+LINE: number (if applicable)
+PROBLEM: one-line description
+FIX: recommended action (or INVESTIGATE if needs human judgment)
+If no issues found, output exactly: NO FINDINGS
+```
+
+This is a third finding source, never a third voice: a different prompt asking a different question, so its agreement with a Phase 4 voice is never counted as cross-model confirmation. Launch it in the same parallel batch as the Phase 4 dispatch — nothing there depends on it and it depends on nothing there. If it fails or comes back empty-handed, say so in the final report and run the sweep yourself; a skipped sweep nobody reported is how a half-migration ships.
 
 ### Optional: Cybernetics Lens (for architectural / structural review)
 
@@ -207,13 +298,15 @@ Both dispatched voices receive the **same bytes**: [the reviewer protocol](refer
 
 **When the diff is a re-arch** (Phase 2 intent shows a flow being rewired), append the 1-line intent summary to the shared prompt for BOTH voices — so the "does the dataflow flow the way the architecture intends" probe has something to check against. Append the same text to both; keep them identical. For a pure logic/bugfix diff, leave the prompt as-is.
 
+**The rule ledger goes to the design-conformance agent, never to these two.** Do not append it to either prompt. A voice runs on a small context budget and spends it best on the diff and the code around it; feeding it the repository's rule tree buys a shallower reading of the change and a paraphrase of rules you already hold. These two report symptoms. Which symptoms are real issues _in this repository_ is decided in Phase 5, against the ledger — by you, with the design agent's sweep in hand.
+
 ### The Shared Prompt
 
 Send the contents of `references/reviewer-protocol.md` verbatim, then append exactly this and nothing more:
 
 ```
 REVIEW TARGET
-Run `git diff origin/{BASE}` to see the full diff. Review only the changes it contains.
+Run `git diff {BASE_SHA} {HEAD_SHA}` to see the full diff. Review only the changes it contains.
 {1-line intent summary — include only when Phase 2 showed this diff is a re-arch}
 
 OUTPUT
@@ -262,7 +355,7 @@ After both complete, collect their raw outputs separately. Do NOT merge yet — 
 
 ## Phase 5: Cross-Model Synthesis
 
-After both voices return, synthesize findings.
+After both voices and the design-conformance agent return, synthesize findings.
 
 ### Dedup by fingerprint
 
@@ -270,10 +363,25 @@ For each finding, compute fingerprint: `{file}:{line}:{category}`
 
 Group by fingerprint:
 
-- **Agreed (both found it)**: Boost confidence +1 (cap 10). Tag: "DUAL-VOICE CONFIRMED"
+- **Agreed (both voices found it)**: Boost confidence +1 (cap 10). Tag: "DUAL-VOICE CONFIRMED"
 - **Claude-only**: Present normally
 - **Codex-only**: Present normally
+- **Design-conformance agent**: Present normally, tagged `DESIGN`. Never fold it into the dual-voice agreement count — it read a different prompt, so overlap with a voice confirms nothing about either.
 - **Contradictions**: Flag explicitly — "Claude says X, Codex says Y"
+
+### Adjudicate against the ledger
+
+Neither adversarial voice saw the rule ledger — only you and the design-conformance agent did — so one of their findings can be right about the bytes and wrong about this repository. Rule on every merged finding, theirs and your own:
+
+| Verdict | Test | Action |
+| --- | --- | --- |
+| `RULE-BACKED` | a ledger rule already answers it and the code drifted from it | real finding; the fix is "match the rule", and the rule is cited |
+| `NO GOVERNING RULE` | nothing in the ledger speaks to it | real finding when its own evidence stands; say plainly that it rests on reviewer judgment, not on project policy |
+| `RULE-CONTRADICTED` | it contradicts a rule still in force — a voice demanding `argparse` where the project mandates `click` | never fix it; report it as suppressed, naming the rule `file:line` |
+
+Suppressing silently is how the identical false positive returns at every review, so the rule that killed a finding is always named. "Both models flagged it" does not overturn a rule either: agreement between two voices that never read the rule is one blind spot counted twice. A `RULE-CONTRADICTED` finding reaches the user only when it carries risk that was not on the table when the rule was written — that is the one thing that reopens a settled decision.
+
+When the project keeps a decision log — a `wayne-mind-explode` or `wayne-plan` run — [finding adjudication](../_shared/finding-adjudication.md) is the fuller taxonomy for this same job, with that log as the frozen source. Most repositories keep none, and then the three verdicts above are the whole story.
 
 ### Synthesis Output (in Chinese)
 
@@ -282,7 +390,8 @@ DUAL-VOICE CODE REVIEW SYNTHESIS
 ==================================================
 意图: {1-line intent summary}
 差异: {diff stats}
-审查来源: Claude structured + Claude adversarial + Codex {if ran}
+审查来源: Claude structured + Claude adversarial + Codex {if ran} + design-conformance {✓/✗}
+规则来源: {rule files read, or "none found"}
 
 ## 高置信度发现 (多个来源一致)
 {findings agreed by 2+ sources}
@@ -293,8 +402,14 @@ DUAL-VOICE CODE REVIEW SYNTHESIS
 ## Codex 独有发现
 {findings only Codex found}
 
+## 设计一致性发现 (design-conformance agent)
+{rule violations, design changes missing their doc or reason, surviving consumers of the old design}
+
 ## 分歧点
 {contradictions between reviewers — present both sides}
+
+## 被项目规则否决的发现
+{findings suppressed by a documented rule — each naming the rule file:line}
 ==================================================
 ```
 
@@ -319,6 +434,8 @@ Directly fix these without asking:
 - Missing type annotations (if project uses them)
 
 Output: `[AUTO-FIXED] file:line — what was fixed`
+
+Never in this set: anything the ledger governs. A conformance violation, a design change, and a rule-suppressed finding are judgment calls even when the edit looks mechanical — the first two change what the project decided, and the third only the user can waive.
 
 ### Ask (judgment calls)
 
@@ -364,21 +481,14 @@ Issues found: N (X critical, Y informational)
 Auto-fixed: N
 User-fixed: N
 Skipped: N
-Sources: Claude structured ✓ | Claude adversarial ✓ | Codex ✓/✗
+Sources: Claude structured ✓ | Claude adversarial ✓ | Codex ✓/✗ | design-conformance ✓/✗
+Rules read: {N — paths, or "none found"}
+Conformance: {CONFORM / VIOLATION×N / DESIGN-CHANGE justified|unjustified}
+Suppressed by rule: {N — each naming the rule file:line}
 
 Scope check: {CLEAN / DRIFT / MISSING}
 Remaining concerns: {list or "none"}
 ```
-
----
-
-## Phase 8: Handoff
-
-As the final step, auto-call `**wayne-checkpoint` in handoff mode**, which routes stage `code-review` to `wayne-verify` from its own table. The packet carries a self-contained next prompt (branch, plan/spec paths, what runtime "done" looks like), the current snapshot, and an optional goal block. The handoff-packet mechanism is fully defined in `wayne-checkpoint` — this skill only invokes it; it does not implement or advance it.
-
-This is **Mode A: return-only**. The packet is surfaced to the user; it does NOT auto-invoke `wayne-verify`. The user manually triggers the next step (e.g. says "下一步" / "继续" / "go").
-
-**A gate verdict is the precondition for handing off.** Read the `wayne-code-review-flow` result first: only `GATE: PASS` may emit a packet. On `GATE: FAIL`, or when the workflow was never run, write no packet and return `NO_WAYNE_HANDOFF: code-review — <reason>`, naming the gate as what is missing. A packet pointing at `wayne-verify` past a gate that never ran is the bypass, and a findings-free report here is not a `GATE: PASS` — this skill's own clean result never substitutes for the gate's verdict.
 
 ---
 
@@ -396,12 +506,14 @@ If a spec/plan exists from brainstorming, cross-reference the diff against it:
 
 This skill reviews statically. It does NOT run the app, commit, push, or create PRs.
 
-The ship chain is: **wayne-code-review (working review)** → **`wayne-code-review-flow` (static gate)** → **wayne-verify (runtime gate)** → **wayne-ship (commit)**. This skill finds, synthesizes, and resolves findings; the static gate verdict is the workflow's `GATE: PASS` over one frozen patch with two valid model families; `wayne-verify` then proves the feature actually runs. No single one of them is sufficient to ship.
+`wayne-work` commits per unit, so this review runs last, over what those commits produced — the open PR or the explicit range fixed in Phase 1 — and `wayne-ship` opens the PR once the findings are resolved. Nothing here hands off automatically; the user runs the next step.
 
 ```
-wayne-code-review → wayne-code-review-flow → wayne-verify → wayne-ship
- (working review)        (static gate)       (runtime gate)   (commit)
+wayne-work → wayne-code-review → wayne-ship
+(commit per unit)   (review)       (PR open)
 ```
+
+The formal gate verdict over that same range is `wayne-code-review-flow`'s `GATE: PASS`; this skill finds, synthesizes, and resolves findings. `wayne-verify` drives the feature along the real user path and is invoked deliberately when runtime proof is wanted — it is not a stage this review advances into.
 
 ---
 

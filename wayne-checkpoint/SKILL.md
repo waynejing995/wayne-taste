@@ -262,7 +262,7 @@ digraph handoff {
 
 ### When it is called
 
-- **Auto:** the final step of every pipeline skill (wayne-mind-explode, wayne-plan, wayne-work, wayne-code-review, wayne-verify, wayne-ship), plus a caller-approved route from a non-linear front door such as `wayne-triage`. Those skills are edited separately to add the call; this skill defines what the call DOES.
+- **Auto:** the final step of every pipeline skill that advances into another one (wayne-mind-explode, wayne-plan, wayne-work, wayne-verify, wayne-ship), plus a caller-approved route from a non-linear front door such as `wayne-triage`. Those skills are edited separately to add the call; this skill defines what the call DOES. `wayne-code-review` deliberately does not auto-call: it ends at its report, and the user decides whether the next step is `wayne-ship` or a runtime pass through `wayne-verify`.
 - **Manual:** `/wayne-checkpoint handoff` when the user wants the packet on demand.
 
 ### H1. Gather referenced state
@@ -278,7 +278,7 @@ Determine the current pipeline stage from the calling skill or an explicit resum
 | `mind-explode` | `wayne-plan`        |
 | `plan`         | `wayne-work`        |
 | `work`         | `wayne-code-review` |
-| `code-review`  | `wayne-verify`      |
+| `code-review`  | `wayne-ship`        |
 | `verify`       | `wayne-ship`        |
 | `ship`         | `wayne-compound`    |
 
@@ -349,19 +349,19 @@ Proactively suggest saving a checkpoint when:
 Checkpoint has two relationships with the pipeline:
 
 1. **Orthogonal (save/resume):** it can save/resume at any stage.
-2. **Handoff conductor:** each pipeline skill auto-calls it as its final step to emit a handoff packet that standardizes the transition to the next stage — without advancing it (Mode A, return-only).
+2. **Handoff conductor:** each pipeline skill that advances into another one auto-calls it as its final step to emit a handoff packet that standardizes the transition — without advancing it (Mode A, return-only). `wayne-code-review` is the exception and ends at its report.
 
-The `pipeline_stage` field tells **resume** which skill to suggest, and tells **handoff** which skill is the next agent (see Handoff Mode → Step 2 routing table). Note `wayne-verify` is a runtime-verification stage between `wayne-code-review` and `wayne-ship`.
+The `pipeline_stage` field tells **resume** which skill to suggest. The next agent for a handoff comes from the Step 2 routing table above and is deliberately not restated here — two tables answering "what comes next" drift, and the weaker one is what a later reader believes. `wayne-verify` is a deliberate runtime pass invoked when runtime proof is wanted, not an automatic stage between review and ship.
 
-| Pipeline stage | Resume suggests | Handoff routes to (next agent) |
-| --- | --- | --- |
-| `brainstorm` / `mind-explode` | Invoke `wayne-mind-explode`, continue grilling | `wayne-plan` |
-| `plan` | Invoke `wayne-plan`, continue from last phase | `wayne-work` |
-| `work` | Invoke `wayne-work`, resume from next pending unit | `wayne-code-review` |
-| `review` / `code-review` | Invoke `wayne-code-review` | `wayne-verify` |
-| `verify` | Invoke `wayne-verify` | `wayne-ship` |
-| `ship` | Invoke `wayne-ship` | `wayne-compound` |
-| `compound` | Invoke `wayne-compound` | — (pipeline end) |
+| Pipeline stage | Resume suggests |
+| --- | --- |
+| `brainstorm` / `mind-explode` | Invoke `wayne-mind-explode`, continue grilling |
+| `plan` | Invoke `wayne-plan`, continue from last phase |
+| `work` | Invoke `wayne-work`, resume from next pending unit |
+| `review` / `code-review` | Invoke `wayne-code-review` |
+| `verify` | Invoke `wayne-verify` |
+| `ship` | Invoke `wayne-ship` |
+| `compound` | Invoke `wayne-compound` |
 
 **Resume vs Handoff:** Resume auto-invokes the next skill (user-driven "pick up"); Handoff only emits a packet and waits for a manual trigger (end-of-stage emit).
 

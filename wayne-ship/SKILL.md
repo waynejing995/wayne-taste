@@ -22,11 +22,11 @@ commit messages, PR descriptions, code comments. Commit prefixes (`SWDEV-1234`, 
 
 ## Checklist
 
-1. **Pre-flight check** — verify wayne-code-review has passed AND wayne-verify has passed (E2E contract all ✅, or `E2E: none` declared)
-2. **Analyze changes** — group by feature/fix, identify Jira tickets
-3. **Present commit plan** — show user what will be committed and how
-4. **Commit per feature** — one atomic commit per logical change
-5. **Push + PR** — if user wants, push and create PR
+1. **Pre-flight check** — `wayne-code-review` has passed over the reviewed range. Runtime proof through `wayne-verify` is deliberate, not automatic: run it when the change has a runtime path worth proving, and record why when it is not run
+2. **Analyze changes** — separate what `wayne-work` already committed per unit from anything still uncommitted
+3. **Present commit plan** — show the user what remains to commit and how it groups
+4. **Commit what is left** — one atomic commit per logical change; never re-commit or rewrite the unit commits
+5. **Push + PR** — for a multi-unit feature this is the real output: push the branch and open the PR
 
 ## Process Flow
 
@@ -36,10 +36,11 @@ digraph ship {
 
     "wayne-code-review\npassed?" [shape=diamond];
     "Run wayne-code-review" [shape=box];
-    "wayne-verify passed?\ncontract all ✅?" [shape=diamond];
+    "Runtime proof\nwanted?" [shape=diamond];
     "Run wayne-verify" [shape=box];
-    "Analyze changes:\ngit status + git diff" [shape=box];
-    "Group changes by\nfeature/fix" [shape=box];
+    "Analyze changes:\ngit log + git status" [shape=box];
+    "Anything left\nuncommitted?" [shape=diamond];
+    "Group remaining changes\nby feature/fix" [shape=box];
     "Identify Jira tickets\nfor each group" [shape=box];
     "Present commit plan\nto user (Chinese)" [shape=box];
     "User approves?" [shape=diamond];
@@ -50,13 +51,15 @@ digraph ship {
     "Done" [shape=doublecircle];
 
     "wayne-code-review\npassed?" -> "Run wayne-code-review" [label="no"];
-    "wayne-code-review\npassed?" -> "wayne-verify passed?\ncontract all ✅?" [label="yes"];
+    "wayne-code-review\npassed?" -> "Runtime proof\nwanted?" [label="yes"];
     "Run wayne-code-review" -> "wayne-code-review\npassed?";
-    "wayne-verify passed?\ncontract all ✅?" -> "Run wayne-verify" [label="no"];
-    "wayne-verify passed?\ncontract all ✅?" -> "Analyze changes:\ngit status + git diff" [label="yes"];
-    "Run wayne-verify" -> "wayne-verify passed?\ncontract all ✅?";
-    "Analyze changes:\ngit status + git diff" -> "Group changes by\nfeature/fix";
-    "Group changes by\nfeature/fix" -> "Identify Jira tickets\nfor each group";
+    "Runtime proof\nwanted?" -> "Run wayne-verify" [label="yes"];
+    "Runtime proof\nwanted?" -> "Analyze changes:\ngit log + git status" [label="no"];
+    "Run wayne-verify" -> "Analyze changes:\ngit log + git status";
+    "Analyze changes:\ngit log + git status" -> "Anything left\nuncommitted?";
+    "Anything left\nuncommitted?" -> "Push?" [label="no — wayne-work committed per unit"];
+    "Anything left\nuncommitted?" -> "Group remaining changes\nby feature/fix" [label="yes"];
+    "Group remaining changes\nby feature/fix" -> "Identify Jira tickets\nfor each group";
     "Identify Jira tickets\nfor each group" -> "Present commit plan\nto user (Chinese)";
     "Present commit plan\nto user (Chinese)" -> "User approves?";
     "User approves?" -> "Commit each group\n(1 commit = 1 feature)" [label="yes"];
@@ -76,8 +79,8 @@ digraph ship {
 Before any commit work, consume the exact upstream gate artifacts:
 
 1. Validate the code-review manifest, two provider identities, verdict, and frozen patch hash against the current diff. Ship does not re-judge review semantics.
-2. Validate the exact authoritative matrix path and fresh Verify evidence. Status glyphs are structural state; legitimacy of `E2E: none` comes from Verify's AI review of the actual requirements, not substring presence.
-3. If either artifact is missing, invalid, unavailable, or stale, run its owning skill and stop unless the new artifact passes.
+2. Runtime evidence is required only when `wayne-verify` was run. When it was not, say so and name why the change does not need a runtime pass; never fabricate an `E2E: none` on Verify's behalf.
+3. If the review artifact is missing, invalid, or stale against the current range, run `wayne-code-review` and stop unless the new artifact passes.
 
 Never accept a `PASS`/`PASSED` word in chat or report prose as gate evidence.
 
@@ -282,15 +285,19 @@ If any one fails, keep the directory and report which condition blocked it. The 
 ## Integration with Wayne Workflow
 
 ```
-wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-verify → wayne-ship → wayne-compound
-     (WHAT)            (HOW)        (BUILD)      (STATIC GATE)      (RUNTIME GATE)  (COMMIT)     (LESSONS)
+wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-ship → wayne-compound
+     (WHAT)            (HOW)       (BUILD +        (REVIEW)         (PUSH + PR)   (LESSONS)
+                                commit per unit)
+
+wayne-verify — deliberate runtime pass, run when the change has a runtime path worth proving
 ```
 
-This is the commit step. It only runs after:
+This is the push-and-PR step. `wayne-work` already committed each unit, so it runs after:
 
-1. Implementation is complete (`wayne-work`)
-2. Dual-voice review has passed (`wayne-code-review`)
-3. Runtime verification has passed (`wayne-verify` — E2E contract all ✅, or `E2E: none` declared)
+1. Implementation is complete (`wayne-work`), with its unit commits in place
+2. Dual-voice review has passed over that committed range (`wayne-code-review`)
+
+Runtime verification is not a precondition. Run `wayne-verify` when the change has a runtime path worth proving, and say so when it was not run.
 
 Its own final step hands off to `wayne-compound` (see Phase 8).
 
@@ -301,6 +308,6 @@ Its own final step hands off to `wayne-compound` (see Phase 8).
 - **1 commit = 1 feature** — never bundle unrelated changes
 - **Always signed-off** — `git commit -s`, no exceptions
 - **Jira ticket first** — every commit traces to a ticket when possible
-- **Both gates before commit** — `wayne-code-review` (static) AND `wayne-verify` (runtime, contract all ✅) are hard gates
+- **Review before push** — `wayne-code-review` over the range being pushed is the hard gate; `wayne-verify` is a deliberate runtime pass, never an automatic one
 - **User approves the plan** — never commit without showing the grouping first
 - **Chinese for discussion, English for commits**
