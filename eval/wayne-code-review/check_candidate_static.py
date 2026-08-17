@@ -250,6 +250,17 @@ def check_candidate(root: Path) -> list[str]:
             "SKILL.md must emit a return-only wayne-verify handoff that does not auto-invoke it"
         )
 
+    if not any_paragraph(
+        blocks,
+        ("only gate: pass", "gate: pass is required", "requires a gate: pass"),
+        ("no wayne handoff",),
+        ("wayne-code-review-flow",),
+    ):
+        findings.append(
+            "SKILL.md must gate the wayne-verify handoff on a wayne-code-review-flow "
+            "GATE: PASS and return NO_WAYNE_HANDOFF otherwise"
+        )
+
     for path, text in text_files(root):
         lower = text.lower()
         for dependency in FORBIDDEN_DEPENDENCIES:

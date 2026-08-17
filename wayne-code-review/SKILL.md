@@ -374,11 +374,11 @@ Remaining concerns: {list or "none"}
 
 ## Phase 8: Handoff
 
-As the final step, auto-call `**wayne-checkpoint` in handoff mode** to emit a handoff packet with **next agent = `wayne-verify`**. The packet carries a self-contained next prompt (branch, plan/spec paths, what runtime "done" looks like), the current snapshot, and an optional goal block. The handoff-packet mechanism is fully defined in `wayne-checkpoint` — this skill only invokes it; it does not implement or advance it.
+As the final step, auto-call `**wayne-checkpoint` in handoff mode**, which routes stage `code-review` to `wayne-verify` from its own table. The packet carries a self-contained next prompt (branch, plan/spec paths, what runtime "done" looks like), the current snapshot, and an optional goal block. The handoff-packet mechanism is fully defined in `wayne-checkpoint` — this skill only invokes it; it does not implement or advance it.
 
 This is **Mode A: return-only**. The packet is surfaced to the user; it does NOT auto-invoke `wayne-verify`. The user manually triggers the next step (e.g. says "下一步" / "继续" / "go").
 
-The packet carries the gate state and never claims one this skill did not obtain: name the `wayne-code-review-flow` verdict when that workflow was run, and record it as outstanding when it was not. A findings-free report here is not a `GATE: PASS`.
+**A gate verdict is the precondition for handing off.** Read the `wayne-code-review-flow` result first: only `GATE: PASS` may emit a packet. On `GATE: FAIL`, or when the workflow was never run, write no packet and return `NO_WAYNE_HANDOFF: code-review — <reason>`, naming the gate as what is missing. A packet pointing at `wayne-verify` past a gate that never ran is the bypass, and a findings-free report here is not a `GATE: PASS` — this skill's own clean result never substitutes for the gate's verdict.
 
 ---
 

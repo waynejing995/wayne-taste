@@ -227,6 +227,20 @@ def main() -> int:
         replace(trial / "SKILL.md", r"does NOT auto-invoke", "auto-invokes", re.IGNORECASE)
         assert_invalid(trial, "does not auto-invoke", "auto-invoke handoff")
 
+        # The handoff must not point past a gate that never ran. Two independent
+        # mutations, so each one proves its own half of the gate.
+        trial = clone("ungated-handoff")
+        replace(
+            trial / "SKILL.md",
+            r"only `GATE: PASS` may emit a packet",
+            "a packet is emitted either way",
+        )
+        assert_invalid(trial, "NO_WAYNE_HANDOFF", "ungated handoff")
+
+        trial = clone("no-handoff-refusal")
+        replace(trial / "SKILL.md", r"NO_WAYNE_HANDOFF: code-review — <reason>", "nothing further")
+        assert_invalid(trial, "NO_WAYNE_HANDOFF", "missing handoff refusal")
+
         # Forbidden dependency scan.
         trial = clone("forbidden-dependency")
         path = trial / PROTOCOL_RESOURCE
