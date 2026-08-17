@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Calibrate static observations, not candidate semantics."""
+"""Calibrate static observations, not candidate semantics.
+
+Every surviving gate in `check_candidate_static.py` must pass on the pristine
+skill and fail on one seeded violation of that gate.
+"""
 
 from __future__ import annotations
 
@@ -9,12 +13,10 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from check_candidate_static import (
-    PLAYBOOK_CONTRACTS,
-    REVIEW_TYPES,
-    RUNNER_INTENT_CONTRACT,
-    check_candidate,
-)
+from check_candidate_static import PROTOCOL_RESOURCE, check_candidate
+
+
+DEFAULT_CANDIDATE = Path(__file__).resolve().parents[2] / "wayne-code-review"
 
 
 def replace(path: Path, pattern: str, value: str, flags: int = 0) -> None:
@@ -33,7 +35,7 @@ def assert_invalid(root: Path, needle: str, label: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("candidate", type=Path)
+    parser.add_argument("candidate", type=Path, nargs="?", default=DEFAULT_CANDIDATE)
     args = parser.parse_args()
     candidate = args.candidate.resolve()
     findings = check_candidate(candidate)
@@ -51,74 +53,188 @@ def main() -> int:
             shutil.copytree(candidate, target)
             return target
 
-        trial = clone("missing-runner")
-        (trial / "scripts/run_dual_review.py").unlink()
-        assert_invalid(trial, "missing required resource", "missing runner")
+        # Required resource: the one reviewer protocol file.
+        trial = clone("missing-protocol")
+        (trial / PROTOCOL_RESOURCE).unlink()
+        assert_invalid(trial, "missing required resource", "missing protocol")
 
-        trial = clone("missing-playbooks")
-        (trial / "references/review-playbooks.md").unlink()
-        assert_invalid(trial, "missing required resource", "missing playbooks")
+        trial = clone("empty-protocol")
+        (trial / PROTOCOL_RESOURCE).write_text("\n", encoding="utf-8")
+        assert_invalid(trial, "required resource is empty", "empty protocol")
 
-        for review_type in REVIEW_TYPES:
-            trial = clone(f"route-{review_type}")
-            replace(
-                trial / "references/review-playbooks.md",
-                re.escape(review_type),
-                "removed-route",
-                re.IGNORECASE,
-            )
-            assert_invalid(trial, f"omit required review type: {review_type}", review_type)
+        trial = clone("symlink-protocol")
+        path = trial / PROTOCOL_RESOURCE
+        path.unlink()
+        path.symlink_to(Path("..") / "SKILL.md")
+        assert_invalid(trial, "not a symlink", "symlinked protocol")
 
-        for label, phrase in PLAYBOOK_CONTRACTS.items():
-            trial = clone(f"playbook-{label.replace(' ', '-')}")
-            replace(
-                trial / "references/review-playbooks.md",
-                r"\s+".join(r"`?" + re.escape(part) + r"`?" for part in phrase.split()),
-                "removed-contract",
-                re.IGNORECASE,
-            )
-            assert_invalid(trial, f"omit {label}", label)
+        trial = clone("unreferenced-protocol")
+        replace(trial / "SKILL.md", re.escape(PROTOCOL_RESOURCE), "references/gone.md")
+        assert_invalid(trial, "body does not reference", "unreferenced protocol")
 
-        trial = clone("runner-identity")
-        replace(trial / "scripts/run_dual_review.py", "claude", "alpha", re.IGNORECASE)
-        assert_invalid(trial, "runner omits claude", "runner identity")
+        # Frontmatter shape.
+        trial = clone("frontmatter-name")
+        replace(trial / "SKILL.md", r"^name: wayne-code-review$", "name: wayne-review", re.M)
+        assert_invalid(trial, "frontmatter name must be", "frontmatter name")
 
-        for index, literal in enumerate(RUNNER_INTENT_CONTRACT):
-            trial = clone(f"runner-intent-{index}")
-            replace(
-                trial / "scripts/run_dual_review.py",
-                re.escape(literal),
-                f"REMOVED_INTENT_CONTRACT_{index}",
-            )
-            assert_invalid(trial, f"runner omits intent contract: {literal}", literal)
+        trial = clone("frontmatter-extra")
+        replace(trial / "SKILL.md", r"^name: wayne-code-review$", "model: opus\nname: wayne-code-review", re.M)
+        assert_invalid(trial, "frontmatter keys must be exactly", "frontmatter keys")
 
-        body_mutations = {
-            "exact-two": (r"exactly two", "multiple", "exactly two review voices"),
-            "frozen-hash": (r"frozen", "immutable", "same frozen hash"),
-            "parallel": (r"parallel", "together", "parallel reviewer execution"),
-            "failure-nonpass": (r"never PASS", "may PASS", "failing cannot produce PASS"),
-            "review-only": (r"review-only", "review scoped", "review-only behavior"),
-            "auto-fix": (r"auto-fix", "apply changes", "forbid automatic fixes"),
-            "static-only": (r"static-only", "static analysis", "static-only review"),
-            "return-only": (r"return-only", "handoff packet", "return-only wayne-verify"),
-        }
-        for name, (pattern, value, needle) in body_mutations.items():
-            trial = clone(name)
-            replace(trial / "SKILL.md", pattern, value, re.IGNORECASE)
-            assert_invalid(trial, needle, name)
+        trial = clone("frontmatter-duplicate")
+        replace(
+            trial / "SKILL.md",
+            r"^name: wayne-code-review$",
+            "name: wayne-code-review\nname: wayne-code-review",
+            re.M,
+        )
+        assert_invalid(trial, "duplicate frontmatter key", "duplicate frontmatter key")
 
-        forbidden = {
-            "claude-home": ("Use ~/.claude/skills/reviewer.\n", "Claude home path"),
-            "subagent-type": ("Set subagent_type to reviewer.\n", "subagent_type"),
-            "codex-exec": ("Run codex exec for review.\n", "codex exec"),
-            "agent-tool": ("Use the Agent tool.\n", "Agent tool"),
-            "forbidden-dependency": ("Invoke gstack for review.\n", "forbidden dependency"),
-        }
-        for name, (content, needle) in forbidden.items():
-            trial = clone(name)
-            path = trial / "references/review-playbooks.md"
-            path.write_text(path.read_text(encoding="utf-8") + "\n" + content, encoding="utf-8")
-            assert_invalid(trial, needle, name)
+        trial = clone("frontmatter-invalid-line")
+        replace(trial / "SKILL.md", r"^name: wayne-code-review$", "name wayne-code-review", re.M)
+        assert_invalid(trial, "invalid frontmatter line", "invalid frontmatter line")
+
+        trial = clone("empty-description")
+        replace(trial / "SKILL.md", r"^description: .*$", "description:", re.M)
+        assert_invalid(trial, "description must be non-empty", "empty description")
+
+        trial = clone("no-frontmatter")
+        path = trial / "SKILL.md"
+        path.write_text(
+            re.sub(r"\A---\n.*?\n---\n", "", path.read_text(encoding="utf-8"), flags=re.DOTALL),
+            encoding="utf-8",
+        )
+        assert_invalid(trial, "must start with YAML frontmatter", "no frontmatter")
+
+        trial = clone("unclosed-frontmatter")
+        path = trial / "SKILL.md"
+        frontmatter = path.read_text(encoding="utf-8").split("---\n", 2)[1]
+        path.write_text("---\n" + frontmatter, encoding="utf-8")
+        assert_invalid(trial, "no closing delimiter", "unclosed frontmatter")
+
+        trial = clone("empty-body")
+        path = trial / "SKILL.md"
+        frontmatter = path.read_text(encoding="utf-8").split("---\n", 2)[1]
+        path.write_text("---\n" + frontmatter + "---\n", encoding="utf-8")
+        assert_invalid(trial, "SKILL.md body is empty", "empty body")
+
+        trial = clone("missing-skill")
+        (trial / "SKILL.md").unlink()
+        assert_invalid(trial, "missing SKILL.md", "missing SKILL.md")
+
+        # Phase 4 dispatch section must exist at all.
+        trial = clone("no-phase-4")
+        replace(
+            trial / "SKILL.md",
+            r"^## Phase 4\b.*?(?=^## )",
+            "",
+            re.MULTILINE | re.DOTALL,
+        )
+        assert_invalid(trial, "no Phase 4 dual voice dispatch section", "missing Phase 4")
+
+        # Both voice identities.
+        trial = clone("voice-identity")
+        replace(trial / "SKILL.md", r"codex", "alpha", re.IGNORECASE)
+        assert_invalid(trial, "both Claude and Codex voices", "voice identity")
+
+        # Exactly two dispatched voices, one Claude and one Codex.
+        trial = clone("drop-voice-2")
+        replace(
+            trial / "SKILL.md",
+            r"\*\*Voice 2\s*[—–-]\s*Codex:\*\*.*?(?=### Wait \+ Gather)",
+            "",
+            re.DOTALL,
+        )
+        assert_invalid(trial, "must dispatch exactly two voices", "dropped Codex dispatch")
+
+        trial = clone("third-voice")
+        replace(
+            trial / "SKILL.md",
+            r"(\*\*Voice 2\s*[—–-]\s*Codex:\*\*)",
+            "**Voice 3 — Gemini:** Dispatch a third opinion.\n\n\\1",
+        )
+        assert_invalid(trial, "must dispatch exactly two voices", "third voice")
+
+        trial = clone("voice-relabel")
+        replace(trial / "SKILL.md", r"(\*\*Voice 2\s*[—–-]\s*)Codex:", r"\1Gemini:")
+        assert_invalid(
+            trial, "one Claude voice and one Codex voice", "non-Codex second voice"
+        )
+
+        # One protocol file is the single source of the shared prompt.
+        trial = clone("per-voice-prompt")
+        replace(
+            trial / "SKILL.md",
+            r"receive the \*\*same bytes\*\*",
+            "receive their own separately written prompts",
+        )
+        assert_invalid(trial, "same bytes from", "per-voice prompt")
+
+        # No crosstalk between the dispatched voices.
+        trial = clone("crosstalk")
+        replace(
+            trial / "SKILL.md",
+            r"Neither sees the other's output, nor your structured review from Phase 3\.",
+            "Each voice is shown the other's output and your structured review.",
+        )
+        assert_invalid(trial, "neither dispatched voice sees", "crosstalk")
+
+        # Parallel dispatch.
+        trial = clone("serial-dispatch")
+        replace(trial / "SKILL.md", r"parallel|concurrently", "sequentially", re.IGNORECASE)
+        assert_invalid(trial, "parallel reviewer execution", "serial dispatch")
+
+        # A degraded run must be labelled, never presented as dual-voice.
+        trial = clone("unlabelled-degradation")
+        replace(
+            trial / "SKILL.md",
+            r"single-voice|single voice|claude-only|claude only",
+            "standard",
+            re.IGNORECASE,
+        )
+        assert_invalid(trial, "not presented as dual-voice", "unlabelled degradation")
+
+        # The formal gate obligations live in the Pi workflow.
+        trial = clone("workflow-owner")
+        replace(trial / "SKILL.md", r"wayne-code-review-flow", "some saved workflow")
+        assert_invalid(trial, "must name wayne-code-review-flow", "workflow owner")
+
+        # Static-only scope.
+        trial = clone("static-only")
+        replace(trial / "SKILL.md", r"Static Only", "Static Analysis")
+        assert_invalid(trial, "static-only review", "static only")
+
+        # Judgment calls belong to the user; the skill never commits.
+        trial = clone("judgment-routing")
+        replace(trial / "SKILL.md", r"judgment", "remaining", re.IGNORECASE)
+        assert_invalid(trial, "route judgment calls to the user", "judgment routing")
+
+        trial = clone("user-decides")
+        replace(trial / "SKILL.md", r"the user decides", "we decide", re.IGNORECASE)
+        assert_invalid(trial, "leave the decision to the user", "user decides")
+
+        trial = clone("unapproved-fixes")
+        replace(trial / "SKILL.md", r"user-approved", "recommended", re.IGNORECASE)
+        assert_invalid(trial, "apply only user-approved fixes", "unapproved fixes")
+
+        trial = clone("commits")
+        replace(trial / "SKILL.md", r"Never commit", "Then commit")
+        replace(trial / "SKILL.md", r"does NOT run the app, commit,", "does NOT run the app,")
+        assert_invalid(trial, "never commits", "commits")
+
+        # Return-only handoff.
+        trial = clone("auto-invoke")
+        replace(trial / "SKILL.md", r"does NOT auto-invoke", "auto-invokes", re.IGNORECASE)
+        assert_invalid(trial, "does not auto-invoke", "auto-invoke handoff")
+
+        # Forbidden dependency scan.
+        trial = clone("forbidden-dependency")
+        path = trial / PROTOCOL_RESOURCE
+        path.write_text(
+            path.read_text(encoding="utf-8") + "\nInvoke gstack for review.\n",
+            encoding="utf-8",
+        )
+        assert_invalid(trial, "forbidden dependency", "forbidden dependency")
 
     print(
         f"PASS: static observations cover 1 candidate and {count} mutations; "

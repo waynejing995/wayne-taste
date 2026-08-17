@@ -9,8 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from calibrate_dual_evidence import valid_bundle
-from check_trial import check, patch_sha
+from check_trial import check
 
 
 HARNESS = Path(__file__).resolve().parent
@@ -40,26 +39,16 @@ def target_output() -> str:
     )
 
 
-def dataflow_rows() -> list[dict[str, object]]:
-    return [
-        {
-            "severity": "CRITICAL",
-            "confidence": 10,
-            "category": "dataflow-half-migration",
-            "file": "src/delivery/retry.py",
-            "line": 7,
-            "problem": (
-                "TeamConfig.timeout_ms flows through resolve_timeout for primary but retry "
-                "still reads DEFAULT_TIMEOUT_MS, so beta gets wrong value 1000 instead of 2400."
-            ),
-            "evidence": [
-                "producer TeamConfig.timeout_ms",
-                "canonical seam resolve_timeout",
-                "stale retry consumer DEFAULT_TIMEOUT_MS at src/delivery/retry.py:7",
-            ],
-            "fix": "Route retry_timeout through resolve_timeout(config).",
-        }
-    ]
+def degraded_output(labelled: bool = True) -> str:
+    label = (
+        " Codex not available — single-voice adversarial review only."
+        if labelled
+        else " Codex not available."
+    )
+    return (
+        "STATUS: PASS\nNO FINDINGS\n"
+        "Sources: Claude structured + Claude adversarial." + label
+    )
 
 
 def dataflow_output() -> str:
@@ -107,22 +96,18 @@ def main() -> int:
         root = Path(temp)
 
         target = seed(root / "target", "security-only-routing")
-        valid_bundle(target / "review-evidence", patch_sha(target / "repo"), "security")
         write(target / "output.txt", target_output())
         assert_valid(target, "security-only-routing", target / "output.txt")
 
         safe = seed(root / "safe", "security-safe-neighbor")
-        valid_bundle(safe / "review-evidence", patch_sha(safe / "repo"), "security", [])
         write(safe / "output.txt", "STATUS: PASS\nNO FINDINGS\nSources: Claude + Codex.")
         assert_valid(safe, "security-safe-neighbor", safe / "output.txt")
 
+        degraded = clone(safe, root, "declared-single-voice")
+        write(degraded / "output.txt", degraded_output())
+        assert_valid(degraded, "security-safe-neighbor", degraded / "output.txt")
+
         dataflow = seed(root / "dataflow", "dataflow-half-migration")
-        valid_bundle(
-            dataflow / "review-evidence",
-            patch_sha(dataflow / "repo"),
-            "dataflow",
-            dataflow_rows(),
-        )
         write(dataflow / "output.txt", dataflow_output())
         assert_valid(dataflow, "dataflow-half-migration", dataflow / "output.txt")
 
@@ -140,21 +125,15 @@ def main() -> int:
             "dataflow-severity": (dataflow, "dataflow-half-migration", dataflow_output().replace("CRITICAL", "INFORMATIONAL"), "not CRITICAL"),
             "disagreement-missing": (disagreement, "disagreement-synthesis", disagreement_output().replace("overwrite-default-compatibility", "compatibility"), "compatibility disagreement"),
             "disagreement-resolved": (disagreement, "disagreement-synthesis", disagreement_output().replace("UNRESOLVED disagreement", "Resolved in Claude's favor"), "preserving it"),
+            "undeclared-single-voice": (target, "security-only-routing", target_output().replace("Sources: Claude + Codex", "Sources: Claude"), "declares a single-voice run"),
+            "no-claude-attribution": (target, "security-only-routing", target_output().replace("Sources: Claude + Codex", "Sources: Codex"), "attribute a Claude voice"),
+            "unlabelled-degradation": (degraded, "security-safe-neighbor", degraded_output(labelled=False), "without labelling the review single-voice"),
         }
         for name, (source, case_name, content, needle) in mutations.items():
             trial = clone(source, root, name)
             write(trial / "output.txt", content)
             assert_invalid(trial, case_name, trial / "output.txt", needle, name)
 
-        invoked = clone(disagreement, root, "synthesis-reviewer-invocation")
-        (invoked / "review-evidence").mkdir()
-        assert_invalid(
-            invoked,
-            "disagreement-synthesis",
-            invoked / "output.txt",
-            "invoked reviewers",
-            "synthesis reviewer boundary",
-        )
 
         mutated = clone(target, root, "repository-write")
         write(mutated / "repo/src/export.py", "# review modified product code\n")
@@ -167,7 +146,7 @@ def main() -> int:
         )
 
     print(
-        "PASS: observations cover 4 cases and 11 mutations; "
+        "PASS: observations cover 5 positives and 13 mutations; "
         "semantic verdict remains AI_REVIEW_REQUIRED"
     )
     return 0

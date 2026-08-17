@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Collect Code Review behavior evidence for blind semantic review."""
+"""Collect Code Review behavior evidence for blind semantic review.
+
+The oracle reads what the prose skill actually produces: the user-visible review
+output plus the Git-native mutation boundary. It does not require any machine
+evidence bundle.
+"""
 
 from __future__ import annotations
 
@@ -9,8 +14,6 @@ import json
 import re
 import subprocess
 from pathlib import Path
-
-from check_dual_evidence import validate_evidence
 
 
 CASES = {
@@ -79,35 +82,24 @@ def check_no_mutation(workspace: Path, repo: Path, findings: list[str]) -> None:
         findings.append(f"review changed commit history: count={commits}")
 
 
-def review_rows(evidence_dir: Path) -> dict[str, dict[str, object]]:
-    rows: dict[str, dict[str, object]] = {}
-    for provider in ("claude", "codex"):
-        path = evidence_dir / f"{provider}-review.json"
-        if path.is_file():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                rows[provider] = data
-    return rows
-
-
-def finding_text(row: dict[str, object]) -> str:
-    return json.dumps(row, ensure_ascii=False).lower()
-
-
-def has_shell_finding(review: dict[str, object]) -> bool:
-    for row in review.get("findings", []):
-        if not isinstance(row, dict):
-            continue
-        text = finding_text(row)
-        if (
-            row.get("severity") == "CRITICAL"
-            and row.get("file") == "src/export.py"
-            and row.get("line") == 8
-            and "shell" in text
-            and ("inject" in text or "注入" in text or "arbitrary command" in text)
-        ):
-            return True
-    return False
+def check_sources(output: str, findings: list[str]) -> None:
+    """Both voices must be attributed, or the degradation explicitly labelled."""
+    lower = output.lower()
+    if "claude" not in lower:
+        findings.append("review does not attribute a Claude voice")
+    codex_missing = re.search(
+        r"codex[^\n]{0,40}(?:not available|unavailable|failed|fails|skipped|✗)"
+        r"|\b(?:without|no)\s+codex\b",
+        lower,
+    )
+    single_voice_label = re.search(r"single[- ]voice|claude[- ]only", lower)
+    if codex_missing:
+        if not single_voice_label:
+            findings.append(
+                "review reports Codex missing without labelling the review single-voice"
+            )
+    elif "codex" not in lower:
+        findings.append("review neither attributes a Codex voice nor declares a single-voice run")
 
 
 def reports_decoy(output: str) -> str | None:
@@ -121,15 +113,8 @@ def reports_decoy(output: str) -> str | None:
     return None
 
 
-def check_security(
-    output: str,
-    evidence_dir: Path,
-    vulnerable: bool,
-    expected_patch: str,
-    findings: list[str],
-) -> None:
-    findings.extend(validate_evidence(evidence_dir, "security", expected_patch))
-    rows = review_rows(evidence_dir)
+def check_security(output: str, vulnerable: bool, findings: list[str]) -> None:
+    check_sources(output, findings)
     if vulnerable:
         if "src/export.py" not in output.lower():
             findings.append("review omits vulnerable file src/export.py")
@@ -142,9 +127,6 @@ def check_security(
             or ("shell=true" in output.lower() and re.search(r"arbitrary command|执行.*命令", output, re.IGNORECASE))
         ):
             findings.append("review omits shell command injection mechanism")
-        for provider in ("claude", "codex"):
-            if provider in rows and not has_shell_finding(rows[provider]):
-                findings.append(f"{provider} raw review misses exact shell-injection finding")
     else:
         injection = r"(?:shell\s*(?:command\s*)?injection|command injection|命令注入)"
         severity = r"(?:\[?(?:CRITICAL|INFORMATIONAL)\]?|SEVERITY\s*:\s*(?:CRITICAL|INFORMATIONAL))"
@@ -156,18 +138,13 @@ def check_security(
             findings.append("safe argv implementation is falsely reported as shell injection")
         if not re.search(r"no findings|0\s+(?:findings|issues)|未发现.*安全|无.*安全.*问题", output, re.IGNORECASE):
             findings.append("safe security review does not report a clean result")
-        for provider, review in rows.items():
-            if review.get("verdict") != "NO FINDINGS" or review.get("findings") != []:
-                findings.append(f"{provider} raw review reports a false positive")
     decoy = reports_decoy(output)
     if decoy:
         findings.append(f"security-only review reports non-security decoy: {decoy!r}")
 
 
-def check_dataflow(
-    output: str, evidence_dir: Path, expected_patch: str, findings: list[str]
-) -> None:
-    findings.extend(validate_evidence(evidence_dir, "dataflow", expected_patch))
+def check_dataflow(output: str, findings: list[str]) -> None:
+    check_sources(output, findings)
     lower = output.lower()
     required = {
         "src/delivery/retry.py": "stale consumer path",
@@ -205,12 +182,7 @@ def check_disagreement(output: str, findings: list[str]) -> None:
         findings.append("synthesis does not preserve runtime UNVERIFIED")
 
 
-def check(
-    workspace: Path,
-    case_name: str,
-    output_path: Path,
-    evidence_dir: Path | None = None,
-) -> list[str]:
+def check(workspace: Path, case_name: str, output_path: Path) -> list[str]:
     findings: list[str] = []
     repo = workspace / "repo"
     check_no_mutation(workspace, repo, findings)
@@ -223,21 +195,13 @@ def check(
         findings.append("review produced no user-visible output")
         return findings
     if case_name == "disagreement-synthesis":
-        if (workspace / "review-evidence").exists():
-            findings.append("synthesis-only case invoked reviewers")
         check_disagreement(output, findings)
-        return findings
-    selected_evidence = evidence_dir or workspace / "review-evidence"
-    if not (selected_evidence / "manifest.json").is_file():
-        findings.append("missing deterministic Claude+Codex review evidence")
-        return findings
-    expected_patch = patch_sha(repo)
-    if case_name == "security-only-routing":
-        check_security(output, selected_evidence, True, expected_patch, findings)
+    elif case_name == "security-only-routing":
+        check_security(output, True, findings)
     elif case_name == "security-safe-neighbor":
-        check_security(output, selected_evidence, False, expected_patch, findings)
+        check_security(output, False, findings)
     elif case_name == "dataflow-half-migration":
-        check_dataflow(output, selected_evidence, expected_patch, findings)
+        check_dataflow(output, findings)
     return findings
 
 
@@ -246,14 +210,8 @@ def main() -> int:
     parser.add_argument("workspace", type=Path)
     parser.add_argument("--case", choices=sorted(CASES), required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--evidence", type=Path)
     args = parser.parse_args()
-    findings = check(
-        args.workspace.resolve(),
-        args.case,
-        args.output.resolve(),
-        args.evidence.resolve() if args.evidence else None,
-    )
+    findings = check(args.workspace.resolve(), args.case, args.output.resolve())
     result = {
         "semantic_verdict": "AI_REVIEW_REQUIRED",
         "case": args.case,
