@@ -23,14 +23,15 @@ ${WAYNE_SKILLS_DIR}/             ← SSoT (edit here, commit here)
   SYNC.md                         ← this file
 
 ~/.claude/CLAUDE.md          ──symlink──▶  ${WAYNE_SKILLS_DIR}/CLAUDE.md
+~/.pi/agent/AGENTS.md        ──symlink──▶  ${WAYNE_SKILLS_DIR}/CLAUDE.md   (pi, via pi-config/sync.sh)
 ~/.claude/skills/<name>      ──symlink──▶  ${WAYNE_SKILLS_DIR}/<name>
 ~/.codex/skills/<name>       ──symlink──▶  ${WAYNE_SKILLS_DIR}/<name>
 ~/.agents/skills/<name>      ──symlink──▶  ${WAYNE_SKILLS_DIR}/<name>   (pi)
 ```
 
-Because consumers are symlinks, **editing an existing skill needs no sync step** — the change is already live for every agent. `sync.sh` only matters when a skill is **added or removed**.
+Because consumers are symlinks, **editing an existing skill needs no sync step** — the change is already live for every agent. Re-run `sync.sh` when a skill is **added or removed**, when a `pi-config/` file is added or renamed, or when setting up a machine.
 
-pi's own _config_ (settings.json, statusline, saved workflows) is a separate concern with a separate linker: `pi-config/sync.sh`. `sync.sh` owns skill symlinks for all agents; `pi-config/sync.sh` owns pi config files.
+pi's own _config_ (global rules, settings.json, statusline, saved workflows) has a separate linker, `pi-config/sync.sh`, which is its sole owner: `sync.sh` owns skill symlinks for all agents and **delegates** pi config to it rather than duplicating that link list. No link target is listed in two scripts.
 
 ## Daily rule
 
@@ -38,16 +39,23 @@ pi's own _config_ (settings.json, statusline, saved workflows) is a separate con
 | --- | --- |
 | Edited an existing `wayne-*/SKILL.md` or `_shared/*.md` | Nothing — symlinks make it live for every agent |
 | Added or removed a top-level `wayne-*` skill at the SoT | Run `bash sync.sh` |
-| Set up a fresh machine | Create `~/.wayne/config.env`, clone Wayne Taste at `WAYNE_SKILLS_DIR`, then run `bash "${WAYNE_SKILLS_DIR}/sync.sh"` and `bash "${WAYNE_SKILLS_DIR}/pi-config/sync.sh"` for pi |
+| Set up a fresh machine | Create `~/.wayne/config.env`, clone Wayne Taste at `WAYNE_SKILLS_DIR`, then run `bash "${WAYNE_SKILLS_DIR}/sync.sh"` — one command, pi config included |
 
 ## sync.sh
 
-Idempotent. Re-points every agent's skill dir at the SoT.
+**The single entry point.** One command syncs everything; there is no second command to remember or forget.
 
 ```bash
 bash "${WAYNE_SKILLS_DIR}/sync.sh"            # apply
 bash "${WAYNE_SKILLS_DIR}/sync.sh" --dry-run  # preview, change nothing
 ```
+
+Idempotent, and runs in two stages:
+
+1. **Skills and global rules** — re-points every agent's skill dir at the SoT and links `~/.claude/CLAUDE.md`.
+2. **pi config** — delegates to `pi-config/sync.sh`, which stays the sole owner of what lands in `~/.pi`. `--dry-run` is passed through unchanged.
+
+Running `pi-config/sync.sh` directly is the pi-only path: still supported, but no longer something a full sync requires you to remember. `pi-config/bootstrap.sh` calls this top-level `sync.sh`, so the documented fresh-machine command produces a complete machine — skills, global rules and pi config — rather than pi config alone.
 
 Safety properties:
 
@@ -55,12 +63,15 @@ Safety properties:
 - A real (non-symlink) consumer path is a hard error: sync never overwrites user state or silently leaves that agent drifted.
 - A skill missing at the SoT is a hard error.
 - Stale symlinks that target this SoT are removed; real paths and third-party symlinks are never touched.
+- An agent is "installed" iff its **install marker** directory exists: `~/.claude`, `~/.codex`, and — for pi — `~/.pi`. The marker is the parent of the skills dir for Claude and Codex; pi is the exception, because it reads skills from `~/.agents/skills`, a path only `sync.sh` ever creates, so `~/.agents` cannot prove anything about pi.
+- A missing marker is not an error: sync says the agent is not installed, links nothing for it, creates no directory for it, and keeps going. A marker that exists without the skills dir gets that directory created and fully linked.
+- Stage failures aggregate: if the pi-config stage fails, the whole run fails and names the failing stage. A partial sync never reports success.
 
 ## What is and isn't synced
 
 `sync.sh` derives the exposure list from `_shared`, every top-level `wayne-*` directory, and `waynejing`; no second skill registry exists to drift.
 
-`eval/` is the skill test harness and `pi-config/` is pi's own configuration; neither is a skill. `pi-config/sync.sh` links the latter into `~/.pi/agent/`.
+`eval/` is the skill test harness and `pi-config/` is pi's own configuration; neither is a skill and neither is linked as one. `pi-config/sync.sh` links four named files — `settings.json`, `pi-statusline.json`, `workflows/saved/wayne-code-review-flow.json` and the repo-root `CLAUDE.md` (as `AGENTS.md`) — into `~/.pi/agent/` and `~/.pi/workflows/saved/`; the rest of `pi-config/` (its own scripts, `internal-models-setup.md`, `README.md`) is never linked anywhere. `sync.sh` invokes it as its second stage.
 
 ## Agent discovery
 
@@ -68,7 +79,7 @@ Symlinks are the whole mechanism. Every agent enumerates the skill directories i
 
 - **Claude** — `~/.claude/skills/`
 - **Codex** — `~/.codex/skills/`; skill tool name is lowercase `skill` (Claude uses uppercase `Skill`)
-- **pi** — `~/.agents/skills/`, routed by `~/.pi/agent/AGENTS.md`, itself a symlink to `~/.claude/CLAUDE.md`
+- **pi** — `~/.agents/skills/`, routed by `~/.pi/agent/AGENTS.md`, itself a symlink to `${WAYNE_SKILLS_DIR}/CLAUDE.md` created by `pi-config/sync.sh`
 
 The trigger table in `CLAUDE.md` is a **convenience index for the human**, not a registry. Routing terms belong in the skill's own `description`, which `wayne-skill-forge` makes the single owner of triggering language. Adding a row is optional; omitting one does not make a skill undiscoverable, and a row that disagrees with the skill's `description` is drift.
 

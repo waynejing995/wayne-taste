@@ -5,6 +5,9 @@
 # workflow into ~/.pi/workflows), mirroring wayne-skills/sync.sh: edit here once,
 # pi sees it instantly, no copy/drift. Idempotent.
 #
+# Also links ~/.pi/agent/AGENTS.md — pi's global rules — to the repo-root
+# CLAUDE.md, the SoT both agents resolve to.
+#
 # NOT synced here (intentionally): models.json (machine/secret specific — see
 # internal-models-setup.md), ~/.pi/agent/extensions/ (herdr, orca — machine
 # local), ~/.tmux.conf, and all state (auth.json, trust.json, models-store.json,
@@ -49,6 +52,9 @@ link_one() {
   echo "LINK  ${link} -> ${target}"
 }
 
+# Global rules. Points at the SoT CLAUDE.md directly, NOT at ~/.claude/CLAUDE.md:
+# chaining through another agent's home would break pi wherever Claude is absent.
+link_one "${SKILLS_ROOT}/CLAUDE.md"                      "${AGENT}/AGENTS.md"
 link_one "${SOT}/settings.json"                          "${AGENT}/settings.json"
 link_one "${SOT}/pi-statusline.json"                     "${AGENT}/pi-statusline.json"
 link_one "${SOT}/workflows/saved/wayne-code-review-flow.json" "${WF_SAVED}/wayne-code-review-flow.json"
