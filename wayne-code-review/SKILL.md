@@ -378,6 +378,8 @@ As the final step, auto-call `**wayne-checkpoint` in handoff mode** to emit a ha
 
 This is **Mode A: return-only**. The packet is surfaced to the user; it does NOT auto-invoke `wayne-verify`. The user manually triggers the next step (e.g. says "下一步" / "继续" / "go").
 
+The packet carries the gate state and never claims one this skill did not obtain: name the `wayne-code-review-flow` verdict when that workflow was run, and record it as outstanding when it was not. A findings-free report here is not a `GATE: PASS`.
+
 ---
 
 ## Integration with Other Skills
@@ -394,11 +396,11 @@ If a spec/plan exists from brainstorming, cross-reference the diff against it:
 
 This skill reviews statically. It does NOT run the app, commit, push, or create PRs.
 
-The ship chain is: **wayne-code-review (static)** → **wayne-verify (runtime gate)** → **wayne-ship (commit)**. Passing this review is necessary but NOT sufficient to ship — `wayne-verify` must also pass. After review passes, the next step is `wayne-verify`, which actually runs the feature along the user path and gates `wayne-ship`. Only once `wayne-verify` passes does the user invoke `/ship` or commit manually.
+The ship chain is: **wayne-code-review (working review)** → **`wayne-code-review-flow` (static gate)** → **wayne-verify (runtime gate)** → **wayne-ship (commit)**. This skill finds, synthesizes, and resolves findings; the static gate verdict is the workflow's `GATE: PASS` over one frozen patch with two valid model families; `wayne-verify` then proves the feature actually runs. No single one of them is sufficient to ship.
 
 ```
-wayne-code-review → wayne-verify → wayne-ship
-   (static gate)    (runtime gate)   (commit)
+wayne-code-review → wayne-code-review-flow → wayne-verify → wayne-ship
+ (working review)        (static gate)       (runtime gate)   (commit)
 ```
 
 ---
