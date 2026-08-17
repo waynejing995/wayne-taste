@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Static contract checker for a Wayne Code Review candidate directory."""
+"""Static contract checker for the accepted Wayne Code Review skill directory.
+
+Scope: what the skill's own prose must promise. Frozen review bytes and
+"two valid voices or the run fails" are obligations of the `wayne-code-review-flow`
+Pi workflow, not of this skill, and are deliberately not gated here.
+"""
 
 from __future__ import annotations
 
@@ -11,40 +16,10 @@ from pathlib import Path
 
 
 REQUIRED_NAME = "wayne-code-review"
-REQUIRED_RESOURCES = (
-    "scripts/run_dual_review.py",
-    "references/review-playbooks.md",
-)
-REVIEW_TYPES = (
-    "security",
-    "dataflow",
-    "architecture",
-    "concurrency",
-    "performance",
-    "tests",
-    "api-migration",
-)
-PLAYBOOK_CONTRACTS = {
-    "planned-missing direction": "planned behavior missing from the diff",
-    "diff-unplanned direction": "unplanned behavior added by it",
-    "orphan producer class": "orphan producer",
-    "dead consumer class": "dead consumer",
-    "semantic drift class": "semantic drift",
-    "dual path class": "dual path",
-    "half migration class": "half migration",
-    "wrong-value severity": "critical when a real consumer receives a wrong value",
-    "dead-surface severity": "informational for proven orphan/dead surface",
-    "architecture trigger": "ownership, module boundaries, lifecycle, persistent state",
-    "architecture owner": "single owner for each state",
-    "architecture decline": "small pure function or local bug fix",
-}
+PROTOCOL_RESOURCE = "references/reviewer-protocol.md"
+REQUIRED_RESOURCES = (PROTOCOL_RESOURCE,)
 FORBIDDEN_DEPENDENCIES = ("gstack",)
 IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
-RUNNER_INTENT_CONTRACT = (
-    "--intent-source",
-    "--intent-summary-file",
-    "CALLER INTENT PACKET BEGIN",
-)
 
 
 def parse_skill(path: Path) -> tuple[dict[str, str], str, list[str]]:
@@ -110,6 +85,33 @@ def has_any(text: str, patterns: tuple[str, ...], *, flags: int = re.IGNORECASE)
     return any(re.search(pattern, text, flags) for pattern in patterns)
 
 
+def paragraphs(body: str) -> list[str]:
+    """Lowercase, markup-stripped, whitespace-collapsed paragraphs."""
+    result: list[str] = []
+    for block in re.split(r"\n\s*\n", body):
+        normalized = block.lower().replace("*", "").replace("`", "").replace("_", " ")
+        result.append(re.sub(r"\s+", " ", normalized).strip())
+    return result
+
+
+def section(body: str, heading: str) -> str:
+    """The `## <heading>` section of the body, up to the next `##` heading."""
+    match = re.search(
+        rf"^##\s+{re.escape(heading)}\b.*?(?=^##\s|\Z)",
+        body,
+        re.MULTILINE | re.DOTALL,
+    )
+    return match.group(0) if match else ""
+
+
+def any_paragraph(blocks: list[str], *token_groups: tuple[str, ...]) -> bool:
+    """True when one paragraph satisfies every group (a group needs one member)."""
+    return any(
+        all(any(token in block for token in group) for group in token_groups)
+        for block in blocks
+    )
+
+
 def check_candidate(root: Path) -> list[str]:
     findings: list[str] = []
     if not root.is_dir():
@@ -118,6 +120,7 @@ def check_candidate(root: Path) -> list[str]:
     _, body, skill_findings = parse_skill(root / "SKILL.md")
     findings.extend(skill_findings)
     body_lower = body.lower()
+    blocks = paragraphs(body)
 
     for relative in REQUIRED_RESOURCES:
         if relative not in body:
@@ -130,102 +133,122 @@ def check_candidate(root: Path) -> list[str]:
         elif not resource.read_text(encoding="utf-8").strip():
             findings.append(f"required resource is empty: {relative}")
 
-    playbook_path = root / "references/review-playbooks.md"
-    playbooks = playbook_path.read_text(encoding="utf-8") if playbook_path.is_file() else ""
-    normalized_playbooks = re.sub(
-        r"\s+", " ", playbooks.lower().replace("_", "-").replace("`", "")
-    )
-    for review_type in REVIEW_TYPES:
-        pattern = rf"(?<![a-z0-9]){re.escape(review_type).replace(r'\-', '[- ]')}(?![a-z0-9])"
-        if not re.search(pattern, normalized_playbooks):
-            findings.append(f"review playbooks omit required review type: {review_type}")
-    for label, phrase in PLAYBOOK_CONTRACTS.items():
-        if phrase not in normalized_playbooks:
-            findings.append(f"review playbooks omit {label}: {phrase}")
-
-    runner_path = root / "scripts/run_dual_review.py"
-    runner = runner_path.read_text(encoding="utf-8") if runner_path.is_file() else ""
-    for identity in ("claude", "codex"):
-        if identity not in runner.lower():
-            findings.append(f"dual-review runner omits {identity} adapter identity")
-    for literal in RUNNER_INTENT_CONTRACT:
-        if literal not in runner:
-            findings.append(f"dual-review runner omits intent contract: {literal}")
-
     if "claude" not in body_lower or "codex" not in body_lower:
         findings.append("SKILL.md must require both Claude and Codex voices")
-    if not has_any(
-        body,
-        (
-            r"\bexactly\s+two\b[^.\n]{0,80}\b(?:voices?|reviewers?)\b",
-            r"\b(?:two|2)\s+exact\b[^.\n]{0,80}\b(?:voices?|reviewers?)\b",
-            r"\b(?:voices?|reviewers?)\b[^.\n]{0,80}\bexactly\s+(?:two|2)\b",
-        ),
-    ):
-        findings.append("SKILL.md must require exactly two review voices")
 
-    if not all(token in body_lower for token in ("same", "frozen", "hash")):
-        findings.append("SKILL.md must require both voices to use the same frozen hash")
-    if not has_any(body, (r"\bparallel\b", r"\bconcurrent(?:ly)?\b", r"both\s+start[^.]{0,80}before")):
+    # Exactly two *dispatched* voices, one Claude and one Codex. The main agent's own
+    # structured review is a third finding source by design, not a dispatched voice,
+    # so this is scoped to the dispatch section instead of counting global mentions.
+    dispatch = section(body, "Phase 4")
+    if not dispatch:
+        findings.append("SKILL.md has no Phase 4 dual voice dispatch section")
+    else:
+        voices = re.findall(r"\*\*Voice\s*(\d+)\s*[—–-]\s*(.+?)\*\*", dispatch)
+        if len(voices) != 2:
+            findings.append(
+                f"SKILL.md Phase 4 must dispatch exactly two voices; found={len(voices)}"
+            )
+        labels = " | ".join(label.lower() for _, label in voices)
+        if sum("claude" in label.lower() for _, label in voices) != 1 or sum(
+            "codex" in label.lower() for _, label in voices
+        ) != 1:
+            findings.append(
+                "SKILL.md Phase 4 must dispatch one Claude voice and one Codex voice; "
+                f"found={labels!r}"
+            )
+
+    dispatch_blocks = paragraphs(dispatch)
+
+    # Single source of truth for the shared prompt: one protocol file, both voices.
+    if not any_paragraph(
+        dispatch_blocks,
+        ("both", "each", "two"),
+        ("same", "identical"),
+        (PROTOCOL_RESOURCE, "reviewer-protocol.md"),
+    ):
+        findings.append(
+            f"SKILL.md Phase 4 must send both voices the same bytes from {PROTOCOL_RESOURCE}"
+        )
+
+    # Neither dispatched voice sees the other's output or the structured review.
+    no_crosstalk = (
+        "neither sees the other",
+        "neither knows what the other",
+        "nothing from each other",
+        "sees nothing from",
+    )
+    if not any_paragraph(dispatch_blocks, no_crosstalk):
+        findings.append(
+            "SKILL.md Phase 4 must state that neither dispatched voice sees the other's "
+            "output or the structured review"
+        )
+
+    if not has_any(
+        dispatch,
+        (r"\bparallel\b", r"\bconcurrent(?:ly)?\b", r"both\s+start[^.]{0,80}before"),
+    ):
         findings.append("SKILL.md must require parallel reviewer execution")
 
-    failure_terms = (r"\bfail(?:ed|ure|s)?\b", r"\binvalid\b", r"\bunavailable\b", r"\btimeout\b")
-    non_pass_terms = (
-        r"\bnot\s+(?:a\s+)?pass\b",
-        r"\bmust\s+not\s+pass\b",
-        r"\bcannot\s+pass\b",
-        r"\bnon[- ]pass\b",
-        r"\bnever\s+pass\b",
-    )
-    if not has_any(body, failure_terms) or not has_any(body, non_pass_terms):
-        findings.append("SKILL.md must state that either voice failing cannot produce PASS")
+    # Degradation is allowed, silence is not: a missing voice must be labelled and
+    # the result must not be presented as dual-voice.
+    unavailable = ("unavailable", "not available", "fails", "failed")
+    single_voice_label = ("single-voice", "single voice", "claude-only", "claude only")
+    if not any_paragraph(blocks, unavailable, single_voice_label):
+        findings.append(
+            "SKILL.md must state that an unavailable voice is reported explicitly and "
+            "not presented as dual-voice"
+        )
 
-    if not has_any(body, (r"\breview[- ]only\b",)):
-        findings.append("SKILL.md must declare review-only behavior")
-    if not has_any(
-        body,
-        (
-            r"\bno\s+auto[- ]fix\b",
-            r"\bnever\s+auto[- ]fix\b",
-            r"\bdo\s+not\s+auto[- ]fix\b",
-            r"\bmust\s+not\s+auto[- ]fix\b",
-        ),
-    ):
-        findings.append("SKILL.md must forbid automatic fixes")
+    # Frozen review bytes and "two valid voices or fail" are the Pi workflow's
+    # obligations; the skill must say so instead of implying it is the merge gate.
+    if not any_paragraph(blocks, ("wayne-code-review-flow",), ("gate",)):
+        findings.append(
+            "SKILL.md must name wayne-code-review-flow as the formal gate that owns "
+            "frozen bytes and two valid voices"
+        )
+
     if not has_any(body, (r"\bstatic[- ]only\b",)):
         findings.append("SKILL.md must declare static-only review")
 
-    handoff_ok = False
-    for paragraph in re.split(r"\n\s*\n", body_lower):
-        normalized = re.sub(r"\s+", " ", paragraph)
-        required = ("only", "clean", "pass", "return-only", "wayne-verify")
-        if all(token in normalized for token in required):
-            handoff_ok = True
-            break
-    if not handoff_ok:
-        findings.append(
-            "SKILL.md must allow a return-only wayne-verify handoff only for a clean PASS"
-        )
+    # Phase 6 auto-fixes mechanical issues by design; judgment calls are the user's.
+    if not has_any(
+        body,
+        (
+            r"\bask\b[^.\n]{0,80}\bjudgment\b",
+            r"\bjudgment\b[^.\n]{0,80}\b(?:ask|user)\b",
+        ),
+    ):
+        findings.append("SKILL.md must route judgment calls to the user")
+    if not has_any(body, (r"\bthe user decides\b",)):
+        findings.append("SKILL.md must leave the decision to the user")
+    if not has_any(
+        body,
+        (
+            r"\bapply\b[^.\n]{0,40}\buser[- ]approved\b",
+            r"\buser[- ]approved\b[^.\n]{0,40}\bappl(?:y|ied)\b",
+        ),
+    ):
+        findings.append("SKILL.md must apply only user-approved fixes")
 
-    normative_docs = [(root / "SKILL.md", body)]
-    references = root / "references"
-    if references.is_dir():
-        normative_docs.extend(
-            (path, path.read_text(encoding="utf-8"))
-            for path in sorted(references.rglob("*.md"))
-            if path.is_file()
+    if not has_any(
+        body,
+        (
+            r"\bnever\s+commits?\b",
+            r"\bdoes\s+not\b[^.\n]{0,60}\bcommit\b",
+            r"\bdo\s+not\s+commit\b",
+        ),
+    ):
+        findings.append("SKILL.md must state that the skill never commits")
+
+    if not any_paragraph(
+        blocks,
+        ("return-only",),
+        ("wayne-verify",),
+        ("not auto-invoke", "never auto-invoke", "no auto-invoke"),
+    ):
+        findings.append(
+            "SKILL.md must emit a return-only wayne-verify handoff that does not auto-invoke it"
         )
-    normative_forbidden = (
-        (re.compile(r"~/\.claude(?:/|\b)", re.IGNORECASE), "Claude home path"),
-        (re.compile(r"\bsubagent_type\b", re.IGNORECASE), "subagent_type"),
-        (re.compile(r"\bcodex\s+exec\b", re.IGNORECASE), "codex exec"),
-        (re.compile(r"\bAgent\s*(?:\(|tool\b)"), "Agent tool"),
-    )
-    for path, text in normative_docs:
-        relative = path.relative_to(root)
-        for pattern, label in normative_forbidden:
-            if pattern.search(text):
-                findings.append(f"normative document hard-codes {label}: {relative}")
 
     for path, text in text_files(root):
         lower = text.lower()
@@ -241,9 +264,9 @@ def check_candidate(root: Path) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Validate the static contract of a Wayne Code Review candidate."
+        description="Validate the static contract of the Wayne Code Review skill."
     )
-    parser.add_argument("candidate", type=Path, help="candidate skill directory")
+    parser.add_argument("candidate", type=Path, help="skill directory")
     args = parser.parse_args()
 
     findings = check_candidate(args.candidate.resolve())

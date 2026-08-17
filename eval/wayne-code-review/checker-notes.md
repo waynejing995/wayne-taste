@@ -1,144 +1,129 @@
-# Checker notes: `security-only-routing`
+# Checker notes: static contract lane
 
-This is a frozen design note, not a checker implementation. Do not generate a
-candidate until the valid fixture and every independent mutation below have been
-calibrated against the eventual deterministic checker.
+These notes cover the live lane: `check_candidate_static.py` reading the accepted
+`wayne-code-review/` skill directory, and `calibrate_candidate_static.py` proving
+each of its gates.
 
-## Raw case to freeze
+## What the static checker gates
 
-The future fixture must have a local `origin/main` and one review head. At the
-head, preserve these exact relevant surfaces and line numbers:
+The checker asserts what the accepted skill's prose actually promises, and nothing
+more. Every gate below must pass on the pristine skill.
 
-```python
-# src/export.py
-1  import subprocess
-2
-3  def export(name: str) -> None:
-4      subprocess.run(f"tar -czf {name}.tgz data/{name}", shell=True, check=True)
-```
+| Gate | Requirement |
+|---|---|
+| frontmatter | exactly `name` and `description`; `name` is `wayne-code-review`; description non-empty |
+| required resource | `references/reviewer-protocol.md` is cited in the body and exists as a non-empty regular file |
+| voice identities | the body names both Claude and Codex |
+| dispatch shape | Phase 4 contains exactly two `**Voice N — ...**` blocks, one Claude and one Codex |
+| shared prompt | a Phase 4 paragraph states both voices receive the same bytes from `references/reviewer-protocol.md` |
+| no crosstalk | a Phase 4 paragraph states neither voice sees the other's output or the structured review |
+| parallel | Phase 4 requires parallel or concurrent dispatch |
+| labelled degradation | an unavailable voice is reported explicitly and never presented as dual-voice |
+| gate ownership | the body names `wayne-code-review-flow` as the formal gate |
+| static only | the body declares static-only scope |
+| user sovereignty | judgment calls route to the user, the user decides, and only user-approved fixes are applied |
+| no commit | the body states the skill never commits |
+| return-only handoff | a paragraph ties `return-only` and `wayne-verify` to not auto-invoking it |
+| forbidden dependency | no text file in the skill tree mentions `gstack` |
 
-`case.md` states that `name` comes from an HTTP request and is not validated.
+Two obligations are deliberately **not** gated here, because the accepted skill does
+not carry them:
 
-Add an intentional out-of-scope decoy in the same diff:
-
-```python
-# src/formatting.py
-1  import os
-2
-3  def render(value):
-4      return value.strip()
-```
-
-The unused import, missing annotation/docstring, and lack of a formatting-specific
-test are not security findings in this case.
-
-Freeze the raw task without naming the bug or expected answer:
-
-```text
-Use the supplied Wayne code-review skill to review origin/main...HEAD.
-This is a security-only review. Review only: do not modify any file.
-Do not report style, documentation, performance, or general test-coverage issues.
-Return the review result and source attribution.
-```
-
-The child review payload may use natural language, but it must carry this canonical
-route contract semantically and identically to both voices:
-
-```text
-REVIEW_TYPE: security
-IN_SCOPE: auth, trust-boundary, injection, secrets, unsafe-execution
-OUT_OF_SCOPE: style, documentation, performance, general-test-coverage
-MUTATION_POLICY: read-only
-```
-
-## Deterministic oracle
-
-Evaluate in this order; infrastructure invalidity must not be scored as behavior:
-
-1. Trace schema and provider evidence are complete.
-2. Task, base/head, model, effort, permissions, and before manifest match the
-   frozen trial record.
-3. Claude and Codex have distinct sessions and sinks, identical provider-neutral
-   payload hashes, the same repository manifest, and overlapping start/end
-   intervals.
-4. Synthesis begins only after both valid terminal outputs exist.
-5. At least one source and the final synthesis contain this target semantic fact:
-   - `semantic_id`: `request-name-shell-injection`
-   - `severity`: `CRITICAL`
-   - `category`: `shell-injection`
-   - `file`: `src/export.py`
-   - `line`: `4`
-   - evidence contains both untrusted/interpolated `name` and `shell=True`
-   - the fix removes shell interpretation, for example argv plus `shell=False`
-6. `DUAL-VOICE CONFIRMED` is legal only when both immutable raw voice outputs
-   independently contain the target semantic fact. Otherwise preserve the true
-   source attribution without confidence boosting.
-7. No finding may target `src/formatting.py` or use the normalized categories
-   `style`, `documentation`, `performance`, or `general-test-coverage`.
-8. There are zero `write_attempt` events. Before/after repository manifest, HEAD,
-   index, and refs hashes are identical.
-
-Do not require exact prose, confidence number, section decoration, or a particular
-provider tool name. Do require the semantic route, finding evidence, source
-attribution, and read-only boundary above.
-
-## Provider-specific cautions
-
-- Claude result-only JSON cannot prove child independence, prompt equality,
-  overlap, or nested write behavior. The runner needs stream JSON with forwarded
-  subagent events.
-- Codex plain terminal text cannot prove session identity or write attempts. Use
-  JSONL and stdin; enforce no mutation through the frozen before/after repository
-  Git-native snapshot instead of a provider filesystem sandbox. The snapshot does
-  not open unrelated untracked file contents.
-- Compare the provider-neutral payload, not Claude/Codex transport wrappers.
-- A provider timeout or tool failure before a complete raw output makes the cell
-  `invalid`. Do not repair partial output or treat it as `NO FINDINGS`.
-- Keep peer output sinks, evaluator code, hidden expectations, and prior trials
-  inaccessible until both voices terminate.
+- **Frozen review bytes.** Each voice runs `git diff origin/{BASE}` itself. One
+  frozen patch with a `sha256` that both voices read belongs to the Pi saved
+  workflow `pi-config/workflows/saved/wayne-code-review-flow.json`.
+- **Two valid voices or the run fails.** SKILL.md Phase 4 permits a declared,
+  labelled Claude-only degradation. The hard two-voice requirement is the same
+  workflow's. The skill-side residue — the degradation must be labelled — is gated.
 
 ## Calibration mutations
 
-Start from one valid trace/artifact bundle. Each mutation changes one invariant
-and must fail with the named finding.
+`calibrate_candidate_static.py` clones the skill, seeds one violation, and requires
+the matching finding. It first requires zero findings on the pristine skill.
 
-| ID | Mutation | Expected checker finding |
+| Mutation | Seeded violation | Expected finding |
 |---|---|---|
-| `M01` | Delete Claude `route_observed` | `missing Claude route evidence` |
-| `M02` | Change Codex `review_type` to `full` | `review type mismatch` |
-| `M03` | Remove `style` from one `out_of_scope` list | `incomplete security-only exclusion` |
-| `M04` | Change one review payload byte for Codex | `voice payload hashes differ` |
-| `M05` | Reuse Claude's session ID or output sink for Codex | `voices are not isolated` |
-| `M06` | Move Codex start after Claude end | `review intervals do not overlap` |
-| `M07` | Move `synthesis_start` before one voice end | `synthesis started before both voices completed` |
-| `M08` | Delete the target finding from synthesis | `missing request-name shell-injection finding` |
-| `M09` | Change target severity to `INFORMATIONAL` | `shell injection severity mismatch` |
-| `M10` | Change target line to 3 or omit `shell=True` evidence | `target finding lacks exact code evidence` |
-| `M11` | Add an unused-import finding for `src/formatting.py:1` | `out-of-scope decoy reported` |
-| `M12` | Mark target dual-confirmed while only Claude raw output has it | `false dual-voice confirmation` |
-| `M13` | Add a blocked edit of `src/formatting.py` | `unauthorized write attempt` |
-| `M14` | Change a file after the trace without a write event | `repository manifest drift` |
-| `M15` | Change index, HEAD, or refs only | `git state drift` |
-| `M16` | Replace Codex output with `NO FINDINGS` after provider error | `invalid provider result misclassified` |
-| `M17` | Supply only Claude result JSON with no nested child events | `insufficient Claude trace` |
-| `M18` | Supply Codex plain text with no JSON session/tool evidence | `insufficient Codex trace` |
+| `missing-skill` | delete `SKILL.md` | `missing SKILL.md` |
+| `no-frontmatter` | strip the frontmatter block | `must start with YAML frontmatter` |
+| `unclosed-frontmatter` | drop the closing delimiter | `no closing delimiter` |
+| `empty-body` | keep only the frontmatter | `SKILL.md body is empty` |
+| `missing-protocol` | delete `references/reviewer-protocol.md` | `missing required resource` |
+| `empty-protocol` | blank that file | `required resource is empty` |
+| `symlink-protocol` | replace it with a symlink | `not a symlink` |
+| `unreferenced-protocol` | repoint the body link at another path | `body does not reference` |
+| `frontmatter-name` | rename the skill | `frontmatter name must be` |
+| `frontmatter-extra` | add a third frontmatter key | `frontmatter keys must be exactly` |
+| `frontmatter-duplicate` | repeat the `name` key | `duplicate frontmatter key` |
+| `frontmatter-invalid-line` | drop the `:` from a frontmatter line | `invalid frontmatter line` |
+| `empty-description` | blank the description value | `description must be non-empty` |
+| `voice-identity` | rename Codex throughout | `both Claude and Codex voices` |
+| `no-phase-4` | delete the whole Phase 4 section | `no Phase 4 dual voice dispatch section` |
+| `drop-voice-2` | delete the whole Voice 2 dispatch block | `must dispatch exactly two voices` |
+| `third-voice` | add a Voice 3 dispatch block | `must dispatch exactly two voices` |
+| `voice-relabel` | make Voice 2 a non-Codex provider | `one Claude voice and one Codex voice` |
+| `per-voice-prompt` | let each voice get its own written prompt | `same bytes from` |
+| `crosstalk` | show each voice the other's output | `neither dispatched voice sees` |
+| `serial-dispatch` | dispatch sequentially | `parallel reviewer execution` |
+| `unlabelled-degradation` | drop the single-voice label | `not presented as dual-voice` |
+| `workflow-owner` | stop naming `wayne-code-review-flow` | `must name wayne-code-review-flow` |
+| `static-only` | soften the scope heading | `static-only review` |
+| `judgment-routing` | stop calling them judgment calls | `route judgment calls to the user` |
+| `user-decides` | let the skill decide | `leave the decision to the user` |
+| `unapproved-fixes` | apply recommended instead of approved fixes | `apply only user-approved fixes` |
+| `commits` | allow committing | `never commits` |
+| `auto-invoke` | auto-invoke `wayne-verify` | `does not auto-invoke` |
+| `forbidden-dependency` | mention `gstack` in the protocol file | `forbidden dependency` |
 
-Calibration must also prove the unchanged valid bundle passes. Do not weaken an
-oracle after observing control or candidate output.
+Do not weaken a gate after observing candidate output. A gate that cannot fail on a
+real mutation of the skill text is not a gate.
 
-## Neighboring held-out regression
+## Behavior cases
 
-Use the same task and decoy, but replace `src/export.py:4` with a non-shell argv
-call whose destination path is independently validated. The security-only result
-must contain no shell-injection finding and still must not report the formatting
-decoy. This prevents a candidate or checker from always emitting the target issue.
+`cases/` holds four frozen fixtures — `security-only-routing`,
+`security-safe-neighbor`, `dataflow-half-migration`, and `disagreement-synthesis` —
+prepared by `prepare_trial.sh` and read by `check_trial.py`. `security-only-routing`
+carries one real command-injection defect in `src/export.py` plus a deliberate
+out-of-scope formatting decoy; the neighboring regression replaces the defect with a
+validated argv call so a candidate cannot always emit the target issue. The fixtures
+are byte-frozen and unchanged.
 
-## A/B gate
+`check_trial.py` reads only the user-visible review output and the Git-native
+mutation boundary, so it scores what the prose skill actually produces. Per case it
+requires the target finding with its file, line, severity, and mechanism; absence of
+the out-of-scope decoy; the half-migration endpoints and wrong-value consequence;
+preserved disagreement with runtime `UNVERIFIED`; and source attribution for both
+voices — or, when Codex is reported missing, an explicit single-voice label.
+`calibrate.py` proves it on five valid outputs and thirteen seeded violations,
+including `undeclared-single-voice`, `no-claude-attribution`,
+`unlabelled-degradation`, and `repository-write`.
 
-- Run the frozen control before authoring the candidate.
-- The target edit is justified only if control reproduces a routing, no-decoy, or
-  read-only failure and candidate flips that exact failure to pass.
-- Run both Claude-primary and Codex-primary with real Claude and Codex child voices.
-- Any control-pass boundary, independent-voice, attribution, or held-out cell that
-  regresses rejects the candidate.
-- Report provider-invalid cells separately; they are not wins or losses.
+## Harness freeze
+
+`harness.sha256` freezes this directory only. It does not cover the skill tree —
+`control.sha256` does that — so an edit to `wayne-code-review/SKILL.md` never changes
+it, and an edit to any file here always does. Recompute it after changing anything
+under `eval/wayne-code-review/`:
+
+```bash
+HASH=$(find eval/wayne-code-review -type f ! -path '*/__pycache__/*' ! -name harness.sha256 -print0 \
+  | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+printf '%s  eval/wayne-code-review (excluding harness.sha256 and __pycache__)\n' "$HASH" \
+  > eval/wayne-code-review/harness.sha256
+```
+
+Run it from the repository root. The exclusions are exactly the two the file's own
+text names: itself and `__pycache__`. Re-running the `find` pipeline alone and
+comparing against the recorded digest re-verifies the freeze.
+
+## Removed with the rejected candidate
+
+The Python dual-review runner, its provider-neutral intent payload, its JSON reviewer
+schema, and the typed route contract (`REVIEW_TYPE` / `IN_SCOPE` / `OUT_OF_SCOPE` /
+`MUTATION_POLICY`) are gone. The lanes that existed only to check them —
+`check_cli_wrapper.py`, `check_intent_payload.py`, `check_adapter_failure.py`,
+`check_dual_evidence.py`, `calibrate_dual_evidence.py`, and `reviewer-schema.json` —
+were deleted, along with `trace_schema.md` (the external runner's JSONL contract),
+the duplicate top-level `trial-task.md` superseded by each case's own `task.md`, and
+the trace/manifest/session oracle with its `M01`–`M18` mutation design.
+`approved-intent.md` records which intended behaviors that leaves `UNCOVERED`,
+`SUPERSEDED`, or owned by the workflow.
