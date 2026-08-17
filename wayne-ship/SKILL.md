@@ -1,6 +1,6 @@
 ---
 name: wayne-ship
-description: Commit and ship changes following Wayne commit conventions. 1 commit = 1 feature. Jira ticket prefix, signed-off, [why]/[how] format. Runs wayne-code-review as gate before committing. Use when asked to "commit", "ship", "push", "create PR", or "land this".
+description: Commit and ship changes following Wayne commit conventions. 1 commit = 1 feature. Jira ticket prefix, signed-off, [why]/[how] format. Gates on the wayne-code-review-flow PASS verdict for the range being pushed. Use when asked to "commit", "ship", "push", "create PR", or "land this".
 ---
 
 # Wayne Ship
@@ -22,7 +22,7 @@ commit messages, PR descriptions, code comments. Commit prefixes (`SWDEV-1234`, 
 
 ## Checklist
 
-1. **Pre-flight check** — `wayne-code-review` has passed over the reviewed range. Runtime proof through `wayne-verify` is deliberate, not automatic: run it when the change has a runtime path worth proving, and record why when it is not run
+1. **Pre-flight check** — `wayne-code-review-flow` returned `GATE: PASS` for the range being pushed. Runtime proof through `wayne-verify` is deliberate, not automatic: run it when the change has a runtime path worth proving, and record why when it is not run
 2. **Analyze changes** — separate what `wayne-work` already committed per unit from anything still uncommitted
 3. **Present commit plan** — show the user what remains to commit and how it groups
 4. **Commit what is left** — one atomic commit per logical change; never re-commit or rewrite the unit commits
@@ -34,8 +34,8 @@ commit messages, PR descriptions, code comments. Commit prefixes (`SWDEV-1234`, 
 digraph ship {
     rankdir=TB;
 
-    "wayne-code-review\npassed?" [shape=diamond];
-    "Run wayne-code-review" [shape=box];
+    "Gate: PASS for\nthis range?" [shape=diamond];
+    "Run wayne-code-review,\nthen the flow gate" [shape=box];
     "Runtime proof\nwanted?" [shape=diamond];
     "Run wayne-verify" [shape=box];
     "Analyze changes:\ngit log + git status" [shape=box];
@@ -50,9 +50,9 @@ digraph ship {
     "Push + create PR" [shape=box];
     "Done" [shape=doublecircle];
 
-    "wayne-code-review\npassed?" -> "Run wayne-code-review" [label="no"];
-    "wayne-code-review\npassed?" -> "Runtime proof\nwanted?" [label="yes"];
-    "Run wayne-code-review" -> "wayne-code-review\npassed?";
+    "Gate: PASS for\nthis range?" -> "Run wayne-code-review,\nthen the flow gate" [label="no"];
+    "Gate: PASS for\nthis range?" -> "Runtime proof\nwanted?" [label="yes"];
+    "Run wayne-code-review,\nthen the flow gate" -> "Gate: PASS for\nthis range?";
     "Runtime proof\nwanted?" -> "Run wayne-verify" [label="yes"];
     "Runtime proof\nwanted?" -> "Analyze changes:\ngit log + git status" [label="no"];
     "Run wayne-verify" -> "Analyze changes:\ngit log + git status";
@@ -76,11 +76,11 @@ digraph ship {
 
 ## Phase 1: Pre-Flight Check
 
-Before any commit work, consume the exact upstream gate artifacts:
+Before pushing anything, consume the exact upstream gate artifacts:
 
-1. Validate the code-review manifest, two provider identities, verdict, and frozen patch hash against the current diff. Ship does not re-judge review semantics.
+1. Validate the `wayne-code-review-flow` result: `GATE: PASS`, two provider identities, and a frozen patch `sha256` over the exact `BASE_SHA..HEAD_SHA` being pushed. Ship does not re-judge review semantics.
 2. Runtime evidence is required only when `wayne-verify` was run. When it was not, say so and name why the change does not need a runtime pass; never fabricate an `E2E: none` on Verify's behalf.
-3. If the review artifact is missing, invalid, or stale against the current range, run `wayne-code-review` and stop unless the new artifact passes.
+3. If the gate result is missing, invalid, or stale against that range, run `wayne-code-review` and then the flow, and stop unless the new result is `GATE: PASS`.
 
 Never accept a `PASS`/`PASSED` word in chat or report prose as gate evidence.
 
@@ -240,7 +240,7 @@ gh pr create --base "<resolved-base-branch>" \
 - <bullet points from commit [why] and [how]>
 
 ## Review
-- wayne-code-review: PASSED
+- wayne-code-review-flow: GATE: PASS over <BASE_SHA>..<HEAD_SHA>
 - Sources: one independent Claude voice + one independent Codex voice
 
 ## Test Plan
@@ -295,7 +295,7 @@ wayne-verify — deliberate runtime pass, run when the change has a runtime path
 This is the push-and-PR step. `wayne-work` already committed each unit, so it runs after:
 
 1. Implementation is complete (`wayne-work`), with its unit commits in place
-2. Dual-voice review has passed over that committed range (`wayne-code-review`)
+2. `wayne-code-review` has reviewed that committed range and `wayne-code-review-flow` returned `GATE: PASS` over it
 
 Runtime verification is not a precondition. Run `wayne-verify` when the change has a runtime path worth proving, and say so when it was not run.
 
@@ -308,6 +308,6 @@ Its own final step hands off to `wayne-compound` (see Phase 8).
 - **1 commit = 1 feature** — never bundle unrelated changes
 - **Always signed-off** — `git commit -s`, no exceptions
 - **Jira ticket first** — every commit traces to a ticket when possible
-- **Review before push** — `wayne-code-review` over the range being pushed is the hard gate; `wayne-verify` is a deliberate runtime pass, never an automatic one
+- **Gate before push** — `wayne-code-review-flow` must return `GATE: PASS` for the range being pushed; `wayne-verify` is a deliberate runtime pass, never an automatic one
 - **User approves the plan** — never commit without showing the grouping first
 - **Chinese for discussion, English for commits**
