@@ -12,7 +12,7 @@
       "type": "string",
       "description": "Claude-family model id",
       "required": false,
-      "default": "amd-internal-anthropic/Claude-Opus-4.8"
+      "default": "amd-internal-anthropic/Claude-Opus-5"
     },
     "gptModel": {
       "type": "string",
