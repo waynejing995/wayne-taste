@@ -228,7 +228,17 @@ def check_candidate(root: Path) -> list[str]:
             r"\buser[- ]approved\b[^.\n]{0,40}\bappl(?:y|ied)\b",
         ),
     ):
-        findings.append("SKILL.md must apply only user-approved fixes")
+        findings.append("SKILL.md must apply judgment-call fixes only after user approval")
+
+    # The no-approval path is legitimate but must stay a bounded, enumerated set;
+    # an auto-fix scope that widens silently swallows the judgment calls above.
+    allowlist = re.search(
+        r"without\s+asking:\s*\n+((?:\s*[-*]\s+.+\n?)+)", body, re.IGNORECASE
+    )
+    if not allowlist or len(re.findall(r"^\s*[-*]\s+", allowlist.group(1), re.M)) < 3:
+        findings.append(
+            "SKILL.md must scope the no-approval auto-fix to an enumerated mechanical allowlist"
+        )
 
     if not has_any(
         body,
