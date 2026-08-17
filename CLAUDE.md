@@ -171,7 +171,7 @@ def main(verbose):
 
 ## Frontend
 
-Read https://github.com/VoltAgent/awesome-design-md FIRST before any UI work. Non-negotiable.
+use wayne-frontend-design skill for big UI change/new page add/old page restructure.
 
 ## Decision Points
 
