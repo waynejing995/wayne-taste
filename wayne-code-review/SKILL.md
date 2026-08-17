@@ -147,7 +147,7 @@ Run `git diff origin/$BASE` and analyze the full diff against these categories:
 
 If the diff touches architecture (new modules, control flow, state management, multi-component interaction, control-plane changes), apply the cybernetics lens to surface structural issues a line-by-line review misses:
 
-**Read first:** `~/.claude/skills/_shared/cybernetics-lens.md`
+**Read first:** [the cybernetics lens](../_shared/cybernetics-lens.md)
 
 Look for: multiple SoTs for same state (Principle #4), open-loop rules with no verification (Principle #2/#3), L0/L1/L2 stratification violations (Principle #5), new redundancy points / drift sources (Principle #4 + #7).
 
@@ -197,46 +197,27 @@ Concrete shape (TRACE example): moving a team-specific value out of shared core 
   Fix: recommended action
 ```
 
-Confidence calibration:
-
-- **9-10**: Verified by reading specific code. Concrete bug demonstrated.
-- **7-8**: High confidence pattern match.
-- **5-6**: Moderate. Show with caveat.
-- **3-4**: Low. Appendix only.
+Severity and confidence use [the reviewer protocol](references/reviewer-protocol.md) definitions — the same ladder the dispatched voices are given, so a 9 means the same thing in every source you merge in Phase 5.
 
 ---
 
 ## Phase 4: Dual Voice Dispatch
 
-Both reviewers get the **exact same prompt** — same question, same diff command, same output format. They are independent and see nothing from each other or from your structured review. This is how you get genuine dual-voice coverage.
+Both dispatched voices receive the **same bytes**: [the reviewer protocol](references/reviewer-protocol.md) verbatim, then the target and output envelope below. Never retype the criteria per voice and never hand one voice an extra hint — two voices reading different prompts are not two opinions about one question. Neither sees the other's output, nor your structured review from Phase 3.
 
 **When the diff is a re-arch** (Phase 2 intent shows a flow being rewired), append the 1-line intent summary to the shared prompt for BOTH voices — so the "does the dataflow flow the way the architecture intends" probe has something to check against. Append the same text to both; keep them identical. For a pure logic/bugfix diff, leave the prompt as-is.
 
 ### The Shared Prompt
 
+Send the contents of `references/reviewer-protocol.md` verbatim, then append exactly this and nothing more:
+
 ```
-You are an adversarial code reviewer with fresh eyes. You have no prior context about this code.
+REVIEW TARGET
+Run `git diff origin/{BASE}` to see the full diff. Review only the changes it contains.
+{1-line intent summary — include only when Phase 2 showed this diff is a re-arch}
 
-Run `git diff origin/{BASE}` to see the full diff.
-
-Think like an attacker and a chaos engineer. Find every way this code will fail in production:
-- Edge cases and boundary conditions
-- Race conditions and concurrency bugs
-- Security holes and trust boundary violations
-- Resource leaks and failure modes
-- Silent data corruption
-- Logic errors that produce wrong results silently
-- Error handling that swallows failures
-- Missing validations on inputs
-- Assumptions that will break under load
-- Orphan producers: state written/declared/registered that nothing reads (grep for readers to confirm)
-- Dead consumers: code that reads/dispatches on state no producer ever populates (silent no-op)
-- Producer/consumer drift: same state produced and consumed with different semantics (default, units, enum, hardcoded-vs-resolved)
-- Dual read paths to one state (direct getattr vs a bypassed resolver) that will drift apart
-
-If a plan/spec/design intent is provided below, additionally check whether the dataflow actually flows the way the intended architecture wants — a re-arch that leaves the old path live, or wires the new path only halfway, is a finding even if each endpoint individually type-checks.
-
-For each finding, output exactly this format:
+OUTPUT
+For each finding, output exactly this block:
 SEVERITY: CRITICAL or INFORMATIONAL
 CONFIDENCE: 1-10
 FILE: path
@@ -244,7 +225,7 @@ LINE: number (if applicable)
 PROBLEM: one-line description
 FIX: recommended action (or INVESTIGATE if needs human judgment)
 
-No compliments. No preamble. No summary. Just the problems, one per block.
+One block per finding, nothing before or after them.
 If no issues found, output exactly: NO FINDINGS
 ```
 
@@ -270,6 +251,8 @@ codex exec "{THE_SHARED_PROMPT}" -C "$_REPO_ROOT" --dangerously-bypass-approvals
 Timeout: 3600000ms (60 min).
 
 **If Codex unavailable or fails:** Continue with Claude-only review. Note: "Codex not available — single-voice adversarial review only."
+
+**A degraded review is not the gate.** A single-voice run is still worth having and is still reported, but it is a working review, not a merge gate. The formal gate is the saved Pi workflow `wayne-code-review-flow`: it freezes one patch with a `sha256` that both voices read, requires two valid voices from different model families, and returns exactly `GATE: PASS` or `GATE: FAIL`. When a change must not merge without a gate verdict, run that workflow — a Claude-only pass here never substitutes for it.
 
 ### Wait + Gather
 
