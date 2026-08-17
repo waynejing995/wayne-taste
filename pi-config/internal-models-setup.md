@@ -32,7 +32,8 @@ Three providers. Keys shown as placeholders — substitute your own mechanism.
       "apiKey": "PROXY_INJECTS_REAL_KEY",
       "compat": { "forceAdaptiveThinking": true },
       "models": [
-        { "id": "Claude-Opus-4.8", "name": "Claude Opus 4.8 (1M, via proxy)", "contextWindow": 1000000, "maxTokens": 128000, "reasoning": true, "input": ["text","image"], "thinkingLevelMap": { "xhigh": "xhigh" } },
+        { "id": "Claude-Opus-5@default", "name": "Claude Opus 5 (1M, via proxy)",   "contextWindow": 1000000, "maxTokens": 128000, "reasoning": true, "input": ["text","image"], "thinkingLevelMap": { "xhigh": "xhigh" } },
+        { "id": "Claude-Opus-4.8@default", "name": "Claude Opus 4.8 (1M, via proxy)", "contextWindow": 1000000, "maxTokens": 128000, "reasoning": true, "input": ["text","image"], "thinkingLevelMap": { "xhigh": "xhigh" } },
         { "id": "claude-sonnet-5", "name": "Claude Sonnet 5 (via proxy)",     "contextWindow": 1000000, "maxTokens": 128000, "reasoning": true, "input": ["text","image"], "thinkingLevelMap": { "xhigh": "xhigh" } }
       ]
     },
@@ -75,7 +76,7 @@ The Anthropic proxy entries use a literal placeholder (`PROXY_INJECTS_REAL_KEY`)
 ## Verify
 
 ```bash
-pi --list-models | grep -E "Claude-Opus-4.8|gpt-5.6"
+pi --list-models | grep -E "Claude-Opus-5|gpt-5.6-sol"
 ```
 
 Reload `/model` in-session (the file reloads each time you open `/model`; no restart needed). If a model shows but is unavailable, auth (env var / proxy) is not resolving.
