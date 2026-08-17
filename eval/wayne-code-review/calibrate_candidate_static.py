@@ -215,7 +215,24 @@ def main() -> int:
 
         trial = clone("unapproved-fixes")
         replace(trial / "SKILL.md", r"user-approved", "recommended", re.IGNORECASE)
-        assert_invalid(trial, "apply only user-approved fixes", "unapproved fixes")
+        assert_invalid(trial, "judgment-call fixes only after user approval", "unapproved fixes")
+
+        # The no-approval path must stay a bounded mechanical allowlist.
+        trial = clone("autofix-without-allowlist")
+        replace(trial / "SKILL.md", r"Directly fix these without asking:", "Directly fix these:")
+        assert_invalid(trial, "enumerated mechanical allowlist", "auto-fix without allowlist")
+
+        trial = clone("autofix-unenumerated")
+        path = trial / "SKILL.md"
+        path.write_text(
+            re.sub(
+                r"(Directly fix these without asking:\n\n)(?:- .+\n)+",
+                r"\1- Anything mechanical\n",
+                path.read_text(encoding="utf-8"),
+            ),
+            encoding="utf-8",
+        )
+        assert_invalid(trial, "enumerated mechanical allowlist", "unenumerated auto-fix")
 
         trial = clone("commits")
         replace(trial / "SKILL.md", r"Never commit", "Then commit")
