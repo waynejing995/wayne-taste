@@ -13,7 +13,7 @@ Live deterministic result against the accepted skill:
 | Gate | Result |
 |---|---|
 | Candidate static contract (`check_candidate_static.py wayne-code-review`) | pass: 0 findings |
-| Candidate static calibration (`calibrate_candidate_static.py`) | pass: 1 positive + 54 independent mutations |
+| Candidate static calibration (`calibrate_candidate_static.py`) | pass: 1 positive + 55 independent mutations |
 | Behavior oracle calibration (`calibrate.py`) | pass: 5 valid outputs + 13 independent mutations, seeded from the real skill directory |
 
 `check_trial.py` was rewritten to score only the user-visible review output and the
@@ -61,7 +61,7 @@ Historical deterministic gates, with today's disposition:
 |---|---|---|
 | Forge skill validation | pass | still available |
 | Candidate static contract | pass | rewritten for the accepted skill; passes |
-| Candidate static calibration | pass: 1 positive + 38 mutations | retargeted: 1 positive + 54 mutations |
+| Candidate static calibration | pass: 1 positive + 38 mutations | retargeted: 1 positive + 55 mutations |
 | Caller-selected intent payload | pass | lane removed with the runner |
 | Dual-evidence/schema calibration | pass: 1 positive + 22 mutations | lane removed; nothing emits that bundle |
 | Behavior checker calibration | pass: 4 positives + 11 mutations | rewritten as a prose oracle: 5 positives + 13 mutations |

@@ -8,10 +8,10 @@ description: Commit and ship changes following Wayne commit conventions. 1 commi
 Commit and ship changes with strict commit conventions. Every commit is atomic (1 feature / 1 fix / 1 request), signed-off, and Jira-tagged.
 
 <HARD-GATE>
-BOTH gates MUST pass before any commit. No exceptions.
+The review gate MUST pass before anything is pushed. No exceptions.
 
-1. `wayne-code-review` (static) MUST provide a valid PASS artifact for the exact current frozen patch hash. If it is absent or stale, invoke it first.
-2. `wayne-verify` (runtime) MUST pass: the E2E Verification Contract table must be all ✅ — no remaining ⬜ (unverified), no ❌ (broken) — OR the work legitimately declared `E2E: none — <reason>` (no user-observable path to verify). If the carried verification evidence is absent or stale, invoke it first.
+1. `wayne-code-review-flow` MUST return `GATE: PASS` for the exact range being pushed — the same `BASE_SHA..HEAD_SHA` that `wayne-code-review` fixed. If it is absent, or stale against that range, invoke it first.
+2. `wayne-verify` is deliberate, not a gate. Run it when the change has a runtime path worth proving. When it was not run, say so in the ship report rather than implying a runtime pass, and never fabricate an `E2E: none` on Verify's behalf.
 </HARD-GATE>
 
 This skill only specifies the per-feature commit + push + PR workflow.

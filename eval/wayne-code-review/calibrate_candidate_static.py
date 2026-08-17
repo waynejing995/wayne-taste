@@ -281,6 +281,11 @@ def main() -> int:
         )
         assert_invalid(trial, "must take the target from an open PR", "no PR input")
 
+        # A declared PR input with no code path is exactly the drift this pair catches.
+        trial = clone("unresolved-pr")
+        replace(trial / "SKILL.md", r"BASE_SHA=\$\(git merge-base[^\n]*", "BASE_SHA=$(git rev-parse HEAD~1)")
+        assert_invalid(trial, "must resolve one", "unresolved PR input")
+
         trial = clone("unverified-shas")
         replace(trial / "SKILL.md", r"HEAD_SHA=\$\(git rev-parse --verify[^\n]*", "HEAD_SHA=HEAD")
         assert_invalid(trial, "resolve both endpoints with git rev-parse", "unverified SHAs")

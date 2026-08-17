@@ -14,14 +14,22 @@ No gstack-named skill, path, command, or content is part of this harness.
 ## Lanes
 
 `check_candidate_static.py` is the live lane. It reads the accepted skill directory
-and gates what its prose promises: frontmatter shape, one `references/reviewer-protocol.md`
-whose bytes both voices receive, a Phase 4 that dispatches exactly one Claude and one
-Codex voice in parallel with no crosstalk, an explicitly labelled single-voice
-degradation, static-only scope, judgment calls reaching the user, never committing,
-a return-only `wayne-verify` handoff that does not auto-invoke it, and a negative
-`gstack` dependency scan. `calibrate_candidate_static.py` proves each gate fails on
-one seeded violation and passes on the pristine skill; it defaults to the repository's
-`wayne-code-review/` directory.
+and gates what its prose promises: frontmatter shape; a review target that is an
+already-committed PR or `<base>..<head>` range resolved to `BASE_SHA`/`HEAD_SHA`,
+refused rather than inferred when it is absent or the tree is dirty; a rule ledger
+built from the project's own `AGENTS.md`/`CLAUDE.md` read at the frozen `HEAD_SHA`;
+one `references/reviewer-protocol.md` whose bytes both voices receive; a Phase 4 that
+dispatches exactly one Claude and one Codex voice in parallel with no crosstalk and
+without the ledger; a `references/design-conformance.md` agent dispatched outside
+Phase 4 as a third finding source; adjudication of every finding against the ledger;
+an explicitly labelled single-voice degradation; static-only scope; judgment calls
+reaching the user; never committing; and a negative `gstack` dependency scan.
+`calibrate_candidate_static.py` proves each gate fails on one seeded violation and
+passes on the pristine skill; it defaults to the repository's `wayne-code-review/`
+directory.
+
+The skill emits no automatic handoff: Phase 8 and its return-only `wayne-verify`
+packet were removed, and a gate rejects any reintroduced routing promise.
 
 ```bash
 uv run --no-project python eval/wayne-code-review/check_candidate_static.py wayne-code-review
