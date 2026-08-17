@@ -101,9 +101,22 @@ Take one of two inputs, and never invent either:
 - an explicit commit range — `<base>..<head>`, such as the parent of the first unit commit through `HEAD`.
 
 ```bash
-RANGE="${1:?refuse: name the PR or commit range to review}"   # e.g. main..HEAD, HEAD~4..HEAD
-BASE_SHA=$(git rev-parse --verify "${RANGE%%..*}")
-HEAD_SHA=$(git rev-parse --verify "${RANGE##*..}")
+TARGET="${1:?refuse: name the PR or commit range to review}"   # e.g. 412, main..HEAD, HEAD~4..HEAD
+case "$TARGET" in
+  *..*)
+    BASE_SHA=$(git rev-parse --verify "${TARGET%%..*}^{commit}")
+    HEAD_SHA=$(git rev-parse --verify "${TARGET##*..}^{commit}")
+    ;;
+  *)  # PR number or URL — resolve it to the same immutable pair, never review "the PR" loosely
+    command -v gh >/dev/null || { echo "refuse: gh unavailable; pass an explicit <base>..<head> range" >&2; exit 1; }
+    PR_NUM=$(gh pr view "$TARGET" --json number -q .number)
+    BASE_REF=$(gh pr view "$TARGET" --json baseRefName -q .baseRefName)
+    HEAD_SHA=$(gh pr view "$TARGET" --json headRefOid -q .headRefOid)
+    git fetch -q origin "$BASE_REF" "pull/${PR_NUM}/head"
+    BASE_SHA=$(git merge-base "origin/${BASE_REF}" "$HEAD_SHA")
+    ;;
+esac
+[ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ] || { echo "refuse: could not resolve '$TARGET' to a commit pair" >&2; exit 1; }
 echo "REVIEWING: ${BASE_SHA}..${HEAD_SHA}"
 git log --oneline "${BASE_SHA}..${HEAD_SHA}"
 git diff --stat "${BASE_SHA}" "${HEAD_SHA}"

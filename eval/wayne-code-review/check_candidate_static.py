@@ -425,15 +425,31 @@ def check_candidate(root: Path) -> list[str]:
             "SKILL.md Phase 1 must fix an already-committed review target, never the working tree"
         )
 
-    if "gh pr view" not in target or "<base>..<head>" not in target:
+    # Declared inputs. Checked against the prose bullets, not the shell block, so a skill
+    # that merely happens to call `gh` somewhere cannot satisfy the declaration.
+    declared = "\n".join(line for line in target.splitlines() if line.lstrip().startswith("-"))
+    if "open PR" not in declared or "<base>..<head>" not in declared:
         findings.append(
             "SKILL.md Phase 1 must take the target from an open PR or an explicit "
             "<base>..<head> commit range"
         )
 
+    # And the declared PR input must actually resolve. A documented input with no code path
+    # is the drift this gate exists to catch: `git rev-parse` rejects a PR number outright.
+    # Scoped to the shell block, because the declaration bullet also names `gh pr view`.
+    shell = "\n".join(re.findall(r"```bash\n(.*?)```", target, re.S))
     if not (
-        re.search(r"BASE_SHA=\$\(\s*git rev-parse --verify", target)
-        and re.search(r"HEAD_SHA=\$\(\s*git rev-parse --verify", target)
+        re.search(r"gh pr view[^\n]*headRefOid", shell)
+        and re.search(r"BASE_SHA=\$\(\s*git merge-base", shell)
+    ):
+        findings.append(
+            "SKILL.md Phase 1 declares a PR input, so it must resolve one: read headRefOid "
+            "with gh and derive BASE_SHA with git merge-base"
+        )
+
+    if not (
+        re.search(r"BASE_SHA=\$\(\s*git rev-parse --verify", shell)
+        and re.search(r"HEAD_SHA=\$\(\s*git rev-parse --verify", shell)
     ):
         findings.append(
             "SKILL.md Phase 1 must resolve both endpoints with git rev-parse --verify into "
@@ -473,7 +489,13 @@ def check_candidate(root: Path) -> list[str]:
             f"found={unscoped}"
         )
 
-    inferred = re.findall(r"\borigin/\S+", body)
+    # `origin/<the PR's own baseRefName>` is the declared base resolved to a SHA, not an
+    # inferred one. What must stay gone is guessing a default branch or origin/HEAD.
+    inferred = [
+        ref
+        for ref in re.findall(r"\borigin/\S+", body)
+        if not re.match(r"origin/\$\{?BASE_REF\}?", ref)
+    ]
     if inferred:
         findings.append(
             f"SKILL.md must not infer a review base from an origin/ ref; found={inferred}"

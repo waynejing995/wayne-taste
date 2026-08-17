@@ -5,7 +5,7 @@
   "parameters": {
     "base": {
       "type": "string",
-      "description": "REQUIRED. Already-committed range to review, e.g. main..HEAD or HEAD~4..HEAD. A bare ref means <ref>..HEAD. Working-tree and untracked review is refused: the target must be nameable by SHA.",
+      "description": "REQUIRED. Already-committed range to review, e.g. main..HEAD or HEAD~4..HEAD. A bare ref means <ref>..HEAD. This takes a range only \u2014 resolve a PR to its base..head first (wayne-code-review Phase 1 does this). Working-tree and untracked review is refused: the target must be nameable by SHA.",
       "required": true
     },
     "claudeModel": {

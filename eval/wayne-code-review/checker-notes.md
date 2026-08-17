@@ -115,6 +115,7 @@ the matching finding. It first requires zero findings on the pristine skill.
 | `commits` | allow committing | `never commits` |
 | `working-tree-target` | review the working tree instead of the commits | `already-committed review target` |
 | `no-pr-input` | drop the `gh pr view` PR input | `must take the target from an open PR` |
+| `unresolved-pr` | declare a PR input but derive BASE_SHA without merge-base | `must resolve one` |
 | `unverified-shas` | stop resolving `HEAD_SHA` with `git rev-parse --verify` | `resolve both endpoints with git rev-parse` |
 | `no-target-refusal` | delete the "no PR or range was given" refusal bullet | `refuse instead of inferring a base` |
 | `dirty-tree-refusal` | drop `git status --porcelain` from the dirty-tree refusal | `git status --porcelain is non-empty` |
