@@ -21,9 +21,11 @@ more. Every gate below must pass on the pristine skill.
 | labelled degradation | an unavailable voice is reported explicitly and never presented as dual-voice |
 | gate ownership | the body names `wayne-code-review-flow` as the formal gate |
 | static only | the body declares static-only scope |
-| user sovereignty | judgment calls route to the user, the user decides, and only user-approved fixes are applied |
+| user sovereignty | judgment calls route to the user, the user decides, and judgment-call fixes are applied only after approval |
+| auto-fix scope | the no-approval path is introduced by `without asking:` and enumerates at least three mechanical items |
 | no commit | the body states the skill never commits |
 | return-only handoff | a paragraph ties `return-only` and `wayne-verify` to not auto-invoking it |
+| gate precondition | a paragraph binds packet emission to `GATE: PASS` restrictively, names `wayne-code-review-flow`, and names the `NO_WAYNE_HANDOFF` refusal |
 | forbidden dependency | no text file in the skill tree mentions `gstack` |
 
 Two obligations are deliberately **not** gated here, because the accepted skill does
@@ -69,9 +71,13 @@ the matching finding. It first requires zero findings on the pristine skill.
 | `static-only` | soften the scope heading | `static-only review` |
 | `judgment-routing` | stop calling them judgment calls | `route judgment calls to the user` |
 | `user-decides` | let the skill decide | `leave the decision to the user` |
-| `unapproved-fixes` | apply recommended instead of approved fixes | `apply only user-approved fixes` |
+| `unapproved-fixes` | apply recommended instead of approved fixes | `judgment-call fixes only after user approval` |
 | `commits` | allow committing | `never commits` |
 | `auto-invoke` | auto-invoke `wayne-verify` | `does not auto-invoke` |
+| `ungated-handoff` | emit the packet whatever the gate said | `NO_WAYNE_HANDOFF` |
+| `no-handoff-refusal` | drop the `NO_WAYNE_HANDOFF` return | `NO_WAYNE_HANDOFF` |
+| `autofix-without-allowlist` | drop the `without asking:` introduction | `enumerated mechanical allowlist` |
+| `autofix-unenumerated` | collapse the allowlist to one open-ended item | `enumerated mechanical allowlist` |
 | `forbidden-dependency` | mention `gstack` in the protocol file | `forbidden dependency` |
 
 Do not weaken a gate after observing candidate output. A gate that cannot fail on a
