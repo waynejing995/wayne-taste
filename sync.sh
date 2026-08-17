@@ -5,6 +5,11 @@
 # consume these skills via SYMLINKS pointing back here. Edit a file here once; all
 # agents see it instantly. No copying, no drift.
 #
+# THE single entry point for a full sync. Stage 1 (this script) owns skill and
+# global-rule symlinks; stage 2 delegates pi's own config to pi-config/sync.sh,
+# which remains the sole owner of that link list and is still runnable on its
+# own for a pi-only sync. A failing stage fails the whole run.
+#
 # This script is idempotent: run it any time a skill is ADDED or REMOVED at the
 # SoT to re-point every agent. Editing an existing skill needs no re-run.
 #
@@ -29,6 +34,13 @@ CLAUDE_SKILLS="${HOME}/.claude/skills"
 CLAUDE_RULES="${HOME}/.claude/CLAUDE.md"
 CODEX_SKILLS="${HOME}/.codex/skills"
 PI_SKILLS="${HOME}/.agents/skills"
+# An agent's install marker — the directory proving it is on this machine — is
+# normally the parent of its skills dir, so it is derived, not listed twice.
+# pi is the one exception: it lives in ~/.pi but reads skills from
+# ~/.agents/skills, a path nothing but this script ever creates. Deriving pi's
+# marker by parentage would report "not installed" on every fresh pi machine
+# and skip linking skills while still syncing pi's config.
+PI_HOME="${HOME}/.pi"
 DRY="${1:-}"
 
 # Skills to expose to EVERY agent. _shared is a library dir (referenced by
@@ -116,11 +128,38 @@ remove_stale_links() {
     echo "REMOVE ${name} -> ${target}"
   done
 }
-link_global_rules
 
 for agentdir in "$CLAUDE_SKILLS" "$CODEX_SKILLS" "$PI_SKILLS"; do
   echo "=== ${agentdir} ==="
-  [ -d "$agentdir" ] || { echo "SKIP agent dir absent: ${agentdir}"; continue; }
+  # The agent's install marker gates every link that agent owns — global rules
+  # included. Two distinct states, never conflated: no marker = agent not
+  # installed here (legitimate, announced, nothing created, nothing linked);
+  # marker present but no skills dir = installed but never linked, so create the
+  # dir and link. Marker is the skills dir's parent everywhere except pi.
+  if [ "$agentdir" = "$PI_SKILLS" ]; then
+    agenthome="$PI_HOME"
+  else
+    agenthome="$(dirname "$agentdir")"
+  fi
+  if [ ! -d "$agenthome" ]; then
+    echo "NOT INSTALLED: ${agenthome} absent — agent is not installed on this machine; no links made"
+    echo
+    continue
+  fi
+  # Claude's global rules live in its home rather than its skills dir. Linking
+  # them before the home check would make `ln` fail on the missing parent and
+  # kill the whole run under `set -e`, starving agents that ARE installed.
+  if [ "$agentdir" = "$CLAUDE_SKILLS" ]; then
+    link_global_rules
+  fi
+  if [ ! -d "$agentdir" ]; then
+    if [ "$DRY" = "--dry-run" ]; then
+      echo "WOULD mkdir -p ${agentdir}"
+    else
+      mkdir -p "$agentdir"
+      echo "MKDIR ${agentdir}"
+    fi
+  fi
   remove_stale_links "$agentdir"
   for s in "${SKILLS[@]}"; do
     link_one "${SOT}/${s}" "$agentdir" "$s"
@@ -128,6 +167,23 @@ for agentdir in "$CLAUDE_SKILLS" "$CODEX_SKILLS" "$PI_SKILLS"; do
   echo
 done
 
+# ── Stage 2: pi's own config ────────────────────────────────────────────────
+# Delegated, never reimplemented. pi-config/sync.sh stays the sole owner of the
+# ~/.pi link list and remains independently runnable for a pi-only sync; this
+# script only decides WHETHER to call it. Gated on PI_HOME, the same marker the
+# skills stage uses, so both pi stages agree on whether pi is installed — NOT
+# `command -v pi`, because the delegate only makes dirs and symlinks and would
+# succeed without the binary being on PATH.
+echo "=== ${PI_HOME}/agent (pi config) ==="
+if [ ! -d "$PI_HOME" ]; then
+  echo "NOT INSTALLED: ${PI_HOME} absent — pi is not installed on this machine; no links made"
+elif ! bash "${SOT}/pi-config/sync.sh" ${DRY:+"$DRY"}; then
+  echo >&2
+  echo "FAILED stage: pi config (${SOT}/pi-config/sync.sh)." >&2
+  echo "Skills and global rules ARE synced; pi config is NOT. This sync is INCOMPLETE." >&2
+  exit 1
+fi
+echo
 echo "Done. Verify with:  ls -la ${CLAUDE_SKILLS} ${CODEX_SKILLS} ${PI_SKILLS} | grep wayne"
 
 # ── Skill-usage audit hook (informational; this script does NOT install it) ──
