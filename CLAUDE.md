@@ -197,6 +197,7 @@ Before `AskUserQuestion` on complex problems: explain in plain Chinese. No jargo
 | "triage" / "root cause" / "why is this failing" / "分诊" / "查根因" | `wayne-triage` |
 | "make a plan" / "plan this feature" / spec → plan | `wayne-plan` |
 | "build it" / "implement the plan" / execute a plan | `wayne-work` |
+| "simplify this" / "简化一下" / "太复杂了" / refine the diff just written | `wayne-simplify` |
 | "goal prompt" / "写个 goal" / "把这句变成一条 goal" / sharpen a vague goal before an autonomous run | `wayne-goal-prompt` |
 | "review my code" / pre-merge / post-feature review | `wayne-code-review` |
 | "verify" / "e2e" / "does it actually work" / "run the feature" / runtime verification before ship | `wayne-verify` |
