@@ -31,8 +31,8 @@ git -C "$workspace/repo" config user.email "eval@example.invalid"
 git -C "$workspace/repo" add .
 git -C "$workspace/repo" commit -q -m "fixture: base"
 git -C "$workspace/repo" branch -M main
-git -C "$workspace/repo" config user.name "Build Robot"
-git -C "$workspace/repo" config user.email "robot@example.invalid"
+git -C "$workspace/repo" config user.name "Eval Operator"
+git -C "$workspace/repo" config user.email "operator@example.invalid"
 
 candidate_sha=$(sha256sum "$workspace/instructions.md" | cut -d' ' -f1)
 task_sha=$(sha256sum "$workspace/task.md" | cut -d' ' -f1)

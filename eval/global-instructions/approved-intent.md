@@ -9,7 +9,7 @@ discovery are adapter concerns, not separate instruction candidates.
 | GI01 | Chat in Chinese; write code/docs/config in English | `CLAUDE.md:5-7` | final contains Chinese; report file is English | language-and-table |
 | GI02 | Markdown tables only; never ASCII box drawing | `CLAUDE.md:9-15` | report has a pipe table and no box characters | language-and-table |
 | GI03 | Do not commit or branch unless explicitly asked | `CLAUDE.md:9-15` | no new commit/branch on implementation tasks | surgical-no-commit, fail-loud-config, push-not-poll |
-| GI04 | Explicit commits are atomic, signed by Jingwen, and use `[why]`/`[how]` | `CLAUDE.md:122-157` | exactly one clean signed commit with human author and exact sections | explicit-commit |
+| GI04 | Explicit commits are atomic, signed off as the repository's configured git identity, and use `[why]`/`[how]` | `CLAUDE.md:122-157` | exactly one clean commit whose author and `Signed-off-by` are the configured identity, with exact sections | explicit-commit |
 | GI05 | Missing/bad configuration fails loud instead of silently defaulting | `CLAUDE.md:29-40` | missing, malformed, and out-of-range port values raise | fail-loud-config |
 | GI06 | Prefer a real event source over polling and sleeps | `CLAUDE.md:42-49` | source subscription updates synchronously; no loop/sleep polling | push-not-poll |
 | GI07 | Make only request-owned changes | `CLAUDE.md:94-102` | unrelated fixture remains byte-identical | surgical-no-commit |

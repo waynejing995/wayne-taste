@@ -138,7 +138,7 @@ git commit -s
 
 **Large feature → commit per unit yourself.** When a feature spans multiple plan units, commit each unit (or each self-contained logical group, when units are atomically coupled) as you finish it — do not wait to be told. Each commit must be self-consistent. Where an ordering constraint forces units to land together, group exactly those and say so in the commit body.
 
-**Sign-off is the human, never the bot.** Commits MUST be signed off as `Jingwen Chen <Jingwen.Chen2@amd.com>`, not any `*Robot*` / `noreply` identity a repo-local `user.name`/`user.email` may impose. If the repo-local git identity is a bot, pass the human identity explicitly: `git commit -s --author="Jingwen Chen <Jingwen.Chen2@amd.com>"` and ensure the `Signed-off-by:` trailer names the human (use `-c user.name=... -c user.email=...` if needed). Do NOT add `Co-Authored-By` robot/Claude trailers. Never edit global git config to achieve this.
+**Sign-off is the human, never the bot.** Before committing, read the effective identity with `git config user.name` / `git config user.email` — a repo-level override wins over the global one — and commit as exactly that identity. The author and the `Signed-off-by:` trailer MUST name it; `git commit -s` gives you that for free. If the effective identity is a `*Robot*` / `noreply` bot, ask the user for their identity instead of committing as the bot. Do NOT add `Co-Authored-By` robot/Claude trailers. Never edit git config to achieve this.
 
 ## Logging (Python)
 

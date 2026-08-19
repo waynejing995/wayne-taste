@@ -57,23 +57,9 @@ def assert_invalid(
         raise AssertionError(f"{label} missing {needle!r}: {findings}")
 
 
-def commit(repo: Path, message: str, author: str = "Jingwen Chen <Jingwen.Chen2@amd.com>") -> None:
+def commit(repo: Path, message: str) -> None:
     run(["git", "add", "."], repo)
-    run(
-        [
-            "git",
-            "-c",
-            "user.name=Jingwen Chen",
-            "-c",
-            "user.email=Jingwen.Chen2@amd.com",
-            "commit",
-            "-s",
-            f"--author={author}",
-            "-m",
-            message,
-        ],
-        repo,
-    )
+    run(["git", "commit", "-s", "-m", message], repo)
 
 
 def build_valid(root: Path, instructions: Path) -> dict[str, Path]:
@@ -283,7 +269,7 @@ def main() -> int:
             ],
             bot_author / "repo",
         )
-        assert_invalid(bot_author, "explicit-commit", "not human identity", "bot author")
+        assert_invalid(bot_author, "explicit-commit", "not the configured identity", "bot author")
 
         bundled = root / "bundled-commit"
         shutil.copytree(trials["commit"], bundled)
