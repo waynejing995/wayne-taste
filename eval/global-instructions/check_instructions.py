@@ -46,10 +46,7 @@ CONTRACTS: dict[str, tuple[str, ...]] = {
         r"do NOT add `Co-Authored-By`",
     ),
     "Python CLI logging": (r"Python scripts use `loguru`", r"-v[^\n]{0,40}DEBUG"),
-    "frontend source": (
-        r"https://github\.com/VoltAgent/awesome-design-md",
-        r"FIRST before any UI work",
-    ),
+    "frontend routing": (r"wayne-frontend-design skill for big UI change",),
     "proportional skills": (
         r"proportional effort",
         r"trivial[^\n]{0,40}no skill",
@@ -59,6 +56,11 @@ CONTRACTS: dict[str, tuple[str, ...]] = {
         r"Occam",
         r"search heuristic[^\n]{0,100}(?:NOT|not)[^\n]{0,30}stop condition",
         r"explains ALL observations[^\n]{0,80}reproduces[^\n]{0,80}sibling paths",
+    ),
+    "harness gates earned": (
+        r"first layer, up front",
+        r"bought by real data",
+        r"never delete it for not firing",
     ),
     "decision question language": (
         r"Before `AskUserQuestion`[^\n]{0,100}plain Chinese",

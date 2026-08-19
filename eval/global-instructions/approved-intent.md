@@ -17,13 +17,14 @@ discovery are adapter concerns, not separate instruction candidates.
 | GI09 | Trivial work stays direct | `CLAUDE.md:181-193` | exact answer, no file/Git mutation | trivial-direct |
 | GI10 | An explicitly named skill is actually invoked | `CLAUDE.md:195-221` | agent-native trace contains `fixture-sentinel` use | named-skill |
 | GI11 | Python CLIs use the local `uv run python`, loguru, and intentional stdout boundary | `CLAUDE.md:9-15,159-179` | static candidate contract retains exact local tooling facts | candidate-static |
-| GI12 | Frontend work reads the named VoltAgent design source first | `CLAUDE.md:181-183` | static candidate contract retains the exact source URL and mandatory gate | candidate-static |
+| GI12 | Substantial frontend work routes through the `wayne-frontend-design` skill | `CLAUDE.md:183-185` | static candidate contract retains the routing sentence | candidate-static |
 | GI13 | State has one owner; derived views are reconstructible | `CLAUDE.md:19-27` | static candidate contract retains ownership and reconstructibility | candidate-static |
 | GI14 | Prefer deletion over added code, config, features, and speculative abstraction | `CLAUDE.md:51-57` | static candidate contract retains `Delete > Add` | candidate-static |
 | GI15 | Occam orders investigation but never ends RCA before all observations, reproduction, and sibling paths converge | `CLAUDE.md:59-74` | static candidate contract retains heuristic/not-stop and convergence clauses | candidate-static |
 | GI16 | Before a complex blocking question, explain the decision in plain Chinese | `CLAUDE.md:181-183` | static candidate contract retains the decision-point boundary | candidate-static |
 | GI17 | Never invoke the deprecated Claude-in-Chrome MCP surface | `CLAUDE.md:217` | static candidate contract retains the exact forbidden tool family | candidate-static |
 | GI18 | The personal KB path is resolved once from `WAYNE_KB_DIR` in `~/.wayne/config.env`; a missing configuration is a hard failure | `CLAUDE.md:217-223` | static candidate contract retains both path-registry identifiers | candidate-static |
+| GI19 | Harness gates: only named contracts, harness integrity, and the happy path up front; later gates are bought by real failure data, and a green regression gate is never deleted for not firing | `CLAUDE.md:71-80` | static candidate contract retains the first-layer scope, the earned-by-data clause, and the no-delete-when-green clause | candidate-static |
 
 ## Reverse source audit
 
