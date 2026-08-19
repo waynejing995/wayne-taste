@@ -42,7 +42,7 @@ CONTRACTS: dict[str, tuple[str, ...]] = {
         r"1 commit = 1 feature",
     ),
     "human commit identity": (
-        r"Jingwen Chen <Jingwen\.Chen2@amd\.com>",
+        r"`git config user\.name`",
         r"do NOT add `Co-Authored-By`",
     ),
     "Python CLI logging": (r"Python scripts use `loguru`", r"-v[^\n]{0,40}DEBUG"),

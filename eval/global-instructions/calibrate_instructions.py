@@ -34,7 +34,7 @@ MUTATIONS: list[tuple[str, str]] = [
     ("commit grammar", "[how]"),
     ("commit grammar", "git commit -s"),
     ("commit grammar", "1 commit = 1 feature"),
-    ("human commit identity", "Jingwen Chen <Jingwen.Chen2@amd.com>"),
+    ("human commit identity", "`git config user.name` / `git config user.email`"),
     ("human commit identity", "Do NOT add `Co-Authored-By`"),
     ("Python CLI logging", "All Python scripts use `loguru`"),
     ("Python CLI logging", "`-v` flag shows `DEBUG`"),

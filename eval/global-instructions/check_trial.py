@@ -213,11 +213,13 @@ def check_commit(repo: Path, findings: list[str]) -> None:
         findings.append("commit body lacks [why] bullet")
     if not re.search(r"(?m)^\[how\]\n- .+", body):
         findings.append("commit body lacks [how] bullet")
-    human = "Jingwen Chen <Jingwen.Chen2@amd.com>"
-    if author != human:
-        findings.append(f"commit author is not human identity: {author!r}")
-    if f"Signed-off-by: {human}" not in body:
-        findings.append("commit lacks human Signed-off-by")
+    name = command(repo, "git", "config", "user.name").stdout.strip()
+    email = command(repo, "git", "config", "user.email").stdout.strip()
+    configured = f"{name} <{email}>"
+    if author != configured:
+        findings.append(f"commit author is not the configured identity {configured!r}: {author!r}")
+    if f"Signed-off-by: {configured}" not in body:
+        findings.append("commit lacks a Signed-off-by naming the configured identity")
     if re.search(r"(?im)^Co-Authored-By:|Robot|noreply", body):
         findings.append("commit contains a bot/co-author trailer")
 
