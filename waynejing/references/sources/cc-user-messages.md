@@ -8044,7 +8044,7 @@ The YAML already has structured data. Map each field:
 | `evidence[type=code_structure]` | `observe` | `log("code: <des…
 
 ## #1492 [-work-VISA]
-🕙 10:19:40 root in <jingwen-SYS-7048GR-TR> ~/hackthon  🍣 autoresearch-x/mar26-moe-phase3 📝 ×1🛤️  ×18via 🐍 pyenv (CodeGen_Test_Agent)                                                                                                                                                                                                                                                  
+🕙 10:19:40 root in <host> ~/hackthon  🍣 autoresearch-x/mar26-moe-phase3 📝 ×1🛤️  ×18via 🐍 pyenv (CodeGen_Test_Agent)                                                                                                                                                                                                                                                  
 ➜  visa update --check                                                                                                                                                                                                                                                                                                                                                                   
 ↑ autoresearch-x@visa 1.3.1 → 4f8e406c                                                                                                                                                                                                                                                                                                                                                   
                                                                      …

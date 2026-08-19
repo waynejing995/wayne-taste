@@ -7,7 +7,7 @@ This folder (the `WAYNE_SKILLS_DIR` configured in `~/.wayne/config.env`) is the 
 `~/.wayne/config.env` is the user-owned registry for external Wayne locations:
 
 ```bash
-WAYNE_SKILLS_DIR="/Users/chenjingwen/.wayne/skills"
+WAYNE_SKILLS_DIR="$HOME/.wayne/skills"
 WAYNE_KB_DIR="/mnt/share/wayne-note"
 ```
 
