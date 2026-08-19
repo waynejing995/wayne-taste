@@ -68,6 +68,17 @@ Entities must not be multiplied beyond necessity. The simplest explanation/solut
 - "Simplest" ≠ "most likely". Real bugs are often multi-cause (race + bad fallback + tz). The simplest story fits the _symptom_ but not the _full evidence chain_. Convergence threshold = explains ALL observations + reproduces + sibling paths grepped — not "this one story sounds plausible".
 - Grabbing the first sufficiently-simple explanation and jumping to a patch is exactly how sibling-miss / wrong-target-file bugs happen. In a real system, complexity is a requirement, not speculation — the razor must not cut it away.
 
+### Harness Gates Are Earned, Not Predicted
+
+When building a harness, eval, or checker: get it running first, then let real data buy the rest of the gates. You cannot enumerate the leaks up front.
+
+- **First layer, up front — only these three.** The hard contracts the request explicitly names (including safety and data-loss boundaries), harness integrity (it measures what it claims: frozen inputs, isolation, a run that actually ran), and the happy path executing end to end. A harness that runs and reports beats a gate wall that never ran.
+- **Every later gate is bought by real data** — an observed failure, a leak that got through, or a false positive that fired on good work. Speculative gates encode an unvalidated leak model and crowd out the ones that fire.
+- Criteria are discovered by grading real output: "users need criteria to grade outputs, but grading outputs helps users define criteria", and some criteria depend on the outputs observed rather than existing a priori (Shankar et al., _Who Validates the Validators?_, arXiv:2404.12272).
+- Generic up-front metrics manufacture false confidence and fragment attention; bottom-up error analysis of real runs finds the few failure modes that dominate (Husain, _A Field Guide to Rapidly Improving AI Products_, 2025).
+- A wall of noisy gates gets ignored wholesale, so each gate must catch an otherwise-undetected, actionable condition (Google SRE Book ch. 6, _Monitoring Distributed Systems_). This is about noise, not tenure: **a regression gate that stays green is doing its job — never delete it for not firing.** Removal candidates are ungrounded gates that defend no stated contract and never caught anything.
+- Test: every gate is either first-layer (name the contract) or earned (name the run it caught). Neither → don't add it yet.
+
 ## Behavior
 
 Bias toward caution over speed. Trivial tasks: use judgment.
