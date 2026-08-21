@@ -45,10 +45,15 @@ uv run --no-project python eval/global-instructions/check_pair.py \
   <claude-workspace> <codex-workspace>
 ```
 
-`prepare_trial.sh` records candidate/task/base-tree/harness hashes and a unique
-workspace ID. `run_agent.sh` rejects reused state and records agent, model, effort,
-state ID, exit code, and `complete|invalid`. A provider/tool termination without a
-final artifact is `invalid`; it is never scored as a behavior failure.
+`prepare_trial.sh` records candidate/task/base-tree hashes, the harness identity, and
+a unique workspace ID. `run_agent.sh` rejects reused state and records agent, model,
+effort, state ID, exit code, and `complete|invalid`. A provider/tool termination without
+a final artifact is `invalid`; it is never scored as a behavior failure.
+
+The harness identity is `harness_id.sh`: the git tree object of this directory at HEAD.
+Git already content-addresses the tree, so no digest is maintained by hand and the id
+changes only when the harness changes. It refuses to emit an id while the harness
+directory is dirty — commit the harness before preparing a trial.
 
 ## Run
 

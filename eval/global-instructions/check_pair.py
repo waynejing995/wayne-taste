@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 
-SAME = ("case", "candidate_sha256", "task_sha256", "base_tree", "harness_sha256")
+SAME = ("case", "candidate_sha256", "task_sha256", "base_tree", "harness_tree")
 
 
 def load(path: Path) -> dict[str, object]:

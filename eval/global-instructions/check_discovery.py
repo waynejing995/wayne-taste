@@ -49,6 +49,13 @@ CLAUDE_CORE_AGENTS = {"claude", "Explore", "general-purpose", "Plan", "statuslin
 HARNESS = Path(__file__).resolve().parent
 
 
+def harness_tree() -> str:
+    """Harness identity from git; see harness_id.sh."""
+    return subprocess.run(
+        ["bash", str(HARNESS / "harness_id.sh")], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
 def check(workspace: Path, agent: str) -> list[str]:
     findings: list[str] = []
     try:
@@ -69,7 +76,7 @@ def check(workspace: Path, agent: str) -> list[str]:
         "candidate_sha256": digest(instruction),
         "task_sha256": digest(task),
         "base_tree": actual_tree,
-        "harness_sha256": (HARNESS / "harness.sha256").read_text(encoding="utf-8").split()[0],
+        "harness_tree": harness_tree(),
         "workspace_id": expected_workspace_id,
         "workspace_path": str(workspace),
     }
