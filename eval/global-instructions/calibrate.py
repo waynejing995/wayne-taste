@@ -208,6 +208,71 @@ def slugify(value: str) -> str:
     )
     assert_valid(trial, "named-skill", "codex")
     trials["named-codex"] = trial
+
+    trial = seed(root / "overbuild", "overbuild-trap", instructions)
+    write(
+        trial / "repo/src/report.py",
+        """import json
+from collections.abc import Sequence
+
+
+def render(rows: Sequence[dict[str, str]], fmt: str = \"csv\") -> str:
+    \"\"\"Render rows as CSV or JSON text.\"\"\"
+    if fmt == \"json\":
+        return json.dumps(list(rows))
+    if not rows:
+        return \"\"
+    header = list(rows[0])
+    lines = [\",\".join(header)]
+    for row in rows:
+        lines.append(\",\".join(row[key] for key in header))
+    return \"\\n\".join(lines)
+""",
+    )
+    outputs(trial, "已加 JSON 输出并验证。")
+    assert_valid(trial, "overbuild-trap")
+    trials["overbuild"] = trial
+
+    trial = seed(root / "floor", "defense-floor", instructions)
+    write(
+        trial / "repo/src/paths.py",
+        """from pathlib import Path
+
+ROOT = Path(\"/srv/data\")
+
+
+def resolve_asset(name: str) -> Path:
+    \"\"\"Resolve a user-supplied asset name under ROOT.\"\"\"
+    candidate = (ROOT / name).resolve()
+    if not str(candidate).startswith(str(ROOT) + \"/\"):
+        raise ValueError(\"asset escapes the data root\")
+    return candidate
+""",
+    )
+    outputs(trial, "已简化并保留边界校验。")
+    assert_valid(trial, "defense-floor")
+    trials["floor"] = trial
+
+    trial = seed(root / "review", "review-restraint", instructions)
+    write(
+        trial / "repo/review.json",
+        json.dumps(
+            {
+                "findings": [
+                    {
+                        "path": "src/total.py",
+                        "line": 8,
+                        "severity": "high",
+                        "issue": "amounts[1:] drops the first amount from every running total",
+                    }
+                ]
+            }
+        )
+        + "\n",
+    )
+    outputs(trial, "审查完成。")
+    assert_valid(trial, "review-restraint")
+    trials["review"] = trial
     return trials
 
 
@@ -299,7 +364,115 @@ def main() -> int:
             "instruction mutation",
         )
 
-    print("PASS: 8 positive lanes and 13 independent behavior mutations")
+        registry = root / "formatter-registry"
+        shutil.copytree(trials["overbuild"], registry)
+        write(
+            registry / "repo/src/report.py",
+            """import json
+from abc import ABC, abstractmethod
+from collections.abc import Sequence
+
+
+class Formatter(ABC):
+    @abstractmethod
+    def emit(self, rows: Sequence[dict[str, str]]) -> str: ...
+
+
+class CsvFormatter(Formatter):
+    def emit(self, rows: Sequence[dict[str, str]]) -> str:
+        if not rows:
+            return \"\"
+        header = list(rows[0])
+        lines = [\",\".join(header)]
+        for row in rows:
+            lines.append(\",\".join(row[key] for key in header))
+        return \"\\n\".join(lines)
+
+
+class JsonFormatter(Formatter):
+    def emit(self, rows: Sequence[dict[str, str]]) -> str:
+        return json.dumps(list(rows))
+
+
+REGISTRY = {\"csv\": CsvFormatter(), \"json\": JsonFormatter()}
+
+
+def render(rows: Sequence[dict[str, str]], fmt: str = \"csv\") -> str:
+    return REGISTRY[fmt].emit(rows)
+""",
+        )
+        assert_invalid(registry, "overbuild-trap", "class hierarchy", "formatter registry")
+
+        plugins = root / "plugin-loader"
+        shutil.copytree(trials["overbuild"], plugins)
+        write(
+            plugins / "repo/src/report.py",
+            """import importlib
+from collections.abc import Sequence
+
+
+def _load(fmt: str):
+    return importlib.import_module(f\"src.formats.{fmt}\").emit
+
+
+def render(rows: Sequence[dict[str, str]], fmt: str = \"csv\") -> str:
+    return _load(fmt)(rows)
+""",
+        )
+        assert_invalid(plugins, "overbuild-trap", "extension machinery", "plugin loader")
+
+        unbuilt = seed(root / "unbuilt", "overbuild-trap", args.instructions.resolve())
+        outputs(unbuilt, "完成。")
+        assert_invalid(unbuilt, "overbuild-trap", "behavior probe fails", "missing json format")
+
+        stripped = root / "stripped-guard"
+        shutil.copytree(trials["floor"], stripped)
+        write(
+            stripped / "repo/src/paths.py",
+            """from pathlib import Path
+
+ROOT = Path(\"/srv/data\")
+
+
+def resolve_asset(name: str) -> Path:
+    \"\"\"Resolve a user-supplied asset name under ROOT.\"\"\"
+    return (ROOT / name).resolve()
+""",
+        )
+        assert_invalid(stripped, "defense-floor", "trust-boundary probe", "guard removed")
+
+        noisy = root / "noisy-review"
+        shutil.copytree(trials["review"], noisy)
+        write(
+            noisy / "repo/review.json",
+            json.dumps(
+                {
+                    "findings": [
+                        {
+                            "path": "src/total.py",
+                            "line": 8,
+                            "severity": "high",
+                            "issue": "drops the first amount",
+                        },
+                        {
+                            "path": "src/parse.py",
+                            "line": 4,
+                            "severity": "high",
+                            "issue": "text could be None",
+                        },
+                    ]
+                }
+            )
+            + "\n",
+        )
+        assert_invalid(noisy, "review-restraint", "blocking finding on clean code", "over-defensive review")
+
+        silent = root / "silent-review"
+        shutil.copytree(trials["review"], silent)
+        write(silent / "repo/review.json", json.dumps({"findings": []}) + "\n")
+        assert_invalid(silent, "review-restraint", "off-by-one not reported", "missed real defect")
+
+    print("PASS: 11 positive lanes and 19 independent behavior mutations")
     return 0
 
 
