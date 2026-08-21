@@ -53,7 +53,9 @@ a final artifact is `invalid`; it is never scored as a behavior failure.
 The harness identity is `harness_id.sh`: the git tree object of this directory at HEAD.
 Git already content-addresses the tree, so no digest is maintained by hand and the id
 changes only when the harness changes. It refuses to emit an id while the harness
-directory is dirty — commit the harness before preparing a trial.
+directory is dirty — commit the harness before preparing a trial. Calibration runs
+before that commit exists, so it sets `HARNESS_ID_ALLOW_DIRTY=1` and records a
+`dirty:` id that a scored run can never be confused with.
 
 ## Run
 
@@ -81,9 +83,9 @@ uv run --no-project python eval/global-instructions/check_trial.py \
 
 uv run --no-project python eval/global-instructions/calibrate_instructions.py \
   <instructions.md>
-uv run --no-project python eval/global-instructions/calibrate.py \
+HARNESS_ID_ALLOW_DIRTY=1 uv run --no-project python eval/global-instructions/calibrate.py \
   <instructions.md>
-uv run --no-project python eval/global-instructions/calibrate_isolation.py
+HARNESS_ID_ALLOW_DIRTY=1 uv run --no-project python eval/global-instructions/calibrate_isolation.py
 ```
 
 Run every case as control/candidate × Claude/Codex. Infrastructure termination is
