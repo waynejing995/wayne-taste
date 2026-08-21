@@ -155,3 +155,58 @@ layers, and extension points targets a category the model already refuses. The
 category that actually accretes is a state value, a column, a verb, a tier - each
 individually defensible, none asked for. A rule that does not name that category
 cannot move the number this eval measures.
+
+## Round 4 — vague brief, reviewed by the main agent
+
+`design-overbuild` states the scale and the non-goals, so the brief suppressed the
+over-design before the instructions could. `design-vague` replaces it with two
+sentences from a lab lead: a room of GPU machines, engineers stepping on each other,
+a box dying overnight unnoticed, collect the results. No numbers, no non-goals. The
+true operating facts live only in the rubric, seen by the judge and never by the
+designer. pi lane, three trials per arm, candidate rebuilt from the frozen patch.
+
+Same uniform rule as round 3, applied by hand to all six: an entity is surplus when
+deleting it breaks none of the brief's three demands and no real-scale constraint.
+Notifier, object store, and interactive hold are earned — the brief asks for
+announcement, for results that outlive the box, and for handing out machines.
+
+| Document | Surplus | The extras |
+| --- | --- | --- |
+| candidate-3 | 2 | `DRAINING`, event table. No web UI at all. |
+| candidate-2 | 3 | web mention, `DRAINING`, event table. Explicitly refuses HA. |
+| control-2 | 4 | web UI, `DRAINING`/`QUARANTINED`, event table, agent version tracking |
+| candidate-1 | 4 | web UI, `DRAINING`/`RETIRED`, pool+labels jsonb, agent version |
+| control-3 | 5 | dashboard, event outbox across three channels, event table |
+| control-1 | 5 | web UI, **two brokerd replicas for availability**, `run_events`, extra admin states, SSO tokens |
+
+Every one of the six wrote an explicit assumptions section naming the scale it
+guessed, and every guess landed at 10-100 machines against a true 12. That behavior
+comes from the baseline instruction to state assumptions, not from the clauses.
+
+## Two rounds, same shape
+
+| | control | candidate |
+| --- | --- | --- |
+| round 3 surplus | 3, 6, 9 | 3, 3, 5 |
+| round 4 surplus | 4, 5, 5 | 2, 3, 4 |
+
+Across twelve documents and two unrelated briefs the candidate arm was never the
+more bloated arm, and the worst document in each round was a control. One discrete
+non-judgement fact: exactly one document in either round adds HA replicas
+(`run 2 replicas for availability`), and it is a control.
+
+This is weak, consistent evidence and it is not blind — the same reviewer scored
+both arms knowing the labels. It is enough to retire the round 2 claim that the
+clauses hurt, and it is not enough to ship them.
+
+## Where this leaves the clauses
+
+The clauses name abstractions, layers, config options, extension points and
+fallbacks. Round 3 showed the model already refuses that whole category unprompted:
+no Kubernetes, no broker, no leader election, in both arms, in nearly the same words.
+What actually accretes across all twelve documents is smaller and duller — one more
+admin state, one more event table, one more identity hop, one more version field.
+A clause that does not name that category is aiming at a target already covered.
+
+Next candidate to test, if this line continues: a Design clause written against small
+accretion rather than architecture, and no enumeration of forbidden constructs.
