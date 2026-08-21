@@ -113,3 +113,45 @@ the same SSE mechanism `earned` in one document and `surplus` in another. Until 
 same document is judged repeatedly and the judge's own spread is known, this harness
 cannot separate a real effect from its own noise, and no verdict it produces about
 these clauses should be trusted.
+
+## Round 3 reviewed by the main agent, one standard for all six
+
+The per-document judges each invented their own standard, which is why they
+scattered. Re-reviewed by hand with a single rule applied identically: for every
+entity beyond the minimal set (client, control process, node agent, durable store,
+blob store), ask which of R1-R8 breaks if it is deleted. No answer means surplus.
+Entities the document explicitly rejects or defers are not counted.
+
+| Document | Surplus by the uniform rule | The extras |
+| --- | --- | --- |
+| control-2 | 3 | web view, alert list, smoke-check gate on clear |
+| candidate-2 | 3 | web UI, LDAP/SSO, live log tail |
+| candidate-3 | 3 | dashboard, `DRAINING`, `job_events` |
+| candidate-1 | 5 | web UI, SSO/LDAP, `DRAINING`, SSE streaming, agent version-skew alert |
+| control-1 | 6 | web UI, `DRAINED` + drain/undrain, SSO attribution, Prometheus + alerts, `quarantine_events`, `INFRA_FAILURE_STREAK` |
+| control-3 | 9 | web UI, SSO, `priority smallint`, `DRAINING`, `DECOMMISSIONED`, Prometheus gauges, submit idempotency key, `/retry` verb, 1-year and 90-day retention tiers |
+
+control 3, 6, 9 (mean 6.0). candidate 3, 3, 5 (mean 3.7).
+
+The two best documents tie across arms, so the arms are not separated at the top.
+The candidate range is narrower and its worst case is much better than the control
+worst case, which is a hint and nothing more at three trials per arm. The bloated
+outlier is a control document, which is the opposite of what round 2 claimed.
+
+## The finding that does not depend on the arm
+
+All six reject the same famous over-designs, in almost the same words: no
+Kubernetes, no message broker, no HA or leader election, no auto-retry of a lost
+job. Every document also correctly derived the two-node blast-radius argument for
+R8. Nothing in either instruction set was needed for that; the brief states the
+scale and the non-goals, and that does the work.
+
+Every surplus entity in the table above is small: one more node state, one more
+retention tier, one more endpoint, one more identity hop. The variance across all
+six documents lives entirely in that small accretion, and neither arm suppresses it.
+
+This is the actionable conclusion for rule design. A clause aimed at abstractions,
+layers, and extension points targets a category the model already refuses. The
+category that actually accretes is a state value, a column, a verb, a tier - each
+individually defensible, none asked for. A rule that does not name that category
+cannot move the number this eval measures.
