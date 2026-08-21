@@ -1,15 +1,16 @@
 # Global instructions trimming eval
 
-One harness evaluates one instruction document on both supported global surfaces:
+One harness evaluates one instruction document on every supported global surface:
 
 | Lane | Installation surface |
 |---|---|
 | Claude | isolated `~/.claude/CLAUDE.md` |
 | Codex | isolated `$CODEX_HOME/AGENTS.md` |
+| pi | isolated `$PI_CODING_AGENT_DIR/AGENTS.md` |
 
 The candidate bytes, task, repository fixture, permissions, checker, and model
 effort stay the same. Only the filename and host agent change. Do not create a
-Claude harness and a Codex harness.
+per-agent harness.
 
 Each lane starts from a fresh home and state. Claude receives only provider env,
 the candidate, and `fixture-sentinel`; Codex receives only a provider-only config,

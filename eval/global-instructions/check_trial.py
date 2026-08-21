@@ -48,7 +48,7 @@ def output_text(workspace: Path, agent: str) -> str:
         except (OSError, json.JSONDecodeError):
             return ""
         return str(data.get("result", "")).strip()
-    path = workspace / "codex-final.txt"
+    path = workspace / ("pi-final.txt" if agent == "pi" else "codex-final.txt")
     return path.read_text(encoding="utf-8").strip() if path.is_file() else ""
 
 
@@ -429,7 +429,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("workspace", type=Path)
     parser.add_argument("--case", required=True, choices=sorted(CASES))
-    parser.add_argument("--agent", required=True, choices=("claude", "codex"))
+    parser.add_argument("--agent", required=True, choices=("claude", "codex", "pi"))
     args = parser.parse_args()
     findings = check(args.workspace.resolve(), args.case, args.agent)
     if findings:

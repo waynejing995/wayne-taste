@@ -32,6 +32,25 @@ for file in model-catalog-1m.json installation_id version.json auth.json; do
     [[ -f "/root/.codex/$file" ]] && cp "/root/.codex/$file" "$state/codex-home/"
 done
 
+# pi reads its whole config from PI_CODING_AGENT_DIR, so a fresh one is a clean start:
+# only the candidate global AGENTS.md, the model catalog, and provider settings.
+mkdir -p "$state/pi-agent"
+cp "$workspace/instructions.md" "$state/pi-agent/AGENTS.md"
+[[ -f /root/.pi/agent/models.json ]] && cp /root/.pi/agent/models.json "$state/pi-agent/"
+uv run --no-project python - "$state/pi-agent/settings.json" <<'PY'
+import json, pathlib, sys
+
+source = pathlib.Path.home() / ".pi/agent/settings.json"
+settings = json.loads(source.read_text(encoding="utf-8")) if source.is_file() else {}
+keep = {
+    key: settings[key]
+    for key in ("defaultProvider", "defaultModel", "defaultThinkingLevel", "transport")
+    if key in settings
+}
+keep["defaultProjectTrust"] = "always"
+pathlib.Path(sys.argv[1]).write_text(json.dumps(keep) + "\n", encoding="utf-8")
+PY
+
 state_id=$(printf '%s' "$state" | sha256sum | cut -d' ' -f1)
 write_status() {
     local status=$1 rc=$2
@@ -90,6 +109,26 @@ case "$agent" in
         rc=$?
         set -e
         if [[ $rc -eq 0 && -s "$workspace/codex-final.txt" ]]; then
+            write_status complete 0
+        else
+            write_status invalid "$rc"
+            exit 1
+        fi
+        ;;
+    pi)
+        command -v pi >/dev/null || { echo "pi is required" >&2; exit 2; }
+        set +e
+        bwrap "${base[@]}" \
+            --ro-bind /root/.local /root/.local \
+            --ro-bind /root/.nvm /root/.nvm \
+            --bind "$state/pi-agent" /root/.pi-agent \
+            --setenv PI_CODING_AGENT_DIR /root/.pi-agent \
+            --setenv PI_CODING_AGENT_SESSION_DIR /root/.cache/pi-sessions \
+            --setenv PATH /root/.local/bin:/root/.nvm/versions/node/v22.22.1/bin:/usr/local/bin:/usr/bin:/bin \
+            /bin/bash -lc 'pi -p --no-extensions --no-skills --no-prompt-templates --model "$MODEL" --thinking "$EFFORT" "$(cat /workspace/task.md)" > /workspace/pi-final.txt 2> /workspace/pi-stderr.txt'
+        rc=$?
+        set -e
+        if [[ $rc -eq 0 && -s "$workspace/pi-final.txt" ]]; then
             write_status complete 0
         else
             write_status invalid "$rc"
