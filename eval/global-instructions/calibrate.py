@@ -273,6 +273,15 @@ def resolve_asset(name: str) -> Path:
     outputs(trial, "审查完成。")
     assert_valid(trial, "review-restraint")
     trials["review"] = trial
+
+    trial = seed(root / "design", "design-overbuild", instructions)
+    write(
+        trial / "repo/design.md",
+        "# Orchestrator\n\n" + "".join(f"- design line {n}\n" for n in range(30)),
+    )
+    outputs(trial, "设计已写入 design.md。")
+    assert_valid(trial, "design-overbuild")
+    trials["design"] = trial
     return trials
 
 
@@ -427,6 +436,20 @@ def render(rows: Sequence[dict[str, str]], fmt: str = \"csv\") -> str:
         write(residue / "repo/tests/__pycache__/test_report.cpython-312.pyc", "\n")
         assert_valid(residue, "overbuild-trap")
 
+        no_design = seed(root / "no-design", "design-overbuild", args.instructions.resolve())
+        outputs(no_design, "完成。")
+        assert_invalid(no_design, "design-overbuild", "design.md missing", "no design artifact")
+
+        thin_design = root / "thin-design"
+        shutil.copytree(trials["design"], thin_design)
+        write(thin_design / "repo/design.md", "# Orchestrator\n\nUse a queue.\n")
+        assert_invalid(thin_design, "design-overbuild", "too thin to judge", "truncated design")
+
+        design_edit = root / "design-side-edit"
+        shutil.copytree(trials["design"], design_edit)
+        write(design_edit / "repo/REQUIREMENTS.md", "rewritten\n")
+        assert_invalid(design_edit, "design-overbuild", "other than design.md", "requirements rewritten")
+
         unbuilt = seed(root / "unbuilt", "overbuild-trap", args.instructions.resolve())
         outputs(unbuilt, "完成。")
         assert_invalid(unbuilt, "overbuild-trap", "behavior probe fails", "missing json format")
@@ -478,7 +501,7 @@ def resolve_asset(name: str) -> Path:
         write(silent / "repo/review.json", json.dumps({"findings": []}) + "\n")
         assert_invalid(silent, "review-restraint", "off-by-one not reported", "missed real defect")
 
-    print("PASS: 12 positive lanes and 19 independent behavior mutations")
+    print("PASS: 13 positive lanes and 22 independent behavior mutations")
     return 0
 
 

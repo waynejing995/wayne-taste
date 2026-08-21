@@ -57,6 +57,24 @@ directory is dirty — commit the harness before preparing a trial. Calibration 
 before that commit exists, so it sets `HARNESS_ID_ALLOW_DIRTY=1` and records a
 `dirty:` id that a scored run can never be confused with.
 
+## Design cases
+
+`design-overbuild` produces a design document, and nothing deterministic can decide
+whether a design bought its complexity. The two layers are kept apart so one cannot
+be read as the other:
+
+| Layer | Script | Result | Means |
+| --- | --- | --- | --- |
+| integrity | `check_trial.py` | `SCORABLE` / `FAIL` | the trial can be judged at all |
+| quality | `semantic-rubric.md` | `pass` / `fail` / `invalid` | the design earned its entities |
+
+Freeze and commit the rubric before the run. Judge blind: strip trial identity,
+shuffle the documents, and give the judge the rubric and `REQUIREMENTS.md` only —
+never the control/candidate mapping or the rule under test. The rubric reports
+`surplus_count` and `contradicted_count` even on a `pass`, because two passing
+designs are not equivalent and a pass/fail alone has already failed to separate
+candidates here.
+
 ## Run
 
 Materialize the frozen control without editing the live dirty `CLAUDE.md`:
