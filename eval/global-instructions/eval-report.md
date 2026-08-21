@@ -73,3 +73,43 @@ their current wording on the strength of an unproven benefit.
   bought by observed data.
 - A rubric threshold that a single inconsistent call can flip needs either graded
   reporting only, or agreement across repeated judgements before a verdict.
+
+## Round 3 — pi lane, three trials per arm, provable delta
+
+Rounds 1 and 2 copied the candidate from a live shared `CLAUDE.md`, so an unrelated
+edit sat inside the measured delta. Round 3 builds the candidate as
+`baseline + candidate-razor.patch`, verified to reproduce the exact bytes, and runs
+one lane (pi, fresh `PI_CODING_AGENT_DIR`) three times per arm.
+
+| Arm | Surplus per trial | Mean | Verdicts |
+| --- | --- | --- | --- |
+| control | 2, 2, 8 | 4.00 | 2 pass, 1 fail |
+| candidate | 1, 2, 5 | 2.67 | 2 pass, 1 fail |
+
+Every trial covered R1-R8 and none weakened a load-bearing requirement.
+
+## What round 3 overturns
+
+The distributions overlap almost completely, and the spread inside each arm (2 to 8
+in control, 1 to 5 in candidate) is larger than the gap between the arms. One trial
+in each arm crossed the fail threshold.
+
+Round 2 reported control 1 and 2 against candidate 3 and 4 and read that as the
+candidate being worse. Control alone now spans 2 to 8, so that ordering was sampling
+noise from one trial per cell. **Round 2's conclusion does not replicate.**
+
+What survives all three rounds: no evidence the clauses help, and now no evidence
+they hurt either. The surplus items also differ in kind across trials of the same
+arm — priority fields and retention tiers in one control trial, LDAP and log
+tailing in one candidate trial — which is what an uncontrolled variable looks like,
+not a treatment effect.
+
+## The measurement problem this exposes
+
+Each document was judged once, so document variance and judge variance are
+confounded. A control trial scoring 8 and another scoring 2 could be two different
+designs or one inconsistent judge; round 2 already documented the judge classifying
+the same SSE mechanism `earned` in one document and `surplus` in another. Until the
+same document is judged repeatedly and the judge's own spread is known, this harness
+cannot separate a real effect from its own noise, and no verdict it produces about
+these clauses should be trusted.
