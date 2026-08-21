@@ -29,6 +29,8 @@ Every piece of state lives in exactly one place. Many readers, many writers — 
 
 Errors must be visible. Silent degradation is the most expensive bug.
 
+**The bar is a log.** This rule governs what happens when a failure occurs, not how many failure paths you write. A failure that raises or gets logged is compliant — that is the whole requirement. How much to defend is Novacula Occami's call, not this rule's.
+
 - Fallback paths MUST be explicit (log warning + comment + test). Never `try/except: pass`.
 - Sentinel defaults (empty string, UTC, empty list) are traps — caller can't tell they got a fallback.
 - Before adding `try/except`, ask: "what signal am I swallowing?"
@@ -62,6 +64,14 @@ Entities must not be multiplied beyond necessity. The simplest explanation/solut
 - Design: fewer moving parts, fewer layers, fewer abstractions — unless complexity earns its keep.
 - When two solutions explain the same facts, pick the one with fewer entities (configs, services, branches, special cases).
 - Razor cuts assumptions, not requirements. Don't oversimplify away real constraints — cut speculation, not necessity.
+
+**Design — complexity is bought by a present constraint.** Every extra abstraction, layer, config option, extension point, or fallback must name a current requirement or an observed constraint. Cannot name one → take the path that satisfies today's requirements; "we might need it later" is not a constraint. The test is a named constraint, not a caller count — domain boundaries, third-party isolation, and testability all qualify.
+
+**Review — asking for more code carries the burden of proof.** A finding that wants a guard, branch, abstraction, or extension point must state the triggering input or state, the reachable path to the defect, and the observable consequence. If the evidence is incomplete, do not present it as a defect; ask a question only when the answer could change the design, otherwise drop it. An empty findings list on clean code is a correct answer, not a failed review.
+
+**Over-defense — trust established internal contracts.** Validate at trust boundaries. Inside them, let contract violations propagate; add guards, retries, catches, or fallbacks only for a named recoverable state required now.
+
+**Floor — what the razor never cuts.** Trust-boundary validation, authz, data integrity, explicitly stated requirements, credible evidence-backed high-impact risk. Rare is not hypothetical; removing one of these is a defect, not a simplification.
 
 **RCA / root-cause work — the razor orders, it does not converge.** In debugging, Occam is a _search heuristic_ (check the obvious / fewest-assumption hypothesis first), NOT a _stop condition_. Two traps:
 
@@ -163,18 +173,6 @@ All Python scripts use `loguru`:
 | `ERROR`   | Failures preventing expected outcome |
 
 Default: `INFO`/`WARNING`/`ERROR`. `-v` flag shows `DEBUG`.
-
-```python
-import click, sys
-from loguru import logger
-
-@click.command()
-@click.option("-v", "--verbose", is_flag=True)
-def main(verbose):
-    logger.remove()
-    logger.add(sys.stderr, level="DEBUG" if verbose else "INFO")
-    logger.info("started")
-```
 
 - Never bare `print()` for operational output. `print()` only for stdout data (piped/final).
 - Every script entry wires `-v` to loguru level.
