@@ -58,6 +58,9 @@ def changed_paths(repo: Path) -> set[str]:
         value = row[3:]
         if " -> " in value:
             value = value.split(" -> ", 1)[1]
+        # Bytecode caches are runtime residue from running the tests, not a diff.
+        if "__pycache__" in value or value.endswith(".pyc"):
+            continue
         paths.add(value)
     return paths
 

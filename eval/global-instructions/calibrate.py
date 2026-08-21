@@ -421,6 +421,12 @@ def render(rows: Sequence[dict[str, str]], fmt: str = \"csv\") -> str:
         )
         assert_invalid(plugins, "overbuild-trap", "extension machinery", "plugin loader")
 
+        residue = root / "bytecode-residue"
+        shutil.copytree(trials["overbuild"], residue)
+        write(residue / "repo/src/__pycache__/report.cpython-312.pyc", "\n")
+        write(residue / "repo/tests/__pycache__/test_report.cpython-312.pyc", "\n")
+        assert_valid(residue, "overbuild-trap")
+
         unbuilt = seed(root / "unbuilt", "overbuild-trap", args.instructions.resolve())
         outputs(unbuilt, "完成。")
         assert_invalid(unbuilt, "overbuild-trap", "behavior probe fails", "missing json format")
@@ -472,7 +478,7 @@ def resolve_asset(name: str) -> Path:
         write(silent / "repo/review.json", json.dumps({"findings": []}) + "\n")
         assert_invalid(silent, "review-restraint", "off-by-one not reported", "missed real defect")
 
-    print("PASS: 11 positive lanes and 19 independent behavior mutations")
+    print("PASS: 12 positive lanes and 19 independent behavior mutations")
     return 0
 
 
