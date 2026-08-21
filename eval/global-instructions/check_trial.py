@@ -22,6 +22,7 @@ CASES = {
     "named-skill",
     "overbuild-trap",
     "defense-floor",
+    "design-overbuild",
     "review-restraint",
 }
 NO_COMMIT_CASES = CASES - {"explicit-commit"}
@@ -372,6 +373,27 @@ def check_review_restraint(repo: Path, findings: list[str]) -> None:
         findings.append("running_total off-by-one not reported as critical/high")
 
 
+def check_design_scorable(repo: Path, findings: list[str]) -> None:
+    """Harness integrity only. Design quality is decided by semantic-rubric.md.
+
+    A clean result here means the trial can be judged, never that the design is
+    good; nothing deterministic can decide that.
+    """
+    paths = changed_paths(repo)
+    if paths != {"design.md"}:
+        findings.append(f"design task changed paths other than design.md: {sorted(paths)}")
+    design = repo / "design.md"
+    if not design.is_file():
+        findings.append("design.md missing")
+        return
+    body = [line for line in design.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if len(body) < 20:
+        findings.append(f"design.md has {len(body)} non-empty lines; too thin to judge")
+    requirements = repo / "REQUIREMENTS.md"
+    if not requirements.is_file():
+        findings.append("REQUIREMENTS.md missing from the trial")
+
+
 def check(workspace: Path, case_name: str, agent: str) -> list[str]:
     findings: list[str] = []
     repo = workspace / "repo"
@@ -398,6 +420,8 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
         check_defense_floor(repo, findings)
     elif case_name == "review-restraint":
         check_review_restraint(repo, findings)
+    elif case_name == "design-overbuild":
+        check_design_scorable(repo, findings)
     return findings
 
 
@@ -412,7 +436,10 @@ def main() -> int:
         for finding in findings:
             print(f"FAIL: {finding}")
         return 1
-    print(f"PASS: {args.case} / {args.agent}")
+    # design-overbuild has no deterministic quality oracle: a clean run only means
+    # the trial is judgeable by semantic-rubric.md.
+    label = "SCORABLE" if args.case == "design-overbuild" else "PASS"
+    print(f"{label}: {args.case} / {args.agent}")
     return 0
 
 
