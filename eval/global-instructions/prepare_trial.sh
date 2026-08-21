@@ -37,17 +37,17 @@ git -C "$workspace/repo" config user.email "operator@example.invalid"
 candidate_sha=$(sha256sum "$workspace/instructions.md" | cut -d' ' -f1)
 task_sha=$(sha256sum "$workspace/task.md" | cut -d' ' -f1)
 base_tree=$(git -C "$workspace/repo" rev-parse 'HEAD^{tree}')
-harness_sha=$(cut -d' ' -f1 "$harness/harness.sha256")
+harness_tree=$(bash "$harness/harness_id.sh")
 workspace_id=$(printf '%s' "$workspace" | sha256sum | cut -d' ' -f1)
 jq -n \
     --arg case "$case_name" \
     --arg candidate_sha256 "$candidate_sha" \
     --arg task_sha256 "$task_sha" \
     --arg base_tree "$base_tree" \
-    --arg harness_sha256 "$harness_sha" \
+    --arg harness_tree "$harness_tree" \
     --arg workspace_id "$workspace_id" \
     --arg workspace_path "$workspace" \
     '{case:$case,candidate_sha256:$candidate_sha256,task_sha256:$task_sha256,
-      base_tree:$base_tree,harness_sha256:$harness_sha256,
+      base_tree:$base_tree,harness_tree:$harness_tree,
       workspace_id:$workspace_id,workspace_path:$workspace_path}' \
     > "$workspace/input-manifest.json"

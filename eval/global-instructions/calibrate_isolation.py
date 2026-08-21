@@ -10,7 +10,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from check_discovery import CLAUDE_CORE_AGENTS, CLAUDE_CORE_SKILLS, HARNESS, check as check_discovery
+from check_discovery import (
+    CLAUDE_CORE_AGENTS,
+    CLAUDE_CORE_SKILLS,
+    HARNESS,
+    check as check_discovery,
+    harness_tree,
+)
 from check_pair import check as check_pair
 
 
@@ -41,7 +47,7 @@ def seed(root: Path, agent: str) -> tuple[Path, Path]:
         "candidate_sha256": digest(workspace / "instructions.md"),
         "task_sha256": digest(workspace / "task.md"),
         "base_tree": tree,
-        "harness_sha256": (HARNESS / "harness.sha256").read_text(encoding="utf-8").split()[0],
+        "harness_tree": harness_tree(),
         "workspace_id": hashlib.sha256(str(workspace.resolve()).encode()).hexdigest(),
         "workspace_path": str(workspace.resolve()),
     })
@@ -121,7 +127,7 @@ def main() -> int:
             ("candidate", "candidate_sha256", "paired input differs: candidate_sha256"),
             ("task", "task_sha256", "paired input differs: task_sha256"),
             ("tree", "base_tree", "paired input differs: base_tree"),
-            ("harness", "harness_sha256", "paired input differs: harness_sha256"),
+            ("harness", "harness_tree", "paired input differs: harness_tree"),
         ]
         for index, (label, field, needle) in enumerate(pair_mutations):
             c, _ = seed(root / f"pair-{index}-{label}-c", "claude")
