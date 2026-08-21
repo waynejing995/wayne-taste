@@ -67,7 +67,14 @@ be read as the other:
 | Layer | Script | Result | Means |
 | --- | --- | --- | --- |
 | integrity | `check_trial.py` | `SCORABLE` / `FAIL` | the trial can be judged at all |
-| quality | `semantic-rubric.md` | `pass` / `fail` / `invalid` | the design earned its entities |
+| quality | `cases/<case>/rubric.md` | `pass` / `fail` / `invalid` | the design earned its entities |
+
+`design-overbuild` hands the designer the scale and the non-goals. Round 3 showed
+that brief does the suppressing by itself: all six trials refused Kubernetes, brokers
+and HA in nearly the same words, whichever instructions they had. `design-vague` is
+the realistic case - two sentences from a lab lead, no numbers, no non-goals - and its
+rubric holds the true operating facts that only the judge sees. Deciding what to build
+under that silence is the behavior the instructions are supposed to change.
 
 Freeze and commit the rubric before the run. Judge blind: strip trial identity,
 shuffle the documents, and give the judge the rubric and `REQUIREMENTS.md` only —
