@@ -210,3 +210,15 @@ A clause that does not name that category is aiming at a target already covered.
 
 Next candidate to test, if this line continues: a Design clause written against small
 accretion rather than architecture, and no enumeration of forbidden constructs.
+
+## Decision
+
+Shipped, all four clauses, on the user's call after reading this report.
+
+The record stands as written: no regression across twelve documents and two briefs,
+a consistent but non-blind lean in the candidate's favour, and no demonstrated
+benefit for the Design and Review clauses whose target category the baseline already
+covers. Over-defense and Floor were never exercised by a case that could fail them.
+The clauses are live without having earned it on evidence; if a later round targets
+small accretion and shows these two doing nothing, they are the first candidates to
+delete.
