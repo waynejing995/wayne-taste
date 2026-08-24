@@ -44,6 +44,17 @@ Either way `pi-config/sync.sh` is the sole owner of what lands in `~/.pi`; the r
 
 `sync.sh` refuses to clobber a real (non-symlink) file — back up + `rm` the live one first if you want the SoT to take over.
 
+## Extensions
+
+`extensions/teams` — Microsoft Teams in pi: unread in the status bar, a compose
+overlay, and tools for reading, sending, searching people and downloading shared
+files. Talks to Graph directly; `/teams login` signs in with a device code and
+keeps its own token cache under `~/.cache/pi/teams-auth/`.
+
+`sync.sh` links it into `~/.pi/agent/extensions/` and installs its three runtime
+dependencies on first sync. Read `extensions/teams/README.md` before using it —
+in particular the note on which client identity it signs in as.
+
 ## Intentionally NOT shipped
 
 - **`models.json`** — machine/proxy/secret specific. Reconstruct via `internal-models-setup.md`. The APIM key lives in `${AMD_APIM_KEY}` (env or secret manager), never in git.

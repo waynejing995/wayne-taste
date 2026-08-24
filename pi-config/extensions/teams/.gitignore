@@ -1,0 +1,8 @@
+# Local-only, deliberately unpublished.
+#
+# tests/ holds real names, colleague email addresses and real conversation text
+# from the mailbox it was developed against. It stays on this machine: the suite
+# still runs here, and a clone gets a clean extension.
+tests/
+# Installed by pi-config/sync.sh; three runtime deps, ~10 MB.
+node_modules/

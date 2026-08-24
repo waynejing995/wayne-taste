@@ -8,10 +8,14 @@
 # Also links ~/.pi/agent/AGENTS.md — pi's global rules — to the repo-root
 # CLAUDE.md, the SoT both agents resolve to.
 #
+# Extensions: only the ones shipped in pi-config/extensions/ are linked. Any
+# other extension in ~/.pi/agent/extensions (herdr, orca, machine-local
+# experiments) is left completely alone -- this script adds links, it never
+# removes what it did not create.
+#
 # NOT synced here (intentionally): models.json (machine/secret specific — see
-# internal-models-setup.md), ~/.pi/agent/extensions/ (herdr, orca — machine
-# local), ~/.tmux.conf, and all state (auth.json, trust.json, models-store.json,
-# npm/, workflows/projects/).
+# internal-models-setup.md), ~/.tmux.conf, and all state (auth.json, trust.json,
+# models-store.json, npm/, workflows/projects/).
 #
 # Usage:  bash "${WAYNE_SKILLS_DIR}/pi-config/sync.sh" [--dry-run]
 set -euo pipefail
@@ -58,6 +62,39 @@ link_one "${SKILLS_ROOT}/CLAUDE.md"                      "${AGENT}/AGENTS.md"
 link_one "${SOT}/settings.json"                          "${AGENT}/settings.json"
 link_one "${SOT}/pi-statusline.json"                     "${AGENT}/pi-statusline.json"
 link_one "${SOT}/workflows/saved/wayne-code-review-flow.json" "${WF_SAVED}/wayne-code-review-flow.json"
+
+# ── Extensions ──────────────────────────────────────────────────────────────
+#
+# Each pi-config/extensions/<name> is linked to ~/.pi/agent/extensions/<name>.
+# pi's discovery follows symlinks (core/extensions/loader.js tests
+# `entry.isDirectory() || entry.isSymbolicLink()`), so the checkout is the SoT
+# for extension code exactly as it is for skills.
+#
+# Dependencies are NOT vendored: node_modules is gitignored, and installed here
+# on first sync. It has to live inside the link target, because that is where
+# Node resolves from.
+for ext_dir in "${SOT}"/extensions/*/; do
+  [ -d "$ext_dir" ] || continue
+  ext_name="$(basename "$ext_dir")"
+  link_one "${ext_dir%/}" "${AGENT}/extensions/${ext_name}"
+
+  if [ -f "${ext_dir}package.json" ] && [ ! -d "${ext_dir}node_modules" ]; then
+    if [ "$DRY" = "--dry-run" ]; then
+      echo "WOULD npm install --omit=dev in ${ext_dir}"
+    elif command -v npm >/dev/null 2>&1; then
+      echo "NPM   installing dependencies for ${ext_name}"
+      # Fail loud: an extension whose deps are missing throws at load, and the
+      # message points at a module name rather than at this step.
+      (cd "$ext_dir" && npm install --omit=dev --silent) || {
+        echo "ERROR: npm install failed for ${ext_name}; pi will fail to load it" >&2
+        exit 1
+      }
+    else
+      echo "ERROR: ${ext_name} needs npm to install its dependencies, and npm was not found" >&2
+      exit 1
+    fi
+  fi
+done
 
 echo
 echo "Done. Reminder: set up internal models per internal-models-setup.md"
