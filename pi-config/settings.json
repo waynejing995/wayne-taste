@@ -1,9 +1,9 @@
 {
-  "lastChangelogVersion": "0.84.1",
+  "lastChangelogVersion": "0.84.2",
   "defaultProvider": "amd-internal-anthropic",
   "defaultModel": "Claude-Opus-5@default",
   "defaultThinkingLevel": "high",
-  "theme": "catppuccin-mocha",
+  "theme": "catppuccin-latte",
   "packages": [
     "npm:pi-subagents",
     "npm:pi-mcp-adapter",
@@ -21,7 +21,8 @@
     "npm:pi-render-btw",
     "npm:@juicesharp/rpiv-advisor",
     "npm:pi-hashline-edit-pro",
-    "npm:pi-patty-bg-tasks"
+    "npm:pi-patty-bg-tasks",
+    "npm:pi-hermes-memory"
   ],
   "defaultProjectTrust": "always",
   "treeFilterMode": "default",
@@ -32,5 +33,14 @@
   "enabledModels": [
     "amd-internal-anthropic/Claude-Opus-5@default",
     "openai-amd/gpt-5.6-sol"
-  ]
+  ],
+  "terminal": {
+    "showTerminalProgress": true,
+    "clearOnShrink": true
+  },
+  "followUpMode": "all",
+  "showCacheMissNotices": true,
+  "doubleEscapeAction": "tree",
+  "tuiMode": "regular",
+  "httpIdleTimeoutMs": 0
 }
