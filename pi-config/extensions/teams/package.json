@@ -1,0 +1,18 @@
+{
+  "name": "pi-ext-teams",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@azure/msal-node": "^5.6.0",
+    "marked": "^15.0.0",
+    "turndown": "^7.2.4"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node tests/run.mjs"
+  }
+}

@@ -27,6 +27,7 @@ ${WAYNE_SKILLS_DIR}/             ← SSoT (edit here, commit here)
 ~/.claude/skills/<name>      ──symlink──▶  ${WAYNE_SKILLS_DIR}/<name>
 ~/.codex/skills/<name>       ──symlink──▶  ${WAYNE_SKILLS_DIR}/<name>
 ~/.agents/skills/<name>      ──symlink──▶  ${WAYNE_SKILLS_DIR}/<name>   (pi)
+~/.pi/agent/extensions/<n>   ──symlink──▶  ${WAYNE_SKILLS_DIR}/pi-config/extensions/<n>
 ```
 
 Because consumers are symlinks, **editing an existing skill needs no sync step** — the change is already live for every agent. Re-run `sync.sh` when a skill is **added or removed**, when a `pi-config/` file is added or renamed, or when setting up a machine.
@@ -39,7 +40,36 @@ pi's own _config_ (global rules, settings.json, statusline, saved workflows) has
 | --- | --- |
 | Edited an existing `wayne-*/SKILL.md` or `_shared/*.md` | Nothing — symlinks make it live for every agent |
 | Added or removed a top-level `wayne-*` skill at the SoT | Run `bash sync.sh` |
+| Edited an extension's source under `pi-config/extensions/` | Nothing to sync — but **restart pi**, or `/reload`: extension code is loaded once at startup |
+| Added an extension, or changed its dependencies | Run `bash sync.sh` (it links the new one and installs `node_modules`) |
 | Set up a fresh machine | Create `~/.wayne/config.env`, clone Wayne Taste at `WAYNE_SKILLS_DIR`, then run `bash "${WAYNE_SKILLS_DIR}/sync.sh"` — one command, pi config included |
+
+## Extensions
+
+`pi-config/extensions/<name>` is linked into `~/.pi/agent/extensions/<name>`.
+pi's discovery follows symlinks — `core/extensions/loader.js` tests
+`entry.isDirectory() || entry.isSymbolicLink()` — so an extension is SSoT-managed
+exactly like a skill.
+
+Two things are deliberately not in git, via each extension's own `.gitignore`:
+
+- `node_modules/` — installed by `sync.sh` on first sync, into the checkout,
+  because that is where Node resolves from. `sync.sh` fails loudly if npm is
+  missing rather than leaving an extension that throws at load.
+- `tests/` — the Teams suite was developed against a real mailbox and holds real
+  names, addresses and conversation text. It stays on the machine it was written
+  on; a clone gets a clean extension.
+
+`sync.sh` only ever ADDS links. Machine-local extensions (herdr, orca) are left
+untouched.
+
+**Symlinks split module identity.** A test that imports
+`~/.pi/agent/extensions/<n>/foo.ts` gets a different module object from the one
+the extension itself loads via `./foo.ts`, because the loader caches by resolved
+path. `instanceof` then fails across the two, and a stubbed function is a stub
+nobody calls — the observed symptom was a test suite that hung on a real device-
+code login. Resolve the real path first; `tests/ext-path.mjs` in the Teams
+extension is the pattern.
 
 ## sync.sh
 
@@ -71,7 +101,7 @@ Safety properties:
 
 `sync.sh` derives the exposure list from `_shared`, every top-level `wayne-*` directory, and `waynejing`; no second skill registry exists to drift.
 
-`eval/` is the skill test harness and `pi-config/` is pi's own configuration; neither is a skill and neither is linked as one. `pi-config/sync.sh` links four named files — `settings.json`, `pi-statusline.json`, `workflows/saved/wayne-code-review-flow.json` and the repo-root `CLAUDE.md` (as `AGENTS.md`) — into `~/.pi/agent/` and `~/.pi/workflows/saved/`; the rest of `pi-config/` (its own scripts, `internal-models-setup.md`, `README.md`) is never linked anywhere. `sync.sh` invokes it as its second stage.
+`eval/` is the skill test harness and `pi-config/` is pi's own configuration; neither is a skill and neither is linked as one. `pi-config/sync.sh` links four named files — `settings.json`, `pi-statusline.json`, `workflows/saved/wayne-code-review-flow.json` and the repo-root `CLAUDE.md` (as `AGENTS.md`) — into `~/.pi/agent/` and `~/.pi/workflows/saved/`, plus every directory under `pi-config/extensions/` into `~/.pi/agent/extensions/`. The rest of `pi-config/` (its own scripts, `internal-models-setup.md`, `README.md`) is never linked anywhere. `sync.sh` invokes it as its second stage.
 
 ## Agent discovery
 
