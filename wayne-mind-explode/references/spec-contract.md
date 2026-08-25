@@ -6,7 +6,11 @@ Rules for writing `docs/specs/<topic>.md`. The skeleton is [the spec template](.
 
 **A living page, and the only durable artifact of a design run.** It always describes the CURRENT design of its topic, never a snapshot of one run. Name it after the topic — `authentication.md`, not `2026-05-01-auth-design.md`. A later run that changes this design edits this file in place and appends to `## Decisions`; it never creates a second file. The DAG, research trail, test-matrix draft, and review reports are run-scoped and die at ship.
 
-**Its reader is a human, months later.** The run-scoped `decision-log.jsonl` is the machine-oriented form written one record per turn; this is the read-optimized form of the same decisions. That is why this file uses prose, diagrams, and signatures where the log uses fields.
+**Its readers are the engineer who will implement it and the agent working alongside them.** Both need to know what to build and what it must satisfy. Neither needs to be taught the domain: this is not a guide, a tutorial, or a wiki page, and it never explains a concept the implementer already has. Prose is here because a boundary, a trade-off, and a failure behavior do not survive being written as fields — not because the document is meant to read easily.
+
+**One spec covers one feature, and covers it completely.** Everything an implementer needs is in this file. A second document is opened only when the feature is genuinely too large for one, and a feature of ordinary size never needs one — describe it clearly here instead of deferring to a document that does not exist yet.
+
+The run-scoped `decision-log.jsonl` is the machine-oriented form written one record per turn; this file is the durable form of the same decisions.
 
 Change history is git. There is no changelog section.
 
@@ -35,9 +39,15 @@ The point is that `docs/specs/` never holds a byte the user did not approve, and
 
 Delete every section that does not apply. An empty heading is worse than none.
 
-**`## Requirements` is the sole definer of `R<number>`.** Nowhere else in the pipeline mints one. Each requirement is falsifiable: a verifier can write a check that resolves to pass or fail. `Current` / `Target` / `Acceptance` are all three required — a requirement without `Current` cannot be shown to have changed anything, and one without `Acceptance` cannot be verified. "Improve performance" is not a requirement; "p99 falls from 800ms to under 200ms, proven by <check>" is.
+**The narrative is self-contained; the appendix is its source.** Everything above the `# Appendices` divider is prose a person reads start to finish — `## Abstract`, `## Background`, `## Problem statement`, `## Goals`, `## Non-goals`, `## Architecture`, `## Alternatives considered`, `## Interfaces`, `## Flows`, `## Failure and concurrency`, `## Observability`, `## Rollback`. Everything below it is the numbered source that prose cites: `## Requirements`, `## Verification`, `## Decisions`, `## Technology and frameworks`, `## Legacy`. A reader who stops at the divider must already understand the design; the appendix is where they go to check a citation, never to discover what was specified.
 
-It is also where normative text lives. A gate, cap, threshold, ordering, or output contract is written **in full at exactly one owning `R<number>`**; every other section that needs it cites that ID and adds only what is local to itself.
+**`## Background` carries the current state this design changes, once, as continuous prose.** What exists now in the code and how it behaves, plus any constraint already binding on the answer. It is bounded by what an implementer needs in order to judge the design that follows: name the modules, the current behavior, and the earlier decision that is in the way. It is not a history of the system, not an introduction to the domain, and not a summary of the product. If a paragraph does not change how the reader evaluates a later section, cut it.
+
+A current-state account split across twenty per-requirement `Current` fields is not a background; it is a table the reader has to transpose in their head. State it here once, and let each `R<n>` name only the single fact it changes.
+
+**`## Requirements` is the sole definer of `R<number>`.** Nowhere else in the pipeline mints one. Each requirement is falsifiable: a verifier can write a check that resolves to pass or fail. `Current` / `Target` / `Acceptance` are all three required — a requirement without `Current` cannot be shown to have changed anything, and one without `Acceptance` cannot be verified. `Current` names the single fact this requirement changes; the continuous account stays in `## Background`. "Improve performance" is not a requirement; "p99 falls from 800ms to under 200ms, proven by <check>" is.
+
+**The narrative carries the design in full; `R<number>` carries its checkable form.** A threshold, cap, ordering, or output contract belongs in the prose that explains the component, stated concretely, numbers included — a reader who has to open the appendix to learn what a component does is reading a table of contents. The owning `R<number>` states the same obligation as a pass/fail check that a verifier can run, and downstream stages read it there. The two are one rule in two forms, and they must agree exactly; where they disagree, the R is the one a downstream stage will act on, so fix whichever is wrong rather than deleting one.
 
 **`## Verification` maps every `R<number>` to a proof.** An unmapped requirement is a gap, not an omission. Carry no pass/fail status: whether a run passed is run-scoped state owned by the test matrix, and the durable fact that this spec was verified is a `verified` frontmatter entry.
 
@@ -55,13 +65,38 @@ It is append-only across runs. Reversing an earlier decision adds a new entry na
 
 A design that can only be read as prose is not readable. Show the shape.
 
-**Diagrams are mermaid**, fenced as ` ```mermaid `, because they render in GitHub, Obsidian, and most editors without a build step. Use `flowchart` for component and ownership structure and `sequenceDiagram` for a flow across components. One diagram that carries the whole architecture beats five that each carry a corner of it. A diagram that merely restates the prose next to it earns nothing — delete one of the two.
+**Diagrams are mermaid**, fenced as ` ```mermaid `, because they render in GitHub, Obsidian, and most editors without a build step. Use `flowchart` for structure and ownership, `sequenceDiagram` for a flow across components. A diagram that merely restates the prose beside it earns nothing — delete one of the two.
+
+**`## Architecture` is layered, and every layer this feature reaches is in this file.** A real system has levels, and a single diagram holding all of them is not a summary of the design — it is the design with its levels erased, leaving the reader to recover them by counting nodes. Open at the outermost level: this system, the actors and systems it exchanges with, and what crosses each boundary. Then descend one level at a time, each its own `###` with its own prose. A level gets a diagram when it has structure a diagram can carry — parts, direction, or ordering the sentences would have to enumerate. A leaf that is one boundary and one pin does not, and adding a diagram there to look consistent produces exactly the diagram this contract elsewhere says earns nothing. Prose is what every level owes; a diagram is what some levels need.
+
+These are progressive views of one architecture, each showing the same system at a finer grain. They are not audience tiers: there is no version for a newcomer and a second version for an implementer, because the only reader is the implementer.
+
+**What is in scope for descent.** A part this feature introduces, changes, or depends on through a mechanism that is not obvious from its interface. That last case is the one worth naming: a dependency whose contract is `store(id, payload)` needs no level, while one whose ordering, idempotency, or failure behavior the design leans on does.
+
+**Where descent stops.** At a stable inherited or external interface — describe what crosses the boundary and what is relied on, not what is inside someone else's system. And at the point where the remaining detail is the order in which to build things rather than how the thing is built, which is the implementation plan's.
+
+Within that scope, descending is neither optional nor deferrable. A level this feature introduces or changes and does not describe has been hidden rather than summarised, and "a later document will decompose this" is not available: one spec covers one feature and carries that feature's levels. File length is not a reason to stop; leaving the feature's own surface is.
+
+A part earns its own level when any of these holds, and the check is mechanical:
+
+- it owns a row in the state-ownership table;
+- it has a failure mode of its own in `## Failure and concurrency`;
+- it could be replaced without changing the level above it;
+- the prose says "internally it …" and no diagram shows that inside.
+
+A diagram that already groups its nodes into subgraphs is usually drawing two levels at once, and those subgraph boundaries are where it splits. Prose at every level answers what its diagram cannot: why these boundaries, and what each part is answerable for. A level with a diagram and no prose has shown the structure without explaining the design.
 
 **`## Technology and frameworks` names every technology a reader needs in order to understand this design**, with the role it plays, what it beat, and the constraint it imposes — version floor, platform limit, licence, or cost. Mark each `new` or `inherited`: a reader who cannot tell which choices this run made cannot tell which ones are open to challenge. Downstream stages copy those constraints verbatim, so a constraint that lives only in someone's head is a constraint the plan will break. Omit only infrastructure the design does not touch.
 
 **Interfaces show the boundary, then one illustrative call.** The signature block carries types, names, parameters, return shapes, and errors. The usage block carries a call site, request/response, or event payload with fake values and the real shape — a reviewer catches an awkward boundary from how it is called far faster than from its declaration. Neither block carries bodies, algorithms, or error-handling detail: that is the implementation plan's job, and putting it here creates a second source of truth that drifts the day someone writes real code.
 
 Name modules and interfaces, not file paths. Interfaces survive refactors; paths do not.
+
+## Prose
+
+Write the narrative the way an engineer explains a system to a colleague who has to maintain it. State what a component does, what it owns, and what happens when it fails. A reader should be able to act on every sentence. A specification is impersonal and precise.
+
+A generated draft carries LLM writing habits. They are not a style preference: each one replaces information with emphasis, and a reviewer then argues with the emphasis instead of the design. [The prose reference](prose.md) lists the habits measured in this pipeline's output, the content checks that catch a draft which reads clean and specifies nothing, and — equally important — the essay-writing rules that must not be applied to a spec, because a component subject, a technical adverb, and identical phrasing across requirements are all correct here.
 
 ## Before review
 
@@ -72,6 +107,9 @@ Approved specs contain no assumptions, open questions, TBDs, or TODOs. Unresolve
 3. **Ambiguity** — could any requirement be read two ways? Pick one and say it.
 4. **Scope** — is this focused enough to become one implementation plan?
 5. **Carrier leak** — walk the run-scoped decision log record by record. Each one either has a home in these bytes, or an explicit reason the specified behavior does not depend on it. This is a presence sweep and nothing more: whether each home carries the same obligation is judged by the carriage voice at J, because an author reads their own sentence as obviously meaning what they meant.
-6. **Duplicated rule** — is any gate, cap, threshold, ordering, or output contract written out in full in more than one place? The remedy is not to make the two copies agree; it is to delete the one that does not own the rule and cite the owning `R<number>` in its place. Two copies drift independently, and the weaker one is what a downstream stage happens to read.
+6. **Narrative and appendix disagree** — take each threshold, cap, ordering, and output contract in the prose and read the `R<number>` that owns it. Do they state the same obligation? A number that drifted, a condition the R dropped, or a case the prose added is the finding. Do not resolve it by deleting the prose: the narrative is meant to carry the design, and a downstream stage will act on the R, so both have to be right.
+7. **Narrative self-sufficiency** — read only from the title down to `# Appendices`. Is the design understandable there, without reading further? A sentence whose content is a pointer — "the gate behaves as R7 defines", "see D33" — fails this, and so does an `## Architecture` that is a diagram and a table with no prose between them.
+8. **Flattened architecture** — does any part meeting a level test in `## Diagrams and code` lack its own level? Does any diagram carry subgraphs that were never described one at a time? Both mean levels were erased rather than explained.
+9. **AI writing habits** — walk the table in `## Prose` against the narrative and the decision headings. Slogan headings, antithesis, em dashes used for rhythm, rule-of-three lists, filler transitions, and vague abstractions are all rewritten here, not waved through.
 
-Minor wording, stylistic preference, and uneven detail are not findings.
+Personal wording preference and uneven detail are not findings. The habits listed in `## Prose` are: they cost the reader information, which is why they are a checklist item rather than taste.
