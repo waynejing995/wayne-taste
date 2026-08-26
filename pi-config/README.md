@@ -6,7 +6,7 @@ Single source of truth for Wayne's pi coding-agent config, shipped the same way 
 
 | File | Role | Synced to |
 | --- | --- | --- |
-| `settings.json` | packages list (17 pi extensions), theme, defaults | `~/.pi/agent/settings.json` |
+| `settings.json` | **reference** suggested package list, theme, defaults | `~/.pi/agent/settings.json` — copied only if absent, never overwritten |
 | `pi-statusline.json` | statusline layout/palette | `~/.pi/agent/pi-statusline.json` |
 | `workflows/saved/wayne-code-review-flow.json` | dual model-family review workflow (portable) | `~/.pi/workflows/saved/` |
 | `../CLAUDE.md` | global rules (shared SoT, not a file of this dir) | `~/.pi/agent/AGENTS.md` |
@@ -62,6 +62,8 @@ in particular the note on which client identity it signs in as.
 - **`~/.tmux.conf`** — machine-local.
 - **State**: `auth.json`, `trust.json`, `models-store.json` (regenerated), `npm/` (rebuilt by `pi install`), `workflows/projects/` (run history).
 
-## Note on symlinking settings.json
+## Note on settings.json
 
-`settings.json` is symlinked, so pi's own writes (e.g. a new `pi install` appending to `packages[]`, or `lastChangelogVersion`) flow back into this SoT — keeping the package list current with no manual step. Commit the churn as normal.
+`settings.json` is a **reference**, not a managed link: a suggested package list plus sane defaults. Every machine owns its own `~/.pi/agent/settings.json` (pi writes `theme`, `lastChangelogVersion` and `pi install` additions into it), so `sync.sh` copies the reference only when the machine has none, and otherwise leaves the local file alone and prints a diff against the reference — `-` is local-only, `+` is suggested here. Adopt what you want by hand.
+
+Keeping the reference current is therefore a manual step: when a package earns its place, add it here and commit.

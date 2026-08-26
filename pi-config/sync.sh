@@ -8,6 +8,11 @@
 # Also links ~/.pi/agent/AGENTS.md — pi's global rules — to the repo-root
 # CLAUDE.md, the SoT both agents resolve to.
 #
+# settings.json is the ONE exception: it is a reference (suggested packages and
+# defaults), not a managed link. It is copied only when the machine has none,
+# and an existing local settings.json is never touched — the script just prints
+# the diff against the reference.
+#
 # Extensions: only the ones shipped in pi-config/extensions/ are linked. Any
 # other extension in ~/.pi/agent/extensions (herdr, orca, machine-local
 # experiments) is left completely alone -- this script adds links, it never
@@ -56,10 +61,45 @@ link_one() {
   echo "LINK  ${link} -> ${target}"
 }
 
+# settings.json is a REFERENCE, not a managed link: it carries the suggested
+# package list and defaults, while each machine keeps its own local settings (pi
+# writes theme, lastChangelogVersion and `pi install` additions into it). Seed it
+# once when absent; never overwrite an existing one — instead show how the local
+# file drifted from the reference, so a new suggested package is visible here
+# rather than silently forced in.
+seed_settings() {
+  local target="${SOT}/settings.json" link="${AGENT}/settings.json"
+  if [ ! -f "$target" ]; then
+    echo "ERROR: missing at SoT: ${target}" >&2
+    return 1
+  fi
+  if [ -e "$link" ] || [ -L "$link" ]; then
+    if [ ! -r "$link" ]; then
+      echo "ERROR: ${link} exists but is not readable (broken symlink?)" >&2
+      return 1
+    fi
+    if diff -q "$link" "$target" >/dev/null; then
+      echo "KEEP  ${link} (local; identical to reference ${target})"
+    else
+      echo "KEEP  ${link} (local; NOT overwritten). Diff vs reference ${target}"
+      echo "      '-' = only in your local file, '+' = suggested by the reference"
+      diff -u "$link" "$target" | tail -n +3 | sed 's/^/      /'
+    fi
+    return
+  fi
+  if [ "$DRY" = "--dry-run" ]; then
+    echo "WOULD cp ${target} ${link}  (seed: absent locally)"
+    return
+  fi
+  mkdir -p "$(dirname "$link")"
+  cp "$target" "$link"
+  echo "SEED  ${link} <- ${target} (copy, not a symlink; yours to edit)"
+}
+
 # Global rules. Points at the SoT CLAUDE.md directly, NOT at ~/.claude/CLAUDE.md:
 # chaining through another agent's home would break pi wherever Claude is absent.
 link_one "${SKILLS_ROOT}/CLAUDE.md"                      "${AGENT}/AGENTS.md"
-link_one "${SOT}/settings.json"                          "${AGENT}/settings.json"
+seed_settings
 link_one "${SOT}/pi-statusline.json"                     "${AGENT}/pi-statusline.json"
 link_one "${SOT}/workflows/saved/wayne-code-review-flow.json" "${WF_SAVED}/wayne-code-review-flow.json"
 
