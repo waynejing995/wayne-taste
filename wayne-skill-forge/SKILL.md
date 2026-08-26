@@ -72,8 +72,9 @@ If a router has fewer than three playbooks, use a procedure with a branch. If a 
 
 Flowchart is Wayne’s control-flow language. Add it when the skill has a decision, loop, route, retry, approval gate, or multiple terminal states. The Flowchart owns sequence and branching. The process sections own node inputs, actions, outputs, and verification.
 
-- Use a `dot` fence and stable node IDs (`A`, `B`, `C`) with short labels.
-- Use `box` for action, `diamond` for decision, and `doublecircle` for terminal.
+- Use a `mermaid` fence with `flowchart TB` (or `LR`) and stable node IDs (`A`, `B`, `C`) with short quoted labels.
+- Use `["action"]` for action, `{"decision"}` for decision, and `(["terminal"])` for terminal.
+- Use only native Mermaid shapes: no `style`, `classDef`, `linkStyle`, `%%{init}%%`, or theming, so the diagram renders identically in any Markdown viewer.
 - Label every outgoing decision edge; include the no-match or failure path.
 - Keep commands, schemas, and explanations out of node labels.
 - Match process headings to action node IDs, such as `### D. Draft`.
@@ -82,35 +83,33 @@ Flowchart is Wayne’s control-flow language. Add it when the skill has a decisi
 
 ## Flow
 
-```dot
-digraph forge {
-    rankdir=TB;
-    A [label="Intake evidence", shape=box];
-    B [label="Repeatable and converged?", shape=diamond];
-    X [label="Stop or return to design", shape=doublecircle];
-    C [label="Choose archetype and baseline", shape=box];
-    D [label="Draft minimum skill", shape=box];
-    E [label="Validate loader metadata", shape=box];
-    V [label="Loader metadata valid?", shape=diamond];
-    F [label="Behavioral eval passes?", shape=diamond];
-    R [label="Revise from observed failure", shape=box];
-    G [label="User approves write?", shape=diamond];
-    W [label="Write requested files", shape=doublecircle];
-    S [label="Stop without writing", shape=doublecircle];
-    A -> B;
-    B -> X [label="no"];
-    B -> C [label="yes"];
-    C -> D;
-    D -> E;
-    E -> V;
-    V -> R [label="no"];
-    V -> F [label="yes"];
-    F -> R [label="no"];
-    R -> D;
-    F -> G [label="yes"];
-    G -> W [label="yes"];
-    G -> S [label="no"];
-}
+```mermaid
+flowchart TB
+    A["Intake evidence"]
+    B{"Repeatable and converged?"}
+    X(["Stop or return to design"])
+    C["Choose archetype and baseline"]
+    D["Draft minimum skill"]
+    E["Validate loader metadata"]
+    V{"Loader metadata valid?"}
+    F{"Behavioral eval passes?"}
+    R["Revise from observed failure"]
+    G{"User approves write?"}
+    W(["Write requested files"])
+    S(["Stop without writing"])
+    A --> B
+    B -->|"no"| X
+    B -->|"yes"| C
+    C --> D
+    D --> E
+    E --> V
+    V -->|"no"| R
+    V -->|"yes"| F
+    F -->|"no"| R
+    R --> D
+    F -->|"yes"| G
+    G -->|"yes"| W
+    G -->|"no"| S
 ```
 
 ## Process

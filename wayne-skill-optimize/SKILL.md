@@ -16,35 +16,33 @@ Read `wayne-skill-forge` and its `references/eval.md` completely before building
 
 ## Flow
 
-```dot
-digraph skill_optimize {
-    rankdir=TB;
-    A [label="Recover intent and lock control", shape=box];
-    B [label="Map intent and freeze harness", shape=box];
-    C [label="Intent verified and optimization evidenced?", shape=diamond];
-    X [label="Stop: no valid optimization evidence", shape=doublecircle];
-    D [label="Generate bounded candidate", shape=box];
-    E [label="Run static and paired behavior", shape=box];
-    F [label="Acceptance gate passes?", shape=diamond];
-    R [label="Record and revise", shape=box];
-    J [label="Reject candidate", shape=doublecircle];
-    G [label="Write approved candidate?", shape=diamond];
-    W [label="Write and report", shape=doublecircle];
-    S [label="Keep staged only", shape=doublecircle];
+```mermaid
+flowchart TB
+    A["Recover intent and lock control"]
+    B["Map intent and freeze harness"]
+    C{"Intent verified and optimization evidenced?"}
+    X(["Stop: no valid optimization evidence"])
+    D["Generate bounded candidate"]
+    E["Run static and paired behavior"]
+    F{"Acceptance gate passes?"}
+    R["Record and revise"]
+    J(["Reject candidate"])
+    G{"Write approved candidate?"}
+    W(["Write and report"])
+    S(["Keep staged only"])
 
-    A -> B;
-    B -> C;
-    C -> X [label="no"];
-    C -> D [label="yes"];
-    D -> E;
-    E -> F;
-    F -> G [label="yes"];
-    F -> R [label="no"];
-    R -> D [label="evidence-backed edit"];
-    R -> J [label="no valid edit"];
-    G -> W [label="yes"];
-    G -> S [label="no"];
-}
+    A --> B
+    B --> C
+    C -->|"no"| X
+    C -->|"yes"| D
+    D --> E
+    E --> F
+    F -->|"yes"| G
+    F -->|"no"| R
+    R -->|"evidence-backed edit"| D
+    R -->|"no valid edit"| J
+    G -->|"yes"| W
+    G -->|"no"| S
 ```
 
 ## Process

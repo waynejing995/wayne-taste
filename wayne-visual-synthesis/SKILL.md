@@ -24,35 +24,33 @@ Load only the direct resources required by the image or mode:
 
 ## Flow
 
-```dot
-digraph visual_synthesis {
-    rankdir=TB;
-    A [label="Resolve inputs and backend", shape=box];
-    B [label="Explicit comparison?", shape=diamond];
-    C [label="Synthesize each image", shape=box];
-    D [label="Coverage complete?", shape=diamond];
-    R [label="Reinspect or mark partial/blocked", shape=box];
-    S [label="Emit VEL, then synthesis", shape=doublecircle];
-    E [label="Resolve compare intake", shape=box];
-    F [label="Intake resolved?", shape=diamond];
-    X [label="Stop and ask one blocking question", shape=doublecircle];
-    G [label="Pixel and channel comparison", shape=box];
-    H [label="Ledger comparison", shape=box];
-    I [label="Reconcile and report", shape=doublecircle];
-    A -> B;
-    B -> C [label="no"];
-    C -> D;
-    D -> R [label="no"];
-    R -> D;
-    D -> S [label="yes or limitation recorded"];
-    B -> E [label="yes"];
-    E -> F;
-    F -> X [label="no"];
-    F -> C [label="yes"];
-    C -> G [label="compare mode"];
-    G -> H;
-    H -> I;
-}
+```mermaid
+flowchart TB
+    A["Resolve inputs and backend"]
+    B{"Explicit comparison?"}
+    C["Synthesize each image"]
+    D{"Coverage complete?"}
+    R["Reinspect or mark partial/blocked"]
+    S(["Emit VEL, then synthesis"])
+    E["Resolve compare intake"]
+    F{"Intake resolved?"}
+    X(["Stop and ask one blocking question"])
+    G["Pixel and channel comparison"]
+    H["Ledger comparison"]
+    I(["Reconcile and report"])
+    A --> B
+    B -->|"no"| C
+    C --> D
+    D -->|"no"| R
+    R --> D
+    D -->|"yes or limitation recorded"| S
+    B -->|"yes"| E
+    E --> F
+    F -->|"no"| X
+    F -->|"yes"| C
+    C -->|"compare mode"| G
+    G --> H
+    H --> I
 ```
 
 ## Process

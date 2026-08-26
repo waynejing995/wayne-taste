@@ -22,24 +22,22 @@ The lens applies the **same 8 principles** across:
 
 ## How to Apply (Decision Tree)
 
-```dot
-digraph apply_lens {
-  rankdir=TB;
-  "Question / problem received" [shape=box];
-  "Involves systems / state / control / process / feedback?" [shape=diamond];
-  "Apply lens" [shape=box];
-  "Skip lens" [shape=box];
-  "Step 1: Model the system" [shape=box];
-  "Step 2: Identify failures" [shape=box];
-  "Step 3: Recommend interventions" [shape=box];
+```mermaid
+flowchart TB
+    A["Question / problem received"]
+    B{"Involves systems / state / control / process / feedback?"}
+    C["Apply lens"]
+    D["Skip lens"]
+    E["Step 1: Model the system"]
+    F["Step 2: Identify failures"]
+    G["Step 3: Recommend interventions"]
 
-  "Question / problem received" -> "Involves systems / state / control / process / feedback?";
-  "Involves systems / state / control / process / feedback?" -> "Apply lens" [label="yes"];
-  "Involves systems / state / control / process / feedback?" -> "Skip lens" [label="no — pure logic / 1-line task"];
-  "Apply lens" -> "Step 1: Model the system";
-  "Step 1: Model the system" -> "Step 2: Identify failures";
-  "Step 2: Identify failures" -> "Step 3: Recommend interventions";
-}
+    A --> B
+    B -->|"yes"| C
+    B -->|"no — pure logic / 1-line task"| D
+    C --> E
+    E --> F
+    F --> G
 ```
 
 **Step 1 — Model the system.** Always run Principle #1 first. If you cannot name Plant / Controller / Setpoint / Disturbance / Feedback, stop and ask.

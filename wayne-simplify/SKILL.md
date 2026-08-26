@@ -15,34 +15,32 @@ Behavior is frozen. Anything requiring a change to a public interface, error sem
 
 ## Flow
 
-```dot
-digraph simplify {
-    rankdir=TB;
-    A [label="Scope the settled diff", shape=box];
-    B [label="Baseline verification green?", shape=diamond];
-    X [label="Stop: fix or finish first", shape=doublecircle];
-    C [label="Read changed files as one whole", shape=box];
-    D [label="Collect candidates", shape=box];
-    E [label="Any candidate survives the guardrails?", shape=diamond];
-    N [label="Report: nothing to cut", shape=doublecircle];
-    F [label="Apply one batch of edits", shape=box];
-    G [label="Re-run the same verification", shape=box];
-    H [label="Green and behavior identical?", shape=diamond];
-    R [label="Revert that batch", shape=box];
-    I [label="Report applied, skipped, evidence", shape=doublecircle];
-    A -> B;
-    B -> X [label="no"];
-    B -> C [label="yes"];
-    C -> D;
-    D -> E;
-    E -> N [label="no"];
-    E -> F [label="yes"];
-    F -> G;
-    G -> H;
-    H -> R [label="no"];
-    R -> D;
-    H -> I [label="yes"];
-}
+```mermaid
+flowchart TB
+    A["Scope the settled diff"]
+    B{"Baseline verification green?"}
+    X(["Stop: fix or finish first"])
+    C["Read changed files as one whole"]
+    D["Collect candidates"]
+    E{"Any candidate survives the guardrails?"}
+    N(["Report: nothing to cut"])
+    F["Apply one batch of edits"]
+    G["Re-run the same verification"]
+    H{"Green and behavior identical?"}
+    R["Revert that batch"]
+    I(["Report applied, skipped, evidence"])
+    A --> B
+    B -->|"no"| X
+    B -->|"yes"| C
+    C --> D
+    D --> E
+    E -->|"no"| N
+    E -->|"yes"| F
+    F --> G
+    G --> H
+    H -->|"no"| R
+    R --> D
+    H -->|"yes"| I
 ```
 
 ## Process

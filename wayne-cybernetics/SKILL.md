@@ -34,27 +34,25 @@ Skip for:
 
 ## Process
 
-```dot
-digraph wayne_cybernetics {
-  rankdir=TB;
-  "1. Read the lens" [shape=box];
-  "2. Step 1: System modeling\n(Principle #1)" [shape=box];
-  "Can name all 5 (Plant/Controller/Setpoint/Disturbance/Feedback)?" [shape=diamond];
-  "Ask user for missing piece" [shape=box];
-  "3. Walk diagnostics\n(Principles #2-#8)" [shape=box];
-  "4. Surface findings\n(per failed principle)" [shape=box];
-  "5. Recommend interventions\n(per finding)" [shape=box];
-  "6. Output structured diagnosis" [shape=doublecircle];
+```mermaid
+flowchart TB
+    A["1. Read the lens"]
+    B["2. Step 1: System modeling<br/>(Principle #1)"]
+    C{"Can name all 5 (Plant/Controller/Setpoint/Disturbance/Feedback)?"}
+    D["Ask user for missing piece"]
+    E["3. Walk diagnostics<br/>(Principles #2-#8)"]
+    F["4. Surface findings<br/>(per failed principle)"]
+    G["5. Recommend interventions<br/>(per finding)"]
+    X(["6. Output structured diagnosis"])
 
-  "1. Read the lens" -> "2. Step 1: System modeling\n(Principle #1)";
-  "2. Step 1: System modeling\n(Principle #1)" -> "Can name all 5 (Plant/Controller/Setpoint/Disturbance/Feedback)?";
-  "Can name all 5 (Plant/Controller/Setpoint/Disturbance/Feedback)?" -> "Ask user for missing piece" [label="no"];
-  "Ask user for missing piece" -> "Can name all 5 (Plant/Controller/Setpoint/Disturbance/Feedback)?";
-  "Can name all 5 (Plant/Controller/Setpoint/Disturbance/Feedback)?" -> "3. Walk diagnostics\n(Principles #2-#8)" [label="yes"];
-  "3. Walk diagnostics\n(Principles #2-#8)" -> "4. Surface findings\n(per failed principle)";
-  "4. Surface findings\n(per failed principle)" -> "5. Recommend interventions\n(per finding)";
-  "5. Recommend interventions\n(per finding)" -> "6. Output structured diagnosis";
-}
+    A --> B
+    B --> C
+    C -->|"no"| D
+    D --> C
+    C -->|"yes"| E
+    E --> F
+    F --> G
+    G --> X
 ```
 
 ## Phase 1 — Read the Lens

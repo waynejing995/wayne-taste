@@ -17,66 +17,64 @@ Produce an English implementation plan that a fresh `wayne-work` agent can execu
 
 ## Flow
 
-```dot
-digraph wayne_plan {
-    rankdir=TB;
-    S [label="Decision log present?", shape=diamond];
-    LT [label="Load lite-planning.md", shape=box];
-    A [label="Discover sources", shape=box];
-    B [label="Bind evidence and context", shape=box];
-    C [label="Active conflict?", shape=diamond];
-    X [label="PLAN_CONFLICT", shape=doublecircle];
-    D [label="E contract owned?", shape=diamond];
-    O [label="Converged direct request?", shape=diamond];
-    T [label="Delegate test design", shape=box];
-    Y [label="MISSING_E2E", shape=doublecircle];
-    E [label="Trace cleanup surfaces", shape=box];
-    F [label="Draft canonical plan", shape=box];
-    DP [label="Score section confidence", shape=diamond];
-    DS [label="Strengthen selected sections", shape=box];
-    G [label="Every applicable voice valid, zero findings?", shape=diamond];
-    ADJ [label="Adjudicate findings", shape=box];
-    N [label="Ask about the challenged decision", shape=diamond];
-    H [label="Revise from findings", shape=box];
-    J [label="Present plan", shape=box];
-    K [label="Return-only requested?", shape=diamond];
-    R [label="Return plan", shape=doublecircle];
-    L [label="Checkpoint handoff", shape=box];
-    W [label="Ready for wayne-work", shape=doublecircle];
+```mermaid
+flowchart TB
+    S{"Decision log present?"}
+    LT["Load lite-planning.md"]
+    A["Discover sources"]
+    B["Bind evidence and context"]
+    C{"Active conflict?"}
+    X(["PLAN_CONFLICT"])
+    D{"E contract owned?"}
+    O{"Converged direct request?"}
+    T["Delegate test design"]
+    Y(["MISSING_E2E"])
+    E["Trace cleanup surfaces"]
+    F["Draft canonical plan"]
+    DP{"Score section confidence"}
+    DS["Strengthen selected sections"]
+    G{"Every applicable voice valid, zero findings?"}
+    ADJ["Adjudicate findings"]
+    N{"Ask about the challenged decision"}
+    H["Revise from findings"]
+    J["Present plan"]
+    K{"Return-only requested?"}
+    R(["Return plan"])
+    L["Checkpoint handoff"]
+    W(["Ready for wayne-work"])
 
-    S -> A [label="yes"];
-    S -> LT [label="no"];
-    LT -> C;
-    A -> B;
-    B -> C;
-    C -> X [label="yes"];
-    C -> D [label="no"];
-    D -> O [label="no"];
-    O -> T [label="yes"];
-    O -> Y [label="no"];
-    T -> D;
-    D -> E [label="yes"];
-    E -> F;
-    F -> DP;
-    DP -> G [label="no weak section"];
-    DP -> DS [label="2-5 weak"];
-    DP -> F [label="too thin to deepen"];
-    DS -> G;
-    G -> J [label="yes"];
-    G -> ADJ [label="no"];
-    ADJ -> H [label="carrier loss / real defect"];
-    ADJ -> N [label="challenges a decision"];
-    ADJ -> C [label="upstream product gap"];
-    ADJ -> D [label="absent E ownership"];
-    ADJ -> J [label="all remaining non-blocking"];
-    N -> ADJ [label="decision stands"];
-    N -> X [label="reopened"];
-    H -> F;
-    J -> K;
-    K -> R [label="yes"];
-    K -> L [label="no"];
-    L -> W;
-}
+    S -->|"yes"| A
+    S -->|"no"| LT
+    LT --> C
+    A --> B
+    B --> C
+    C -->|"yes"| X
+    C -->|"no"| D
+    D -->|"no"| O
+    O -->|"yes"| T
+    O -->|"no"| Y
+    T --> D
+    D -->|"yes"| E
+    E --> F
+    F --> DP
+    DP -->|"no weak section"| G
+    DP -->|"2-5 weak"| DS
+    DP -->|"too thin to deepen"| F
+    DS --> G
+    G -->|"yes"| J
+    G -->|"no"| ADJ
+    ADJ -->|"carrier loss / real defect"| H
+    ADJ -->|"challenges a decision"| N
+    ADJ -->|"upstream product gap"| C
+    ADJ -->|"absent E ownership"| D
+    ADJ -->|"all remaining non-blocking"| J
+    N -->|"decision stands"| ADJ
+    N -->|"reopened"| X
+    H --> F
+    J --> K
+    K -->|"yes"| R
+    K -->|"no"| L
+    L --> W
 ```
 
 ## Process

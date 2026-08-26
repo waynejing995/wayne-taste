@@ -38,32 +38,29 @@ Search terms only locate candidates. Read each candidate's complete trigger, sco
 
 ## Process Flow
 
-```dot
-digraph compound {
-    rankdir=TB;
+```mermaid
+flowchart TB
+    A["Gather pipeline artifacts<br/>(decision log, plan,<br/>review, commits)"]
+    B["Extract the real insight<br/>(not just what happened)"]
+    C["Classify:<br/>bug / pattern / decision / how-to"]
+    D["Search KB + docs/solutions/<br/>for duplicates"]
+    E{"Duplicate found?"}
+    F["Update existing entry"]
+    G["Write new KB entry<br/>(${KB_DIR}/)"]
+    H["Write repo doc<br/>(docs/solutions/)"]
+    I["Cross-reference<br/>KB <-> repo doc"]
+    X(["Done"])
 
-    "Gather pipeline artifacts\n(decision log, plan,\nreview, commits)" [shape=box];
-    "Extract the real insight\n(not just what happened)" [shape=box];
-    "Classify:\nbug / pattern / decision / how-to" [shape=box];
-    "Search KB + docs/solutions/\nfor duplicates" [shape=box];
-    "Duplicate found?" [shape=diamond];
-    "Update existing entry" [shape=box];
-    "Write new KB entry\n(${KB_DIR}/)" [shape=box];
-    "Write repo doc\n(docs/solutions/)" [shape=box];
-    "Cross-reference\nKB <-> repo doc" [shape=box];
-    "Done" [shape=doublecircle];
-
-    "Gather pipeline artifacts\n(decision log, plan,\nreview, commits)" -> "Extract the real insight\n(not just what happened)";
-    "Extract the real insight\n(not just what happened)" -> "Classify:\nbug / pattern / decision / how-to";
-    "Classify:\nbug / pattern / decision / how-to" -> "Search KB + docs/solutions/\nfor duplicates";
-    "Search KB + docs/solutions/\nfor duplicates" -> "Duplicate found?";
-    "Duplicate found?" -> "Update existing entry" [label="yes"];
-    "Duplicate found?" -> "Write new KB entry\n(${KB_DIR}/)" [label="no"];
-    "Update existing entry" -> "Done";
-    "Write new KB entry\n(${KB_DIR}/)" -> "Write repo doc\n(docs/solutions/)";
-    "Write repo doc\n(docs/solutions/)" -> "Cross-reference\nKB <-> repo doc";
-    "Cross-reference\nKB <-> repo doc" -> "Done";
-}
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E -->|"yes"| F
+    E -->|"no"| G
+    F --> X
+    G --> H
+    H --> I
+    I --> X
 ```
 
 ---

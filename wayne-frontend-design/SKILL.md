@@ -39,37 +39,35 @@ Read the one that matches the step you are on. Do not preload the set.
 
 ## Flow
 
-```dot
-digraph frontend_design {
-    rankdir=TB;
-    P [label="Preflight: policy read", shape=box];
-    A [label="Layer 0: detect context and surface", shape=box];
-    B [label="Provisional Design Read + dials", shape=box];
-    Q [label="Read genuinely ambiguous?", shape=diamond];
-    K [label="Ask ONE question", shape=box];
-    N [label="Anchor search; finalize family/system", shape=box];
-    S [label="Sketch 2-3 structures as wireframes", shape=box];
-    C [label="Build 2-3 divergent mocks and capture", shape=box];
-    D [label="User picks a direction?", shape=diamond];
-    E [label="Build the approved direction", shape=box];
-    F [label="Visual verify + litmus", shape=box];
-    Z [label="Brief Chinese summary", shape=doublecircle];
+```mermaid
+flowchart TB
+    P["Preflight: policy read"]
+    A["Layer 0: detect context and surface"]
+    B["Provisional Design Read + dials"]
+    Q{"Read genuinely ambiguous?"}
+    K["Ask ONE question"]
+    N["Anchor search; finalize family/system"]
+    S["Sketch 2-3 structures as wireframes"]
+    C["Build 2-3 divergent mocks and capture"]
+    D{"User picks a direction?"}
+    E["Build the approved direction"]
+    F["Visual verify + litmus"]
+    Z(["Brief Chinese summary"])
 
-    P -> A;
-    A -> B;
-    B -> Q;
-    Q -> K [label="yes"];
-    Q -> N [label="no"];
-    K -> N;
-    N -> S;
-    S -> C;
-    C -> D;
-    D -> C [label="no: revise from feedback"];
-    D -> B [label="no: all rejected, read was wrong"];
-    D -> E [label="yes"];
-    E -> F;
-    F -> Z;
-}
+    P --> A
+    A --> B
+    B --> Q
+    Q -->|"yes"| K
+    Q -->|"no"| N
+    K --> N
+    N --> S
+    S --> C
+    C --> D
+    D -->|"no: revise from feedback"| C
+    D -->|"no: all rejected, read was wrong"| B
+    D -->|"yes"| E
+    E --> F
+    F --> Z
 ```
 
 Track one task per flow node. Do not build the real thing before node D passes.

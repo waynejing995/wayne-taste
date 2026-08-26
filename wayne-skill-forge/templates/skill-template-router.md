@@ -25,27 +25,24 @@ description: <180-400 characters: what situation family this routes, when to use
 
 ## Flow
 
-```dot
-digraph <name> {
-    rankdir=TB;
+```mermaid
+flowchart TB
+    A["Collect routing evidence"]
+    B{"Which signal matches?"}
+    C["Read playbook A"]
+    D["Read playbook B"]
+    E["Read playbook C"]
+    X(["Stop: no playbook fits"])
+    G(["Run selected playbook"])
 
-    A [label="Collect routing evidence", shape=box];
-    B [label="Which signal matches?", shape=diamond];
-    C [label="Read playbook A", shape=box];
-    D [label="Read playbook B", shape=box];
-    E [label="Read playbook C", shape=box];
-    X [label="Stop: no playbook fits", shape=doublecircle];
-    G [label="Run selected playbook", shape=doublecircle];
-
-    A -> B;
-    B -> C [label="A"];
-    B -> D [label="B"];
-    B -> E [label="C"];
-    B -> X [label="none"];
-    C -> G;
-    D -> G;
-    E -> G;
-}
+    A --> B
+    B -->|"A"| C
+    B -->|"B"| D
+    B -->|"C"| E
+    B -->|"none"| X
+    C --> G
+    D --> G
+    E --> G
 ```
 
 ## Process

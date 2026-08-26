@@ -33,56 +33,54 @@ Nothing else goes in `docs/`. A run abandoned mid-design is the normal case, not
 
 ## Flow
 
-```dot
-digraph mind_explode {
-    rankdir=TB;
-    A [label="Open decision log", shape=box];
-    B [label="Research one fact or branch", shape=box];
-    P [label="Persist one discovered decision", shape=box];
-    C [label="Next DAG node?", shape=diamond];
-    D [label="Ask one recommended question", shape=box];
-    Q [label="Persist one user decision", shape=box];
-    E [label="Converge and approve design", shape=box];
-    F [label="Create test matrix", shape=box];
-    G [label="Conflict and legacy review", shape=box];
-    H [label="Conflict remains?", shape=diamond];
-    I [label="Write spec", shape=box];
-    V [label="Written spec approved?", shape=diamond];
-    J [label="Run three independent reviews", shape=box];
-    K [label="Both valid on the final revision, zero findings?", shape=diamond];
-    ADJ [label="Adjudicate findings", shape=box];
-    R [label="Revise from findings", shape=box];
-    U [label="Review mechanism available?", shape=diamond];
-    X [label="Stop: review unavailable", shape=doublecircle];
-    L [label="Handoff to wayne-plan", shape=doublecircle];
+```mermaid
+flowchart TB
+    A["Open decision log"]
+    B["Research one fact or branch"]
+    P["Persist one discovered decision"]
+    C{"Next DAG node?"}
+    D["Ask one recommended question"]
+    Q["Persist one user decision"]
+    E["Converge and approve design"]
+    F["Create test matrix"]
+    G["Conflict and legacy review"]
+    H{"Conflict remains?"}
+    I["Write spec"]
+    V{"Written spec approved?"}
+    J["Run three independent reviews"]
+    K{"Both valid on the final revision, zero findings?"}
+    ADJ["Adjudicate findings"]
+    R["Revise from findings"]
+    U{"Review mechanism available?"}
+    X(["Stop: review unavailable"])
+    L(["Handoff to wayne-plan"])
 
-    A -> B;
-    B -> P;
-    P -> C;
-    C -> B [label="fact"];
-    C -> D [label="choice"];
-    D -> Q;
-    Q -> C;
-    Q -> ADJ [label="challenge rejected"];
-    C -> E [label="empty"];
-    E -> F;
-    F -> G;
-    G -> H;
-    H -> D [label="yes"];
-    H -> I [label="no"];
-    I -> U;
-    U -> V [label="yes"];
-    U -> X [label="no"];
-    V -> I [label="no: revise"];
-    V -> J [label="yes"];
-    J -> K;
-    K -> L [label="yes"];
-    K -> ADJ [label="no"];
-    ADJ -> R [label="carrier loss / real defect"];
-    ADJ -> D [label="challenges a decision / upstream gap"];
-    ADJ -> L [label="all remaining non-blocking"];
-    R -> V;
-}
+    A --> B
+    B --> P
+    P --> C
+    C -->|"fact"| B
+    C -->|"choice"| D
+    D --> Q
+    Q --> C
+    Q -->|"challenge rejected"| ADJ
+    C -->|"empty"| E
+    E --> F
+    F --> G
+    G --> H
+    H -->|"yes"| D
+    H -->|"no"| I
+    I --> U
+    U -->|"yes"| V
+    U -->|"no"| X
+    V -->|"no: revise"| I
+    V -->|"yes"| J
+    J --> K
+    K -->|"yes"| L
+    K -->|"no"| ADJ
+    ADJ -->|"carrier loss / real defect"| R
+    ADJ -->|"challenges a decision / upstream gap"| D
+    ADJ -->|"all remaining non-blocking"| L
+    R --> V
 ```
 
 ## Process

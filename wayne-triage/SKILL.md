@@ -26,41 +26,39 @@ Every claim and route must land in one evidence file. No root-cause evidence mea
 
 ## Flow
 
-```dot
-digraph triage {
-    rankdir=TB;
-    A [label="Input data available?", shape=diamond];
-    Q [label="Ask where or how to fetch", shape=doublecircle];
-    B [label="Select input surface", shape=diamond];
-    C [label="Open evidence SSoT", shape=box];
-    D [label="Verify or reproduce", shape=box];
-    E [label="Matching signal?", shape=diamond];
-    N [label="Record needs-info", shape=doublecircle];
-    F [label="Classify and test hypotheses", shape=box];
-    G [label="Attribution agrees?", shape=diamond];
-    U [label="Preserve both candidates", shape=box];
-    H [label="Select route from landing field", shape=box];
-    I [label="User approves handoff?", shape=diamond];
-    S [label="Stop with recommendation", shape=doublecircle];
-    J [label="Checkpoint handoff", shape=doublecircle];
+```mermaid
+flowchart TB
+    A{"Input data available?"}
+    Q(["Ask where or how to fetch"])
+    B{"Select input surface"}
+    C["Open evidence SSoT"]
+    D["Verify or reproduce"]
+    E{"Matching signal?"}
+    N(["Record needs-info"])
+    F["Classify and test hypotheses"]
+    G{"Attribution agrees?"}
+    U["Preserve both candidates"]
+    H["Select route from landing field"]
+    I{"User approves handoff?"}
+    S(["Stop with recommendation"])
+    J(["Checkpoint handoff"])
 
-    A -> Q [label="no"];
-    A -> B [label="yes"];
-    B -> C [label="failure"];
-    B -> C [label="tracker"];
-    B -> C [label="tracker + artifact"];
-    C -> D;
-    D -> E;
-    E -> N [label="no"];
-    E -> F [label="yes"];
-    F -> G;
-    G -> U [label="no"];
-    G -> H [label="yes"];
-    U -> H;
-    H -> I;
-    I -> S [label="no"];
-    I -> J [label="yes"];
-}
+    A -->|"no"| Q
+    A -->|"yes"| B
+    B -->|"failure"| C
+    B -->|"tracker"| C
+    B -->|"tracker + artifact"| C
+    C --> D
+    D --> E
+    E -->|"no"| N
+    E -->|"yes"| F
+    F --> G
+    G -->|"no"| U
+    G -->|"yes"| H
+    U --> H
+    H --> I
+    I -->|"no"| S
+    I -->|"yes"| J
 ```
 
 ## Process

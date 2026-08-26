@@ -13,36 +13,33 @@ Produce a report on a foreign codebase where every `path:line`, every quoted sen
 
 ## Flow
 
-```dot
-digraph codebase_report {
-    rankdir=TB;
+```mermaid
+flowchart TB
+    A["Intake repo and question"]
+    B{"History claims needed?"}
+    C["Repair or drop history"]
+    D["Fan out read-only scouts"]
+    E["Draft with citations"]
+    F["Run verifier"]
+    V{"Verifier clean?"}
+    G["Audit claim strength"]
+    H{"Any claim exceeds its evidence?"}
+    R["Weaken, cite, or delete the claim"]
+    Z(["Deliver with boundaries section"])
 
-    A [label="Intake repo and question", shape=box];
-    B [label="History claims needed?", shape=diamond];
-    C [label="Repair or drop history", shape=box];
-    D [label="Fan out read-only scouts", shape=box];
-    E [label="Draft with citations", shape=box];
-    F [label="Run verifier", shape=box];
-    V [label="Verifier clean?", shape=diamond];
-    G [label="Audit claim strength", shape=box];
-    H [label="Any claim exceeds its evidence?", shape=diamond];
-    R [label="Weaken, cite, or delete the claim", shape=box];
-    Z [label="Deliver with boundaries section", shape=doublecircle];
-
-    A -> B;
-    B -> C [label="yes"];
-    B -> D [label="no"];
-    C -> D;
-    D -> E;
-    E -> F;
-    F -> V;
-    V -> R [label="no"];
-    V -> G [label="yes"];
-    G -> H;
-    H -> R [label="yes"];
-    R -> E;
-    H -> Z [label="no"];
-}
+    A --> B
+    B -->|"yes"| C
+    B -->|"no"| D
+    C --> D
+    D --> E
+    E --> F
+    F --> V
+    V -->|"no"| R
+    V -->|"yes"| G
+    G --> H
+    H -->|"yes"| R
+    R --> E
+    H -->|"no"| Z
 ```
 
 ## Process

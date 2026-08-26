@@ -39,41 +39,38 @@ Before collection, stop when history is thin (< ~10 sessions) or the last run fo
 
 ## Flow
 
-```dot
-digraph distill {
-    rankdir=TB;
+```mermaid
+flowchart TB
+    A{"Enough history or new evidence?"}
+    X(["Stop: keep evidence threshold"])
+    B["uv run scan_sessions.py<br/>(embed + Leiden → clusters.json)"]
+    C["Pick clusters to analyze<br/>(token budget: top-N by sessions)"]
+    D["Fan out 1 analyst / cluster<br/>(induce pattern: procedure OR mistake)"]
+    E["Merge + dedup analyst verdicts<br/>(cross-cluster same pattern → one)"]
+    F{"Per pattern: decide fate"}
+    G["New skill<br/>(write pattern → forge)"]
+    H["Extend a skill<br/>(add section / anti-pattern)"]
+    I["Drop / →wayne-compound"]
+    J["Present candidate table<br/>(gate, Chinese)"]
+    K{"User approves?"}
+    L["Write pattern file(s)<br/>→ /wayne-skill-forge"]
+    Z(["Done"])
 
-    "Enough history or new evidence?" [shape=diamond];
-    "Stop: keep evidence threshold" [shape=doublecircle];
-    "uv run scan_sessions.py\n(embed + Leiden → clusters.json)" [shape=box];
-    "Pick clusters to analyze\n(token budget: top-N by sessions)" [shape=box];
-    "Fan out 1 analyst / cluster\n(induce pattern: procedure OR mistake)" [shape=box, style=bold];
-    "Merge + dedup analyst verdicts\n(cross-cluster same pattern → one)" [shape=box];
-    "Per pattern: decide fate" [shape=diamond];
-    "New skill\n(write pattern → forge)" [shape=box];
-    "Extend a skill\n(add section / anti-pattern)" [shape=box];
-    "Drop / →wayne-compound" [shape=box];
-    "Present candidate table\n(gate, Chinese)" [shape=box];
-    "User approves?" [shape=diamond];
-    "Write pattern file(s)\n→ /wayne-skill-forge" [shape=box];
-    "Done" [shape=doublecircle];
-
-    "Enough history or new evidence?" -> "Stop: keep evidence threshold" [label="no"];
-    "Enough history or new evidence?" -> "uv run scan_sessions.py\n(embed + Leiden → clusters.json)" [label="yes"];
-    "uv run scan_sessions.py\n(embed + Leiden → clusters.json)" -> "Pick clusters to analyze\n(token budget: top-N by sessions)";
-    "Pick clusters to analyze\n(token budget: top-N by sessions)" -> "Fan out 1 analyst / cluster\n(induce pattern: procedure OR mistake)";
-    "Fan out 1 analyst / cluster\n(induce pattern: procedure OR mistake)" -> "Merge + dedup analyst verdicts\n(cross-cluster same pattern → one)";
-    "Merge + dedup analyst verdicts\n(cross-cluster same pattern → one)" -> "Per pattern: decide fate";
-    "Per pattern: decide fate" -> "New skill\n(write pattern → forge)" [label="new"];
-    "Per pattern: decide fate" -> "Extend a skill\n(add section / anti-pattern)" [label="extend"];
-    "Per pattern: decide fate" -> "Drop / →wayne-compound" [label="thin/lesson"];
-    "New skill\n(write pattern → forge)" -> "Present candidate table\n(gate, Chinese)";
-    "Extend a skill\n(add section / anti-pattern)" -> "Present candidate table\n(gate, Chinese)";
-    "Present candidate table\n(gate, Chinese)" -> "User approves?";
-    "User approves?" -> "Write pattern file(s)\n→ /wayne-skill-forge" [label="yes"];
-    "User approves?" -> "Done" [label="no"];
-    "Write pattern file(s)\n→ /wayne-skill-forge" -> "Done";
-}
+    A -->|"no"| X
+    A -->|"yes"| B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F -->|"new"| G
+    F -->|"extend"| H
+    F -->|"thin/lesson"| I
+    G --> J
+    H --> J
+    J --> K
+    K -->|"yes"| L
+    K -->|"no"| Z
+    L --> Z
 ```
 
 ## Process Flow
