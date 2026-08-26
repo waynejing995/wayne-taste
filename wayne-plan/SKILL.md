@@ -167,6 +167,8 @@ digraph wayne_plan {
 - Fix the smallest owning surface: upstream gap, plan content, template guidance, or coverage-map transcription. Never change an upstream source inside this procedure.
 - Preserve the intended owner/member and semantic obligation; do not weaken a requirement or rename a surface merely to make text look consistent.
 - Repeat every review after every plan revision. If a finding exposes an unresolved product decision or absent E ownership, follow C or D instead of inventing a default. Ask the user when repository evidence cannot close a required choice.
+- **Three valid rounds is the cap.** A round is one dispatch of every applicable voice, and it counts only if it was valid: every applicable voice actually executed, on its own routed model, and returned a report. Anything that returns `REVIEW_UNAVAILABLE` — a missing mechanism, a failed or empty voice, a voice that fell back to the session default, or A and B resolving to one model family — is not a round. It produced no judgement, so rerun it and count nothing. The three voices inside one round are also not three rounds.
+- Round three is the last. Classify its findings as usual, then go to J. Anything still open is recorded in the plan's review record as non-blocking with the round cap named as its reason, and it does not trigger a fourth dispatch. What survives three valid rounds is detail, and another full dispatch costs more than the plan gains.
 
 ### J. Present the plan
 
