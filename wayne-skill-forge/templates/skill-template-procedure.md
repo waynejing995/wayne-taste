@@ -20,27 +20,24 @@ description: <180-400 characters: what the workflow does, when to use it, concre
      terminals. Otherwise delete this section and use one numbered Process. Flow
      owns sequence and branching; Process expands node details without restating it. -->
 
-```dot
-digraph <name> {
-    rankdir=TB;
+```mermaid
+flowchart TB
+    A["Prepare input"]
+    B{"Ready to act?"}
+    C["Resolve missing requirement"]
+    D["Execute workflow"]
+    E{"Verification passes?"}
+    F["Revise from failure"]
+    G(["Done"])
 
-    A [label="Prepare input", shape=box];
-    B [label="Ready to act?", shape=diamond];
-    C [label="Resolve missing requirement", shape=box];
-    D [label="Execute workflow", shape=box];
-    E [label="Verification passes?", shape=diamond];
-    F [label="Revise from failure", shape=box];
-    G [label="Done", shape=doublecircle];
-
-    A -> B;
-    B -> C [label="no"];
-    C -> A;
-    B -> D [label="yes"];
-    D -> E;
-    E -> F [label="no"];
-    F -> D;
-    E -> G [label="yes"];
-}
+    A --> B
+    B -->|"no"| C
+    C --> A
+    B -->|"yes"| D
+    D --> E
+    E -->|"no"| F
+    F --> D
+    E -->|"yes"| G
 ```
 
 ## Process

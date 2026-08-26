@@ -15,48 +15,46 @@ This skill alone may change the E2E `Status` cells (`⬜/✅/❌`). Never change
 
 ## Flow
 
-```dot
-digraph verify {
-    rankdir=TB;
-    A [label="Locate and validate contract", shape=box];
-    B [label="Runnable contract row?", shape=diamond];
-    X [label="BLOCKED: return to test design", shape=doublecircle];
-    K [label="Record legitimate skip", shape=box];
-    C [label="Prepare declared environment", shape=box];
-    D [label="Start and observe readiness", shape=box];
-    E [label="Process ready?", shape=diamond];
-    F [label="Drive real user entrypoint", shape=box];
-    G [label="Capture real observable", shape=box];
-    H [label="Observable occurred?", shape=diamond];
-    P [label="Set fresh Status ✅", shape=box];
-    N [label="Set fresh Status ❌", shape=box];
-    T [label="Tear down and preserve evidence", shape=box];
-    M [label="More rows?", shape=diamond];
-    Q [label="Any ❌ or cleanup failure?", shape=diamond];
-    W [label="FAILED: return rows to wayne-work", shape=doublecircle];
-    S [label="PASSED: checkpoint handoff to wayne-ship", shape=doublecircle];
+```mermaid
+flowchart TB
+    A["Locate and validate contract"]
+    B{"Runnable contract row?"}
+    X(["BLOCKED: return to test design"])
+    K["Record legitimate skip"]
+    C["Prepare declared environment"]
+    D["Start and observe readiness"]
+    E{"Process ready?"}
+    F["Drive real user entrypoint"]
+    G["Capture real observable"]
+    H{"Observable occurred?"}
+    P["Set fresh Status ✅"]
+    N["Set fresh Status ❌"]
+    T["Tear down and preserve evidence"]
+    M{"More rows?"}
+    Q{"Any ❌ or cleanup failure?"}
+    W(["FAILED: return rows to wayne-work"])
+    S(["PASSED: checkpoint handoff to wayne-ship"])
 
-    A -> B;
-    B -> X [label="missing / invalid skip"];
-    B -> K [label="legitimate skip"];
-    B -> C [label="yes"];
-    K -> M;
-    C -> D;
-    D -> E;
-    E -> N [label="no"];
-    E -> F [label="yes"];
-    F -> G;
-    G -> H;
-    H -> P [label="yes"];
-    H -> N [label="no"];
-    P -> T;
-    N -> T;
-    T -> M;
-    M -> C [label="yes"];
-    M -> Q [label="no"];
-    Q -> W [label="yes"];
-    Q -> S [label="no"];
-}
+    A --> B
+    B -->|"missing / invalid skip"| X
+    B -->|"legitimate skip"| K
+    B -->|"yes"| C
+    K --> M
+    C --> D
+    D --> E
+    E -->|"no"| N
+    E -->|"yes"| F
+    F --> G
+    G --> H
+    H -->|"yes"| P
+    H -->|"no"| N
+    P --> T
+    N --> T
+    T --> M
+    M -->|"yes"| C
+    M -->|"no"| Q
+    Q -->|"yes"| W
+    Q -->|"no"| S
 ```
 
 ## Process

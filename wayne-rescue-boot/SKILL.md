@@ -37,50 +37,47 @@ If the box boots but a service is broken, route to triage/verify. If no BMC, phy
 
 ## Flow
 
-```dot
-digraph rescue {
-    rankdir=TB;
+```mermaid
+flowchart TB
+    A{"Console or BMC path available?"}
+    X(["Stop: no rescue access"])
+    B["Read the panic screen"]
+    C{"Kernel logs printed?<br/>(got past GRUB)"}
+    D["Boot region unreadable<br/>→ suspect HW / BIOS sees disk?"]
+    E["Get a Live rescue shell<br/>(IPMI ISO or USB)"]
+    F{"Live auto-mounts root fs?"}
+    G["Read-only disk inspection<br/>(SMART + fsck -n)"]
+    H["Confirm hardware<br/>(SMART + free space)"]
+    I{"Disk healthy enough to repair?"}
+    S(["Stop: preserve data / replace disk"])
+    J["Diagnose: initrd / grub / fstab"]
+    K["chroot: rebuild initramfs<br/>+ update-grub"]
+    L["Reboot from disk (gate)"]
+    M["Verify from REAL disk<br/>(hostname/uname/findmnt)"]
+    N{"Booted from disk?"}
+    O["Fix remaining / pick stable kernel"]
+    P(["Done"])
 
-    "Console or BMC path available?" [shape=diamond];
-    "Stop: no rescue access" [shape=doublecircle];
-    "Read the panic screen" [shape=box];
-    "Kernel logs printed?\n(got past GRUB)" [shape=diamond, style=bold];
-    "Boot region unreadable\n→ suspect HW / BIOS sees disk?" [shape=box];
-    "Get a Live rescue shell\n(IPMI ISO or USB)" [shape=box];
-    "Live auto-mounts root fs?" [shape=diamond, style=bold];
-    "Read-only disk inspection\n(SMART + fsck -n)" [shape=box];
-    "Confirm hardware\n(SMART + free space)" [shape=box];
-    "Disk healthy enough to repair?" [shape=diamond];
-    "Stop: preserve data / replace disk" [shape=doublecircle];
-    "Diagnose: initrd / grub / fstab" [shape=box];
-    "chroot: rebuild initramfs\n+ update-grub" [shape=box];
-    "Reboot from disk (gate)" [shape=box];
-    "Verify from REAL disk\n(hostname/uname/findmnt)" [shape=box];
-    "Booted from disk?" [shape=diamond];
-    "Fix remaining / pick stable kernel" [shape=box];
-    "Done" [shape=doublecircle];
-
-    "Console or BMC path available?" -> "Stop: no rescue access" [label="no"];
-    "Console or BMC path available?" -> "Read the panic screen" [label="yes"];
-    "Read the panic screen" -> "Kernel logs printed?\n(got past GRUB)";
-    "Kernel logs printed?\n(got past GRUB)" -> "Boot region unreadable\n→ suspect HW / BIOS sees disk?" [label="no"];
-    "Kernel logs printed?\n(got past GRUB)" -> "Get a Live rescue shell\n(IPMI ISO or USB)" [label="yes"];
-    "Boot region unreadable\n→ suspect HW / BIOS sees disk?" -> "Get a Live rescue shell\n(IPMI ISO or USB)";
-    "Get a Live rescue shell\n(IPMI ISO or USB)" -> "Live auto-mounts root fs?";
-    "Live auto-mounts root fs?" -> "Read-only disk inspection\n(SMART + fsck -n)" [label="no"];
-    "Live auto-mounts root fs?" -> "Confirm hardware\n(SMART + free space)" [label="yes"];
-    "Read-only disk inspection\n(SMART + fsck -n)" -> "Disk healthy enough to repair?";
-    "Confirm hardware\n(SMART + free space)" -> "Disk healthy enough to repair?";
-    "Disk healthy enough to repair?" -> "Stop: preserve data / replace disk" [label="no"];
-    "Disk healthy enough to repair?" -> "Diagnose: initrd / grub / fstab" [label="yes"];
-    "Diagnose: initrd / grub / fstab" -> "chroot: rebuild initramfs\n+ update-grub";
-    "chroot: rebuild initramfs\n+ update-grub" -> "Reboot from disk (gate)";
-    "Reboot from disk (gate)" -> "Verify from REAL disk\n(hostname/uname/findmnt)";
-    "Verify from REAL disk\n(hostname/uname/findmnt)" -> "Booted from disk?";
-    "Booted from disk?" -> "Fix remaining / pick stable kernel" [label="no"];
-    "Fix remaining / pick stable kernel" -> "Reboot from disk (gate)";
-    "Booted from disk?" -> "Done" [label="yes"];
-}
+    A -->|"no"| X
+    A -->|"yes"| B
+    B --> C
+    C -->|"no"| D
+    C -->|"yes"| E
+    D --> E
+    E --> F
+    F -->|"no"| G
+    F -->|"yes"| H
+    G --> I
+    H --> I
+    I -->|"no"| S
+    I -->|"yes"| J
+    J --> K
+    K --> L
+    L --> M
+    M --> N
+    N -->|"no"| O
+    O --> L
+    N -->|"yes"| P
 ```
 
 ## Process Flow

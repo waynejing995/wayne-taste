@@ -30,46 +30,43 @@ commit messages, PR descriptions, code comments. Commit prefixes (`SWDEV-1234`, 
 
 ## Process Flow
 
-```dot
-digraph ship {
-    rankdir=TB;
+```mermaid
+flowchart TB
+    A{"Gate: PASS for<br/>this range?"}
+    B["Run wayne-code-review,<br/>then the flow gate"]
+    C{"Runtime proof<br/>wanted?"}
+    D["Run wayne-verify"]
+    E["Analyze changes:<br/>git log + git status"]
+    F{"Anything left<br/>uncommitted?"}
+    G["Group remaining changes<br/>by feature/fix"]
+    H["Identify Jira tickets<br/>for each group"]
+    I["Present commit plan<br/>to user (Chinese)"]
+    J{"User approves?"}
+    K["Revise grouping"]
+    L["Commit each group<br/>(1 commit = 1 feature)"]
+    M{"Push?"}
+    N["Push + create PR"]
+    O(["Done"])
 
-    "Gate: PASS for\nthis range?" [shape=diamond];
-    "Run wayne-code-review,\nthen the flow gate" [shape=box];
-    "Runtime proof\nwanted?" [shape=diamond];
-    "Run wayne-verify" [shape=box];
-    "Analyze changes:\ngit log + git status" [shape=box];
-    "Anything left\nuncommitted?" [shape=diamond];
-    "Group remaining changes\nby feature/fix" [shape=box];
-    "Identify Jira tickets\nfor each group" [shape=box];
-    "Present commit plan\nto user (Chinese)" [shape=box];
-    "User approves?" [shape=diamond];
-    "Revise grouping" [shape=box];
-    "Commit each group\n(1 commit = 1 feature)" [shape=box];
-    "Push?" [shape=diamond];
-    "Push + create PR" [shape=box];
-    "Done" [shape=doublecircle];
-
-    "Gate: PASS for\nthis range?" -> "Run wayne-code-review,\nthen the flow gate" [label="no"];
-    "Gate: PASS for\nthis range?" -> "Runtime proof\nwanted?" [label="yes"];
-    "Run wayne-code-review,\nthen the flow gate" -> "Gate: PASS for\nthis range?";
-    "Runtime proof\nwanted?" -> "Run wayne-verify" [label="yes"];
-    "Runtime proof\nwanted?" -> "Analyze changes:\ngit log + git status" [label="no"];
-    "Run wayne-verify" -> "Analyze changes:\ngit log + git status";
-    "Analyze changes:\ngit log + git status" -> "Anything left\nuncommitted?";
-    "Anything left\nuncommitted?" -> "Push?" [label="no — wayne-work committed per unit"];
-    "Anything left\nuncommitted?" -> "Group remaining changes\nby feature/fix" [label="yes"];
-    "Group remaining changes\nby feature/fix" -> "Identify Jira tickets\nfor each group";
-    "Identify Jira tickets\nfor each group" -> "Present commit plan\nto user (Chinese)";
-    "Present commit plan\nto user (Chinese)" -> "User approves?";
-    "User approves?" -> "Commit each group\n(1 commit = 1 feature)" [label="yes"];
-    "User approves?" -> "Revise grouping" [label="no"];
-    "Revise grouping" -> "Present commit plan\nto user (Chinese)";
-    "Commit each group\n(1 commit = 1 feature)" -> "Push?";
-    "Push?" -> "Push + create PR" [label="yes"];
-    "Push?" -> "Done" [label="no"];
-    "Push + create PR" -> "Done";
-}
+    A -->|"no"| B
+    A -->|"yes"| C
+    B --> A
+    C -->|"yes"| D
+    C -->|"no"| E
+    D --> E
+    E --> F
+    F -->|"no — wayne-work committed per unit"| M
+    F -->|"yes"| G
+    G --> H
+    H --> I
+    I --> J
+    J -->|"yes"| L
+    J -->|"no"| K
+    K --> I
+    L --> M
+    M -->|"yes"| N
+    M -->|"no"| O
+    N --> O
 ```
 
 ---

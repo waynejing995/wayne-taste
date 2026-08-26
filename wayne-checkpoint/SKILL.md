@@ -242,22 +242,19 @@ The handoff agent ONLY RETURNS a handoff packet. It NEVER calls the next agent/s
 
 This is locked by design — it keeps control with the user and avoids nested-agent context blowup. Handoff mode therefore differs from Resume Flow Step 4 (Auto-Resume), which DOES auto-invoke: Resume is a deliberate user-driven "pick up where I left off", Handoff is an end-of-stage emit that must not advance anything.
 
-```dot
-digraph handoff {
-  rankdir=LR;
-  node [shape=box];
-  stage   [label="pipeline skill\n(final step)"];
-  call    [label="auto-call\nwayne-checkpoint\n(handoff mode)"];
-  gather  [label="gather state\n(Save Flow 1-2)"];
-  route   [label="route to\nnext agent"];
-  emit    [label="emit packet\n(file + chat)"];
-  user    [label="USER reads packet\n+ manually triggers\nnext step", shape=doublecircle];
-  next    [label="next pipeline skill", style=dashed];
+```mermaid
+flowchart LR
+    stage["pipeline skill<br/>(final step)"]
+    invoke["auto-call<br/>wayne-checkpoint<br/>(handoff mode)"]
+    gather["gather state<br/>(Save Flow 1-2)"]
+    route["route to<br/>next agent"]
+    emit["emit packet<br/>(file + chat)"]
+    user(["USER reads packet<br/>+ manually triggers<br/>next step"])
+    next["next pipeline skill"]
 
-  stage -> call -> gather -> route -> emit -> user;
-  user -> next [label="manual: 下一步 / 继续 / go", style=dashed];
-  emit -> next [label="NEVER (no auto-advance)", style=dashed, color=red, constraint=false];
-}
+    stage --> invoke --> gather --> route --> emit --> user
+    user -->|"manual: 下一步 / 继续 / go"| next
+    emit -->|"NEVER (no auto-advance)"| next
 ```
 
 ### When it is called

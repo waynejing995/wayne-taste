@@ -59,40 +59,38 @@ A rendered component is a node property, never an edge. A DOM test with a mocked
 
 ## Flow
 
-```dot
-digraph test_design {
-    rankdir=TB;
-    A [label="Ground approved behaviors", shape=box];
-    B [label="Select applicable dimensions", shape=box];
-    C [label="Draft U-SEED", shape=box];
-    D [label="Audit E2E proof axes", shape=box];
-    E [label="Native proof feasible?", shape=diamond];
-    X [label="Record scope conflict", shape=box];
-    F [label="Draft locked E rows", shape=box];
-    G [label="Coverage and isolation pass?", shape=diamond];
-    R [label="Repair one gap", shape=box];
-    H [label="User approves matrix?", shape=diamond];
-    I [label="Scope conflict unresolved?", shape=diamond];
-    J [label="Nested design caller?", shape=diamond];
-    K [label="Write blocked matrix; no plan handoff", shape=doublecircle];
-    M [label="Write and return to caller", shape=doublecircle];
-    S [label="Stop without writing", shape=doublecircle];
-    W [label="Write matrix and hand to plan", shape=doublecircle];
-    A -> B -> C -> D -> E;
-    E -> X [label="no"];
-    E -> F [label="yes"];
-    X -> F;
-    F -> G;
-    G -> R [label="no"];
-    R -> B;
-    G -> H [label="yes"];
-    H -> S [label="no"];
-    H -> I [label="yes"];
-    I -> K [label="yes"];
-    I -> J [label="no"];
-    J -> M [label="yes"];
-    J -> W [label="no"];
-}
+```mermaid
+flowchart TB
+    A["Ground approved behaviors"]
+    B["Select applicable dimensions"]
+    C["Draft U-SEED"]
+    D["Audit E2E proof axes"]
+    E{"Native proof feasible?"}
+    X["Record scope conflict"]
+    F["Draft locked E rows"]
+    G{"Coverage and isolation pass?"}
+    R["Repair one gap"]
+    H{"User approves matrix?"}
+    I{"Scope conflict unresolved?"}
+    J{"Nested design caller?"}
+    K(["Write blocked matrix; no plan handoff"])
+    M(["Write and return to caller"])
+    S(["Stop without writing"])
+    W(["Write matrix and hand to plan"])
+    A --> B --> C --> D --> E
+    E -->|"no"| X
+    E -->|"yes"| F
+    X --> F
+    F --> G
+    G -->|"no"| R
+    R --> B
+    G -->|"yes"| H
+    H -->|"no"| S
+    H -->|"yes"| I
+    I -->|"yes"| K
+    I -->|"no"| J
+    J -->|"yes"| M
+    J -->|"no"| W
 ```
 
 ## Process

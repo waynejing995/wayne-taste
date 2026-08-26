@@ -30,41 +30,39 @@ Never include plaintext secrets; name the environment variable that owns them. C
 
 ## Flow
 
-```dot
-digraph goal_prompt {
-    rankdir=TB;
-    A [label="Ground intent and sources", shape=box];
-    B [label="Required evidence complete?", shape=diamond];
-    Q [label="Ask one recommended question", shape=box];
-    W [label="Wait for answer", shape=doublecircle];
-    C [label="Compose bounded goal", shape=box];
-    D [label="Goal is grounded and testable?", shape=diamond];
-    R [label="Repair one contract gap", shape=box];
-    E [label="Present goal and confirm cwd", shape=box];
-    F [label="Goal and cwd confirmed?", shape=diamond];
-    S [label="Stop without dispatch", shape=doublecircle];
-    G [label="Dispatch and prove startup", shape=box];
-    H [label="Worker ready?", shape=diamond];
-    X [label="DISPATCH_FAILED", shape=doublecircle];
-    M [label="Monitor inject or resume", shape=box];
-    Z [label="Worker owns goal loop", shape=doublecircle];
+```mermaid
+flowchart TB
+    A["Ground intent and sources"]
+    B{"Required evidence complete?"}
+    Q["Ask one recommended question"]
+    W(["Wait for answer"])
+    C["Compose bounded goal"]
+    D{"Goal is grounded and testable?"}
+    R["Repair one contract gap"]
+    E["Present goal and confirm cwd"]
+    F{"Goal and cwd confirmed?"}
+    S(["Stop without dispatch"])
+    G["Dispatch and prove startup"]
+    H{"Worker ready?"}
+    X(["DISPATCH_FAILED"])
+    M["Monitor inject or resume"]
+    Z(["Worker owns goal loop"])
 
-    A -> B;
-    B -> Q [label="no"];
-    Q -> W;
-    B -> C [label="yes"];
-    C -> D;
-    D -> R [label="no"];
-    R -> C;
-    D -> E [label="yes"];
-    E -> F;
-    F -> S [label="no"];
-    F -> G [label="yes"];
-    G -> H;
-    H -> X [label="no"];
-    H -> M [label="yes"];
-    M -> Z;
-}
+    A --> B
+    B -->|"no"| Q
+    Q --> W
+    B -->|"yes"| C
+    C --> D
+    D -->|"no"| R
+    R --> C
+    D -->|"yes"| E
+    E --> F
+    F -->|"no"| S
+    F -->|"yes"| G
+    G --> H
+    H -->|"no"| X
+    H -->|"yes"| M
+    M --> Z
 ```
 
 ## Process

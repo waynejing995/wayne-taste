@@ -43,48 +43,45 @@ You MUST create a task for each and complete in order:
 
 ## Process Flow
 
-```dot
-digraph review {
-    rankdir=TB;
+```mermaid
+flowchart TB
+    A["Fix review target<br/>(PR or committed range)"]
+    B{"Target named +<br/>tree clean?"}
+    X(["Refuse: name the range,<br/>or commit first"])
+    C["Read intent + build<br/>rule ledger"]
+    D["Structured review<br/>(checklist-driven)"]
+    E["Design-conformance<br/>agent (carries ledger)"]
+    F["Dispatch Claude<br/>adversarial subagent"]
+    G{"Codex available?"}
+    H["Dispatch Codex<br/>review + challenge"]
+    I["Skip Codex"]
+    J["Collect all findings"]
+    K["Dedup + confidence merge"]
+    L["Cross-model synthesis<br/>(agreements + disagreements)"]
+    M["Adjudicate findings<br/>vs rule ledger"]
+    N["Fix-first:<br/>auto-fix mechanical"]
+    O["ASK user on<br/>judgment calls"]
+    S(["Present synthesis<br/>(user decides)"])
 
-    "Fix review target\n(PR or committed range)" [shape=box];
-    "Target named +\ntree clean?" [shape=diamond];
-    "Refuse: name the range,\nor commit first" [shape=doublecircle];
-    "Read intent + build\nrule ledger" [shape=box];
-    "Structured review\n(checklist-driven)" [shape=box];
-    "Design-conformance\nagent (carries ledger)" [shape=box];
-    "Dispatch Claude\nadversarial subagent" [shape=box];
-    "Codex available?" [shape=diamond];
-    "Dispatch Codex\nreview + challenge" [shape=box];
-    "Skip Codex" [shape=box];
-    "Collect all findings" [shape=box];
-    "Dedup + confidence merge" [shape=box];
-    "Cross-model synthesis\n(agreements + disagreements)" [shape=box];
-    "Adjudicate findings\nvs rule ledger" [shape=box];
-    "Fix-first:\nauto-fix mechanical" [shape=box];
-    "ASK user on\njudgment calls" [shape=box];
-    "Present synthesis\n(user decides)" [shape=doublecircle];
-
-    "Fix review target\n(PR or committed range)" -> "Target named +\ntree clean?";
-    "Target named +\ntree clean?" -> "Refuse: name the range,\nor commit first" [label="no"];
-    "Target named +\ntree clean?" -> "Read intent + build\nrule ledger" [label="yes"];
-    "Read intent + build\nrule ledger" -> "Structured review\n(checklist-driven)";
-    "Structured review\n(checklist-driven)" -> "Dispatch Claude\nadversarial subagent";
-    "Structured review\n(checklist-driven)" -> "Codex available?";
-    "Codex available?" -> "Dispatch Codex\nreview + challenge" [label="yes"];
-    "Codex available?" -> "Skip Codex" [label="no"];
-    "Dispatch Claude\nadversarial subagent" -> "Collect all findings";
-    "Dispatch Codex\nreview + challenge" -> "Collect all findings";
-    "Skip Codex" -> "Collect all findings";
-    "Structured review\n(checklist-driven)" -> "Design-conformance\nagent (carries ledger)";
-    "Design-conformance\nagent (carries ledger)" -> "Collect all findings";
-    "Collect all findings" -> "Dedup + confidence merge";
-    "Dedup + confidence merge" -> "Cross-model synthesis\n(agreements + disagreements)";
-    "Cross-model synthesis\n(agreements + disagreements)" -> "Adjudicate findings\nvs rule ledger";
-    "Adjudicate findings\nvs rule ledger" -> "Fix-first:\nauto-fix mechanical";
-    "Fix-first:\nauto-fix mechanical" -> "ASK user on\njudgment calls";
-    "ASK user on\njudgment calls" -> "Present synthesis\n(user decides)";
-}
+    A --> B
+    B -->|"no"| X
+    B -->|"yes"| C
+    C --> D
+    D --> F
+    D --> G
+    G -->|"yes"| H
+    G -->|"no"| I
+    F --> J
+    H --> J
+    I --> J
+    D --> E
+    E --> J
+    J --> K
+    K --> L
+    L --> M
+    M --> N
+    N --> O
+    O --> S
 ```
 
 **Note:** Claude adversarial subagent and Codex dispatch should be launched **in parallel** (both in the same Agent tool call) for speed.

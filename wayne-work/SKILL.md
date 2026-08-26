@@ -15,56 +15,53 @@ The plan, decision log, test matrix, repository instructions, and dirty baseline
 
 ## Flow
 
-```dot
-digraph work {
-    rankdir=TB;
-    A [label="Load approved inputs", shape=box];
-    B [label="Complete and consistent?", shape=diamond];
-    X [label="Return blocker", shape=doublecircle];
-    C [label="Freeze baseline and unit graph", shape=box];
+```mermaid
+flowchart TB
+    A["Load approved inputs"]
+    B{"Complete and consistent?"}
+    X(["Return blocker"])
+    C["Freeze baseline and unit graph"]
 
-    subgraph cluster_unit {
-        label="per-unit loop, plus the per-wave S pass";
-        D [label="Build ready wave", shape=box];
-        E [label="Parallel-safe wave?", shape=diamond];
-        R [label="Dispatch native workers", shape=box];
-        P [label="Workers started?", shape=diamond];
-        F [label="Inline fallback on recorded dispatch error", shape=box];
-        G [label="Wave verification passes?", shape=diamond];
-        T [label="Fix observed failure", shape=box];
-        S [label="Simplify wave diff", shape=box];
-        H [label="Audit diff against its plan unit; tick U rows", shape=box];
-        I [label="More units?", shape=diamond];
-    }
+    subgraph cluster_unit["per-unit loop, plus the per-wave S pass"]
+        D["Build ready wave"]
+        E{"Parallel-safe wave?"}
+        R["Dispatch native workers"]
+        P{"Workers started?"}
+        F["Inline fallback on recorded dispatch error"]
+        G{"Wave verification passes?"}
+        T["Fix observed failure"]
+        S["Simplify wave diff"]
+        H["Audit diff against its plan unit; tick U rows"]
+        I{"More units?"}
+    end
 
-    J [label="Run integrated compliance gate on full diff", shape=box];
-    K [label="All gates pass?", shape=diamond];
-    M [label="Reopen affected unit in a fresh worker", shape=box];
-    L [label="Checkpoint for code review", shape=doublecircle];
+    J["Run integrated compliance gate on full diff"]
+    K{"All gates pass?"}
+    M["Reopen affected unit in a fresh worker"]
+    L(["Checkpoint for code review"])
 
-    A -> B;
-    B -> X [label="no"];
-    B -> C [label="yes"];
-    C -> D;
-    D -> E;
-    E -> R [label="yes / whole wave"];
-    E -> R [label="no / one at a time"];
-    R -> P;
-    P -> G [label="yes"];
-    P -> F [label="no"];
-    F -> G;
-    G -> T [label="no"];
-    T -> G;
-    G -> S [label="yes"];
-    S -> H;
-    H -> I;
-    I -> D [label="yes"];
-    I -> J [label="no"];
-    J -> K;
-    K -> M [label="no"];
-    M -> J;
-    K -> L [label="yes"];
-}
+    A --> B
+    B -->|"no"| X
+    B -->|"yes"| C
+    C --> D
+    D --> E
+    E -->|"yes / whole wave"| R
+    E -->|"no / one at a time"| R
+    R --> P
+    P -->|"yes"| G
+    P -->|"no"| F
+    F --> G
+    G -->|"no"| T
+    T --> G
+    G -->|"yes"| S
+    S --> H
+    H --> I
+    I -->|"yes"| D
+    I -->|"no"| J
+    J --> K
+    K -->|"no"| M
+    M --> J
+    K -->|"yes"| L
 ```
 
 ## Process
