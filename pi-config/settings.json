@@ -5,10 +5,8 @@
   "defaultThinkingLevel": "high",
   "theme": "catppuccin-latte",
   "packages": [
-    "npm:pi-subagents",
     "npm:pi-mcp-adapter",
     "npm:@narumitw/pi-statusline",
-    "npm:pi-agent-goal",
     "npm:@quintinshaw/pi-dynamic-workflows",
     "npm:pi-themes",
     "npm:@ff-labs/pi-fff",
@@ -22,7 +20,9 @@
     "npm:@juicesharp/rpiv-advisor",
     "npm:pi-hashline-edit-pro",
     "npm:pi-patty-bg-tasks",
-    "npm:pi-hermes-memory"
+    "npm:pi-hermes-memory",
+    "npm:@tintinweb/pi-subagents",
+    "npm:pi-goal-x"
   ],
   "defaultProjectTrust": "always",
   "treeFilterMode": "default",

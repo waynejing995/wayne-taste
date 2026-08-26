@@ -101,7 +101,7 @@ Safety properties:
 
 `sync.sh` derives the exposure list from `_shared`, every top-level `wayne-*` directory, and `waynejing`; no second skill registry exists to drift.
 
-`eval/` is the skill test harness and `pi-config/` is pi's own configuration; neither is a skill and neither is linked as one. `pi-config/sync.sh` links four named files — `settings.json`, `pi-statusline.json`, `workflows/saved/wayne-code-review-flow.json` and the repo-root `CLAUDE.md` (as `AGENTS.md`) — into `~/.pi/agent/` and `~/.pi/workflows/saved/`, plus every directory under `pi-config/extensions/` into `~/.pi/agent/extensions/`. The rest of `pi-config/` (its own scripts, `internal-models-setup.md`, `README.md`) is never linked anywhere. `sync.sh` invokes it as its second stage.
+`eval/` is the skill test harness and `pi-config/` is pi's own configuration; neither is a skill and neither is linked as one. `pi-config/sync.sh` links three named files — `pi-statusline.json`, `workflows/saved/wayne-code-review-flow.json` and the repo-root `CLAUDE.md` (as `AGENTS.md`) — into `~/.pi/agent/` and `~/.pi/workflows/saved/`, plus every directory under `pi-config/extensions/` into `~/.pi/agent/extensions/`. `settings.json` is deliberately not linked: it is a reference (suggested packages and defaults), copied to `~/.pi/agent/settings.json` only when that file is absent, and otherwise left untouched with a diff printed against the reference. The rest of `pi-config/` (its own scripts, `internal-models-setup.md`, `README.md`) is never linked anywhere. `sync.sh` invokes it as its second stage.
 
 ## Agent discovery
 
