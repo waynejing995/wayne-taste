@@ -1,8 +1,9 @@
 ---
 name: wayne-distill
 description: |
-  Distill reusable PATTERNS out of past sessions across BOTH agents — Claude
-  Code (~/.claude/projects) and Codex CLI (~/.codex/sessions). Semantic
+  Distill reusable PATTERNS out of past sessions across ALL FOUR agents —
+  Claude Code (~/.claude/projects), Codex CLI (~/.codex/sessions), pi
+  (~/.pi/agent/sessions) and omp (~/.omp/agent/sessions). Semantic
   clustering (multilingual embedding + Leiden) groups prompts by MEANING across
   中文/English, then an LLM analyst fans over the communities to induce patterns:
   both reusable procedures you re-run by hand AND recurring agent mistakes you
@@ -86,10 +87,11 @@ Run the collector with `uv run` — the PEP 723 header pulls its deps (sentence-
 ```bash
 uv run ~/.claude/skills/wayne-distill/scripts/scan_sessions.py
 # tune: --min-sessions 3  --threshold 0.45  --resolution 1.2
-#       --projects-dir ~/.claude/projects  --codex-dir ~/.codex/sessions  -v
+#       --projects-dir ~/.claude/projects  --codex-dir ~/.codex/sessions
+#       --pi-dir ~/.pi/agent/sessions  --omp-dir ~/.omp/agent/sessions  -v
 ```
 
-Reads BOTH agents' transcripts — Claude `~/.claude/projects/*/*.jsonl` and Codex `~/.codex/sessions/*/*/*/rollout-*.jsonl` — pools every human prompt as one evidence set, drops machine-authored junk (system reminders, task notifications, security-review harness, Codex `source="exec"` spawns), embeds each prompt with a multilingual model, builds a kNN cosine-similarity graph, and runs **Leiden** community detection. Writes `/tmp/wayne-distill-clusters.json` and prints the ranked communities.
+Reads ALL FOUR agents' transcripts — Claude `~/.claude/projects/*/*.jsonl`, Codex `~/.codex/sessions/*/*/*/rollout-*.jsonl`, pi `~/.pi/agent/sessions/*/*.jsonl` and omp `~/.omp/agent/sessions/*/*.jsonl` — pools every human prompt as one evidence set, drops machine-authored junk (system reminders, task notifications, security-review harness, Codex `source="exec"` spawns, pi/omp goal-mode + delegated-subagent injections), strips the SKILL.md block pi/omp prepend to a user turn, and keys pi/omp recurrence on the session uuid so a run mirrored across both stores counts once. Then it embeds each prompt with a multilingual model, builds a kNN cosine-similarity graph, and runs **Leiden** community detection. Writes `/tmp/wayne-distill-clusters.json` and prints the ranked communities. pi/omp nest subagent + workflow transcripts BELOW the session file (`<project>/<session>/<agent>/…jsonl`); the `*/*.jsonl` glob deliberately never reaches them.
 
 Why prompt-level + embedding, not the old word-frequency digest: a recurring workflow is often scattered mid-session across sessions whose top topic is something else (image-gen hid this way and word-freq missed it entirely, because `[a-zA-Z]{4,}` never matched the Chinese "生成图片"). Embedding clusters by MEANING across 中文/English; Leiden finds communities without a preset K.
 

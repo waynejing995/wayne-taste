@@ -10,8 +10,9 @@
 # ///
 """Phase-1 collector for wayne-distill — semantic prompt clustering.
 
-Walks BOTH agents' session transcripts (*.jsonl) — Claude Code under
-`~/.claude/projects/` and Codex CLI under `~/.codex/sessions/` — and emits
+Walks ALL four agents' session transcripts (*.jsonl) — Claude Code under
+`~/.claude/projects/`, Codex CLI under `~/.codex/sessions/`, pi under
+`~/.pi/agent/sessions/` and omp under `~/.omp/agent/sessions/` — and emits
 `clusters.json`: semantic communities of individual human prompts, each with
 its representative prompts and the set of distinct sessions it spans
 (recurrence). Phase 2 (the skill runtime) fans an LLM analyst over the
@@ -71,6 +72,10 @@ _JUNK_PREFIX = (
     "<tool-use-id",
     "<system-reminder",
     "<command-",
+    # pi/omp harness injections that land in the user turn
+    "task: you are a delegated subagent",
+    "goal mode is active",
+    "read-only review. you must not edit",
 )
 
 # low-signal words dropped from the (secondary) keyword pass
@@ -153,6 +158,9 @@ _STOP = {
 
 _WORD = re.compile(r"[a-zA-Z][a-zA-Z0-9_-]{3,}")
 _SLASH = re.compile(r"^/([a-z0-9][a-z0-9-]+)")
+# pi/omp prepend the invoked skill's whole SKILL.md into the user turn
+_SKILL_BLOCK = re.compile(r"<skill\b[^>]*>.*?</skill>", re.DOTALL | re.IGNORECASE)
+_SKILL_NAME = re.compile(r"<skill name=\\?\"([a-z0-9][a-z0-9-]+)\\?\"")
 
 
 def log(msg: str) -> None:
@@ -197,20 +205,53 @@ def codex_prompt(rec: dict) -> "str | None":
     return None if (not t or _is_junk(t)) else t
 
 
+def pi_prompt(rec: dict) -> "str | None":
+    """pi / omp transcripts: {"type":"message","message":{"role":"user",...}}.
+
+    The harness prepends the invoked skill's whole SKILL.md into the user turn;
+    strip those blocks so the clustered text is the human's actual request.
+    """
+    if rec.get("type") != "message":
+        return None
+    m = rec.get("message") or {}
+    if m.get("role") != "user":
+        return None
+    c = m.get("content")
+    if isinstance(c, str):
+        t = c
+    elif isinstance(c, list):
+        parts = [p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"]
+        if not parts:  # tool_result / image-only turn — not human intent
+            return None
+        t = "\n".join(parts)
+    else:
+        return None
+    t = _SKILL_BLOCK.sub("", t).strip()
+    return None if (not t or _is_junk(t)) else t
+
+# pi and omp share one transcript format; both nest subagent runs one level down
+_PI_LIKE = ("pi", "omp")
+_READERS = {"claude": claude_prompt, "codex": codex_prompt, "pi": pi_prompt, "omp": pi_prompt}
+
+
 # --- collection ------------------------------------------------------------
 
 
-def discover(claude_dir, codex_dir):
+def discover(dirs):
+    """dirs: {agent: (Path, glob)} — only top-level session files.
+
+    pi/omp nest subagent + workflow transcripts BELOW the session file
+    (`<project>/<session>/<agent>/…jsonl`); those are machine-authored, so the
+    `*/*.jsonl` glob deliberately never reaches them.
+    """
     src = []
-    if claude_dir:
-        src += [(fp, "claude") for fp in claude_dir.glob("*/*.jsonl")]
-    if codex_dir:
-        src += [(fp, "codex") for fp in codex_dir.glob("*/*/*/*.jsonl")]
+    for agent, (root, pattern) in dirs.items():
+        src += [(fp, agent) for fp in root.glob(pattern)]
     src.sort(key=lambda t: t[0].stat().st_mtime)
     return src
 
 
-def collect(claude_dir, codex_dir, min_len, max_len):
+def collect(dirs, min_len, max_len):
     """Return (rows, kw_doc, kw_ex, skill_doc, skill_total, by_agent, skipped).
 
     rows: list of {text, session, agent} — one per unique human prompt.
@@ -224,7 +265,7 @@ def collect(claude_dir, codex_dir, min_len, max_len):
     by_agent = Counter()
     skipped = 0
 
-    for fp, agent in discover(claude_dir, codex_dir):
+    for fp, agent in discover(dirs):
         sid = fp.stem if agent == "claude" else fp.name
         meta_source = None
         prompts = []
@@ -242,7 +283,14 @@ def collect(claude_dir, codex_dir, min_len, max_len):
                     if agent == "codex" and rec.get("type") == "session_meta":
                         meta_source = (rec.get("payload") or {}).get("source")
                         continue
-                    t = claude_prompt(rec) if agent == "claude" else codex_prompt(rec)
+                    if agent in _PI_LIKE:
+                        if rec.get("type") == "session" and rec.get("id"):
+                            # uuid, not filename: pi and omp mirror the same run
+                            sid = str(rec["id"])
+                            continue
+                        for nm in _SKILL_NAME.findall(line):
+                            skills_here[nm] += 1
+                    t = _READERS[agent](rec)
                     if t is None:
                         continue
                     prompts.append(t)
@@ -361,6 +409,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="wayne-distill semantic collector")
     ap.add_argument("--projects-dir", type=Path, default=Path.home() / ".claude" / "projects")
     ap.add_argument("--codex-dir", type=Path, default=Path.home() / ".codex" / "sessions")
+    ap.add_argument("--pi-dir", type=Path, default=Path.home() / ".pi" / "agent" / "sessions")
+    ap.add_argument("--omp-dir", type=Path, default=Path.home() / ".omp" / "agent" / "sessions")
     ap.add_argument("--out", type=Path, default=Path("/tmp/wayne-distill-clusters.json"))
     ap.add_argument("--min-sessions", type=int, default=3, help="a community must span >= N distinct sessions")
     ap.add_argument("--min-len", type=int, default=6, help="drop prompts shorter than this (chars)")
@@ -374,18 +424,22 @@ def main() -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
-    claude_dir = args.projects_dir if args.projects_dir.is_dir() else None
-    codex_dir = args.codex_dir if args.codex_dir.is_dir() else None
-    if claude_dir is None and codex_dir is None:
-        log(f"FATAL: neither {args.projects_dir} nor {args.codex_dir} found")
+    wanted = {
+        "claude": (args.projects_dir, "*/*.jsonl"),
+        "codex": (args.codex_dir, "*/*/*/*.jsonl"),
+        "pi": (args.pi_dir, "*/*.jsonl"),
+        "omp": (args.omp_dir, "*/*.jsonl"),
+    }
+    dirs = {a: (d, g) for a, (d, g) in wanted.items() if d.is_dir()}
+    for a, (d, _) in wanted.items():
+        if a not in dirs:
+            log(f"WARNING: {a} dir {d} missing — skipped")
+    if not dirs:
+        log("FATAL: no session store found (" + ", ".join(str(d) for d, _ in wanted.values()) + ")")
         return 1
-    if claude_dir is None:
-        log(f"WARNING: Claude dir {args.projects_dir} missing — Codex only")
-    if codex_dir is None:
-        log(f"WARNING: Codex dir {args.codex_dir} missing — Claude only")
 
     rows, kw_doc, kw_ex, skill_doc, skill_total, by_agent, skipped = collect(
-        claude_dir, codex_dir, args.min_len, args.max_len
+        dirs, args.min_len, args.max_len
     )
     log(f"collected {len(rows)} unique human prompts by_agent={dict(by_agent)} (codex spawned/skipped={skipped})")
     if not rows:
@@ -405,7 +459,7 @@ def main() -> int:
         )
 
     digest = {
-        "sources": {"claude": str(claude_dir), "codex": str(codex_dir)},
+        "sources": {a: str(d) for a, (d, _) in dirs.items()},
         "min_sessions": args.min_sessions,
         "prompts_total": len(rows),
         "sessions_by_agent": dict(by_agent),
@@ -423,7 +477,7 @@ def main() -> int:
     by = digest["sessions_by_agent"]
     print(
         f"\n# wayne-distill clusters  ({len(rows)} prompts "
-        f"[claude={by.get('claude', 0)} codex={by.get('codex', 0)}], "
+        f"[{' '.join(f'{a}={by.get(a, 0)}' for a in wanted)}], "
         f"{len(comms)} communities >= {args.min_sessions} sessions)\n"
     )
     for c in comms:
