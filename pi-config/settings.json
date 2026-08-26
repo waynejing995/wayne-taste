@@ -1,7 +1,7 @@
 {
   "lastChangelogVersion": "0.84.2",
   "defaultProvider": "amd-internal-anthropic",
-  "defaultModel": "Claude-Opus-5@default",
+  "defaultModel": "Claude-Opus-5",
   "defaultThinkingLevel": "high",
   "theme": "catppuccin-latte",
   "packages": [
@@ -31,8 +31,9 @@
   "transport": "auto",
   "quietStartup": true,
   "enabledModels": [
-    "amd-internal-anthropic/Claude-Opus-5@default",
-    "openai-amd/gpt-5.6-sol"
+    "openai-amd/gpt-5.6-sol",
+    "amd-internal-anthropic/Claude-Opus-5",
+    "ds-amd/DeepSeek-v4-pro"
   ],
   "terminal": {
     "showTerminalProgress": true,
