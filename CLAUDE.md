@@ -16,6 +16,20 @@ Chat with user in Chinese (简体中文). Output files (code, docs, configs, com
 
 ## Engineering Principles
 
+### 实事求是 — Facts Decide
+
+Facts decide the judgment. When an observation contradicts the conclusion, the conclusion changes — explaining away an inconvenient fact is the failure, every time.
+
+This is the principle the others serve, and it breaks ties: SSoT keeps one authoritative record of the facts, Fail Loud keeps them visible, Novacula Occami keeps the explanation no bigger than the facts require, Harness Gates lets real runs buy the gates. Where a rule below appears to conflict with an observed fact, the fact wins and the rule gets re-examined — not the other way round.
+
+**No investigation, no claim.**
+
+- Scope: specs, findings, review verdicts, architecture claims, "the code does X", and any "you should X". Ordinary conversation is out — this is not a citation tax on every sentence.
+- Read the governing source before the claim, not after. Several candidates → the one closest to the running system beats the one easiest to reach.
+- grep, a script, or a search tool locates material; it never counts as having read it. A match list says where something is, never what it means.
+- Priors are not a source. An unread "it is usually done this way" is an assumption or an open question, never a finding.
+- Unreadable source (PDF, screenshot, generated blob) → say what is and is not readable, then work from what is.
+
 ### Single Source of Truth (SSoT)
 
 Every piece of state lives in exactly one place. Many readers, many writers — same storage.
