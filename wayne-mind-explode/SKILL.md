@@ -46,6 +46,7 @@ flowchart TB
     G["Conflict and legacy review"]
     H{"Conflict remains?"}
     I["Write spec"]
+    M["Run the mechanical checks"]
     V{"Written spec approved?"}
     J["Run three independent reviews"]
     K{"Both valid on the final revision, zero findings?"}
@@ -70,7 +71,8 @@ flowchart TB
     H -->|"yes"| D
     H -->|"no"| I
     I --> U
-    U -->|"yes"| V
+    U -->|"yes"| M
+    M --> V
     U -->|"no"| X
     V -->|"no: revise"| I
     V -->|"yes"| J
@@ -80,7 +82,7 @@ flowchart TB
     ADJ -->|"carrier loss / real defect"| R
     ADJ -->|"challenges a decision / upstream gap"| D
     ADJ -->|"all remaining non-blocking"| L
-    R --> V
+    R --> M
 ```
 
 ## Process
@@ -181,7 +183,16 @@ Then read the draft against `## Prose` in the contract and rewrite the LLM writi
 
 Sweep for presence before review: walk the log record by record and either name where the spec carries each decision or state why the specified behavior does not depend on it. That is a cheap omission check and the limit of what this node can judge about its own transcription — whether each home carries the _same obligation_ is the carriage voice's job at J, because the sentence you just wrote reads to you as obviously meaning what you meant.
 
-Absorb the matrix's E2E layer into `## Verification` — the matrix is produced before this step and is run-scoped, so the spec is where that contract survives. Carry no pass/fail status: run state stays in the matrix, and the durable fact that this spec was verified is a `verified` frontmatter entry. Never author a second E2E contract. Run the contract's four fresh-eyes checks and remove every unresolved TBD/TODO before review.
+Absorb the matrix's E2E layer into `## Verification` — the matrix is produced before this step and is run-scoped, so the spec is where that contract survives. Carry no pass/fail status: run state stays in the matrix, and the durable fact that this spec was verified is a `verified` frontmatter entry. Never author a second E2E contract. Run the contract's `## Before review` checks and remove every unresolved TBD/TODO before review.
+
+### M. Run the mechanical checks
+
+Every path that reaches V has just rewritten the candidate's bytes, so I and R both land here. Run both checkers against `.wayne/runs/<topic>/spec.md`, fix what they report in the candidate, and re-run until both are clean.
+
+- [the format checker](scripts/check_spec_format.py) — `uv run <path> <candidate>` — the bounded sections downstream stages parse, the `R`/`D` contracts, the narrative/appendix divider, layering with prose per level, and the two prose habits with a signature. On an amendment add `--compare docs/specs/<topic>.md`, which proves the rewrite dropped no `R<n>` or `D<n>`.
+- [the mermaid checker](scripts/check_mermaid.mjs) — `node <path> <candidate>` — parses every `mermaid` block with mermaid's own grammar and rejects a renderer config or a diagram type outside the portable profile. It installs its pinned parser once under `~/.cache/`; the spec bytes never leave the machine. This gate exists because every reader of the spec downstream — the three voices at J included — reads the source rather than the rendering, so a diagram that renders as an error box in the user's editor is caught by nobody else.
+
+A checker that cannot run is a hard stop: report the missing capability rather than continuing without it, because a skipped check is indistinguishable from a passed one in everything written afterwards. Neither checker judges design. A clean run means the file is well formed, never that it is right, and it replaces neither the contract's fresh-eyes reading nor the three voices.
 
 ### U. Require an independent-review mechanism
 
