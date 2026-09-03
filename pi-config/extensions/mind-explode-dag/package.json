@@ -1,0 +1,14 @@
+{
+  "name": "pi-ext-mind-explode-dag",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types tests/mind-explode-dag.test.ts"
+  }
+}
