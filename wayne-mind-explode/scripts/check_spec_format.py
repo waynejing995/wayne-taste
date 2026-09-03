@@ -1,3 +1,8 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["click>=8.1", "loguru>=0.7"]
+# ///
 """Mechanical checks for a spec written against the current spec contract.
 
 Covers only what a machine can decide: the bounded sections downstream stages
@@ -6,7 +11,7 @@ and the prose habits with a measurable signature. Everything else in the
 contract is a human review item and is deliberately absent here.
 
 Usage:
-    uv run python check_spec_format.py <spec.md> [--compare <original.md>]
+    uv run check_spec_format.py <spec.md> [--compare <original.md>]
 """
 
 from __future__ import annotations
