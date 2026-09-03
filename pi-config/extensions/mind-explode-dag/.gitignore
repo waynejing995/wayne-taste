@@ -1,0 +1,8 @@
+# Symlinks into the installed pi, created by tests/link-deps.mjs on first run.
+# Nothing is vendored: the harness must exercise the exact pi-tui the running pi
+# hands the extension, so these point at that install rather than a fetched copy.
+node_modules/
+
+# Unlike the teams extension, tests/ IS published here. Its fixtures are
+# invented — a made-up "retry budget" design — so there is nothing local in them
+# to keep off a clone, and they are most of what makes this extension reviewable.
