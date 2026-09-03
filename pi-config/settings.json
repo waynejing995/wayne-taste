@@ -3,7 +3,7 @@
   "defaultProvider": "amd-internal-anthropic",
   "defaultModel": "Claude-Opus-5",
   "defaultThinkingLevel": "high",
-  "theme": "catppuccin-latte",
+  "theme": "catppuccin-mocha",
   "packages": [
     "npm:pi-mcp-adapter",
     "npm:@narumitw/pi-statusline",
@@ -22,7 +22,9 @@
     "npm:pi-patty-bg-tasks",
     "npm:pi-hermes-memory",
     "npm:@tintinweb/pi-subagents",
-    "npm:pi-goal-x"
+    "npm:pi-goal-x",
+    "npm:pi-fold",
+    "npm:@vndv/pi-codegraph"
   ],
   "defaultProjectTrust": "always",
   "treeFilterMode": "default",
