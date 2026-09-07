@@ -1,5 +1,25 @@
 # Eval: wayne-explain — procedural control vs short audience-aware candidate
 
+## Follow-up: explicit levels, default 25
+
+The current skill defines ELI, accepts a leading number or `ELI<number>`, reuses the current topic when none follows, and defaults to `25`. Four short level definitions replace implicit reliance on the model knowing the abbreviation. Level 25 means adult-level mechanisms and trade-offs without assumed specialist knowledge. The current file is 131 words and 13 lines.
+
+Fresh single-candidate checks ran through the existing isolated runner with `gpt-6-astra`, effort `high`, after freezing the expanded fixtures. The executor inspected all eight explanation answers and the metadata-selection output:
+
+| Case | Observed behavior |
+| --- | --- |
+| `default25` | Continues the index topic, explains the optimizer and lookup/full-scan choice, and describes storage/write trade-offs without asking for a level or topic. |
+| `bare5` | Interprets `5` as the level and explains indexes through a storybook directory example. |
+| `bare15` | Interprets `15` as the level, explains index lookup, and defines full-table scanning. |
+| Existing five explanation cases | Concept, work status, repeated confusion, ELI5, and engineer-oriented ELI25 remain responsive to their tasks; no unsupported deployment claim was observed. |
+| Metadata-only selection | All seven decisions match the expected selection or exclusion. |
+
+Evidence: `eval/.runs/wayne-explain/default25.GfZ86l/results/<case>/codex-final.txt`, with corresponding traces. The exact skill snapshot is in `candidate/wayne-explain/SKILL.md`; the prior 83-word version is preserved in `control/wayne-explain/SKILL.md`. Loader and formatting checks, shell syntax, frozen-input hashes, and live/snapshot equality passed.
+
+No new control comparison, independent review, or host activation test was run for this follow-up; the user waived review. Level 10 and role-only requests remain unexercised. These observations are limited to one fresh answer per case, not a general reliability guarantee.
+
+The sections below preserve the initial 409-to-83-word comparison and its original evidence; their metrics and verdict do not describe the current 131-word revision.
+
 ## Result
 
 Accept the candidate for the approved scope: one short explanation skill with optional audience or ELI depth. Five synthetic paired explanation cases showed no established regression. The metadata-only simulation improved the explicit ELI25 selection. This is not proof of host runtime activation or general reliability.

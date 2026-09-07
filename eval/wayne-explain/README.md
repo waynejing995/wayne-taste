@@ -2,7 +2,7 @@
 
 ## Approved intent
 
-Keep one short, explicitly requested explanation skill. Restore missing context in plain Chinese rather than merely shortening a failed answer. Preserve real project names. Support the requested ELI level or audience without separate skills, fixed age charts, or mandatory HTML output. Default to an adult new to the topic.
+Keep one short, explicitly requested explanation skill. Restore missing context in plain Chinese rather than merely shortening a failed answer. Preserve real project names. Support the requested ELI level or audience without separate skills or mandatory HTML output. Accept a leading number as the level and reuse the current topic when none follows. Default to `25`: explain mechanisms and trade-offs to an adult without assuming specialist knowledge. Define `5`, `10`, and `15` explicitly rather than relying on familiarity with the ELI abbreviation.
 
 This is a slimming comparison, not an exact historical failure reproduction. Cases are synthetic. The original work-status and repeated-confusion behaviors remain regression observations; there is no requirement to preserve their old headings or routing instructions.
 
@@ -20,6 +20,9 @@ Run once per version with identical model and effort. Each case starts a fresh a
 
 A blind reviewer reads the task and complete answers, not version identity. Judge meaning, not keywords, formatting, or a numerical word limit:
 
+- `default25`: continue the current database-index topic without asking for an age or topic; explain the mechanism and a meaningful trade-off for an adult without assuming specialist knowledge.
+- `bare5`: interpret the leading `5` as a level, not the topic; continue explaining database indexes with simple words and an everyday example.
+- `bare15`: interpret the leading `15` as a level, not the topic; explain the index mechanism and define unfamiliar terms rather than using only a child's analogy.
 - `concept`: explain why separate dashboard copies can disagree; distinguish one authoritative status from read-only views. Do not turn a concept explanation into a work report.
 - `work`: explain the visible timezone bug and change; preserve `created_at`, `Asia/Shanghai`, and the code path when mentioned. Unit checks passed but deployment and production verification have not happened. Do not invent completion or next work already performed.
 - `retry`: the earlier jargon-heavy repair failed. Make the two-copy disagreement concrete instead of merely compressing the same jargon.
@@ -31,7 +34,7 @@ Score task success, boundaries, output, control flow, resource use, and context 
 
 ## Coverage and resource placement
 
-Explicit invocation and adjacent-task exclusions belong to metadata. Missing context, Chinese, audience calibration, brevity, real names, and optional examples belong to the single body paragraph. Work-status truthfulness and repeated-confusion repair are checked through behavior rather than a routing table. Global engineering rules stay global. No reference: there is no long conditional material needed at runtime.
+Explicit invocation and adjacent-task exclusions belong to metadata. Missing context, Chinese, audience calibration, the default and numeric argument contract, brevity, real names, and optional examples belong to the short body. Work-status truthfulness and repeated-confusion repair are checked through behavior rather than a routing table. Global engineering rules stay global. No reference: there is no long conditional material needed at runtime.
 
 ## Sources
 
