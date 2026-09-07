@@ -45,6 +45,23 @@ bash "${WAYNE_SKILLS_DIR}/pi-config/bootstrap.sh"
 
 `bootstrap.sh` installs the packages and then calls the **repo-level** `sync.sh`, which links the Wayne skills and global rules and delegates pi config back to this directory's `sync.sh`. It exits non-zero and names every package that failed. Model/provider setup remains manual. Because `pi install` writes local settings before sync runs, compare that file with the reference afterwards and adopt the desired defaults; bootstrap does not force them onto an existing file.
 
+### CodeGraph: separate manual install
+
+`bootstrap.sh` installs `@vndv/pi-codegraph`, the pi extension, but **not the
+CodeGraph CLI** it calls. Install the CLI separately and make sure `codegraph`
+is on `PATH`. The extension requires Node.js 22.19.0 or newer.
+
+```bash
+npm install -g @colbymchenry/codegraph
+command -v codegraph
+
+# Initialize and index each project before using the codegraph_* tools
+cd /path/to/project
+codegraph init -i
+```
+
+Start pi in that indexed project. No extra MCP configuration is needed.
+
 ## Already-set-up machine (adopt SoT)
 
 The repo-level `sync.sh` is the single entry point — it syncs skills, global rules **and** this directory's config in one command:
