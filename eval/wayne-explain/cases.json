@@ -1,5 +1,17 @@
 [
   {
+    "id": "default25",
+    "task": "Conversation context: We are discussing why database indexes speed up searches but cost storage and slow some writes. The assistant said, 'The optimizer weighs tree traversal and lookup costs against sequential access.' The user invokes: 'wayne-explain'. Respond to the user."
+  },
+  {
+    "id": "bare5",
+    "task": "Conversation context: We are discussing database indexes: a separate lookup structure helps find matching rows without inspecting all rows, but uses storage and needs maintenance on writes. The user invokes: 'wayne-explain 5'. Respond to the user."
+  },
+  {
+    "id": "bare15",
+    "task": "Conversation context: We are discussing database indexes: a separate lookup structure helps find matching rows without inspecting all rows, but uses storage and needs maintenance on writes. The user invokes: 'wayne-explain 15'. Respond to the user."
+  },
+  {
     "id": "concept",
     "task": "Conversation context: An assistant said, 'Use a single source of truth for task status; dashboards should be derived views, not independent state owners.' The user replies: '说人话，我没懂为什么不能每个页面自己存状态。' Respond to that user."
   },
