@@ -23,8 +23,8 @@
     "npm:pi-hermes-memory",
     "npm:@tintinweb/pi-subagents",
     "npm:pi-goal-x",
-    "npm:pi-fold",
-    "npm:@vndv/pi-codegraph"
+    "npm:@vndv/pi-codegraph",
+    "npm:context-fold"
   ],
   "defaultProjectTrust": "always",
   "treeFilterMode": "default",
