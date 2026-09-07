@@ -9,10 +9,31 @@ Single source of truth for Wayne's pi coding-agent config, shipped the same way 
 | `settings.json` | **reference** suggested package list, theme, defaults | `~/.pi/agent/settings.json` — copied only if absent, never overwritten |
 | `pi-statusline.json` | statusline layout/palette | `~/.pi/agent/pi-statusline.json` |
 | `workflows/saved/wayne-code-review-flow.json` | dual model-family review workflow (portable) | `~/.pi/workflows/saved/` |
+| `extensions/` | Teams integration and the mind-explode decision DAG panel/tools | `~/.pi/agent/extensions/<name>` |
 | `../CLAUDE.md` | global rules (shared SoT, not a file of this dir) | `~/.pi/agent/AGENTS.md` |
 | `internal-models-setup.md` | **guide** to wire the AMD internal model provider | — (manual, secret-specific) |
 | `sync.sh` | symlink shipped config → `~/.pi/...` (idempotent) | — |
 | `bootstrap.sh` | fresh machine: `pi install` all packages + the repo-level `sync.sh` | — |
+
+## Current reference defaults
+
+`settings.json` is the authoritative package list and settings snapshot; the highlights are:
+
+| Setting | Reference value |
+| --- | --- |
+| Startup model | `openai-amd/gpt-6-astra` |
+| Thinking level | `high` |
+| Theme / TUI | `catppuccin-mocha` / `regular` |
+| Steering / follow-up delivery | `all` / `all` |
+| Transport / HTTP idle timeout | `auto` / `0` (idle timeout disabled) |
+| Project trust fallback | `always` — use `ask` instead on machines that open untrusted repositories |
+
+The Ctrl+P model cycle includes `openai-amd/gpt-5.6-sol`,
+`amd-internal-anthropic/Claude-Opus-5`, `ds-amd/DeepSeek-v4-pro`, and
+`openai-amd/gpt-6-astra`. These entries select models; they do not register
+providers or supply credentials. Configure the matching provider/model IDs in
+your machine-local `models.json`. The setup guide's examples do not include
+GPT-6 Astra or DeepSeek, so adapt them to your available endpoint and catalog.
 
 ## Fresh machine
 
@@ -22,7 +43,7 @@ bash "${WAYNE_SKILLS_DIR}/pi-config/bootstrap.sh"
 # then follow internal-models-setup.md to create models.json + set AMD_APIM_KEY
 ```
 
-That one command produces a complete machine: `bootstrap.sh` installs the packages and then calls the **repo-level** `sync.sh`, which links the Wayne skills and global rules and delegates pi config back to this directory's `sync.sh`. It exits non-zero and names every package that failed, so a run that installed nothing can never look like a success.
+`bootstrap.sh` installs the packages and then calls the **repo-level** `sync.sh`, which links the Wayne skills and global rules and delegates pi config back to this directory's `sync.sh`. It exits non-zero and names every package that failed. Model/provider setup remains manual. Because `pi install` writes local settings before sync runs, compare that file with the reference afterwards and adopt the desired defaults; bootstrap does not force them onto an existing file.
 
 ## Already-set-up machine (adopt SoT)
 
@@ -55,15 +76,24 @@ keeps its own token cache under `~/.cache/pi/teams-auth/`.
 dependencies on first sync. Read `extensions/teams/README.md` before using it —
 in particular the note on which client identity it signs in as.
 
+`extensions/mind-explode-dag` — a live decision DAG above the input box for
+`wayne-mind-explode` runs, plus the `wayne_resolve_decision` and
+`wayne_upsert_decision_node` write tools. `/dag` or `alt+g` focuses the panel;
+`/dag-run` pins a run. `sync.sh` links it alongside Teams. See
+[the extension README](extensions/mind-explode-dag/README.md) for controls and
+write semantics.
+
 ## Intentionally NOT shipped
 
 - **`models.json`** — machine/proxy/secret specific. Reconstruct via `internal-models-setup.md`. The APIM key lives in `${AMD_APIM_KEY}` (env or secret manager), never in git.
-- **`~/.pi/agent/extensions/`** (herdr, orca) — machine-local.
+- **Other extensions** under `~/.pi/agent/extensions/` (herdr, orca) — machine-local; only `pi-config/extensions/` is shipped.
 - **`~/.tmux.conf`** — machine-local.
 - **State**: `auth.json`, `trust.json`, `models-store.json` (regenerated), `npm/` (rebuilt by `pi install`), `workflows/projects/` (run history).
 
 ## Note on settings.json
 
-`settings.json` is a **reference**, not a managed link: a suggested package list plus sane defaults. Every machine owns its own `~/.pi/agent/settings.json` (pi writes `theme`, `lastChangelogVersion` and `pi install` additions into it), so `sync.sh` copies the reference only when the machine has none, and otherwise leaves the local file alone and prints a diff against the reference — `-` is local-only, `+` is suggested here. Adopt what you want by hand.
+`settings.json` is a **reference** by default: `sync.sh` copies it only when the machine has none, and otherwise preserves the existing file or symlink. When the contents differ, the script prints a diff — `-` is local-only, `+` is suggested here. Adopt what you want by hand.
 
-Keeping the reference current is therefore a manual step: when a package earns its place, add it here and commit.
+An existing `~/.pi/agent/settings.json` symlink to this checkout stays linked. In that setup, settings written by pi (including model defaults, theme, `lastChangelogVersion`, and package changes) also change the tracked reference. Check `git diff -- pi-config/settings.json` before committing; those writes are not automatically intended for every machine.
+
+Keep the reference current when a package or default earns its place. With a standalone local settings file, copy the intended changes here explicitly.

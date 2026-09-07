@@ -56,6 +56,47 @@ Three providers. Keys shown as placeholders — substitute your own mechanism.
 }
 ```
 
+## Custom request headers
+
+Pi already supports custom headers in `models.json`; no extension or Pi patch is
+needed. Add a `headers` object inside the target provider, alongside `baseUrl`,
+`api`, and `models`. It applies to that provider's models, not to other providers.
+
+For `providers.openai-amd`, extend the existing object rather than replacing the
+APIM subscription header. This is a provider fragment, not a complete `models.json`:
+
+```json
+{
+  "headers": {
+    "Ocp-Apim-Subscription-Key": "${AMD_APIM_KEY}",
+    "user": "${AMD_USER_ID}",
+    "X-Client-Name": "pi",
+    "X-Team": "${AMD_TEAM}"
+  }
+}
+```
+
+`X-Client-Name` and `X-Team` are examples, not required AMD headers. Use only the
+names your endpoint expects, and export the referenced variables in the process
+that launches pi. The same `headers` field works on `amd-internal-anthropic` or
+another custom provider; do not copy APIM credentials to unrelated endpoints.
+
+| Value form | Example |
+| --- | --- |
+| Fixed value | `"X-Client-Name": "pi"` |
+| Environment variable | `"user": "${AMD_USER_ID}"` (or `"$AMD_USER_ID"`) |
+| Interpolated value | `"Authorization": "Bearer ${PROXY_TOKEN}"` |
+| Secret-manager command | `"X-Proxy-Key": "!op read 'op://vault/proxy/key'"` |
+
+Plain `"AMD_USER_ID"` is a literal, not an environment lookup. Missing environment
+variables leave values unresolved. Secret-manager commands resolve at request
+time; `/model` availability checks do not execute them. Do not commit real tokens
+or add an `Authorization` override unless your endpoint requires it.
+
+After editing, reopen `/model` to reload the file and select the target model.
+Confirm header delivery with a real request and redacted proxy/server-side
+inspection; seeing the model listed alone does not prove headers were sent.
+
 ## thinkingLevelMap — why it differs per family
 
 pi thinking levels: `off, minimal, low, medium, high, xhigh, max`.
@@ -66,7 +107,7 @@ pi thinking levels: `off, minimal, low, medium, high, xhigh, max`.
 
 ## Secrets — never commit the key
 
-The only real secret is the APIM subscription key. Options, cleanest first:
+Keep the APIM subscription key and any custom-header tokens outside git. Options, cleanest first:
 
 1. **Env var** (used above): `export AMD_APIM_KEY=...` in `~/.bashrc` (or a machine-local untracked file). `models.json` references `${AMD_APIM_KEY}`.
 2. **Secret manager command:** `"apiKey": "!op read 'op://vault/amd/apim'"` — resolved at request time.
