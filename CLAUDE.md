@@ -109,12 +109,11 @@ Bias toward caution over speed. Trivial tasks: use judgment.
 
 ### Think Before Coding
 
-Don't assume. Don't hide confusion. Surface tradeoffs.
+Resolve routine uncertainty from evidence; state assumptions and tradeoffs.
 
-- State assumptions explicitly. Uncertain → ask.
-- Multiple interpretations → present them, don't pick silently.
+- Ask only about material outcome, scope or permission changes; continue independent authorized work.
+- User requests override skill defaults within host precedence and approved artifact/stage boundaries. Reuse granted authorization.
 - Simpler approach exists → say so.
-- Confused → stop. Name what's confusing. Ask.
 
 ### Simplicity First
 
@@ -171,7 +170,7 @@ git commit -s
 
 1 commit = 1 feature / 1 fix / 1 request / or 1 unit if a feature is really large. No bundles.
 
-**Large feature → commit per unit yourself.** When a feature spans multiple plan units, commit each unit (or each self-contained logical group, when units are atomically coupled) as you finish it — do not wait to be told. Each commit must be self-consistent. Where an ordering constraint forces units to land together, group exactly those and say so in the commit body.
+**Large features:** when explicitly requested and permitted by the stage, commit per unit. Group only atomically coupled units, explaining why. Push/PR require separate authorization.
 
 **Sign-off is the human, never the bot.** Before committing, read the effective identity with `git config user.name` / `git config user.email` — a repo-level override wins over the global one — and commit as exactly that identity. The author and the `Signed-off-by:` trailer MUST name it; `git commit -s` gives you that for free. If the effective identity is a `*Robot*` / `noreply` bot, ask the user for their identity instead of committing as the bot. Do NOT add `Co-Authored-By` robot/Claude trailers. Never edit git config to achieve this.
 
@@ -198,7 +197,7 @@ use wayne-frontend-design skill for big UI change/new page add/old page restruct
 
 ## Decision Points
 
-Before `AskUserQuestion` on complex problems: explain in plain Chinese. No jargon, no filler, no politeness padding. Headers/labels stay English.
+Before `AskUserQuestion`: plain Chinese, no jargon or filler; English headers/labels. For pauses, confirmations or detours, cite and quote the rule versus your interpretation, or report the actual failure.
 
 ## Skills (元规则)
 
