@@ -1,7 +1,7 @@
 {
-  "lastChangelogVersion": "0.84.2",
-  "defaultProvider": "amd-internal-anthropic",
-  "defaultModel": "Claude-Opus-5",
+  "lastChangelogVersion": "0.85.1",
+  "defaultProvider": "openai-amd",
+  "defaultModel": "gpt-6-astra",
   "defaultThinkingLevel": "high",
   "theme": "catppuccin-mocha",
   "packages": [
@@ -35,7 +35,8 @@
   "enabledModels": [
     "openai-amd/gpt-5.6-sol",
     "amd-internal-anthropic/Claude-Opus-5",
-    "ds-amd/DeepSeek-v4-pro"
+    "ds-amd/DeepSeek-v4-pro",
+    "openai-amd/gpt-6-astra"
   ],
   "terminal": {
     "showTerminalProgress": true,
