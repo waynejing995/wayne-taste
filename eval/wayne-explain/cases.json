@@ -1,0 +1,22 @@
+[
+  {
+    "id": "concept",
+    "task": "Conversation context: An assistant said, 'Use a single source of truth for task status; dashboards should be derived views, not independent state owners.' The user replies: '说人话，我没懂为什么不能每个页面自己存状态。' Respond to that user."
+  },
+  {
+    "id": "work",
+    "task": "Known work state: src/report.py formats created_at for the daily report. It previously interpreted the timestamp using UTC, so the user's Asia/Shanghai report was eight hours off. The edit now formats created_at using Asia/Shanghai. The focused unit tests passed. Nothing has been deployed and production verification has not run. The assistant just said, 'Temporal normalization is corrected and the regression gate is green.' The user replies: '这fix了个啥玩意，好了没？' Respond to that user."
+  },
+  {
+    "id": "retry",
+    "task": "Conversation: Assistant: 'The duplicated status projection violates single-source-of-truth semantics and causes divergence.' User: '说人话。' Assistant: '重复状态副本违反单一事实源语义，会导致状态漂移。' User: '还是没懂，再说人话。' Respond to the final user message."
+  },
+  {
+    "id": "eli5",
+    "task": "User: 'ELI5，用中文解释数据库索引。我完全没接触过数据库，简短一点。' Respond to that user."
+  },
+  {
+    "id": "eli25",
+    "task": "User: 'ELI25，用中文解释数据库索引。我是后端工程师，懂 SQL，但没学过索引内部实现。简短一点，不用儿童比喻。' Respond to that user."
+  }
+]
