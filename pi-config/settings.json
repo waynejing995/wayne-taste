@@ -24,7 +24,7 @@
     "npm:@tintinweb/pi-subagents",
     "npm:pi-goal-x",
     "npm:@vndv/pi-codegraph",
-    "npm:context-fold"
+    "npm:@monotykamary/pi-vcc"
   ],
   "defaultProjectTrust": "always",
   "treeFilterMode": "default",
