@@ -8,13 +8,20 @@
 # THE single entry point for a full sync. Stage 1 (this script) owns skill and
 # global-rule symlinks; stage 2 delegates pi's own config to pi-config/sync.sh,
 # which remains the sole owner of that link list and is still runnable on its
-# own for a pi-only sync. A failing stage fails the whole run.
+# own for a pi-only sync. Every failure is reported, but independent sync work
+# continues.
 #
 # This script is idempotent: run it any time a skill is ADDED or REMOVED at the
 # SoT to re-point every agent. Editing an existing skill needs no re-run.
 #
 # Usage:  bash "${WAYNE_SKILLS_DIR}/sync.sh" [--dry-run]
-set -euo pipefail
+set -uo pipefail
+ISSUES=0
+
+report_issue() {
+  echo "ERROR: $*" >&2
+  ISSUES=$((ISSUES + 1))
+}
 
 WAYNE_HOME="${WAYNE_HOME:-${HOME}/.wayne}"
 WAYNE_CONFIG="${WAYNE_CONFIG:-${WAYNE_HOME}/config.env}"
@@ -27,9 +34,17 @@ SOT="${WAYNE_SKILLS_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)}
 
 case "$SOT" in
   /*) ;;
-  *) echo "ERROR: WAYNE_SKILLS_DIR must be an absolute path: ${SOT}" >&2; exit 1 ;;
+  *)
+    report_issue "WAYNE_SKILLS_DIR must be an absolute path: ${SOT}"
+    echo "Done with ${ISSUES} issue(s); nothing synced."
+    exit 0
+    ;;
 esac
-[ -d "$SOT" ] || { echo "ERROR: Wayne skills directory does not exist: ${SOT}" >&2; exit 1; }
+if [ ! -d "$SOT" ]; then
+  report_issue "Wayne skills directory does not exist: ${SOT}"
+  echo "Done with ${ISSUES} issue(s); nothing synced."
+  exit 0
+fi
 CLAUDE_SKILLS="${HOME}/.claude/skills"
 CLAUDE_RULES="${HOME}/.claude/CLAUDE.md"
 CODEX_SKILLS="${HOME}/.codex/skills"
@@ -59,45 +74,54 @@ link_one() {
   local target="$1" linkdir="$2" name="$3"
   local link="${linkdir}/${name}"
   if [ ! -e "$target" ]; then
-    echo "ERROR: ${name}: missing at SoT (${target})" >&2
-    return 1
+    report_issue "${name}: missing at SoT (${target})"
+    return
   fi
-  # A real file or directory has its own state. Do not overwrite it and do not
-  # silently leave this consumer drifted from the SoT.
+  # A real file or directory has its own state. Do not overwrite it; report it
+  # and continue syncing independent paths.
   if [ -e "$link" ] && [ ! -L "$link" ]; then
-    echo "ERROR: ${name}: ${link} is a real path, not a symlink" >&2
-    return 1
+    report_issue "${name}: ${link} is a real path, not a symlink"
+    return
   fi
   if [ "$DRY" = "--dry-run" ]; then
     echo "WOULD ln -sfn ${target} ${link}"
     return
   fi
-  ln -sfn "$target" "$link"
+  if ! ln -sfn "$target" "$link"; then
+    report_issue "${name}: could not link ${link} -> ${target}"
+    return
+  fi
   echo "LINK  ${name} -> ${target}"
 }
 
 link_global_rules() {
   local target="${SOT}/CLAUDE.md"
   if [ ! -f "$target" ]; then
-    echo "ERROR: missing global rules at SoT (${target})" >&2
-    return 1
+    report_issue "missing global rules at SoT (${target})"
+    return
   fi
   if [ -e "$CLAUDE_RULES" ] && [ ! -L "$CLAUDE_RULES" ]; then
     if ! cmp -s "$target" "$CLAUDE_RULES"; then
-      echo "ERROR: ${CLAUDE_RULES} differs from ${target}; reconcile before linking" >&2
-      return 1
+      report_issue "${CLAUDE_RULES} differs from ${target}; kept local file"
+      return
     fi
     if [ "$DRY" = "--dry-run" ]; then
       echo "WOULD replace identical ${CLAUDE_RULES} with a symlink to ${target}"
       return
     fi
-    rm "$CLAUDE_RULES"
+    if ! rm "$CLAUDE_RULES"; then
+      report_issue "could not remove identical local rules at ${CLAUDE_RULES}"
+      return
+    fi
   fi
   if [ "$DRY" = "--dry-run" ]; then
     echo "WOULD ln -sfn ${target} ${CLAUDE_RULES}"
     return
   fi
-  ln -sfn "$target" "$CLAUDE_RULES"
+  if ! ln -sfn "$target" "$CLAUDE_RULES"; then
+    report_issue "could not link global rules ${CLAUDE_RULES} -> ${target}"
+    return
+  fi
   echo "LINK  global rules -> ${target}"
 }
 
@@ -113,7 +137,10 @@ remove_stale_links() {
   local link name target
   for link in "$1"/_shared "$1"/wayne-* "$1"/waynejing; do
     [ -L "$link" ] || continue
-    target="$(readlink "$link")"
+    if ! target="$(readlink "$link")"; then
+      report_issue "could not read symlink ${link}"
+      continue
+    fi
     case "$target" in
       "${SOT}"/*) ;;
       *) continue ;;
@@ -124,7 +151,10 @@ remove_stale_links() {
       echo "WOULD rm ${link}"
       continue
     fi
-    rm "$link"
+    if ! rm "$link"; then
+      report_issue "could not remove stale link ${link}"
+      continue
+    fi
     echo "REMOVE ${name} -> ${target}"
   done
 }
@@ -146,17 +176,20 @@ for agentdir in "$CLAUDE_SKILLS" "$CODEX_SKILLS" "$PI_SKILLS"; do
     echo
     continue
   fi
-  # Claude's global rules live in its home rather than its skills dir. Linking
-  # them before the home check would make `ln` fail on the missing parent and
-  # kill the whole run under `set -e`, starving agents that ARE installed.
+  # Claude's global rules live in its home rather than its skills dir. Handle
+  # them only after the install-marker check, then continue regardless of any
+  # reported conflict.
   if [ "$agentdir" = "$CLAUDE_SKILLS" ]; then
     link_global_rules
   fi
   if [ ! -d "$agentdir" ]; then
     if [ "$DRY" = "--dry-run" ]; then
       echo "WOULD mkdir -p ${agentdir}"
+    elif ! mkdir -p "$agentdir"; then
+      report_issue "could not create ${agentdir}; skipping this agent"
+      echo
+      continue
     else
-      mkdir -p "$agentdir"
       echo "MKDIR ${agentdir}"
     fi
   fi
@@ -178,13 +211,11 @@ echo "=== ${PI_HOME}/agent (pi config) ==="
 if [ ! -d "$PI_HOME" ]; then
   echo "NOT INSTALLED: ${PI_HOME} absent — pi is not installed on this machine; no links made"
 elif ! bash "${SOT}/pi-config/sync.sh" ${DRY:+"$DRY"}; then
-  echo >&2
-  echo "FAILED stage: pi config (${SOT}/pi-config/sync.sh)." >&2
-  echo "Skills and global rules ARE synced; pi config is NOT. This sync is INCOMPLETE." >&2
-  exit 1
+  report_issue "pi config sync exited unexpectedly (${SOT}/pi-config/sync.sh)"
 fi
 echo
-echo "Done. Verify with:  ls -la ${CLAUDE_SKILLS} ${CODEX_SKILLS} ${PI_SKILLS} | grep wayne"
+echo "Done with ${ISSUES} top-level issue(s). All possible syncs were attempted."
+echo "Verify with:  ls -la ${CLAUDE_SKILLS} ${CODEX_SKILLS} ${PI_SKILLS} | grep wayne"
 
 # ── Skill-usage audit hook (informational; this script does NOT install it) ──
 # One script handles BOTH agents, bundled under wayne-context-audit/hooks/:

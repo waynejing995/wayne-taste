@@ -34,7 +34,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { StringEnum } from "@earendil-works/pi-ai";
+/** Local `StringEnum` helper — `Type.Unsafe({type:"string", enum})` so tool schemas
+  * use a flat form providers can handle (not `anyOf/const`). Identical to the
+  * pi-ai export it replaces; stays here so the extension loads without that dep. */
+function StringEnum(values: string[], options?: { description?: string; default?: string }) {
+    return Type.Unsafe({ type: "string", enum: values, ...options });
+}
 import { marked } from "marked";
 import { Type } from "typebox";
 import * as auth from "./auth.ts";

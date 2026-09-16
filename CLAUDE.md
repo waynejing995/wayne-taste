@@ -209,32 +209,6 @@ Before `AskUserQuestion`: plain Chinese, no jargon or filler; English headers/la
 | Simple | Direct. Skill only if explicitly requested. (small edit, add function, rename) |
 | Medium+ | Invoke relevant skill. (new feature, multi-file, ship, review) |
 
-**Always invoke** when user names a skill or slash command. **Never invoke** brainstorming/planning skills for tasks under ~10 lines of change.
-
-| Trigger | Skill |
-| --- | --- |
-| "brainstorm" / "design this" / "新功能想一下" / explore an idea | `wayne-mind-explode` |
-| "create a skill" / "slim this skill" / "建一个 skill" | `wayne-skill-forge` |
-| "optimize this skill" / "evolve skill" / failure-driven skill A/B | `wayne-skill-optimize` |
-| "triage" / "root cause" / "why is this failing" / "分诊" / "查根因" | `wayne-triage` |
-| "make a plan" / "plan this feature" / spec → plan | `wayne-plan` |
-| "build it" / "implement the plan" / execute a plan | `wayne-work` |
-| "simplify this" / "简化一下" / "太复杂了" / refine the diff just written | `wayne-simplify` |
-| "goal prompt" / "写个 goal" / "把这句变成一条 goal" / sharpen a vague goal before an autonomous run | `wayne-goal-prompt` |
-| "review my code" / pre-merge / post-feature review | `wayne-code-review` |
-| "verify" / "e2e" / "does it actually work" / "run the feature" / runtime verification before ship | `wayne-verify` |
-| "commit" / "ship" / "push" | `wayne-ship` |
-| "checkpoint" / "save state" / pause-and-resume across sessions | `wayne-checkpoint` |
-| "capture lesson" / "记一下" / post-mortem after solving | `wayne-compound` |
-| Frontend / UI / landing page / dashboard | `wayne-frontend-design` |
-| "save to KB" / "add to knowledge base" / "what do we know about X" / "search KB" | `wayne-manner` |
-| "用控制论分析" / "apply cybernetics" / "system design audit" / "architecture review" / "find drift sources" | `wayne-cybernetics` |
-| Final deliverable for **human** audience: presentation / publication / design doc routed to architect for review | `humanizer-zh` (two-pass audit) |
-
-**Skip `humanizer-zh` for:** AI-consumed docs (CLAUDE.md, plans, specs, agent prompts, internal notes), code comments, commit messages, chat replies. Default = no humanize.
-
-Never use `mcp__claude-in-chrome__*` tools.
-
 ## Wayne Paths
 
 The local path registry is `~/.wayne/config.env`. `WAYNE_SKILLS_DIR` points to the Wayne Taste clone; `WAYNE_KB_DIR` points to the external Obsidian vault.

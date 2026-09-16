@@ -82,20 +82,20 @@ bash "${WAYNE_SKILLS_DIR}/sync.sh" --dry-run  # preview, change nothing
 
 Idempotent, and runs in two stages:
 
-1. **Skills and global rules** — re-points every agent's skill dir at the SoT and links `~/.claude/CLAUDE.md`.
+1. **Skills and global rules** — attempts to re-point every agent's skill dir at the SoT and link `~/.claude/CLAUDE.md`.
 2. **pi config** — delegates to `pi-config/sync.sh`, which stays the sole owner of what lands in `~/.pi`. `--dry-run` is passed through unchanged.
 
-Running `pi-config/sync.sh` directly is the pi-only path: still supported, but no longer something a full sync requires you to remember. `pi-config/bootstrap.sh` calls this top-level `sync.sh`, so the documented fresh-machine command produces a complete machine — skills, global rules and pi config — rather than pi config alone.
+Both stages are best-effort: each conflict or failed operation is reported, independent paths continue syncing, and the command exits successfully after attempting everything. Running `pi-config/sync.sh` directly follows the same rule.
 
 Safety properties:
 
 - `ln -sfn` — overwrites only stale symlinks; never follows into a target dir.
-- A real (non-symlink) consumer path is a hard error: sync never overwrites user state or silently leaves that agent drifted.
-- A skill missing at the SoT is a hard error.
+- A real (non-symlink) consumer path is kept and reported; sync continues with independent paths. An identical `~/.claude/CLAUDE.md` is replaced by the managed symlink.
+- A skill missing at the SoT is reported and skipped without blocking other skills.
 - Stale symlinks that target this SoT are removed; real paths and third-party symlinks are never touched.
 - An agent is "installed" iff its **install marker** directory exists: `~/.claude`, `~/.codex`, and — for pi — `~/.pi`. The marker is the parent of the skills dir for Claude and Codex; pi is the exception, because it reads skills from `~/.agents/skills`, a path only `sync.sh` ever creates, so `~/.agents` cannot prove anything about pi.
 - A missing marker is not an error: sync says the agent is not installed, links nothing for it, creates no directory for it, and keeps going. A marker that exists without the skills dir gets that directory created and fully linked.
-- Stage failures aggregate: if the pi-config stage fails, the whole run fails and names the failing stage. A partial sync never reports success.
+- Stage failures are reported in per-stage summaries; every independent sync operation is still attempted.
 
 ## What is and isn't synced
 

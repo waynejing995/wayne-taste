@@ -7,6 +7,8 @@ Restore the missing context and re-explain in plain Chinese; don't just shorten 
 
 ELI means "Explain Like I'm". A leading number or `ELI<number>` selects a level; default to `25`. If no topic follows, use the current topic. Honor an explicitly named audience.
 
+use explanotory mermaid graph or html to explain.
+
 - `5`: Assume no background; use simple words and an everyday example.
 - `10`: Add basic cause and effect.
 - `15`: Explain mechanisms and define unfamiliar terms.
