@@ -49,7 +49,7 @@ flowchart TB
     M["Run the mechanical checks"]
     V{"Written spec approved?"}
     J["Run three independent reviews"]
-    K{"Both valid on the final revision, zero findings?"}
+    K{"All three valid on the final revision, zero findings?"}
     ADJ["Adjudicate findings"]
     R["Revise from findings"]
     U{"Review mechanism available?"}
@@ -98,25 +98,24 @@ Seed the run-scoped log from [the template](templates/decision-log.jsonl) — on
 
 ### B. Research project and lessons
 
-On the initial pass, research enough with parallel subagents for all direction to seed known root and dependent nodes. The  
-topic's living spec and every spec it declares a `Depends on` edge to are read first: they are the current design, not background reading.
+**Initial survey.** Start with the topic's living spec and every spec named by its `Depends on` edges; these are the current design, not background reading. Use parallel subagents to research all relevant directions and seed known root and dependent nodes.
 
-ALSO a web research for similar topic implementation method is a must for sw stack picking and no remaking wheels!!!
+**Check spec freshness before seeding.** A spec is current only if its metadata supports that claim and no evidence contradicts it. Check these dates first:
 
-A spec is only trustworthy as current if it says so and nothing contradicts it. Run both checks before believing any of them — they are pure date comparisons and need no understanding of the content:
+- `today >= stale_after`: the spec has reached its re-reconciliation date.
+- It has `verified` entries, but the latest predates `generated.at`: the content changed after its last runtime confirmation.
 
-- `today >= stale_after` — past its own re-reconciliation date;
-- it carries `verified` entries and the latest is older than `generated.at` — it was edited after it was last confirmed, so the gate that approved it no longer covers the current bytes.
+No `verified` entry means design-approved but never run, not stale; only `wayne-verify` writes runtime confirmations. A trusted spec seeds the nodes it answers as `resolved`, with `resolved_by` pointing to its `<slug>:D<number>`. A spec failing either check cannot seed resolved nodes: treat its claims as unverified and use G's three-way triage against the code. Existence alone never establishes trust.
 
-No `verified` entry at all is not staleness. `verified` records a runtime confirmation that only `wayne-verify` writes after ship, so a design this pipeline just approved has none; it is trustworthy design that has never been run.
+**Research one fact.** Select the next reachable open `fact` and process at most one before P:
 
-A spec that passes both seeds the nodes it answers as `resolved`, setting their `resolved_by` to that spec's `<slug>:D<number>` rather than re-litigating them. A spec that fails either check is **not** seeded resolved: it is a claim to verify, so route the nodes it touches to G's three-way triage against the code. No spec ever silently self-certifies just because it exists.
+- **Repository:** read instructions, relevant code, docs, architecture, active plans, other specs, and recent history.
+- **KB:** find semantically matching lessons, prior decisions, research, how-tos, and project notes. Surface matches and log whether the user applies or skips them.
+- **Web:** research similar implementations and reusable solutions for software-stack selection. Otherwise, search only when current external facts could change a design choice. Store source URLs in the decision's `reference`; a source that cannot be reopened is not evidence.
 
-Then select the next reachable open `fact` and process at most one before returning to P. Read repository instructions, relevant code, docs, architecture, active plans, other specs, and recent history. Scan Wayne's KB for semantically matching lessons, prior decisions, research, how-tos, and project notes; surface matches and log whether the user applies or skips them. Search the web only when current external facts could change a design choice, and preserve the source URL in the decision's `reference`. A web fact whose source cannot be reopened is not evidence.
+**Classify the result.** Evidence-backed facts resolve without user confirmation, but P must persist their numbered evidence before they become resolved. Only trusted spec references may seed resolved nodes directly. Every design-relevant source fact belongs in both a `decision` record and the DAG, never only in prose notes. Intent, priority, risk, scope, and trade-offs are user-owned `choice` nodes. Ambiguous or conflicting evidence also stays open as a choice.
 
-An evidence-backed `fact` auto-resolves without user confirmation; append its numbered evidence record before marking it resolved. Never seed a fact as resolved on your own reading; only a trusted living spec's `<slug>:D<number>` may do that. Every design-relevant source fact belongs in both a `decision` record and the DAG; never leave it only in a prose context, notes, or summary section. A `choice` requires the user when it concerns intent, priority, risk, scope, or a trade-off. Ambiguous or conflicting evidence cannot resolve a fact: keep the node open and route it as a choice.
-
-After every resolved node, expand consequences before choosing the next node: what new purpose/scope, owner, interface, data/control flow, failure/concurrency, compatibility, operations, verification, or rollback decision becomes reachable? Persist each real child. A broad parent answer never resolves its consequences.
+**Expand consequences.** After every resolved node, identify new purpose/scope, ownership, interface, data/control flow, failure/concurrency, compatibility, operations, verification, or rollback decisions. Persist every real child before selecting the next node; a broad parent answer does not resolve its consequences.
 
 ### P. Persist one discovered decision
 
@@ -124,14 +123,17 @@ Append the single discovered fact or constraint as one new `decision` record. In
 
 ### D. Ask one recommended question
 
-Interview the user relentlessly until both sides share the same design. Select the next reachable open `choice` from the durable DAG. Ask exactly one question  &lt;MUST&gt; with plain text, explanatory style&lt;/MUST&gt; and  
-offer three concrete options for that decision, with `My recommendation:` naming the option you would choose and why. For a genuinely binary decision, offer two and state why no third distinct option exists; never pad the list with a fake variant. Then wait for the user's answer before moving on. One question means one open decision node; punctuation, sentence count, and whether the options are phrased interrogatively do not define cardinality. Never repeat the same decision as a second question in a heading or closing. Look up facts in the environment; put decisions to the user. Log each answer immediately. Treat `whatever`, `I don't care`, or any non-decision as unresolved: explain the consequence, repeat one recommendation, and wait. Never infer precedence between conflicting inputs.
+Select the next reachable open `choice` from the durable DAG. Before asking, have subagents verify that B's research has not missed any code, documentation, or facts relevant to this choice. Never infer precedence between conflicting inputs.
 
-The recommendation is advice, never a default or a disguised approval request. Ground all options in current evidence and decisions. For the recommendation name its key assumption and reversal condition; for each alternative name its distinct advantage or trade-off. Ask for the user's choice neutrally; silence, agreement with the framing, or acceptance of a parent node never approves this node or its children.
+For that decision:
 
-sw stack is a must ask, to make sure you have a good start and avoid remaking wheels.
+1. **Explain.** Use plain, explanatory text without assuming topic-specific background. Add Mermaid diagrams for relevant structure or data flow, including changes introduced by the options.
+2. **Compare.** Present two or three options grounded in current evidence and decisions. Explain how each works and its impact. Recommend one with reasons, its key assumption, and its reversal condition; give each alternative's distinct advantage or trade-off.
+3. **Ask.** Use the question tool to request the user's choice neutrally, then wait. Ask about exactly one decision node, regardless of sentence count or punctuation; do not repeat the question in a heading or closing.
 
-ENTER frontend design skill, if change require the big UI change including new page add, legacy UX redesign.
+The recommendation is advice, not a default or a disguised approval request. Silence, agreement with the framing, or acceptance of a parent node does not approve this node or its children. Treat `whatever`, `I don't care`, and other non-decisions as unresolved: explain the consequence, restate one recommendation, and wait. Route the answer immediately to Q before moving on.
+
+Include software-stack selection as a required choice, using B's research to identify reusable solutions rather than reinventing them. Route UI design choices through `wayne-frontend-design` when the global Frontend rule applies.
 
 ### Q. Persist one user decision
 
@@ -139,11 +141,19 @@ Append only the answered decision as one new `decision` record and verify it is 
 
 ### E. Converge and approve design
 
-Converge only when every DAG node is `resolved` or `not-applicable` and a coverage audit finds no missing branch across purpose, scope, ownership, interfaces, data/control flow, failure/concurrency, observability, verification, rollback, and legacy impact. Decision count, turn count, context length, or an apparently complete summary never empties the frontier; 40+ resolved decisions with one open node must continue. Grilling has no question cap; only the user may explicitly stop or request a partial wrap-up. After the user confirms shared understanding, compare three genuinely distinct viable approaches against the log, lead with the recommendation, and record the choice. If the approved constraints leave only two viable approaches, state the eliminated third direction and why it is not viable instead of padding it. Present architecture, components, state/data ownership, flows, failure behavior, boundaries, and verification in reviewable sections. Wait for approval of each material section and log every revision. Do not advance on assumed approval. Keep units single-purpose with explicit interfaces and dependencies, follow existing patterns, and exclude unrelated refactors.
+**Convergence gate.** Every DAG node must be `resolved` or `not-applicable`, and a coverage audit must find no missing branch across purpose, scope, ownership, interfaces, data/control flow, failure/concurrency, observability, verification, rollback, and legacy impact. There is no question cap: decision count, turn count, context length, or a complete-looking summary never substitutes for an empty frontier; 40+ resolved decisions with one open node must continue. Only the user may explicitly stop or request a partial wrap-up.
 
-When the user freezes the decision frontier, set `frontier_locked` to `true` in the log's `meta` line. An empty frontier is convergence, not a lock: only the user locks, and the flag is what a resumed run reads to know which gate it stands at.
+**Compare approaches.** After the user confirms shared understanding, compare three genuinely distinct viable approaches against the decision log, lead with a recommendation, and record the choice. If approved constraints leave only two viable approaches, name the eliminated third direction and explain why it is not viable; do not pad the comparison.
 
-Apply a cybernetics lens when the design involves state/lifecycle, a control plane, multiple readers or writers, streaming, observability, source-of-truth drift, feedback/retry, workflow orchestration, or a gate, validator, or classifier judging another component's output. Name Plant, Controller, Setpoint, Disturbance, and Feedback; record only relevant observability, controllability, ownership, stability, and minimum-control-effort findings. Skip it for a small single-file pure-logic change with no persistent state or integration. Give every finding a severity and proposed intervention. Present them one at a time; the user chooses which interventions apply, and each accepted or declined choice is logged before test-matrix or spec work.
+**Approve the design.** Present architecture, components, state/data ownership, flows, failure behavior, boundaries, and verification in reviewable sections. Wait for explicit approval of each material section and log every revision. Keep units single-purpose with explicit interfaces and dependencies, follow existing patterns, and exclude unrelated refactors.
+
+**Record the frontier lock.** Only when the user freezes the frontier, set `frontier_locked` to `true` in the log's `meta` line. Convergence alone does not lock it; resumed runs use this flag to distinguish the two states.
+
+**Apply the cybernetics lens when relevant.**
+
+- **Triggers:** state/lifecycle, a control plane, multiple readers or writers, streaming, observability, source-of-truth drift, feedback/retry, workflow orchestration, or a gate, validator, or classifier judging another component's output. Skip a small single-file pure-logic change with no persistent state or integration.
+- **Analysis:** name Plant, Controller, Setpoint, Disturbance, and Feedback. Record only relevant observability, controllability, ownership, stability, and minimum-control-effort findings.
+- **User decisions:** give each finding a severity and proposed intervention, then present them one at a time. The user chooses which interventions apply; log every acceptance or rejection before test-matrix or spec work.
 
 ### F. Create test matrix
 
@@ -165,25 +175,13 @@ Only the user chooses between these. Defaulting to "the spec is stale" launders 
 
 ### I. Write spec
 
-Write the approved design into [the spec skeleton](templates/spec.md), following [the spec contract](references/spec-contract.md), and set `generated` to this run's actor and time.
+Read [the spec contract](references/spec-contract.md) in full before drafting; it owns frontmatter, section contents, architecture and diagrams, requirement/decision traceability, and writing rules. Use [the spec skeleton](templates/spec.md) for a new topic; for an amendment, start from the current living page under the contract's `## Candidate versus in force` rules.
 
-Every run — new topic or amendment — stages its candidate at `.wayne/runs/<topic>/spec.md`, carrying the final `status: stable` it will hold in force. An amendment starts from the current `docs/specs/<topic>.md` bytes and revises them there: sections rewritten, `## Decisions` appended to, `generated.at` advanced. Nothing is written into `docs/specs/` at this node. The living page must never hold bytes the user has not approved, and staging the candidate is what makes the promotion in V a byte-for-byte move rather than an edit-after-approval.
+Write only the candidate at `.wayne/runs/<topic>/spec.md`, never the living page at this node. Set `generated` to this run's actor and time.
 
-Write the narrative first, then derive the appendix from it. The order matters: a spec assembled by transcribing decision-log records into `R` and `D` entries and adding prose afterwards produces a traceability database with a summary on top. Explain the design in `## Background`, `## Architecture`, and `## Flows` until a reader who stops before `## Requirements` understands it, then extract the falsifiable form of each behavior into the appendix.
-
-Number that approved behavior as `R<number>` in `## Requirements`, each with its `Current`, `Target`, and `Acceptance`. That section is the only place in the pipeline where a requirement is minted, and `wayne-plan` maps every one of them to an implementation unit, so behavior the narrative describes but never numbers is behavior no downstream stage can trace. The narrative keeps the explanation and cites `[R<n>]`; the R keeps the pass/fail edge. Both are required, and they are not duplicates of each other.
-
-Describe the architecture at every level this feature reaches, all of them in this file. Open with the system and what crosses its boundaries, then give its own level — prose plus diagram — to each part the feature introduces, changes, or leans on through behavior its interface does not reveal, as [the spec contract](references/spec-contract.md) sets out. Stop at a stable external interface, describing what crosses it rather than what is inside it, and stop when the remaining detail is build sequencing. One diagram holding every component at once hides the levels instead of showing them, and deferring a level to a document that does not exist yet hides it too: this spec covers one feature and carries that feature's levels. Use a mermaid `flowchart` per architectural level, a `sequenceDiagram` per non-obvious flow, an interface block carrying signatures plus one illustrative call, and a `## Technology and frameworks` row per committed choice with the constraint it imposes. Bodies and algorithms belong to the plan.
-
-Absorb every decision the specified behavior depends on. A reader meets each one in the narrative — in `## Architecture` where it shaped a boundary, or in `## Alternatives considered` where it beat something — and `## Decisions` records it with its rationale, its consequences, and a `Governs R5, R7` line where it constrains specific requirements. The narrative carries the design in full, thresholds and caps included; a reader must never have to open the appendix to learn what a component actually does. `## Requirements` restates each one as a pass/fail check for downstream stages, and the two must agree exactly.
-
-The run-scoped decision log is working state: whatever only it holds is lost at ship, and — because the voices in J judge these bytes — a load-bearing decision left behind reaches them as an unanswered question they are right to raise. A rule transcribed twice is a different failure, and worse: the copies drift, and the weakened one is what a downstream stage reads.
-
-Then read the draft against `## Prose` in the contract and rewrite the LLM writing habits out of it. The generated text will have them, and they survive review unless this step is done deliberately.
-
-Sweep for presence before review: walk the log record by record and either name where the spec carries each decision or state why the specified behavior does not depend on it. That is a cheap omission check and the limit of what this node can judge about its own transcription — whether each home carries the _same obligation_ is the carriage voice's job at J, because the sentence you just wrote reads to you as obviously meaning what you meant.
-
-Absorb the matrix's E2E layer into `## Verification` — the matrix is produced before this step and is run-scoped, so the spec is where that contract survives. Carry no pass/fail status: run state stays in the matrix, and the durable fact that this spec was verified is a `verified` frontmatter entry. Never author a second E2E contract. Run the contract's `## Before review` checks and remove every unresolved TBD/TODO before review.
+1. **Write the narrative first, then derive the appendix.** Integrate load-bearing decisions into the architecture or alternatives they shaped; do not build an R/D catalog and add explanatory prose afterwards.
+2. **Absorb the matrix's E2E layer into `## Verification`.** Carry the existing contract forward rather than authoring a second one; follow the spec contract's verification-state ownership rules.
+3. **Revise and check.** Apply the contract's `## Prose` guidance, then execute its complete `## Before review` checklist.
 
 ### M. Run the mechanical checks
 
@@ -206,27 +204,30 @@ On approval, set `written_spec_approved` to `true` and `approved_spec_sha256` to
 
 ### J. Run three independent reviews
 
-Dispatch the same spec revision to three separate reviewer executions:
+**Dispatch.** Use the mechanism established in U to send the same approved spec revision to three separate reviewer executions. Each must read and follow its assigned protocol:
 
-- product voice, carrying [the product protocol](references/product-review.md): challenge premise, necessity, whether this is the right problem, the 10-star alternative, user value, assumptions, scope, and non-goals;
-- engineering voice, carrying [the engineering protocol](references/engineering-review.md): challenge architecture, ownership, interfaces, data/control flow, failures, edge and concurrency paths, tests, performance/capacity, observability, rollback, and execution readiness;
-- carriage voice, carrying [the carriage protocol](references/decision-carriage.md): compare the decision log against the spec obligation by obligation, and report every narrowing, widening, normalization, omission, or qualifier change — plus any rule the spec asserts that no decision authorizes.
+| Voice | Remit | Protocol |
+| --- | --- | --- |
+| Product | Problem, necessity, and user value | [Product review](references/product-review.md) |
+| Engineering | Buildability, performance/capacity, and operations | [Engineering review](references/engineering-review.md) |
+| Carriage | Obligation-preserving transcription from decision log to spec | [Decision carriage](references/decision-carriage.md) |
 
-The third voice exists because node I's transcription is the one hop in this pipeline with no independent check. Its author cannot audit it: a self-check reads its own sentence as obviously carrying what it meant. The other two voices treat the spec as the artifact and the log as context, so neither is looking at the hop at all.
+The protocols own the detailed review criteria. Carriage is an independent audit of I's transcription, not an author self-check; the other two voices treat the log as context, not as the artifact being transcribed.
 
-Keep each voice's latest report at `.wayne/runs/<topic>/review-{product|engineering|carriage}.md`, naming its role, verdict, and the digest of the bytes it read. The decision log carries the history: append one `decision` record per round with `"source":"review"` and that report path in `reference`, and never rewrite an earlier round's record.
+**Record evidence.** Keep each voice's latest report at `.wayne/runs/<topic>/review-{product|engineering|carriage}.md`, with its role, verdict, and the digest of the bytes it read. Preserve history in the decision log: append one `decision` record per round with `"source":"review"` and the report path in `reference`. Never rewrite an earlier round's record.
 
-On `REVISE`, the page in force is no longer the design being worked on, so move `docs/specs/<topic>.md` back to `.wayne/runs/<topic>/spec.md`, clear `written_spec_approved` and `approved_spec_sha256`, and revise the candidate there. Return to V for approval of the revised bytes, which promotes them again, then rerun every voice against the promoted page. `docs/specs/` therefore only ever holds bytes that are both approved and under review, never a half-resolved revision. All three must pass the same final digest, and that digest is `approved_spec_sha256`. Any later edit to the design content makes those passes stale; `wayne-verify` appending its `verified` entry after ship is a runtime record of that same design, not a revision of it, and is the one write to the page that does not re-arm this gate. Never write review notes into the spec after those passes, and never let a reviewer write its own pass into the bytes it reviewed.
+**Count valid rounds.** Three valid rounds is the cap. One round dispatches all three voices against one promoted page; it counts only when every voice actually executes on its own routed model and returns a report naming the digest it read. A failed execution, termination before its report, empty result, or collapse onto another voice's model family produces no judgment: rerun it and count nothing. **Three voices in one round are not three rounds.**
 
-**Three valid rounds is the cap.** A round is one dispatch of all three voices against one promoted page, and it counts only if every voice actually executed on its own routed model and returned a report naming the digest it read. An execution that failed, terminated before its report, came back empty, or collapsed onto another voice's model family produced no judgement: rerun it and count nothing. Three voices in one round are not three rounds.
+**Handle outcomes through the existing Flow.**
 
-Round three is the last. Take its findings through ADJ as usual, then proceed. Anything still open is appended to the decision log as non-blocking with the round cap named as its reason, and it does not send the page back to the run directory a fourth time. What survives three valid rounds is detail, and another promote-and-redispatch cycle costs more than the design gains.
+- **Before the cap:** all three voices must pass. Route `REVISE` through adjudication; when a revision is required, move `docs/specs/<topic>.md` back to `.wayne/runs/<topic>/spec.md`, clear `written_spec_approved` and `approved_spec_sha256`, and revise the candidate. Obtain V's approval of the revised bytes before promotion, then rerun every voice against the promoted page. Never leave an unapproved or half-revised page in `docs/specs/`.
+- **On the third valid round:** take findings through ADJ as usual, then proceed. Append anything still open to the decision log as non-blocking, naming the round cap as the reason. Do not send the page back for a fourth revision/review cycle.
 
-The cap relaxes the verdict gate and nothing else. All three voices must still have executed against the same final bytes, and that digest is still `approved_spec_sha256` — shipping bytes no reviewer read is the failure this gate exists to prevent, and a round limit is not a reason to weaken it. A cap reached with a voice that never ran is not a cap reached.
+**Protect approved bytes.** The cap relaxes only the verdict gate. All three voices must still have executed against the same final bytes, whose digest is `approved_spec_sha256`; a voice that never ran cannot satisfy the cap. Any later design-content edit makes those passes stale. The sole exception is `wayne-verify` appending a runtime `verified` entry after ship: it confirms the same design without re-arming the gate. Never add review notes to the spec after the passes, or let a reviewer write its own pass into the bytes it reviewed.
 
 ### ADJ. Adjudicate findings against the decision log
 
-Read [the adjudication contract](../_shared/finding-adjudication.md) completely; it owns the dispositions, the challenge route, and the gate. A reviewer judges the spec's bytes and has no standing over the decisions behind them, so this node is the only place a locked decision is defended. Classify every finding here before any candidate byte changes. Any non-empty findings set arrives here whatever verdict the voices returned; only two valid executions reporting zero findings skip this node.
+Read [the adjudication contract](../_shared/finding-adjudication.md) completely; it owns the dispositions, the challenge route, and the gate. A reviewer judges the spec's bytes and has no standing over the decisions behind them, so this node is the only place a locked decision is defended. Classify every finding here before any candidate byte changes. Any non-empty findings set arrives here whatever verdict the voices returned. Skip this node only when all three valid executions report zero findings.
 
 Number the round's findings `F<number>` and append one `decision` record with `"source":"review"` whose `decision` field carries each finding's disposition and the `D<number>` it rests on, and whose `reference` is the report path.
 

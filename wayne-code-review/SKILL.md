@@ -1,6 +1,6 @@
 ---
 name: wayne-code-review
-description: Dual-voice code review combining structured analysis with adversarial cross-model challenge. Dispatches Claude subagent + Codex for independent opinions, then synthesizes. Use before merging, after completing features, or when stuck. Trigger on "review my code", "code review", "check my diff", "review before merge".
+description: Dual-voice code review combining structured analysis with adversarial cross-model challenge. Dispatches subagent + Codex for independent opinions, then synthesizes. Use before merging, after completing features, or when stuck. Trigger on "review my code", "code review", "check my diff", "review before merge".
 ---
 
 # Wayne Code Review
@@ -35,7 +35,7 @@ You MUST create a task for each and complete in order:
 2. **Read intent + build the rule ledger** — plan/spec, plus every `AGENTS.md` / `CLAUDE.md` governing a touched path
 3. **Structured review (you)** — checklist-driven analysis of the diff, judged against the ledger
 4. **Dispatch the design-conformance agent** — the repository sweep, and the only dispatch that carries the ledger
-5. **Dispatch Claude adversarial subagent** — fresh context, no checklist bias
+5. **Dispatch adversarial subagent** — fresh context, no checklist bias
 6. **Dispatch Codex review** — cross-model independent opinion (if available)
 7. **Synthesize + adjudicate** — merge findings, then rule on each against the ledger
 8. **Fix-first resolution** — auto-fix mechanical issues, ask about judgment calls
@@ -51,7 +51,7 @@ flowchart TB
     C["Read intent + build<br/>rule ledger"]
     D["Structured review<br/>(checklist-driven)"]
     E["Design-conformance<br/>agent (carries ledger)"]
-    F["Dispatch Claude<br/>adversarial subagent"]
+    F["Dispatch adversarial subagent"]
     G{"Codex available?"}
     H["Dispatch Codex<br/>review + challenge"]
     I["Skip Codex"]
@@ -84,7 +84,7 @@ flowchart TB
     O --> S
 ```
 
-**Note:** Claude adversarial subagent and Codex dispatch should be launched **in parallel** (both in the same Agent tool call) for speed.
+**Note:** adversarial subagent and Codex dispatch should be launched **in parallel** (both in the same Agent tool call) for speed.
 
 ---
 
@@ -336,7 +336,7 @@ If no issues found, output exactly: NO FINDINGS
 
 Launch both in a **single message** with two tool calls so they run concurrently:
 
-**Voice 1 — Claude Subagent:** Dispatch via Agent tool with `subagent_type: "general-purpose"`. Pass the shared prompt above verbatim.
+**Voice 1 — Subagent:** Dispatch via Agent tool with `subagent_type: "general-purpose"`. Pass the shared prompt above verbatim.
 
 **Voice 2 — Codex:** First check availability:
 
@@ -353,9 +353,9 @@ codex exec "{THE_SHARED_PROMPT}" -C "$_REPO_ROOT" --dangerously-bypass-approvals
 
 Timeout: 3600000ms (60 min).
 
-**If Codex unavailable or fails:** Continue with Claude-only review. Note: "Codex not available — single-voice adversarial review only."
+**If Codex unavailable or fails:** Continue with subagent review. Note: "Codex not available — single-voice adversarial review only."
 
-**A degraded review is not the gate.** A single-voice run is still worth having and is still reported, but it is a working review, not a merge gate. The formal gate is the saved Pi workflow `wayne-code-review-flow`: it freezes one patch with a `sha256` that both voices read, requires two valid voices from different model families, and returns exactly `GATE: PASS` or `GATE: FAIL`. When a change must not merge without a gate verdict, run that workflow — a Claude-only pass here never substitutes for it.
+**A degraded review is not the gate.** A single-voice run is still worth having and is still reported, but it is a working review, not a merge gate. The formal gate is the saved Pi workflow `wayne-code-review-flow`: it freezes one patch with a `sha256` that both voices read, requires two valid voices from different model families, and returns exactly `GATE: PASS` or `GATE: FAIL`. When a change must not merge without a gate verdict, run that workflow — a local voice pass here never substitutes for it.
 
 ### Wait + Gather
 
@@ -374,10 +374,10 @@ For each finding, compute fingerprint: `{file}:{line}:{category}`
 Group by fingerprint:
 
 - **Agreed (both voices found it)**: Boost confidence +1 (cap 10). Tag: "DUAL-VOICE CONFIRMED"
-- **Claude-only**: Present normally
+- **subagent-only**: Present normally
 - **Codex-only**: Present normally
 - **Design-conformance agent**: Present normally, tagged `DESIGN`. Never fold it into the dual-voice agreement count — it read a different prompt, so overlap with a voice confirms nothing about either.
-- **Contradictions**: Flag explicitly — "Claude says X, Codex says Y"
+- **Contradictions**: Flag explicitly — "subagent says X, Codex says Y"
 
 ### Adjudicate against the ledger
 
@@ -400,14 +400,14 @@ DUAL-VOICE CODE REVIEW SYNTHESIS
 ==================================================
 意图: {1-line intent summary}
 差异: {diff stats}
-审查来源: Claude structured + Claude adversarial + Codex {if ran} + design-conformance {✓/✗}
+审查来源: structured + subagent adversarial + Codex {if ran} + design-conformance {✓/✗}
 规则来源: {rule files read, or "none found"}
 
 ## 高置信度发现 (多个来源一致)
 {findings agreed by 2+ sources}
 
-## Claude 独有发现
-{findings only Claude found}
+## subagent 独有发现
+{findings only subagent found}
 
 ## Codex 独有发现
 {findings only Codex found}
@@ -425,7 +425,7 @@ DUAL-VOICE CODE REVIEW SYNTHESIS
 
 ### User Sovereignty Rule
 
-When Claude and Codex agree on a finding, that agreement is a **recommendation, not a decision**. Present it. The user decides. Never say "both models agree so we should do X" and act. Say "both models recommend X — do you want to proceed?"
+When subagent and Codex agree on a finding, that agreement is a **recommendation, not a decision**. Present it. The user decides. Never say "both models agree so we should do X" and act. Say "both models recommend X — do you want to proceed?"
 
 ---
 
@@ -465,13 +465,13 @@ Batch remaining findings into ONE AskUserQuestion (in Chinese):
 RECOMMENDATION: 两个都修 — #1 是真实竞争条件，#2 防止静默数据损坏。
 ```
 
-If a finding has **contradictions** between Claude and Codex, present both sides and let the user choose:
+If a finding has **contradictions** between subagent and Codex, present both sides and let the user choose:
 
 ```
 3. [分歧] file:line
-   Claude 认为: {Claude's view}
+   subagent 认为: {subagent's view}
    Codex 认为: {Codex's view}
-   → A) 按 Claude 来  B) 按 Codex 来  C) 都不改
+   → A) 按 subagent 来  B) 按 Codex 来  C) 都不改
 ```
 
 ### Apply approved fixes
@@ -491,7 +491,7 @@ Issues found: N (X critical, Y informational)
 Auto-fixed: N
 User-fixed: N
 Skipped: N
-Sources: Claude structured ✓ | Claude adversarial ✓ | Codex ✓/✗ | design-conformance ✓/✗
+Sources:  structured ✓ | subagent adversarial ✓ | Codex ✓/✗ | design-conformance ✓/✗
 Rules read: {N — paths, or "none found"}
 Conformance: {CONFORM / VIOLATION×N / DESIGN-CHANGE justified|unjustified}
 Suppressed by rule: {N — each naming the rule file:line}

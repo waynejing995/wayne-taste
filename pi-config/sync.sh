@@ -23,7 +23,13 @@
 # models-store.json, npm/, workflows/projects/).
 #
 # Usage:  bash "${WAYNE_SKILLS_DIR}/pi-config/sync.sh" [--dry-run]
-set -euo pipefail
+set -uo pipefail
+ISSUES=0
+
+report_issue() {
+  echo "ERROR: $*" >&2
+  ISSUES=$((ISSUES + 1))
+}
 
 WAYNE_HOME="${WAYNE_HOME:-${HOME}/.wayne}"
 WAYNE_CONFIG="${WAYNE_CONFIG:-${WAYNE_HOME}/config.env}"
@@ -34,9 +40,17 @@ fi
 SKILLS_ROOT="${WAYNE_SKILLS_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)}"
 case "$SKILLS_ROOT" in
   /*) ;;
-  *) echo "ERROR: WAYNE_SKILLS_DIR must be an absolute path: ${SKILLS_ROOT}" >&2; exit 1 ;;
+  *)
+    report_issue "WAYNE_SKILLS_DIR must be an absolute path: ${SKILLS_ROOT}"
+    echo "Done with ${ISSUES} issue(s); nothing synced."
+    exit 0
+    ;;
 esac
-[ -d "$SKILLS_ROOT" ] || { echo "ERROR: Wayne skills directory does not exist: ${SKILLS_ROOT}" >&2; exit 1; }
+if [ ! -d "$SKILLS_ROOT" ]; then
+  report_issue "Wayne skills directory does not exist: ${SKILLS_ROOT}"
+  echo "Done with ${ISSUES} issue(s); nothing synced."
+  exit 0
+fi
 
 SOT="${SKILLS_ROOT}/pi-config"
 AGENT="${HOME}/.pi/agent"
@@ -46,18 +60,25 @@ DRY="${1:-}"
 link_one() {
   local target="$1" link="$2"
   if [ ! -e "$target" ]; then
-    echo "ERROR: missing at SoT: ${target}" >&2
-    return 1
+    report_issue "missing at SoT: ${target}"
+    return
   fi
   if [ -e "$link" ] && [ ! -L "$link" ]; then
-    echo "ERROR: ${link} is a real file, not a symlink" >&2
-    return 1
+    report_issue "${link} is a real file, not a symlink"
+    return
   fi
   if [ "$DRY" = "--dry-run" ]; then
-    echo "WOULD ln -sfn ${target} ${link}"; return
+    echo "WOULD ln -sfn ${target} ${link}"
+    return
   fi
-  mkdir -p "$(dirname "$link")"
-  ln -sfn "$target" "$link"
+  if ! mkdir -p "$(dirname "$link")"; then
+    report_issue "could not create parent directory for ${link}"
+    return
+  fi
+  if ! ln -sfn "$target" "$link"; then
+    report_issue "could not link ${link} -> ${target}"
+    return
+  fi
   echo "LINK  ${link} -> ${target}"
 }
 
@@ -70,13 +91,13 @@ link_one() {
 seed_settings() {
   local target="${SOT}/settings.json" link="${AGENT}/settings.json"
   if [ ! -f "$target" ]; then
-    echo "ERROR: missing at SoT: ${target}" >&2
-    return 1
+    report_issue "missing at SoT: ${target}"
+    return
   fi
   if [ -e "$link" ] || [ -L "$link" ]; then
     if [ ! -r "$link" ]; then
-      echo "ERROR: ${link} exists but is not readable (broken symlink?)" >&2
-      return 1
+      report_issue "${link} exists but is not readable (broken symlink?)"
+      return
     fi
     if diff -q "$link" "$target" >/dev/null; then
       echo "KEEP  ${link} (local; identical to reference ${target})"
@@ -91,8 +112,14 @@ seed_settings() {
     echo "WOULD cp ${target} ${link}  (seed: absent locally)"
     return
   fi
-  mkdir -p "$(dirname "$link")"
-  cp "$target" "$link"
+  if ! mkdir -p "$(dirname "$link")"; then
+    report_issue "could not create parent directory for ${link}"
+    return
+  fi
+  if ! cp "$target" "$link"; then
+    report_issue "could not seed ${link} from ${target}"
+    return
+  fi
   echo "SEED  ${link} <- ${target} (copy, not a symlink; yours to edit)"
 }
 
@@ -123,19 +150,17 @@ for ext_dir in "${SOT}"/extensions/*/; do
       echo "WOULD npm install --omit=dev in ${ext_dir}"
     elif command -v npm >/dev/null 2>&1; then
       echo "NPM   installing dependencies for ${ext_name}"
-      # Fail loud: an extension whose deps are missing throws at load, and the
-      # message points at a module name rather than at this step.
-      (cd "$ext_dir" && npm install --omit=dev --silent) || {
-        echo "ERROR: npm install failed for ${ext_name}; pi will fail to load it" >&2
-        exit 1
-      }
+      # Report dependency failures without blocking other extensions.
+      if ! (cd "$ext_dir" && npm install --omit=dev --silent); then
+        report_issue "npm install failed for ${ext_name}; pi will fail to load it"
+      fi
     else
-      echo "ERROR: ${ext_name} needs npm to install its dependencies, and npm was not found" >&2
-      exit 1
+      report_issue "${ext_name} needs npm to install its dependencies, and npm was not found"
     fi
   fi
 done
 
 echo
-echo "Done. Reminder: set up internal models per internal-models-setup.md"
+echo "Done with ${ISSUES} pi-config issue(s). All possible syncs were attempted."
+echo "Reminder: set up internal models per internal-models-setup.md"
 echo "(models.json is NOT synced — it holds machine/secret-specific config)."

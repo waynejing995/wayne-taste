@@ -107,7 +107,7 @@ Keep it short. If the explanation is longer than the diff it defends, delete the
 
 ## Inside wayne-work
 
-Run at a wave boundary — after wave verification is green, before the unit audit — and run it in the main agent, never inside a worker: a worker sees one unit and is exactly the context that cannot spot cross-unit duplication. Do not run it after every single unit.
+Use the wave list created by [wayne-work at C](../wayne-work/SKILL.md#c-whole-workflow-group-units-into-waves). Work's S step decides when this pass runs and whether the single-trivial-unit exception applies. Run in the main agent after the whole wave verifies and before its unit audits. Do not split a multi-unit wave into per-unit refinement passes: only the combined diff exposes cross-unit duplication.
 
 Scope is the wave's diff and the plan's allowed paths; the verification command is the plan's. Approved scope is frozen: a unit's goal, named interfaces, and U scenarios are not simplification candidates, and a unit that looks over-built returns to Plan as a scope question rather than shrinking quietly. The pass changes no U or E row.
 
