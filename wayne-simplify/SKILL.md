@@ -89,7 +89,7 @@ A simplification with a real, known ceiling — a global lock, an O(n²) scan, a
 
 Edit directly; this pass owns the change, not a recommendation list. Group edits into coherent batches — one duplication consolidated, one abstraction inlined — so a failure names its own cause.
 
-Edit only files inside the scope from A. One addition is allowed: a new file that receives code moved out of those files, when consolidating in place would create a false dependency between them — a new module is an addition inside the change, while editing a pre-existing file the change never touched is the drive-by this rule forbids. Prefer reusing what the diff already has; reach for a new destination only when no file in scope is the honest owner. Inside a `wayne-work` wave this addition is unavailable: a path outside the plan's allowed set is **not** approved scope, and widening that set is Plan's decision, so the consolidation returns as a scope question instead.
+Edit only files inside the scope from A. One addition is allowed: a new file that receives code moved out of those files, when consolidating in place would create a false dependency between them — a new module is an addition inside the change, while editing a pre-existing file the change never touched is the drive-by this rule forbids. Prefer reusing what the diff already has; reach for a new destination only when no file in scope is the honest owner. Inside `wayne-work`, follow the narrower scope in [Inside wayne-work](#inside-wayne-work).
 
 ### G/H. Re-verify and revert on failure
 
@@ -107,9 +107,12 @@ Keep it short. If the explanation is longer than the diff it defends, delete the
 
 ## Inside wayne-work
 
-Use the wave list created by [wayne-work at C](../wayne-work/SKILL.md#c-whole-workflow-group-units-into-waves). Work's S step decides when this pass runs and whether the single-trivial-unit exception applies. Run in the main agent after the whole wave verifies and before its unit audits. Do not split a multi-unit wave into per-unit refinement passes: only the combined diff exposes cross-unit duplication.
+Use the wave list created by [wayne-work at C](../wayne-work/SKILL.md#c-whole-workflow-group-units-into-waves). Work's S step owns when this pass runs, who runs it, the single-trivial-unit exception, and U-tick ordering. This section owns the pass's scope and verification.
 
-Scope is the wave's diff and the plan's allowed paths; the verification command is the plan's. Approved scope is frozen: a unit's goal, named interfaces, and U scenarios are not simplification candidates, and a unit that looks over-built returns to Plan as a scope question rather than shrinking quietly. The pass changes no U or E row.
+- **Files:** refine only the wave's combined diff, limited to file changes assigned to its units in the approved plan (`Files` entries: create/modify/delete) and the plan's scope boundaries. These existing declarations define the limit; no separate allowlist is required. Do not add a new destination file or widen a unit's assigned paths; return that scope question to Plan.
+- **Verification:** use the member units' unchanged plan verification commands and any applicable plan-defined integration checks for both the baseline and re-verification. No separately named wave command is required.
+- **Approved behavior:** unit goals, named interfaces, and U scenarios are not simplification candidates. A unit that looks over-built returns to Plan as a scope question, rather than shrinking quietly.
+- **Status:** change no U or E row.
 
 ## Red lines
 
