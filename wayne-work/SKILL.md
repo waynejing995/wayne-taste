@@ -27,14 +27,15 @@ flowchart TB
     subgraph cluster_unit["per-wave scheduling and refinement, per-unit execution"]
         D["Start next recorded wave"]
         E{"Parallel-safe wave?"}
-        R["Dispatch worker agents"]
+        R["Start unstarted workers; await one result"]
         P{"Workers started?"}
         F["Inline fallback on recorded dispatch error"]
-        G{"Wave verification passes?"}
+        G{"Unit verification passes?"}
         T["Fix observed failure"]
+        W{"All units in this wave finished and verified?"}
         S["Simplify wave diff"]
-        H["Audit diff against its plan unit; tick U rows"]
-        I{"More units?"}
+        H["Audit each wave unit; tick its U rows"]
+        I{"More recorded waves?"}
     end
 
     J["Run integrated compliance gate on full diff"]
@@ -55,7 +56,9 @@ flowchart TB
     F --> G
     G -->|"no"| T
     T --> G
-    G -->|"yes"| S
+    G -->|"yes"| W
+    W -->|"no"| R
+    W -->|"yes"| S
     S --> H
     H --> I
     I -->|"yes"| D
@@ -75,8 +78,9 @@ Every step is labeled with its scope, and the whole-workflow gate is never colla
 | `[whole-workflow]` setup | A | once | all source contracts and starting baseline | no |
 | `[whole-workflow]` wave grouping | C | before execution; again if a unit reopens | unit contracts, dependencies, write sets, current task state | no |
 | `[per-wave]` start | D | once per wave, before dispatch | recorded unit IDs, unit contracts, starting diff baseline | no |
-| `[per-unit]` loop | R, F, G, H | once per unit | that unit's contract, its own diff, its verification command | no |
-| `[per-wave]` refinement | S | once per wave | the wave's combined diff, the plan's allowed paths and verification command | no |
+| `[per-unit]` loop | R, F, G, H | per unit or retry | that unit's contract, worker handle, diff, and verification command | no |
+| `[per-wave]` completion barrier | W | after each unit passes G | completion and verification results for all wave members | no |
+| `[per-wave]` refinement | S | once per completed wave | the combined wave diff and Simplify's Work-integration contract | no |
 | `[whole-workflow]` gate | J, L | once per full diff | complete spec, decision log, plan, all units, full diff | yes — one fresh read-only agent |
 
 ### A. [whole-workflow] Check the plan before starting
@@ -108,7 +112,7 @@ The main agent must write the wave list before any implementation starts:
 
 For example, if I1 and I2 are independent and I3 needs both, record `Wave 1: I1, I2` and `Wave 2: I3`. If the plan has only I1, record `Wave 1: I1`. Do this even when the plan never mentions waves.
 
-If J reopens a unit, keep the completed work and existing records, then group the unfinished units into new waves here. Do not reset the run baseline or dispatch a worker from C.
+If J reopens a unit, preserve completed work and existing records, then append new waves for the unfinished units before D dispatches again. Do not reset the run baseline or dispatch a worker from C.
 
 ### D. [per-wave] Execute the next recorded wave
 
@@ -131,11 +135,13 @@ Handle each worker's result as follows:
 - `DONE` enters verification.
 - `DONE_WITH_CONCERNS` enters verification only when the concern is observational; correctness, scope, or ownership concerns block the unit.
 - `NEEDS_CONTEXT` may receive existing repository/plan context and retry the same unit; it never receives a new decision invented by the main agent.
-- `BLOCKED` is never retried unchanged. A source or Plan gap follows A and asks the user; a mechanical implementation obstacle may be decomposed without changing the unit's behavior or write boundary.
+- `BLOCKED` is never retried unchanged. A source or Plan gap follows A and asks the user. A mechanical obstacle may be decomposed within the same plan unit: record the revised steps and their dependencies in the current wave before dispatching a fresh worker agent. Keep the unit ID, behavior, write boundary, and original wave diff baseline. New plan units or changed unit dependencies require Plan revision, not an unrecorded dispatch.
 
-### R. [per-unit] Establish RED when required
+### R. [per-unit] Dispatch or await a worker agent
 
-Follow the unit execution note. For test-first work, run the exact unit command before implementation and preserve the non-zero result. RED must fail for missing behavior, not environment or tooling. Diagnose unexpected failures before coding. Never edit, delete, skip, or weaken a locked test to manufacture GREEN.
+Follow D's dispatch policy. Start worker agents for unstarted units or recorded retries, then collect one unit's result. On return from W, reuse the recorded worker handles: await a running worker or start the next unstarted serial unit. Do not dispatch the whole wave again.
+
+The worker agent follows the unit execution note. For test-first work, it runs the exact unit command before implementation and preserves the non-zero result. RED must fail for missing behavior, not environment or tooling. Diagnose unexpected failures before coding. Never edit, delete, skip, or weaken a locked test to manufacture GREEN.
 
 ### F. [per-unit] Implement the unit
 
@@ -149,11 +155,15 @@ Inline execution is a fallback, not a choice: use it only after an observable na
 
 Run the unit's exact verification command. If it fails, connect the failure to the smallest source correction, apply it, and rerun the same command. Do not broaden scope, add speculative fallback, or swap in an easier check. A provider/tool failure is not a behavioral test result.
 
+### W. [per-wave] Wait for the whole wave
+
+Open this gate only when every unit in the recorded wave has finished and passed G. While units remain unstarted or running, return to R; do not enter S or H. A blocked or failing unit keeps the gate closed and follows D's status handling or G's repair path.
+
 ### S. [per-wave] Simplify the wave diff
 
-Once every unit in the recorded wave has finished and verification is green, run [wayne-simplify](../wayne-simplify/SKILL.md) over the wave's combined diff, in the main agent, before the unit audit. A worker sees one unit and cannot catch duplication across the wave. This includes single-unit waves; only a single trivial unit may skip the pass. Record the refinement outcome, or that skip reason, on the same wave before any member enters H.
+After W opens, run [wayne-simplify](../wayne-simplify/SKILL.md) once over the whole wave, in the main agent, following its `## Inside wayne-work` contract. Do not run it between units. This includes single-unit waves; only a single trivial unit may skip the pass. Record the refinement outcome, or that skip reason, on the same wave before any member enters H.
 
-Scope is the wave's diff and the plan's allowed paths. Use the member units' unchanged plan verification commands and any applicable plan-defined integration checks for both the baseline and re-verification; no separately named wave command is required. Approved scope is frozen — unit goals, named interfaces, and U scenarios are not simplification candidates, and a unit that looks over-built returns to Plan as a scope question. The pass itself changes no U or E row, and no U row for a unit in this wave is ticked until the pass has finished: H must audit the simplified diff, not the pre-simplification one.
+No U row for a unit in this wave may be ticked until S has finished or recorded the permitted skip. H must audit the simplified diff, not the pre-simplification one.
 
 ### H. [per-unit] Audit the diff against its plan unit and update U status
 
