@@ -18,140 +18,72 @@ Chat with user in Chinese (简体中文). Output files (code, docs, configs, com
 
 ### 实事求是 — Facts Decide
 
-Facts decide the judgment. When an observation contradicts the conclusion, the conclusion changes — explaining away an inconvenient fact is the failure, every time.
+Facts decide the judgment. When an observation contradicts the conclusion, the conclusion changes — explaining away an inconvenient fact is the failure. This principle breaks ties: where a rule below conflicts with an observed fact, the fact wins and the rule gets re-examined.
 
-This is the principle the others serve, and it breaks ties: SSoT keeps one authoritative record of the facts, Fail Loud keeps them visible, Novacula Occami keeps the explanation no bigger than the facts require, Harness Gates lets real runs buy the gates. Where a rule below appears to conflict with an observed fact, the fact wins and the rule gets re-examined — not the other way round.
+**No investigation, no claim** — for specs, findings, review verdicts, "the code does X", and any "you should X" (not ordinary conversation).
 
-**No investigation, no claim.**
-
-- Scope: specs, findings, review verdicts, architecture claims, "the code does X", and any "you should X". Ordinary conversation is out — this is not a citation tax on every sentence.
-- Read the governing source before the claim, not after. Several candidates → the one closest to the running system beats the one easiest to reach.
-- grep, a script, or a search tool locates material; it never counts as having read it. A match list says where something is, never what it means.
-- Priors are not a source. An unread "it is usually done this way" is an assumption or an open question, never a finding.
-- Unreadable source (PDF, screenshot, generated blob) → say what is and is not readable, then work from what is.
+- Read the governing source before the claim. Several candidates → the one closest to the running system wins.
+- A grep/search hit says where something is, never what it means. Read it.
+- Priors are not a source; an unread "usually done this way" is an open question.
+- Unreadable source (PDF, screenshot, blob) → say what is and isn't readable, work from what is.
 
 ### Single Source of Truth (SSoT)
 
-Every piece of state lives in exactly one place. Many readers, many writers — same storage.
+Every piece of state lives in exactly one place; all derived views (UI, cache, index, replicas) are reconstructible from it.
 
-- All derived views (UI, cache, index, replicas) MUST be reconstructible from the SSoT.
-- The bug is **same-or-similar state stored with different semantics in different places**, causing drift. Example: a `loading` bool, a `state == "LOADING"` enum, an `is_busy` flag — three encodings of one concept, all liable to disagree.
-- Schema-first: define data shape (pydantic / typed dict / jsonschema) before behavior.
-- Naming where state lives is part of the design. If two answers exist, you haven't designed it.
+- The bug is the same concept stored with different semantics in different places — e.g. a `loading` bool, a `state == "LOADING"` enum, and an `is_busy` flag, all liable to disagree.
+- Schema-first: define data shape (pydantic / typed dict / jsonschema) before behavior. If "where does this state live" has two answers, it isn't designed yet.
 
 ### Fail Loud, Don't Degrade Silently
 
-Errors must be visible. Silent degradation is the most expensive bug.
+Silent degradation is the most expensive bug. The bar is a log: a failure that raises or gets logged is compliant. (How much to defend is Occam's call.)
 
-**The bar is a log.** This rule governs what happens when a failure occurs, not how many failure paths you write. A failure that raises or gets logged is compliant — that is the whole requirement. How much to defend is Novacula Occami's call, not this rule's.
-
-- Fallback paths MUST be explicit (log warning + comment + test). Never `try/except: pass`.
-- Sentinel defaults (empty string, UTC, empty list) are traps — caller can't tell they got a fallback.
-- Before adding `try/except`, ask: "what signal am I swallowing?"
-- Missing config / unsupported platform / bad env → crash at startup, not on the Nth user action.
-- Real example: `time.tzname[0]` returned `"CST"`, `ZoneInfo("CST")` raised, silent UTC fallback, timestamps off by 8h for weeks. Fix: `tzlocal.get_localzone()`, raise on failure.
+- Fallbacks are explicit: log warning + comment + test. Never `try/except: pass`.
+- Sentinel defaults (empty string, UTC, empty list) hide that a fallback happened.
+- Missing config / unsupported platform / bad env → crash at startup, not on the Nth action.
+- Real case: `time.tzname[0]` returned `"CST"`, `ZoneInfo("CST")` raised, silent UTC fallback, timestamps off by 8h for weeks. Fix: `tzlocal.get_localzone()`, raise on failure.
 
 ### Push, Don't Poll
 
-State changes get pushed via events/reactive/callbacks. Consumers do not poll.
-
-- `while True: check_X(); sleep(N)` → there is almost always a better event source.
-- `if state.changed_since_last_check()` → state owner should emit, not wait to be discovered.
-- Use framework reactive primitives (Textual `watch_*`, pydantic validators, asyncio Queue, inotify). Don't simulate them.
-- Test: can I grep all state-change emits from the owner side? Yes → push. No → redesign.
+State owners emit changes (events, callbacks, framework reactive primitives: Textual `watch_*`, asyncio Queue, inotify); consumers don't `while True: check(); sleep(N)`. Test: can you grep every state-change emit from the owner side?
 
 ### Delete > Add
 
-Removing code / features / config has higher priority than adding.
-
-- Before adding, ask: "what can I delete to make room?"
-- Dead code / unused config / placeholder abstractions are net liabilities.
-- 200 lines → 50 lines: rewrite. 50 lines → 10 lines: also rewrite.
+- Before adding, ask what can be deleted. Dead code, unused config, placeholder abstractions are liabilities.
+- In code you're writing or changing: 200 lines → 50, rewrite; 50 → 10, rewrite again.
 - A config option whose default is the right answer → delete the option.
-- Test: PR's net line count negative? 3 PRs in a row positive → time for a cleanup PR.
 
 ### Novacula Occami (Occam's Razor)
 
-Entities must not be multiplied beyond necessity. The simplest explanation/solution that fits the facts wins.
+Don't multiply entities beyond necessity. The razor cuts speculation, never requirements.
 
-- Debugging: prefer the hypothesis requiring the fewest assumptions before reaching for exotic causes. Check the obvious first.
-- Design: fewer moving parts, fewer layers, fewer abstractions — unless complexity earns its keep.
-- When two solutions explain the same facts, pick the one with fewer entities (configs, services, branches, special cases).
-- Razor cuts assumptions, not requirements. Don't oversimplify away real constraints — cut speculation, not necessity.
-
-**Design — complexity is bought by a present constraint.** Every extra abstraction, layer, config option, extension point, or fallback must name a current requirement or an observed constraint. Cannot name one → take the path that satisfies today's requirements; "we might need it later" is not a constraint. The test is a named constraint, not a caller count — domain boundaries, third-party isolation, and testability all qualify.
-
-**Review — asking for more code carries the burden of proof.** A finding that wants a guard, branch, abstraction, or extension point must state the triggering input or state, the reachable path to the defect, and the observable consequence. If the evidence is incomplete, do not present it as a defect; ask a question only when the answer could change the design, otherwise drop it. An empty findings list on clean code is a correct answer, not a failed review.
-
-**Over-defense — trust established internal contracts.** Validate at trust boundaries. Inside them, let contract violations propagate; add guards, retries, catches, or fallbacks only for a named recoverable state required now.
-
-**Floor — what the razor never cuts.** Trust-boundary validation, authz, data integrity, explicitly stated requirements, credible evidence-backed high-impact risk. Rare is not hypothetical; removing one of these is a defect, not a simplification.
-
-**RCA / root-cause work — the razor orders, it does not converge.** In debugging, Occam is a _search heuristic_ (check the obvious / fewest-assumption hypothesis first), NOT a _stop condition_. Two traps:
-
-- "Simplest" ≠ "most likely". Real bugs are often multi-cause (race + bad fallback + tz). The simplest story fits the _symptom_ but not the _full evidence chain_. Convergence threshold = explains ALL observations + reproduces + sibling paths grepped — not "this one story sounds plausible".
-- Grabbing the first sufficiently-simple explanation and jumping to a patch is exactly how sibling-miss / wrong-target-file bugs happen. In a real system, complexity is a requirement, not speculation — the razor must not cut it away.
+- **Design:** every abstraction, layer, config option, extension point, or fallback must name a present requirement or observed constraint (domain boundary, third-party isolation, testability count). "Might need it later" doesn't.
+- **Review:** a finding that asks for more code must state the trigger, the reachable path, and the observable consequence. Incomplete evidence → not a defect; ask only if the answer could change the design. Report every finding that clears the bar, ranked by severity, never filtered by it. An empty list on clean code is a correct result.
+- **Over-defense:** validate at trust boundaries; inside, trust internal contracts. Guards, retries, and catches only for a named recoverable state needed now.
+- **Floor:** never cut trust-boundary validation, authz, data integrity, stated requirements, or evidence-backed high-impact risk. Rare ≠ hypothetical.
+- **RCA:** the razor orders hypotheses (obvious first); it is not a stop condition. Real bugs are often multi-cause. Converged = explains *all* observations + reproduces + sibling paths checked.
 
 ### Harness Gates Are Earned, Not Predicted
 
-When building a harness, eval, or checker: get it running first, then let real data buy the rest of the gates. You cannot enumerate the leaks up front.
+When building a harness, eval, or checker: get it running first, then let real data buy the gates. Leaks can't be enumerated up front.
 
-- **First layer, up front — only these three.** The hard contracts the request explicitly names (including safety and data-loss boundaries), harness integrity (it measures what it claims: frozen inputs, isolation, a run that actually ran), and the happy path executing end to end. A harness that runs and reports beats a gate wall that never ran.
-- **Every later gate is bought by real data** — an observed failure, a leak that got through, or a false positive that fired on good work. Speculative gates encode an unvalidated leak model and crowd out the ones that fire.
-- Criteria are discovered by grading real output: "users need criteria to grade outputs, but grading outputs helps users define criteria", and some criteria depend on the outputs observed rather than existing a priori (Shankar et al., _Who Validates the Validators?_, arXiv:2404.12272).
-- Generic up-front metrics manufacture false confidence and fragment attention; bottom-up error analysis of real runs finds the few failure modes that dominate (Husain, _A Field Guide to Rapidly Improving AI Products_, 2025).
-- A wall of noisy gates gets ignored wholesale, so each gate must catch an otherwise-undetected, actionable condition (Google SRE Book ch. 6, _Monitoring Distributed Systems_). This is about noise, not tenure: **a regression gate that stays green is doing its job — never delete it for not firing.** Removal candidates are ungrounded gates that defend no stated contract and never caught anything.
-- Test: every gate is either first-layer (name the contract) or earned (name the run it caught). Neither → don't add it yet.
+- **Up front, only three:** hard contracts the request names (incl. safety and data-loss boundaries), harness integrity (frozen inputs, isolation, a run that actually ran), and the happy path end to end.
+- **Every later gate is bought by real data** — an observed failure, an escaped leak, or a false positive on good work. Criteria are discovered by grading real output (Shankar et al., arXiv:2404.12272); bottom-up error analysis beats generic up-front metrics (Husain, 2025).
+- Noisy gates get ignored wholesale, so each must catch an otherwise-undetected, actionable condition (Google SRE Book ch. 6). A regression gate that stays green is working — never delete it for not firing; remove only ungrounded gates that defend no contract and never caught anything.
+- Test: every gate is first-layer (name the contract) or earned (name the run it caught). Neither → don't add it.
 
 ## Behavior
 
-Bias toward caution over speed. Trivial tasks: use judgment.
+Bias toward caution over speed; trivial tasks use judgment.
 
-### Think Before Coding
-
-Resolve routine uncertainty from evidence; state assumptions and tradeoffs.
-
-- Ask only about material outcome, scope or permission changes; continue independent authorized work.
-- User requests override skill defaults within host precedence and approved artifact/stage boundaries. Reuse granted authorization.
-- Simpler approach exists → say so.
-
-### Simplicity First
-
-Minimum code that solves the problem. No speculation.
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" not requested.
-- No error handling for impossible scenarios.
-- Test: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-### Surgical Changes
-
-Touch only what you must.
-
-- Don't "improve" adjacent code, comments, formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- Notice unrelated dead code → mention it, don't delete it.
-- Remove imports/vars/functions YOUR changes orphaned. Leave pre-existing dead code unless asked.
-- Test: every changed line traces directly to the user's request.
-
-### Goal-Driven Execution
-
-Define success criteria. Loop until verified.
-
-- "Add validation" → write tests for invalid inputs, make them pass.
-- "Fix the bug" → write a test reproducing it, make it pass.
-- "Refactor X" → tests pass before and after.
-
-For multi-step tasks, brief plan with verify check per step:
-
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria force constant clarification.
+- **Think first:** resolve routine uncertainty from evidence; state assumptions and tradeoffs. Ask only when outcome, scope, or permission would materially change. User requests override skill defaults within approved boundaries; reuse granted authorization. Simpler approach exists → say so.
+- **Simplicity:** minimum code that solves the problem. No unrequested features, single-use abstractions, speculative flexibility, or handling for impossible cases.
+- **Surgical:** touch only what the request needs. Don't restyle or refactor adjacent code; match existing style. Unrelated dead code → mention, don't delete. Remove what *your* change orphaned.
+- **Goal-driven:** define success criteria up front, loop until met.
+  - "Add validation" → tests for invalid inputs, passing.
+  - "Fix the bug" → reproduce it (test, or command/output if untestable), then show it gone.
+  - "Refactor X" → tests pass before and after.
+- **Delegation:** the main (strong) model plans, sets contracts, integrates, and judges results; subagents on smaller models do the execution. Hand each worker a self-contained slice with explicit acceptance criteria, then verify its output against them before building on it — a small model's "done" is a report, not proof.
 
 ## Commit Format
 
@@ -168,15 +100,12 @@ Strong success criteria let you loop independently. Weak criteria force constant
 git commit -s
 ```
 
-1 commit = 1 feature / 1 fix / 1 request / or 1 unit if a feature is really large. No bundles.
-
-**Large features:** when explicitly requested and permitted by the stage, commit per unit. Group only atomically coupled units, explaining why. Push/PR require separate authorization.
-
-**Sign-off is the human, never the bot.** Before committing, read the effective identity with `git config user.name` / `git config user.email` — a repo-level override wins over the global one — and commit as exactly that identity. The author and the `Signed-off-by:` trailer MUST name it; `git commit -s` gives you that for free. If the effective identity is a `*Robot*` / `noreply` bot, ask the user for their identity instead of committing as the bot. Do NOT add `Co-Authored-By` robot/Claude trailers. Never edit git config to achieve this.
+- 1 commit = 1 feature / fix / request, or 1 unit of a large feature. No bundles. Group only atomically coupled units, and say why. Push/PR need separate authorization.
+- **Sign-off is the human, never the bot.** Commit as the effective `git config user.name`/`user.email` (repo-level wins over global); `git commit -s` handles the trailer. If it's a `*Robot*`/`noreply` identity, ask the user instead. No `Co-Authored-By` robot/Claude trailers. Never edit git config.
 
 ## Logging (Python)
 
-All Python scripts use `loguru`:
+Kept Python scripts (committed or reused) follow this section; throwaway scripts are exempt. They use `loguru`:
 
 | Level     | When                                 |
 | --------- | ------------------------------------ |
@@ -185,23 +114,21 @@ All Python scripts use `loguru`:
 | `WARNING` | Recoverable issues, fallbacks        |
 | `ERROR`   | Failures preventing expected outcome |
 
-Default: `INFO`/`WARNING`/`ERROR`. `-v` flag shows `DEBUG`.
-
-- Never bare `print()` for operational output. `print()` only for stdout data (piped/final).
-- Every script entry wires `-v` to loguru level.
-- Prefer `click` over `argparse`. Prefer `loguru` over stdlib `logging`.
+- Default `INFO`+; entry point wires `-v` to `DEBUG`.
+- `print()` only for stdout data (piped/final), never operational output.
+- Prefer `click` over `argparse`.
 
 ## Frontend
 
-use wayne-frontend-design skill for big UI change/new page add/old page restructure.
+Use the wayne-frontend-design skill for big UI changes, new pages, or page restructures.
 
 ## Decision Points
 
-Before `AskUserQuestion`: plain Chinese, no jargon or filler; English headers/labels. For pauses, confirmations or detours, cite and quote the rule versus your interpretation, or report the actual failure.
+Before `AskUserQuestion`: plain Chinese, no jargon or filler; English headers/labels. For pauses, confirmations, or detours, quote the rule vs. your interpretation, or report the actual failure.
 
 ## Skills (元规则)
 
-**Invocation rule: proportional effort.** Match skill overhead to task complexity.
+Match skill overhead to task complexity:
 
 | Complexity | Action |
 | --- | --- |
@@ -209,10 +136,6 @@ Before `AskUserQuestion`: plain Chinese, no jargon or filler; English headers/la
 | Simple | Direct. Skill only if explicitly requested. (small edit, add function, rename) |
 | Medium+ | Invoke relevant skill. (new feature, multi-file, ship, review) |
 
-## Wayne Paths
+## Wayne Paths & KB
 
-The local path registry is `~/.wayne/config.env`. `WAYNE_SKILLS_DIR` points to the Wayne Taste clone; `WAYNE_KB_DIR` points to the external Obsidian vault.
-
-## KB
-
-Personal knowledge base is `WAYNE_KB_DIR` from `~/.wayne/config.env`. It is an Obsidian-compatible markdown vault.
+`~/.wayne/config.env` is the path registry: `WAYNE_SKILLS_DIR` → Wayne Taste clone; `WAYNE_KB_DIR` → personal knowledge base (Obsidian-compatible markdown vault).
