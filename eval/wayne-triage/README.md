@@ -3,6 +3,8 @@
 This harness freezes all front-door routes claimed by `wayne-triage`:
 
 - `failure`: reproducible internal logic bug with a failing test → `fix-now`.
+- `test-then-fix`: contained bug with a command repro but no permanent regression test → `test-then-fix`.
+- `iterate-in-a-loop`: contained classifier defect with a runnable pass/fail eval → `iterate-in-a-loop`.
 - `tracker`: fully specified shared-interface enhancement → `needs-plan`.
 - `missing-data`: tracker ID without item data or fetch method → ask once and stop.
 - `multiple-signal`: tracker bug plus crash and environment skew → combine the
@@ -19,8 +21,7 @@ proposal completeness, no-publication meaning, questions, classification, failur
 meaning, routing, attribution, and invocation claims. Headings, punctuation,
 keywords, frontmatter, and field order are not semantic gates.
 
-Internal handoffs are checked against the repository's real `wayne-checkpoint`
-Skill and canonical packet template, not a local substitute.
+Internal implementation handoffs are checked against `wayne-plan` as the first owner. Its no-decision-log path is lite planning and nests `wayne-test-design` for E ownership. Architecture handoffs are checked against the repository's real `wayne-checkpoint` Skill and canonical packet template, not a local substitute.
 
 ## Calibrate
 

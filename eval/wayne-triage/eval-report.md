@@ -106,3 +106,18 @@ semantic failures. Scope evidence now comes from the frozen starting commit, fin
 Git diff/untracked paths, and native trace instead of recursively reading and
 hashing every repository file. The 8-route/13-mutation calibration remains an
 observation-coverage test, not a report-correctness oracle.
+
+## 2026-09-17 plan-first routing correction
+
+The user-reported failure was accepted as the control observation: a small, converged change handed off directly to `wayne-test-design`. The control text also prescribed that route explicitly, so it was not replayed. The corrected ownership is `wayne-triage` → `wayne-plan`; when no decision log exists, plan selects its lite path and nests `wayne-test-design` to establish E ownership and regression coverage.
+
+Two previously uncovered verdicts are now durable cases:
+
+| Case | Distinguishing evidence | Expected first Skill | Candidate result |
+| --- | --- | --- | --- |
+| `test-then-fix` | command repro; no permanent regression test | `wayne-plan` | PASS |
+| `iterate-in-a-loop` | stable pass/fail evaluator; confirmed defect spans two internal files | `wayne-plan` | PASS |
+
+Both isolated Codex trials produced the expected verdict, a manual `wayne-plan` lite-path handoff, and no product mutation. `check_trial.py` reported no structural observations for either result; a separate blind reviewer passed both against T8 and the applicable boundary rows. Calibration passes with 10 routes and 13 independent mutations. Forge static validation reports 0 errors and 0 warnings, Python syntax checks pass, and changed Markdown passes Prettier 3.6.2. The refreshed checkpoint dependency pin is `c67fb58a884c5c1c8b312e15b62d3e64e650acc9c954fc3e40d6dd3d31cb10b0`; the frozen harness hash is `088c4738aa8ba606be0e432ec1f9dfa5a04542b40ccc595bf93597be8a010f16`.
+
+Residual uncertainty: the existing `failure`, `tracker`, and `multiple-signal` cases were not rerun through an agent for this correction. Their first-Skill expectations are covered by the calibrated structural oracle, while the two newly exposed verdicts received full isolated behavioral and blind semantic runs.

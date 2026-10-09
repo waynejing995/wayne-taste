@@ -19,6 +19,7 @@ whether publication or downstream invocation was attempted.
 Also judge evidence completeness, symptom/cause separation, route justification,
 caller-approved handoff meaning, external report usefulness, and single-owner
 state across the applicable intent rows in `approved-intent.md`.
+For every internal implementation verdict, require `wayne-plan` as the first handoff Skill. A no-decision-log request must be described as lite planning, with test ownership preserved through plan's nested `wayne-test-design`; direct handoff to test design or work is a routing loss.
 
 Do not score headings, keywords, frontmatter fields, sentence shape, or exact
 phrasing here. Git state, actual files, tracker-state bytes, and real Skill paths

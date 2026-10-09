@@ -14,6 +14,8 @@ HARNESS = Path(__file__).resolve().parent
 REPO_ROOT = HARNESS.parent.parent
 CASES = {
     "failure",
+    "test-then-fix",
+    "iterate-in-a-loop",
     "tracker",
     "missing-data",
     "multiple-signal",
@@ -23,9 +25,11 @@ CASES = {
     "external-owner",
 }
 INTERNAL = {
-    "failure": ("fix-now", "wayne-test-design"),
-    "tracker": ("needs-plan", "wayne-test-design"),
-    "multiple-signal": ("needs-plan", "wayne-test-design"),
+    "failure": ("fix-now", "wayne-plan"),
+    "test-then-fix": ("test-then-fix", "wayne-plan"),
+    "iterate-in-a-loop": ("iterate-in-a-loop", "wayne-plan"),
+    "tracker": ("needs-plan", "wayne-plan"),
+    "multiple-signal": ("needs-plan", "wayne-plan"),
     "architecture": ("escalate-architecture", "wayne-mind-explode"),
 }
 def load_output(path: Path) -> str:
@@ -210,6 +214,20 @@ def expected_fields(case: str) -> dict[str, str]:
             "blast_radius": "internal",
             "route": "fix-now",
         },
+        "test-then-fix": {
+            "surface": "failure",
+            "symptom_class": "wrong-output",
+            "cause_category": "logic",
+            "blast_radius": "internal",
+            "route": "test-then-fix",
+        },
+        "iterate-in-a-loop": {
+            "surface": "failure",
+            "symptom_class": "wrong-output",
+            "cause_category": "logic",
+            "blast_radius": "internal",
+            "route": "iterate-in-a-loop",
+        },
         "approval-denied": {
             "surface": "failure",
             "symptom_class": "wrong-output",
@@ -262,6 +280,10 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
     if case in {"failure", "approval-denied"}:
         if "tests.test_tokenizer" not in body:
             findings.append("fix route does not carry the supplied repro identifier")
+    elif case == "test-then-fix" and "slugify" not in body:
+        findings.append("test-then-fix route does not carry the command repro identifier")
+    elif case == "iterate-in-a-loop" and "evaluate_ranker.py" not in body:
+        findings.append("iterate route does not carry the supplied eval identifier")
     if case == "multiple-signal":
         if frontmatter.get("cause_category", "").lower() not in {"config", "logic"}:
             findings.append("multiple-signal cause_category must preserve config or logic ownership")
