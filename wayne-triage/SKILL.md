@@ -97,10 +97,10 @@ Compare symptom layer with confirmed cause layer. When they agree, name the owne
 
 | Verdict | Predicate | First next action |
 | --- | --- | --- |
-| `fix-now` | cause certain; failing repro exists; ≤10 lines; one file; internal | `wayne-test-design` |
-| `test-then-fix` | small certain bug but failing test is still missing | `wayne-test-design` |
-| `iterate-in-a-loop` | internal; ≤100 lines; pass/fail eval exists | `wayne-test-design` |
-| `needs-plan` | >100 lines or shared blast radius | `wayne-test-design` |
+| `fix-now` | cause certain; failing repro exists; ≤10 lines; one file; internal | `wayne-plan` (lite path; test design is nested there) |
+| `test-then-fix` | small certain bug but failing test is still missing | `wayne-plan` (lite path; add the regression test to its test contract) |
+| `iterate-in-a-loop` | internal; ≤100 lines; pass/fail eval exists | `wayne-plan` (lite path; carry the eval and regression coverage) |
+| `needs-plan` | >100 lines or shared blast radius | `wayne-plan` |
 | `escalate-architecture` | 3+ failed fixes or each fix creates another break | `wayne-mind-explode` |
 | `escalate-incident` | customer-visible, cross-team, or unsolved about one hour | external report; no Wayne handoff |
 | `route-to-owner` | confirmed cause belongs to another owner | external report; no Wayne handoff |

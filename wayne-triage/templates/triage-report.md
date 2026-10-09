@@ -19,7 +19,7 @@ stale. "The SkillConfig type should accept an optional `schedule`", not "edit
 line 42 of skill.ts".
 -->
 
-**Date:** <date> · **Triaged by:** <you> · **Route:** <fix-now | test-then-fix | iterate-in-a-loop | needs-plan | escalate-architecture | escalate-incident | route-to-owner | UNCERTAIN> · **Next Wayne stage:** <wayne-test-design | wayne-plan | wayne-work | wayne-mind-explode | wayne-ship | — >
+**Date:** <date> · **Triaged by:** <you> · **Route:** <fix-now | test-then-fix | iterate-in-a-loop | needs-plan | escalate-architecture | escalate-incident | route-to-owner | UNCERTAIN> · **Next Wayne stage:** <wayne-plan | wayne-mind-explode | — >
 
 ## 1. Executive summary
 

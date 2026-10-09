@@ -85,5 +85,5 @@ Use `templates/triage-report.md` for the brief body. For a Wayne-pipeline route,
 
 ## Enhancement vs bug — different downstream
 
-- **bug** → repro/failing test required → `test-then-fix` / `iterate-in-a-loop` / `needs-plan` per blast radius.
-- **enhancement** → no repro test (nothing's broken); acceptance criteria come from grilling → `needs-plan` → wayne-test-design → wayne-plan → wayne-work (normal TDD, not a reproduction test).
+- **bug** → repro/failing test required → `test-then-fix` / `iterate-in-a-loop` / `needs-plan` per blast radius; hand off to wayne-plan, which selects lite planning when no decision log exists and nests test design.
+- **enhancement** → no repro test (nothing's broken); acceptance criteria come from grilling → `needs-plan` → wayne-plan (lite path, with nested wayne-test-design) → wayne-work (normal TDD, not a reproduction test).

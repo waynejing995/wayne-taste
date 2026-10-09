@@ -38,6 +38,8 @@ def seed(workspace: Path, case: str) -> Path:
 def evidence_values(case: str) -> tuple[str, str, str, str, str, str, str, int]:
     values = {
         "failure": ("failure", "wrong-output", "logic", "tokenizer", "1", "internal", "fix-now", 1),
+        "test-then-fix": ("failure", "wrong-output", "logic", "slug", "2", "internal", "test-then-fix", 1),
+        "iterate-in-a-loop": ("failure", "wrong-output", "logic", "ranker", "6", "internal", "iterate-in-a-loop", 1),
         "approval-denied": ("failure", "wrong-output", "logic", "tokenizer", "1", "internal", "fix-now", 1),
         "tracker": ("tracker", "enhancement", "architecture", "dispatcher", "140", "shared", "needs-plan", 1),
         "multiple-signal": ("tracker", "bug", "config", "config", "12", "shared", "needs-plan", 1),
@@ -60,6 +62,10 @@ def evidence_text(case: str) -> str:
     repro = "uv run --no-project python -m unittest tests.test_tokenizer — FAIL observed"
     if case == "tracker":
         repro = "not applicable to approved enhancement"
+    elif case == "test-then-fix":
+        repro = "slugify command repro — FAIL observed; no permanent regression test exists"
+    elif case == "iterate-in-a-loop":
+        repro = "scripts/evaluate_ranker.py — FAIL observed"
     elif case == "multiple-signal":
         repro = "tests.test_region_contract — KeyError observed"
     elif case == "no-match":
@@ -240,7 +246,7 @@ def main() -> int:
 
         wrong_agent = clone(valids["failure"], root, "wrong-agent")
         packet = next((wrong_agent / "repo/.wayne/checkpoints").glob("*.md"))
-        write(packet, packet.read_text(encoding="utf-8").replace("wayne-test-design", "wayne-plan"))
+        write(packet, packet.read_text(encoding="utf-8").replace("wayne-plan", "wayne-test-design"))
         assert_invalid(wrong_agent, "failure", wrong_agent / "output.txt", "next_agent must be", "wrong agent")
 
         auto = clone(valids["failure"], root, "auto")
@@ -291,7 +297,7 @@ def main() -> int:
         assert_invalid(guessed, "no-match", guessed / "output.txt", "symptom_class must be", "no match")
 
     print(
-        "PASS: observations cover 8 routes and 13 mutations; "
+        "PASS: observations cover 10 routes and 13 mutations; "
         "semantic verdict remains AI_REVIEW_REQUIRED"
     )
     return 0
