@@ -28,11 +28,16 @@ ${WAYNE_SKILLS_DIR}/             ← SSoT (edit here, commit here)
 ~/.codex/skills/<name>       ──symlink──▶  ${WAYNE_SKILLS_DIR}/<name>
 ~/.agents/skills/<name>      ──symlink──▶  ${WAYNE_SKILLS_DIR}/<name>   (pi)
 ~/.pi/agent/extensions/<n>   ──symlink──▶  ${WAYNE_SKILLS_DIR}/pi-config/extensions/<n>
+~/.omp/agent/AGENTS.md       ──symlink──▶  ${WAYNE_SKILLS_DIR}/CLAUDE.md   (omp, via omp-config/sync.sh)
+~/.omp/agent/agents/<n>.md   ──symlink──▶  ${WAYNE_SKILLS_DIR}/omp-config/agents/<n>.md
+~/.omp/agent/extensions/<n>.ts ──symlink──▶ ${WAYNE_SKILLS_DIR}/omp-config/extensions/<n>.ts
 ```
 
 Because consumers are symlinks, **editing an existing skill needs no sync step** — the change is already live for every agent. Re-run `sync.sh` when a skill is **added or removed**, when a `pi-config/` file is added or renamed, or when setting up a machine.
 
 pi's own _config_ (global rules, settings.json, statusline, saved workflows) has a separate linker, `pi-config/sync.sh`, which is its sole owner: `sync.sh` owns skill symlinks for all agents and **delegates** pi config to it rather than duplicating that link list. No link target is listed in two scripts.
+
+omp's own config (global rules, task agents such as the three wayne-code-review agents `review-voice-1`, `review-voice-2`, `review-design-conformance`) is owned the same way by `omp-config/sync.sh`, delegated from `sync.sh` as stage 3. Edits to an agent file are live on omp's next agent discovery; adding or renaming one needs a sync. omp extensions (`omp-config/extensions/<n>.ts`, e.g. `subdir-context.ts`, which injects subdirectory AGENTS.md/CLAUDE.md on first read/write) are linked the same way; an edit needs an omp restart, adding one needs a sync. `~/.omp/agent/config.yml` is not synced — it is machine/secret-specific, and it owns the `review` model role that `review-voice-2` binds via `model: "@review"`.
 
 ## Daily rule
 
@@ -80,12 +85,13 @@ bash "${WAYNE_SKILLS_DIR}/sync.sh"            # apply
 bash "${WAYNE_SKILLS_DIR}/sync.sh" --dry-run  # preview, change nothing
 ```
 
-Idempotent, and runs in two stages:
+Idempotent, and runs in three stages:
 
 1. **Skills and global rules** — attempts to re-point every agent's skill dir at the SoT and link `~/.claude/CLAUDE.md`.
 2. **pi config** — delegates to `pi-config/sync.sh`, which stays the sole owner of what lands in `~/.pi`. `--dry-run` is passed through unchanged.
+3. **omp config** — delegates to `omp-config/sync.sh`, the sole owner of what lands in `~/.omp`, gated on `~/.omp` existing.
 
-Both stages are best-effort: each conflict or failed operation is reported, independent paths continue syncing, and the command exits successfully after attempting everything. Running `pi-config/sync.sh` directly follows the same rule.
+All stages are best-effort: each conflict or failed operation is reported, independent paths continue syncing, and the command exits successfully after attempting everything. Running `pi-config/sync.sh` or `omp-config/sync.sh` directly follows the same rule.
 
 Safety properties:
 

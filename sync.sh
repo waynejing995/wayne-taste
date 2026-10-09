@@ -6,10 +6,10 @@
 # agents see it instantly. No copying, no drift.
 #
 # THE single entry point for a full sync. Stage 1 (this script) owns skill and
-# global-rule symlinks; stage 2 delegates pi's own config to pi-config/sync.sh,
-# which remains the sole owner of that link list and is still runnable on its
-# own for a pi-only sync. Every failure is reported, but independent sync work
-# continues.
+# global-rule symlinks; stage 2 delegates pi's own config to pi-config/sync.sh
+# and stage 3 delegates omp's own config to omp-config/sync.sh. Each delegate
+# remains the sole owner of its link list and is still runnable on its own.
+# Every failure is reported, but independent sync work continues.
 #
 # This script is idempotent: run it any time a skill is ADDED or REMOVED at the
 # SoT to re-point every agent. Editing an existing skill needs no re-run.
@@ -56,6 +56,7 @@ PI_SKILLS="${HOME}/.agents/skills"
 # marker by parentage would report "not installed" on every fresh pi machine
 # and skip linking skills while still syncing pi's config.
 PI_HOME="${HOME}/.pi"
+OMP_HOME="${HOME}/.omp"
 DRY="${1:-}"
 
 # Skills to expose to EVERY agent. _shared is a library dir (referenced by
@@ -212,6 +213,17 @@ if [ ! -d "$PI_HOME" ]; then
   echo "NOT INSTALLED: ${PI_HOME} absent — pi is not installed on this machine; no links made"
 elif ! bash "${SOT}/pi-config/sync.sh" ${DRY:+"$DRY"}; then
   report_issue "pi config sync exited unexpectedly (${SOT}/pi-config/sync.sh)"
+fi
+echo
+
+# ── Stage 3: omp's own config ───────────────────────────────────────────────
+# Delegated like stage 2: omp-config/sync.sh owns the ~/.omp link list (global
+# rules and task agents). Gated on OMP_HOME for the same reason as PI_HOME.
+echo "=== ${OMP_HOME}/agent (omp config) ==="
+if [ ! -d "$OMP_HOME" ]; then
+  echo "NOT INSTALLED: ${OMP_HOME} absent — omp is not installed on this machine; no links made"
+elif ! bash "${SOT}/omp-config/sync.sh" ${DRY:+"$DRY"}; then
+  report_issue "omp config sync exited unexpectedly (${SOT}/omp-config/sync.sh)"
 fi
 echo
 echo "Done with ${ISSUES} top-level issue(s). All possible syncs were attempted."
