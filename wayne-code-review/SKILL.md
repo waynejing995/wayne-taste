@@ -359,7 +359,7 @@ Timeout: 3600000ms (60 min).
 
 ### Wait + Gather
 
-After both complete, collect their raw outputs separately. Do NOT merge yet — Phase 5 handles synthesis.
+Collect and read the raw outputs of both voices and the design-conformance agent before synthesis or any approval. Wait for pending sources; unavailable or failed sources follow the degraded-review rule above and cannot justify approval. Never claim a source as covered unless its output was received, read, and included in synthesis. Keep the outputs separate — Phase 5 handles synthesis.
 
 ---
 
