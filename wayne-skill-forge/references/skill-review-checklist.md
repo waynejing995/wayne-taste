@@ -50,6 +50,7 @@ Use this for a deep review after loader metadata validation. Report findings by 
 - **major** — router: at least three playbooks; routing uses observable signals; no-match fails loud.
 - **major** — a two-way branch is not inflated into a router.
 - **major** — examples remain only when the baseline needs them.
+- **major** — instruction prose follows [instruction prose](instruction-prose.md); quoted trigger phrases, commands, literals, and examples stay unchanged.
 - **minor** — anti-patterns remain only when evidence shows a recurring mistake.
 
 ## 5. Flowchart contract
