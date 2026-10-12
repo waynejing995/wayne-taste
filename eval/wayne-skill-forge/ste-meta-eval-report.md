@@ -30,7 +30,7 @@ The first two runs could not audit the commands that Claude ran, because `claude
 | Claude | 21 / 21 | 14 / 21 |
 | Codex | 0 / 21 | 0 / 21 |
 
-Every changed command was the same append: `; echo "EXIT=$?"`. Both intents make the outcome depend on the exit status, and Claude Code shows an exit code only for a failed command. All eight children forbid changed commands in explicit words, so the forge revision does not cause the append. In the candidate loop child (`loop-g2`), 7 of 12 Claude trials kept every command unchanged. That child is the only one that tells the agent to branch on the verify status line, not on the exit status. This mechanism is an inference and was not isolated.
+Every changed command was the same append: `; echo "EXIT=$?"`. Both intents make the outcome depend on the exit status, and Claude Code shows an exit code only for a failed command. In the candidate loop child (`loop-g2`), 7 of 12 Claude trials kept every command unchanged. That child is the only one that tells the agent to branch on the verify status line, not on the exit status. Both statements in this paragraph are observations. That the exit-status dependency causes the append is an inference, and no run isolated it.
 
 ## Blind semantic judge
 
@@ -56,14 +56,18 @@ Candidate children have no semicolons and shorter sentences: an average of 13.1�
 
 ## Verdict
 
-- **Against the control, the candidate shows no regression in task success or in hard boundaries.** It changed request commands in fewer trials (14/21 against 21/21).
-- **The hard-boundary gate fails in both arms when Claude is the downstream agent.** So this meta-eval does not pass in full. The cause is shared by both arms and comes from the intents and the tool (an exit-status dependency, plus Claude Code hiding a zero exit code), not from this revision. `references/eval.md` §3 says to classify such a failure separately, not to block the revision on it.
-- **The judge shows a small, traceable lens regression:** two lens outputs from the candidate child dropped observation IDs. With one child per arm, this can come from that one child and not from the forge.
-- STE-lite shows no measured benefit in this run. The revision stays because it does not regress. A benefit claim needs more children per arm.
+**Not passed. Needs fix.**
+
+- **Hard-boundary gate (`references/eval.md` §5): fail.** In 14 of 21 Claude trials, the candidate changed a request command. A hard-boundary score of 0 fails the candidate. The control fails the same gate (21/21), but the control failing does not make the candidate pass.
+- **Output reliability (`references/eval.md` §6): fail.** Two lens outputs from the candidate child cite no observation IDs in Inferences and Alternatives. The intent requires "Cite observation IDs exactly". The control outputs did not lose this.
+- **Cause: not isolated.** That every child forbids changed commands, and that the exit-status dependency drives the append, are inferences. No experiment separated the forge text from the intent, the runtime, or generator variance.
+- STE-lite shows no measured benefit in this run.
+- The candidate commits stay in history as a revertable candidate. Revert `01568b5`, `b318bd5`, and `570d5fa` to return to the defect-fixed forge at `b38d6a7`.
 
 ## Open items
 
-- Shared Claude boundary failure: decide whether procedure intents and forged children should stop depending on the exit status, or should tell the agent how the runtime reports it. That is a new rule, and it needs its own eval.
+- Smallest correction for the boundary failure: one forge rule about runtime-visible success signals. Then regenerate both procedure children and rerun the failed cases and their neighbors with the command audit.
+- Smallest step for the lens loss: rerun the lens cases with repetitions, and regenerate the child, to find out whether the loss is systematic or comes from one child.
 - One child per arm and archetype. Generator variance is not measured.
 - The lens and router deterministic cases are at ceiling. Harder cases need to come from an observed failure.
 - The hypotheses in `references/instruction-prose.md` are still open: a weaker downstream reader and trigger recall were not tested.
