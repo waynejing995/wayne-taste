@@ -46,7 +46,7 @@ case "$agent" in
             --tmpfs /root/.claude/skills \
             --bind "$state/session-env" /root/.claude/session-env \
             --setenv PATH /root/.local/bin:/usr/local/bin:/usr/bin:/bin \
-            /bin/bash -lc 'claude -p --safe-mode --dangerously-skip-permissions --permission-mode bypassPermissions --model "$MODEL" --effort "$EFFORT" --no-session-persistence --output-format json "$(cat /workspace/task.md)" > /workspace/claude-result.json'
+            /bin/bash -lc 'claude -p --safe-mode --dangerously-skip-permissions --permission-mode bypassPermissions --model "$MODEL" --effort "$EFFORT" --no-session-persistence --output-format stream-json --verbose "$(cat /workspace/task.md)" > /workspace/claude-stream.jsonl; status=$?; tail -n 1 /workspace/claude-stream.jsonl > /workspace/claude-result.json; exit $status'
         ;;
     codex)
         command -v codex >/dev/null || { echo "codex is required" >&2; exit 2; }
