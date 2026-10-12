@@ -42,7 +42,13 @@ ARCHETYPES = {
         "intent": HARNESS / "archetypes/router/intent.md",
         "cases": ["runtime-crash", "configuration-drift", "performance-regression", "no-match", "multiple-signals"],
     },
+    "loop": {
+        "intent": HARNESS / "procedure-loop/intent.md",
+        "cases": ["healthy", "recovers", "exhausted", "unrecoverable"],
+    },
 }
+# Procedure-shaped archetypes: fixture directory with harness.py, cases/*.json, and check_trace.py.
+PROCEDURE_FIXTURES = {"procedure": HARNESS / "procedure", "loop": HARNESS / "procedure-loop"}
 ROUTER_EXPECTED = {"no-match": "NO_MATCH", "multiple-signals": "NO_MATCH"}
 
 GENERATE_TASK = """Use the skill at /workspace/forge/SKILL.md to create the skill that /workspace/intent.md describes. The approved intent is complete, so do not ask questions. The user explicitly requests this new skill.
@@ -115,11 +121,11 @@ def tree_words(root: Path) -> dict[str, object]:
     return {"files": words, "skill_md_words": words.get("SKILL.md", 0), "total_words": sum(words.values())}
 
 
-def generate(run: Path, arms: dict[str, str], workers: int) -> None:
+def generate(run: Path, arms: dict[str, str], workers: int, only: list[str] | None = None) -> None:
     run.mkdir(parents=True, exist_ok=False)
     identity: dict[str, dict[str, str]] = {}
     jobs = []
-    for archetype in ARCHETYPES:
+    for archetype in only or ARCHETYPES:
         ids = ["g1", "g2"]
         random.shuffle(ids)
         for child_id, (arm, ref) in zip(ids, sorted(arms.items())):
@@ -178,14 +184,16 @@ def downstream(run: Path, workers: int) -> None:
 
         def prepare() -> None:
             shutil.copytree(run / "children" / name, workspace / "skills" / skill)
-            if archetype == "procedure":
-                shutil.copy(HARNESS / "procedure/harness.py", workspace / "harness.py")
+            if archetype in PROCEDURE_FIXTURES:
+                fixture = PROCEDURE_FIXTURES[archetype]
+                shutil.copy(fixture / "harness.py", workspace / "harness.py")
                 cases = workspace / "rollout/work/cases"
                 cases.mkdir(parents=True)
-                shutil.copy(HARNESS / f"procedure/cases/{case}.json", cases / f"{case}.json")
+                shutil.copy(fixture / f"cases/{case}.json", cases / f"{case}.json")
             else:
                 shutil.copy(HARNESS / f"archetypes/{archetype}/cases/{case}.md", workspace / "request.md")
-            (workspace / "task.md").write_text(DOWNSTREAM_TASK[archetype].format(skill=skill, case=case), encoding="utf-8")
+            task = DOWNSTREAM_TASK["procedure" if archetype in PROCEDURE_FIXTURES else archetype]
+            (workspace / "task.md").write_text(task.format(skill=skill, case=case), encoding="utf-8")
 
         prepare()
         meta = run_with_retry(agent, workspace, state, prepare)
@@ -211,12 +219,13 @@ def check(run: Path) -> None:
             answer_path.write_text(str(meta.get("final", "")), encoding="utf-8")
         if meta["invalid"]:
             verdict = {"pass": None, "findings": ["invalid trial"]}
-        elif archetype == "procedure":
-            request = json.loads((HARNESS / f"procedure/cases/{case}.json").read_text(encoding="utf-8"))
+        elif archetype in PROCEDURE_FIXTURES:
+            fixture = PROCEDURE_FIXTURES[archetype]
+            request = json.loads((fixture / f"cases/{case}.json").read_text(encoding="utf-8"))
             state_dir = request["validate_command"].split()[-1]
             events = workspace / "rollout/work" / state_dir / "events.jsonl"
             if events.is_file():
-                proc = subprocess.run(["python3", str(HARNESS / "procedure/check_trace.py"), case, str(events)], capture_output=True, text=True)
+                proc = subprocess.run(["python3", str(fixture / "check_trace.py"), case, str(events)], capture_output=True, text=True)
                 verdict = json.loads(proc.stdout)
             else:
                 verdict = {"pass": False, "findings": ["no events.jsonl: no harness command ran"]}
@@ -249,12 +258,13 @@ def main() -> None:
     parser.add_argument("--control", default=None, help="git ref of the control forge")
     parser.add_argument("--candidate", default=None, help="git ref of the candidate forge")
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--only", nargs="+", choices=tuple(ARCHETYPES), help="generate only these archetypes")
     args = parser.parse_args()
     run = RUNS / args.run
     if args.stage == "generate":
         if not (args.control and args.candidate):
             parser.error("generate needs --control and --candidate")
-        generate(run, {"control": args.control, "candidate": args.candidate}, args.workers)
+        generate(run, {"control": args.control, "candidate": args.candidate}, args.workers, args.only)
     elif args.stage == "downstream":
         downstream(run, args.workers)
     else:

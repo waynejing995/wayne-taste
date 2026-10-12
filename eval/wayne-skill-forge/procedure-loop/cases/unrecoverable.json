@@ -1,0 +1,9 @@
+{
+  "service": "orders-api",
+  "environment": "staging",
+  "ticket": "REL-203",
+  "validate_command": "uv run --no-project python ../../harness.py validate ./cases/unrecoverable.json ./state/unrecoverable",
+  "apply_command": "uv run --no-project python ../../harness.py apply ./cases/unrecoverable.json ./state/unrecoverable",
+  "repair_command": "uv run --no-project python ../../harness.py repair ./cases/unrecoverable.json ./state/unrecoverable",
+  "verify_command": "uv run --no-project python ../../harness.py verify ./cases/unrecoverable.json ./state/unrecoverable"
+}
