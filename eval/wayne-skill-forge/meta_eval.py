@@ -165,7 +165,34 @@ def generate(run: Path, arms: dict[str, str], workers: int, only: list[str] | No
     (run / "generation.json").write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def downstream(run: Path, workers: int) -> None:
+def audit_commands(workspace: Path, agent: str, request: dict[str, object]) -> list[str] | None:
+    """Return findings for harness invocations that differ from the request commands, or None if no transcript exists."""
+    allowed = {str(value) for key, value in request.items() if key.endswith("_command")}
+    commands: list[str] = []
+    if agent == "claude":
+        stream = workspace / "claude-stream.jsonl"
+        if not stream.is_file():
+            return None
+        for line in stream.read_text(encoding="utf-8").splitlines():
+            event = json.loads(line)
+            if event.get("type") == "assistant":
+                commands += [c["input"].get("command", "") for c in event["message"]["content"] if c.get("type") == "tool_use" and c.get("name") == "Bash"]
+    else:
+        trace = workspace / "codex-trace.log"
+        if not trace.is_file():
+            return None
+        commands = [m.group(2) for m in re.finditer(r"""^/bin/bash -lc (['"])(.*)\1 in \S+$""", trace.read_text(encoding="utf-8", errors="replace"), re.MULTILINE)]
+    findings = []
+    for command in commands:
+        if "harness.py" not in command:
+            continue
+        stripped = re.sub(r"^\s*cd\s+\S+\s*&&\s*", "", command).strip()
+        if stripped not in allowed:
+            findings.append(f"harness invocation differs from the request: {command}")
+    return findings
+
+
+def downstream(run: Path, workers: int, reps: int = 1) -> None:
     generation = json.loads((run / "generation.json").read_text(encoding="utf-8"))
     jobs = []
     for name, meta in sorted(generation.items()):
@@ -174,11 +201,12 @@ def downstream(run: Path, workers: int) -> None:
         archetype = name.split("-")[0]
         for case in ARCHETYPES[archetype]["cases"]:
             for agent in AGENTS:
-                jobs.append((name, archetype, meta["skill_name"], case, agent))
+                for rep in range(1, reps + 1):
+                    jobs.append((name, archetype, meta["skill_name"], case, agent, rep))
 
-    def one(job: tuple[str, str, str, str, str]) -> tuple[str, dict[str, object]]:
-        name, archetype, skill, case, agent = job
-        trial = f"{name}--{case}--{agent}"
+    def one(job: tuple[str, str, str, str, str, int]) -> tuple[str, dict[str, object]]:
+        name, archetype, skill, case, agent, rep = job
+        trial = f"{name}--{case}--{agent}" + (f"--r{rep}" if reps > 1 else "")
         workspace = run / "trials" / trial
         state = run / "state" / trial
 
@@ -210,7 +238,7 @@ def check(run: Path) -> None:
     identity = json.loads((run / "identity.json").read_text(encoding="utf-8"))
     results = {}
     for trial, meta in sorted(trials.items()):
-        name, case, agent = trial.split("--")
+        name, case, agent = trial.split("--")[:3]
         archetype = name.split("-")[0]
         workspace = run / "trials" / trial
         answer_path = workspace / "answer.md"
@@ -229,6 +257,11 @@ def check(run: Path) -> None:
                 verdict = json.loads(proc.stdout)
             else:
                 verdict = {"pass": False, "findings": ["no events.jsonl: no harness command ran"]}
+            audit = audit_commands(workspace, agent, request)
+            if audit is None:
+                verdict["findings"].append("unaudited: no command transcript")
+            elif audit:
+                verdict = {"pass": False, "findings": verdict["findings"] + audit}
         elif archetype == "lens":
             proc = subprocess.run(["python3", str(HARNESS / "archetypes/lens/check_output.py"), str(answer_path), str(HARNESS / f"archetypes/lens/cases/{case}.md"), "--case", case], capture_output=True, text=True)
             verdict = json.loads(proc.stdout)
@@ -239,16 +272,18 @@ def check(run: Path) -> None:
         results[trial] = {"arm": identity[name]["arm"], "archetype": archetype, "case": case, "agent": agent, "pass": verdict["pass"], "findings": verdict["findings"], "seconds": meta["seconds"], "output_tokens": meta.get("output_tokens"), "retried": meta.get("retried", False)}
     (run / "results.json").write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    def mark(value: object) -> str:
-        return {True: "pass", False: "FAIL", None: "invalid"}[value]  # type: ignore[index]
-
-    print("| Archetype | Case | Agent | Control | Candidate |")
+    print("| Archetype | Case | Agent | Control pass | Candidate pass |")
     print("|---|---|---|---|---|")
-    rows: dict[tuple[str, str, str], dict[str, str]] = {}
+    rows: dict[tuple[str, str, str], dict[str, list[object]]] = {}
     for r in results.values():
-        rows.setdefault((r["archetype"], r["case"], r["agent"]), {})[r["arm"]] = mark(r["pass"])
+        rows.setdefault((r["archetype"], r["case"], r["agent"]), {}).setdefault(r["arm"], []).append(r["pass"])
+
+    def mark(values: list[object]) -> str:
+        invalid = values.count(None)
+        return f"{values.count(True)}/{len(values) - invalid}" + (f" (+{invalid} invalid)" if invalid else "")
+
     for (archetype, case, agent), arms in sorted(rows.items()):
-        print(f"| {archetype} | {case} | {agent} | {arms.get('control', '-')} | {arms.get('candidate', '-')} |")
+        print(f"| {archetype} | {case} | {agent} | {mark(arms.get('control', []))} | {mark(arms.get('candidate', []))} |")
 
 
 def main() -> None:
@@ -259,6 +294,7 @@ def main() -> None:
     parser.add_argument("--candidate", default=None, help="git ref of the candidate forge")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--only", nargs="+", choices=tuple(ARCHETYPES), help="generate only these archetypes")
+    parser.add_argument("--reps", type=int, default=1, help="downstream repetitions per child, case, and agent")
     args = parser.parse_args()
     run = RUNS / args.run
     if args.stage == "generate":
@@ -266,7 +302,7 @@ def main() -> None:
             parser.error("generate needs --control and --candidate")
         generate(run, {"control": args.control, "candidate": args.candidate}, args.workers, args.only)
     elif args.stage == "downstream":
-        downstream(run, args.workers)
+        downstream(run, args.workers, args.reps)
     else:
         check(run)
 
