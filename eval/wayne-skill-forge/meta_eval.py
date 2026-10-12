@@ -184,7 +184,7 @@ def audit_commands(workspace: Path, agent: str, request: dict[str, object]) -> l
         commands = [m.group(2) for m in re.finditer(r"""^/bin/bash -lc (['"])(.*)\1 in \S+$""", trace.read_text(encoding="utf-8", errors="replace"), re.MULTILINE)]
     findings = []
     for command in commands:
-        if "harness.py" not in command:
+        if "harness.py" not in (command.strip().splitlines() or [""])[0]:
             continue
         stripped = re.sub(r"^\s*cd\s+\S+\s*&&\s*", "", command).strip()
         if stripped not in allowed:
