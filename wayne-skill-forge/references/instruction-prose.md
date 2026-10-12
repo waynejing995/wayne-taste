@@ -25,7 +25,7 @@ Domain terms are allowed as technical nouns and technical verbs (STE 1.5–1.13)
 
 1. **One name per concept.** Choose one term for each object or action, and use it every time. A list of user phrasings in `description` is quotation, not synonym rotation (STE 1.11, 9.4).
 2. **One action per step.** Write each step as an imperative sentence. If a sentence contains two actions, split it. This includes two clauses joined by a semicolon (STE 5.2, 5.3, 8.1).
-3. **Condition before command.** Write "If X, do Y." Do not write "Do Y if X." (STE 5.4).
+3. **Condition before command.** Write "If X, do Y." Do not write "Do Y if X." (STE 5.4). A restriction is different: keep "Do Y only if X." If you rewrite it as "If X, you may do Y", a required condition becomes a sufficient one, and Y without X is no longer forbidden.
 4. **One strength per modal word.** Use the imperative or "must" for a requirement, "do not" for a prohibition, and "may" for a permission. Do not use "should" or "can" to state a requirement (STE 1.3, applied to modal verbs).
 5. **Every gate states its reason or consequence.** The reason replaces capital letters as emphasis (STE 7.3).
 6. **Notes give information only.** Put each instruction in a step or a gate (STE 5.5).
@@ -35,6 +35,8 @@ Domain terms are allowed as technical nouns and technical verbs (STE 1.5–1.13)
 10. **Short sentences.** Use approximately 20 words for an instruction sentence. This limit is a review signal, not a gate (STE 5.1).
 
 A skill can contain both functions. A procedure skill often has a principle section, and a lens skill has a `Rule:` line in each principle. Apply the row that matches each sentence, not one row for the whole skill.
+
+A style rewrite of an existing skill must not change what any sentence requires. After the rewrite, have an independent reviewer compare the old and new text for each requirement: dropped, weakened, strengthened, or changed in scope.
 
 ## Not adopted
 
