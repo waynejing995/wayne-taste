@@ -1,0 +1,9 @@
+{
+  "service": "search-api",
+  "environment": "staging",
+  "ticket": "REL-204",
+  "validate_command": "uv run --no-project python ../../harness.py validate ./cases/healthy.json ./state/healthy",
+  "apply_command": "uv run --no-project python ../../harness.py apply ./cases/healthy.json ./state/healthy",
+  "repair_command": "uv run --no-project python ../../harness.py repair ./cases/healthy.json ./state/healthy",
+  "verify_command": "uv run --no-project python ../../harness.py verify ./cases/healthy.json ./state/healthy"
+}

@@ -1,0 +1,9 @@
+{
+  "service": "catalog-api",
+  "environment": "staging",
+  "ticket": "REL-202",
+  "validate_command": "uv run --no-project python ../../harness.py validate ./cases/exhausted.json ./state/exhausted",
+  "apply_command": "uv run --no-project python ../../harness.py apply ./cases/exhausted.json ./state/exhausted",
+  "repair_command": "uv run --no-project python ../../harness.py repair ./cases/exhausted.json ./state/exhausted",
+  "verify_command": "uv run --no-project python ../../harness.py verify ./cases/exhausted.json ./state/exhausted"
+}
