@@ -94,7 +94,7 @@ flowchart TB
     V{"Loader metadata valid?"}
     F{"Behavioral eval passes?"}
     R["Revise from observed failure"]
-    G{"User approves write?"}
+    G{"Write approved or explicitly requested?"}
     W(["Write requested files"])
     S(["Stop without writing"])
     A --> B
@@ -124,7 +124,7 @@ flowchart TB
 
 ### B. Confirm it earns a skill
 
-Require recurrence, a costly failure, or specialized local knowledge. Return a changing idea to design; update the global owner when it already owns the rule. Build the literal ledger early. If two clauses define different accepted outputs and no precedence resolves them, stop and return the exact conflict upstream; never pick the more convenient clause.
+Require recurrence, a costly failure, or specialized local knowledge. Return a changing idea to design; update the global owner when it already owns the rule. Start the requirement coverage map here. If two clauses define different accepted outputs and no precedence resolves them, stop and return the exact conflict upstream; never pick the more convenient clause.
 
 ### C. Choose archetype and baseline
 
@@ -136,7 +136,7 @@ Choose the archetype from observable task shape. Define the eval baseline first:
 
 ### D. Draft the minimum skill
 
-Start from the archetype template. Write discovery metadata, then only the core workflow or judgment. Put conditional detail in resources. Use direct, conclusion-first language; never copy persona or global invariant blocks. When Flow exists, expand node IDs instead of duplicating its sequence. Complete the requirement coverage map before cutting. Validate only the skill loader's real contract: parseable YAML frontmatter, required `name` and `description`, naming rules, directory agreement, and a non-empty body.
+Start from the archetype template. Write discovery metadata, then only the core workflow or judgment. Put conditional detail in resources. Use direct, conclusion-first language; never copy persona or global invariant blocks. When Flow exists, expand node IDs instead of duplicating its sequence. Complete the requirement coverage map before cutting.
 
 Before declaring the draft done, extend the coverage map into a resource placement decision: name the owner of every piece of detail material — body, one-level `references/`, `scripts/`, or `templates/`. Material that is both branch-conditional and long — schemas, variant tables, worked examples, full command recipes, per-case checklists — MUST move to a reference; the body then keeps the gate itself and a direct link saying when to load it. Short gates, verify conditions, and single commands stay inline. Record `No reference: <reason>` when nothing qualifies. Keep this decision in the working map and the eval evidence, never in the shipped skill. This prevents a real default failure: pressure to cut is explicit and repeated here while permission to add a resource is passive, so conditional detail gets inlined or silently dropped.
 
@@ -175,8 +175,6 @@ Show files and eval result in plain Chinese. Write only after approval unless th
 - Do not duplicate routing terms in the body.
 - Do not duplicate Flowchart sequence in a checklist or prose phase list.
 - Do not hardcode one agent’s home-directory path in a cross-agent skill.
-- Do not call a shorter file “better” without behavioral evidence.
-- Do not invent a schema or validator for an AI-to-AI Markdown handoff.
 - Do not claim a bundled script passes when it was only inspected.
 - Do not call loader validity or template agreement proof of intent fidelity.
 - Do not let a lexical rule decide prose meaning. Adding an AI judge does not make a semantic-proxy regex a runtime gate; eval may report it only as reviewer input.
