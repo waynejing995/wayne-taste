@@ -78,9 +78,10 @@ Every step is labeled with its scope, and the whole-workflow gate is never colla
 | `[whole-workflow]` setup | A | once | all source contracts and starting baseline | no |
 | `[whole-workflow]` wave grouping | C | before execution; again if a unit reopens | unit contracts, dependencies, write sets, current task state | no |
 | `[per-wave]` start | D | once per wave, before dispatch | recorded unit IDs, unit contracts, starting diff baseline | no |
-| `[per-unit]` loop | R, F, G, H | per unit or retry | that unit's contract, worker handle, diff, and verification command | no |
+| `[per-unit]` loop | R, F, G | per unit or retry | that unit's contract, worker handle, diff, and verification command | no |
 | `[per-wave]` completion barrier | W | after each unit passes G | completion and verification results for all wave members | no |
 | `[per-wave]` refinement | S | once per completed wave | the combined wave diff and Simplify's Work-integration contract | no |
+| `[per-unit]` audit | H | once per unit, after its wave's S record | that unit's contract and its part of the simplified wave diff | no |
 | `[whole-workflow]` gate | J, L | once per full diff | complete spec, decision log, plan, all units, full diff | yes — one fresh read-only agent |
 
 ### A. [whole-workflow] Check the plan before starting
@@ -108,11 +109,11 @@ The main agent must write the wave list before any implementation starts:
 1. Use each unit's full contract, relevant decisions, dependencies, consumes/produces, and exact write set to build the unit dependency graph. Track status in the existing Work task state; no provider-specific task tool is required.
 2. Assign each path one owner. Keep the matrix, checkpoint, shared integration files, scope state, and full verification main-owned; remove them from worker write sets.
 3. Group unfinished units by dependency. A unit belongs after the waves that produce its inputs. Put independent ready units together; D decides whether their write sets allow parallel execution.
-4. Record each wave and its unit IDs in the same Work task state, then show the list to the user. Every unfinished unit must appear in a wave before proceeding to D.
+4. Record each wave in the same Work task state as ordered tasks: its units, then that wave's S, then H for each of its units. After the last wave, add J and L. Show the list to the user. Every unfinished unit must appear in a wave before proceeding to D.
 
-For example, if I1 and I2 are independent and I3 needs both, record `Wave 1: I1, I2` and `Wave 2: I3`. If the plan has only I1, record `Wave 1: I1`. Do this even when the plan never mentions waves.
+For example, if I1 and I2 are independent and I3 needs both, record `Wave 1: I1, I2 → S → H(I1), H(I2)`, `Wave 2: I3 → S → H(I3)`, then `J`, `L`. If the plan has only I1, record `Wave 1: I1 → S → H(I1)`, then `J`, `L`. Do this even when the plan never mentions waves.
 
-If J reopens a unit, preserve completed work and existing records, then append new waves for the unfinished units before D dispatches again. Do not reset the run baseline or dispatch a worker from C.
+If J reopens a unit, preserve completed work and existing records, then append new waves in the same shape for the unfinished units before D dispatches again. Do not reset the run baseline or dispatch a worker from C.
 
 ### D. [per-wave] Execute the next recorded wave
 
@@ -181,6 +182,7 @@ The receipt covers only the diff the gate was given. An implementation finding r
 - all requirements and decisions have implementation evidence;
 - the diff contains only plan-owned source, authorized U status changes, and work state; starting Git status, agent write history, and final diff show no unrelated or locked-input mutation;
 - every U row is `☑`, every E row remains `⬜`;
+- every recorded wave has an S record — the refinement outcome with before/after verification, or the permitted skip reason — and each of the wave's current U ticks came after that record. If not, record the ordering violation in Work state and the handoff, reset that wave's U rows to `☐`, run S on its current diff, re-audit its units in H, then rerun this gate on the corrected full diff. The re-run satisfies this check; it does not erase the violation;
 - no incomplete implementation, staged file, commit, branch, or downstream action was introduced; judge completeness from code, tests, and plan obligations rather than a substring scan.
 
 Do not claim completion while any command, unit, U row, decision, or scope gate is unresolved.
