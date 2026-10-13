@@ -116,6 +116,14 @@ def tool_calls(workspace: Path) -> list[dict[str, object]]:
     return calls
 
 
+def forge_files_read(workspace: Path) -> list[str]:
+    """Forge files that the generator opened with any tool (Read, or a Bash command such as cat or sed)."""
+    forge = workspace / "forge"
+    files = sorted(str(p.relative_to(forge)) for p in forge.rglob("*") if p.is_file())
+    calls = " ".join(json.dumps(c["input"]) for c in tool_calls(workspace))
+    return [f for f in files if f in calls]
+
+
 def tree_words(root: Path) -> dict[str, object]:
     files = sorted(p for p in root.rglob("*") if p.is_file())
     words = {str(p.relative_to(root)): len(p.read_text(encoding="utf-8", errors="replace").split()) for p in files}
@@ -152,8 +160,7 @@ def generate(run: Path, arms: dict[str, str], fixtures: list[Path], children: in
 
         prepare()
         meta = run_with_retry(GENERATOR, workspace, state, prepare)
-        reads = [str(c["input"].get("file_path", "")) for c in tool_calls(workspace) if c.get("name") == "Read"]
-        meta["forge_files_read"] = sorted({r.split("/forge/", 1)[1] for r in reads if "/forge/" in r})
+        meta["forge_files_read"] = forge_files_read(workspace)
         outs = [p for p in (workspace / "out").iterdir() if p.is_dir()] if (workspace / "out").is_dir() else []
         meta["child_dirs"] = [p.name for p in outs]
         if len(outs) == 1:
