@@ -19,9 +19,13 @@ import json
 import os
 import random
 import re
+import secrets
 import shutil
 import subprocess
+import sys
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -164,9 +168,97 @@ def generate(run: Path, arms: dict[str, str], fixtures: list[Path], children: in
     (run / "generation.json").write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+CLIENT = '''#!/usr/bin/env python3
+"""Rollout harness client: forwards one action to the rollout service and relays its status line and exit code."""
+import json
+import sys
+import urllib.request
+from pathlib import Path
+
+if len(sys.argv) != 4:
+    print("usage: harness.py <action> <request.json> <state-dir>")
+    raise SystemExit(2)
+action, request, state = sys.argv[1:]
+body = json.dumps({{"action": action, "request_name": Path(request).name, "request": Path(request).read_text(encoding="utf-8"), "state": state}}).encode()
+call = urllib.request.Request("http://127.0.0.1:{port}/{token}", data=body, headers={{"content-type": "application/json"}})
+with urllib.request.urlopen(call, timeout=120) as response:
+    result = json.loads(response.read())
+sys.stdout.write(result["stdout"])
+sys.stderr.write(result["stderr"])
+raise SystemExit(result["code"])
+'''
+
+
+class RolloutService:
+    """Runs fixture harnesses on the host, outside the agent sandbox.
+
+    Each trial is registered with its frozen request file, the actions its commands name, and its state path.
+    The service runs the harness on the frozen request only. It rejects a call whose request text, request name,
+    action, or state path differs, and logs every call (accepted or not) to <private>/calls.jsonl.
+    """
+
+    def __init__(self) -> None:
+        self.trials: dict[str, dict[str, object]] = {}
+        self.lock = threading.Lock()
+        service = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                trial = service.trials.get(self.path.strip("/"))
+                if trial is None:
+                    self.send_error(404)
+                    return
+                data = json.loads(self.rfile.read(int(self.headers["content-length"])))
+                reason = service.mismatch(trial, data)
+                if reason:
+                    result = {"stdout": json.dumps({"status": "rejected", "reason": reason}) + "\n", "stderr": "", "code": 2}
+                else:
+                    done = subprocess.run([sys.executable, str(trial["fixture"] / "harness.py"), data["action"], str(trial["request"]), str(trial["private"] / trial["state"])], cwd=trial["private"], capture_output=True, text=True, timeout=120)
+                    result = {"stdout": done.stdout, "stderr": done.stderr, "code": done.returncode}
+                with service.lock, (trial["private"] / "calls.jsonl").open("a", encoding="utf-8") as log:
+                    log.write(json.dumps({"time": time.time(), "action": data.get("action"), "accepted": not reason, "reason": reason, "code": result["code"], "stdout": result["stdout"]}) + "\n")
+                body = json.dumps(result).encode()
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args: object) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    @staticmethod
+    def mismatch(trial: dict[str, object], data: dict[str, object]) -> str:
+        if data.get("request") != trial["request_text"]:
+            return "request text differs from the frozen request"
+        if data.get("request_name") != trial["request"].name:
+            return "request file name differs from the frozen request"
+        if data.get("action") not in trial["actions"]:
+            return f"action {data.get('action')!r} is not named by any request command"
+        if Path(str(data.get("state"))) != trial["state"]:
+            return "state path differs from the request commands"
+        return ""
+
+    def register(self, fixture: Path, case: str, private: Path) -> str:
+        request = fixture / f"cases/{case}.json"
+        commands = [str(v).split() for k, v in json.loads(request.read_text(encoding="utf-8")).items() if k.endswith("_command")]
+        actions = {c[c.index("../../harness.py") + 1] for c in commands}
+        states = {Path(c[-1]) for c in commands}
+        if len(states) != 1:
+            raise ValueError(f"{request}: request commands must share one state path, found {states}")
+        token = secrets.token_hex(12)
+        self.trials[token] = {"fixture": fixture, "private": private, "request": request, "request_text": request.read_text(encoding="utf-8"), "actions": actions, "state": states.pop()}
+        return token
+
+
 def downstream(run: Path, agents: list[str], reps: int, workers: int) -> None:
     generation = json.loads((run / "generation.json").read_text(encoding="utf-8"))
     identity = json.loads((run / "identity.json").read_text(encoding="utf-8"))
+    service = RolloutService()
     jobs = []
     for name, meta in sorted(generation.items()):
         if "skill_name" not in meta:
@@ -182,12 +274,16 @@ def downstream(run: Path, agents: list[str], reps: int, workers: int) -> None:
         trial = f"{name}--{case}--{agent}--r{rep}"
         workspace = run / "trials" / trial
         state = run / "state" / trial
+        private = run / "private" / trial
         kind = fixture_config(fixture)["kind"]
 
         def prepare() -> None:
             shutil.copytree(run / "children" / name, workspace / "skills" / skill)
             if kind == "rollout":
-                shutil.copy(fixture / "harness.py", workspace / "harness.py")
+                shutil.rmtree(private, ignore_errors=True)
+                private.mkdir(parents=True)
+                token = service.register(fixture, case, private)
+                (workspace / "harness.py").write_text(CLIENT.format(port=service.port, token=token), encoding="utf-8")
                 cases = workspace / "rollout/work/cases"
                 cases.mkdir(parents=True)
                 shutil.copy(fixture / f"cases/{case}.json", cases / f"{case}.json")
@@ -197,11 +293,20 @@ def downstream(run: Path, agents: list[str], reps: int, workers: int) -> None:
 
         prepare()
         meta = run_with_retry(agent, workspace, state, prepare)
+        if kind == "rollout":
+            # The service's private state is authoritative; it replaces anything the agent wrote.
+            target = workspace / "rollout/work/state"
+            shutil.rmtree(target, ignore_errors=True)
+            if (private / "state").is_dir():
+                shutil.copytree(private / "state", target)
+            if (private / "calls.jsonl").is_file():
+                shutil.copy(private / "calls.jsonl", workspace / "service-calls.jsonl")
         print(f"trial {trial}: invalid={meta['invalid']} {meta['seconds']}s", flush=True)
         return trial, meta
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         results = dict(pool.map(one, jobs))
+    service.server.shutdown()
     (run / "downstream.json").write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -255,6 +360,11 @@ def check(run: Path) -> None:
                     verdict["findings"].append("unaudited: no command transcript")
                 elif audit:
                     verdict = {"pass": False, "findings": verdict["findings"] + audit}
+                calls = workspace / "service-calls.jsonl"
+                rejected = [json.loads(line) for line in calls.read_text(encoding="utf-8").splitlines()] if calls.is_file() else []
+                rejected = [c for c in rejected if not c["accepted"]]
+                if rejected:
+                    verdict = {"pass": False, "findings": verdict["findings"] + [f"rejected service call: {c['action']}: {c['reason']}" for c in rejected]}
         results[trial] = {"arm": identity[name]["arm"], "fixture": identity[name]["fixture"], "child": name, "case": case, "agent": agent, "pass": verdict["pass"], "findings": verdict["findings"], "seconds": meta["seconds"], "output_tokens": meta.get("output_tokens"), "retried": meta.get("retried", False)}
     (run / "results.json").write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
 
