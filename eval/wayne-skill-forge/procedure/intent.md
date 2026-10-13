@@ -7,6 +7,7 @@ Create a reusable procedure skill named `staged-rollout`. It runs one service ro
 - Trigger when the user supplies a rollout request file and asks to roll it out.
 - Run only the `validate_command`, `apply_command`, and `verify_command` from the request, from the working directory that the user names.
 - Do not edit the request file, the harness, or any state file. Do not run a command that the request does not contain.
+- If the tool result does not show a command's exit status, you may append a read-only exit-status probe, such as `; echo "exit=$?"`, to that command. The probe is not a different command.
 
 ## Procedure contract
 

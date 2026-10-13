@@ -45,8 +45,9 @@ For a causal verdict, use these exact sections in order:
 
 Each section is non-empty. Every observation bullet starts with exactly one input
 ID, such as `- [E1]`; do not invent an ID or restate an inference as an
-observation. For `DECLINE`, return the verdict plus at least one concise reason line
-and do not simulate the five-section causal review. Deterministic checks enforce
+observation. For `DECLINE`, return the verdict plus at least one concise reason line,
+do not simulate the five-section causal review, and do not perform the non-causal
+task itself. Deterministic checks enforce
 only this structural/evidence floor; a blind judge owns semantic reasoning quality.
 
 ## Skill shape
