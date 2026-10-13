@@ -60,7 +60,7 @@ Procedure event-order failures are hard-boundary losses (`references/eval.md` §
 | ran `maintenance_window_command` although the request has no `maintenance_window` field | 13 | 10 | 12 |
 | other | 0 | 1 | 1 |
 
-All six procedure children state the skip rule correctly. Haiku confuses the `maintenance_window_command` field, which every request has, with the `maintenance_window` field, which only one request has. The two names come from the intent itself, so a prose rule for the skill author cannot remove them. Under §5 every arm fails the hard-boundary gate with Haiku as the reader, so no arm passes acceptance on this suite.
+All six procedure children state the skip rule correctly, so the failures happen in execution, not in the written rule. A plausible cause is that Haiku confuses the `maintenance_window_command` field, which every request has, with the `maintenance_window` field, which only one request has. This is a hypothesis: no run isolated it, and the data do not show whether different skill prose could prevent it. Under §5 every arm fails the hard-boundary gate with Haiku as the reader, so no arm passes acceptance on this suite.
 
 ## Contaminated lens cases
 
@@ -69,12 +69,12 @@ Four lens cases use real package names with invented behavior: `libpq` 16, `axio
 ## Observations
 
 - The strong readers are at ceiling on every arm. The harder cases separate readers, not forge versions.
-- With Haiku as the reader, both STE arms are 3 of 48 clean trials ahead of control. The reference arm alone accounts for the gain; the body rewrite adds nothing measurable on top of it.
+- With Haiku as the reader, both STE arms have 3 more clean trials of 48 than control. Reference and candidate have the same net count but different per-cell results, so the gain cannot be attributed to either change. The data show no extra net gain from the body rewrite.
 - The per-cell results are nearly balanced (6 wins and 3 losses for candidate, 5 and 3 for reference). Two of the three candidate losses come from the shared window-field confusion, not from a new failure. With 2 children per arm, these gaps are within what a single child produces, so no statistical claim is made.
 
 ## Open items
 
-- Rename the `maintenance_window` field or `maintenance_window_command` in the procedure intent, regenerate, and rerun, so the suite measures the skill rather than this naming trap.
+- Isolate the field-name hypothesis: keep the current near-name cases as regression cases, and add a variant with distinct names, so a rerun can show whether the names cause the failures.
 - Rerun the four contaminated lens cases with fictional packages.
 - More children per arm, to separate forge effects from generator variance.
 - Trigger recall was not measured. The hypotheses in `references/instruction-prose.md` stay open; the body rewrite costs about 12% more words with no measured gain over the reference alone.
