@@ -1,0 +1,17 @@
+{
+  "service": "billing-service",
+  "environment": "prod",
+  "ticket": "SCHEMA-112",
+  "destructiveness": "destructive",
+  "preflight_command": "uv run --no-project python ../../harness.py preflight ./cases/mig-412.json ./state/mig-412",
+  "approval_command": "uv run --no-project python ../../harness.py approval ./cases/mig-412.json ./state/mig-412",
+  "backup_command": "uv run --no-project python ../../harness.py backup ./cases/mig-412.json ./state/mig-412",
+  "maintenance_window_command": "uv run --no-project python ../../harness.py maintenance_window ./cases/mig-412.json ./state/mig-412",
+  "canary_command": "uv run --no-project python ../../harness.py canary ./cases/mig-412.json ./state/mig-412",
+  "canary_verify_command": "uv run --no-project python ../../harness.py canary_verify ./cases/mig-412.json ./state/mig-412",
+  "apply_command": "uv run --no-project python ../../harness.py apply ./cases/mig-412.json ./state/mig-412",
+  "verify_command": "uv run --no-project python ../../harness.py verify ./cases/mig-412.json ./state/mig-412",
+  "rollback_command": "uv run --no-project python ../../harness.py rollback ./cases/mig-412.json ./state/mig-412",
+  "backup_enabled": false,
+  "rollback_enabled": true
+}

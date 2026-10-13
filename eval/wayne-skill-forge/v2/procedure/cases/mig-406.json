@@ -1,0 +1,17 @@
+{
+  "service": "notification-service",
+  "environment": "prod",
+  "ticket": "SCHEMA-107",
+  "destructiveness": "destructive",
+  "preflight_command": "uv run --no-project python ../../harness.py preflight ./cases/mig-406.json ./state/mig-406",
+  "approval_command": "uv run --no-project python ../../harness.py approval ./cases/mig-406.json ./state/mig-406",
+  "backup_command": "uv run --no-project python ../../harness.py backup ./cases/mig-406.json ./state/mig-406",
+  "maintenance_window_command": "uv run --no-project python ../../harness.py maintenance_window ./cases/mig-406.json ./state/mig-406",
+  "canary_command": "uv run --no-project python ../../harness.py canary ./cases/mig-406.json ./state/mig-406",
+  "canary_verify_command": "uv run --no-project python ../../harness.py canary_verify ./cases/mig-406.json ./state/mig-406",
+  "apply_command": "uv run --no-project python ../../harness.py apply ./cases/mig-406.json ./state/mig-406",
+  "verify_command": "uv run --no-project python ../../harness.py verify ./cases/mig-406.json ./state/mig-406",
+  "rollback_command": "uv run --no-project python ../../harness.py rollback ./cases/mig-406.json ./state/mig-406",
+  "backup_enabled": true,
+  "rollback_enabled": true
+}
