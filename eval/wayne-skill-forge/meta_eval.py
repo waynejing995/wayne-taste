@@ -57,7 +57,10 @@ Write your final report to /workspace/answer.md and return the same text.""",
 Write the exact response that you would return to the user to /workspace/answer.md, and return the same text.""",
 }
 
-EXIT_PROBE = re.compile(r"""\s*;\s*echo\s+(["']?)[^;|&]*\$\?[^;|&]*\1\s*$""")
+# Read-only observation suffixes the intents allow on an exact request command: an exit-status probe
+# (`; echo "exit=$?"`, `&& echo $?`, or the probe on the next line) and merging stderr (`2>&1`).
+OBSERVATION_SUFFIX = re.compile(r"""(?:\s*2>&1|\s*(?:;|&&|\n)\s*echo\s+(["']?)[^;|&\n]*\$\?[^;|&\n]*\1)\s*$""")
+HARNESS_CALL = re.compile(r"harness\.py\s+\w+\s")
 
 
 def fixture_config(fixture: Path) -> dict[str, object]:
@@ -320,26 +323,28 @@ def downstream(run: Path, agents: list[str], reps: int, workers: int) -> None:
 def audit_commands(workspace: Path, agent: str, request: dict[str, object]) -> list[str] | None:
     """Findings for harness invocations that differ from the request commands; None if no transcript exists.
 
-    Allowed differences: a leading `cd <dir> &&` and a trailing read-only exit-status probe such as `; echo "exit=$?"`.
+    Only commands that invoke the harness are compared. A leading `cd <dir>` (joined by `&&` or `;`) and
+    trailing read-only observation suffixes are allowed. Reading or searching for the public client is not
+    a finding: the private harness runs on the host and the client exposes nothing.
     """
     allowed = {str(value) for key, value in request.items() if key.endswith("_command")}
-    findings = []
     if AGENTS[agent][0] == "claude":
         if not (workspace / "claude-stream.jsonl").is_file():
             return None
-        calls = tool_calls(workspace)
-        commands = [str(c["input"].get("command", "")) for c in calls if c.get("name") == "Bash"]
-        findings += [f"read the harness source: {c.get('name')} {json.dumps(c['input'])}" for c in calls if c.get("name") in ("Read", "Grep", "Glob") and "harness.py" in json.dumps(c["input"])]
+        commands = [str(c["input"].get("command", "")) for c in tool_calls(workspace) if c.get("name") == "Bash"]
     else:
         trace = workspace / "codex-trace.log"
         if not trace.is_file():
             return None
         commands = [m.group(2) for m in re.finditer(r"""^/bin/bash -lc (['"])(.*)\1 in \S+$""", trace.read_text(encoding="utf-8", errors="replace"), re.MULTILINE)]
-
+    findings = []
     for command in commands:
-        if "harness.py" not in (command.strip().splitlines() or [""])[0]:
+        if not HARNESS_CALL.search(command):
             continue
-        stripped = EXIT_PROBE.sub("", re.sub(r"^\s*cd\s+\S+\s*&&\s*", "", command).strip()).strip()
+        stripped = re.sub(r"^\s*cd\s+\S+\s*(?:&&|;)\s*", "", command.strip())
+        previous = None
+        while previous != stripped:
+            previous, stripped = stripped, OBSERVATION_SUFFIX.sub("", stripped).strip()
         if stripped not in allowed:
             findings.append(f"harness invocation differs from the request: {command}")
     return findings
