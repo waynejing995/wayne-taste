@@ -1,0 +1,13 @@
+{
+  "kind": "request",
+  "cases": [
+    "resource-saturation-strong",
+    "resource-and-deployment-precedence",
+    "latency-and-deployment-precedence",
+    "error-spike-strong",
+    "deployment-rollout-only",
+    "latency-weak-only",
+    "zero-signal",
+    "latency-and-error-forbidden-pair"
+  ]
+}

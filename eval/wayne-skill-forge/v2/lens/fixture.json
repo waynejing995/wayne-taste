@@ -1,0 +1,13 @@
+{
+  "kind": "request",
+  "cases": [
+    "straightforward-safe-upgrade",
+    "breaking-change-workaround-exists",
+    "breaking-change-critical-path",
+    "unlock-security-fix",
+    "mixed-breaking-and-capability",
+    "partial-decline-mixed-scope",
+    "decline-no-context",
+    "decline-holistic-monorepo"
+  ]
+}

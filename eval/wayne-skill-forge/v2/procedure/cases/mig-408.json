@@ -1,0 +1,21 @@
+{
+  "service": "search-service",
+  "environment": "prod",
+  "ticket": "SCHEMA-108",
+  "destructiveness": "destructive",
+  "preflight_command": "uv run --no-project python ../../harness.py preflight ./cases/mig-408.json ./state/mig-408",
+  "approval_command": "uv run --no-project python ../../harness.py approval ./cases/mig-408.json ./state/mig-408",
+  "backup_command": "uv run --no-project python ../../harness.py backup ./cases/mig-408.json ./state/mig-408",
+  "maintenance_window_command": "uv run --no-project python ../../harness.py maintenance_window ./cases/mig-408.json ./state/mig-408",
+  "canary_command": "uv run --no-project python ../../harness.py canary ./cases/mig-408.json ./state/mig-408",
+  "canary_verify_command": "uv run --no-project python ../../harness.py canary_verify ./cases/mig-408.json ./state/mig-408",
+  "apply_command": "uv run --no-project python ../../harness.py apply ./cases/mig-408.json ./state/mig-408",
+  "verify_command": "uv run --no-project python ../../harness.py verify ./cases/mig-408.json ./state/mig-408",
+  "rollback_command": "uv run --no-project python ../../harness.py rollback ./cases/mig-408.json ./state/mig-408",
+  "backup_enabled": true,
+  "rollback_enabled": true,
+  "maintenance_window": {
+    "open_hour": 3,
+    "close_hour": 5
+  }
+}

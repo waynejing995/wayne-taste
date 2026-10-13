@@ -1,0 +1,17 @@
+{
+  "service": "inventory-service",
+  "environment": "staging",
+  "ticket": "SCHEMA-111",
+  "destructiveness": "destructive",
+  "preflight_command": "uv run --no-project python ../../harness.py preflight ./cases/mig-411.json ./state/mig-411",
+  "approval_command": "uv run --no-project python ../../harness.py approval ./cases/mig-411.json ./state/mig-411",
+  "backup_command": "uv run --no-project python ../../harness.py backup ./cases/mig-411.json ./state/mig-411",
+  "maintenance_window_command": "uv run --no-project python ../../harness.py maintenance_window ./cases/mig-411.json ./state/mig-411",
+  "canary_command": "uv run --no-project python ../../harness.py canary ./cases/mig-411.json ./state/mig-411",
+  "canary_verify_command": "uv run --no-project python ../../harness.py canary_verify ./cases/mig-411.json ./state/mig-411",
+  "apply_command": "uv run --no-project python ../../harness.py apply ./cases/mig-411.json ./state/mig-411",
+  "verify_command": "uv run --no-project python ../../harness.py verify ./cases/mig-411.json ./state/mig-411",
+  "rollback_command": "uv run --no-project python ../../harness.py rollback ./cases/mig-411.json ./state/mig-411",
+  "backup_enabled": true,
+  "rollback_enabled": false
+}

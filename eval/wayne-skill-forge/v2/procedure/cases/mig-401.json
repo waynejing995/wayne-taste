@@ -1,0 +1,17 @@
+{
+  "service": "user-service",
+  "environment": "staging",
+  "ticket": "SCHEMA-102",
+  "destructiveness": "read-only",
+  "preflight_command": "uv run --no-project python ../../harness.py preflight ./cases/mig-401.json ./state/mig-401",
+  "approval_command": "uv run --no-project python ../../harness.py approval ./cases/mig-401.json ./state/mig-401",
+  "backup_command": "uv run --no-project python ../../harness.py backup ./cases/mig-401.json ./state/mig-401",
+  "maintenance_window_command": "uv run --no-project python ../../harness.py maintenance_window ./cases/mig-401.json ./state/mig-401",
+  "canary_command": "uv run --no-project python ../../harness.py canary ./cases/mig-401.json ./state/mig-401",
+  "canary_verify_command": "uv run --no-project python ../../harness.py canary_verify ./cases/mig-401.json ./state/mig-401",
+  "apply_command": "uv run --no-project python ../../harness.py apply ./cases/mig-401.json ./state/mig-401",
+  "verify_command": "uv run --no-project python ../../harness.py verify ./cases/mig-401.json ./state/mig-401",
+  "rollback_command": "uv run --no-project python ../../harness.py rollback ./cases/mig-401.json ./state/mig-401",
+  "backup_enabled": true,
+  "rollback_enabled": false
+}
