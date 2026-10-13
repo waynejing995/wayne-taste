@@ -1,6 +1,6 @@
 ---
 name: wayne-work
-description: "Executes an approved Wayne plan unit by unit: validates inputs and scope, establishes requested RED evidence, implements and verifies each unit, checks owned U rows while preserving E rows, proves the full diff, and hands off to wayne-code-review. Use for ‘build this’, ‘implement/execute the plan’, ‘start working’, ‘let's build’, or equivalent Chinese implementation requests with a durable plan."
+description: "Executes an approved Wayne plan unit by unit: validates inputs and scope, establishes requested RED evidence, implements and verifies each unit, simplifies each finished wave with wayne-simplify before auditing it, checks owned U rows while preserving E rows, proves the full diff, and hands off to wayne-code-review. Use for ‘build this’, ‘implement/execute the plan’, ‘start working’, ‘let's build’, or equivalent Chinese implementation requests with a durable plan."
 ---
 
 # Wayne Work
@@ -64,8 +64,10 @@ flowchart TB
     I -->|"yes"| D
     I -->|"no"| J
     J --> K
-    K -->|"no"| M
+    K -->|"no / implementation finding"| M
     M --> C
+    K -->|"no / missing S record"| V["Record violation; reset wave U rows"]
+    V --> S
     K -->|"yes"| L
 ```
 
