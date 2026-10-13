@@ -211,16 +211,19 @@ def audit_commands(workspace: Path, agent: str, request: dict[str, object]) -> l
     Allowed differences: a leading `cd <dir> &&` and a trailing read-only exit-status probe such as `; echo "exit=$?"`.
     """
     allowed = {str(value) for key, value in request.items() if key.endswith("_command")}
+    findings = []
     if AGENTS[agent][0] == "claude":
         if not (workspace / "claude-stream.jsonl").is_file():
             return None
-        commands = [str(c["input"].get("command", "")) for c in tool_calls(workspace) if c.get("name") == "Bash"]
+        calls = tool_calls(workspace)
+        commands = [str(c["input"].get("command", "")) for c in calls if c.get("name") == "Bash"]
+        findings += [f"read the harness source: {c.get('name')} {json.dumps(c['input'])}" for c in calls if c.get("name") in ("Read", "Grep", "Glob") and "harness.py" in json.dumps(c["input"])]
     else:
         trace = workspace / "codex-trace.log"
         if not trace.is_file():
             return None
         commands = [m.group(2) for m in re.finditer(r"""^/bin/bash -lc (['"])(.*)\1 in \S+$""", trace.read_text(encoding="utf-8", errors="replace"), re.MULTILINE)]
-    findings = []
+
     for command in commands:
         if "harness.py" not in (command.strip().splitlines() or [""])[0]:
             continue
