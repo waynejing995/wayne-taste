@@ -129,6 +129,8 @@ const CHATS_CACHE_VERSION = 2;
 /** Below this age the cached chat list is trusted outright; above it, opening
   * the composer triggers one background refresh. */
 const CHATS_REVALIDATE_MS = 5 * 60 * 1000;
+/** Pages a teams_chats search reads per call before handing back a cursor: ~250 chats, a few seconds. */
+const CHATS_SEARCH_PAGES = 10;
 /** Screenshots are heavy in context; a chat can hold many. Newest win. */
 const MAX_IMAGES_PER_READ = 4;
 /**
@@ -750,41 +752,59 @@ export default function (pi: ExtensionAPI) {
 			"List the user's Teams conversations, or find one by name. Call this before teams_send or " +
 			"teams_read and pass the `id` from here as their `chat_id`: an id is unambiguous and skips " +
 			"a name lookup that costs about 2.6 seconds. Without `query` it lists the first page of the " +
-			"list, the most recent chats, and says whether more follow; with `query` it searches the whole " +
-			"list page by page. Names come back with the user themself removed, so a 1:1 chat reads as the " +
+			"list, the most recent chats. With `query` it searches from the most recent chats backwards and " +
+			"stops at the page where something matches (or after a bounded number of pages); when the list was " +
+			"not searched to its end the result says so and gives a `cursor` to keep searching. A match found " +
+			"before the end does not prove no other chat has that name: if it matters, keep searching or ask the " +
+			"user. Names come back with the user themself removed, so a 1:1 chat reads as the " +
 			"other person. If nothing matches, the person may exist without a chat -- try teams_people.",
 		parameters: Type.Object({
 			query: Type.Optional(
-				Type.String({ description: "Case-insensitive substring. Searches the whole chat list; omit it to list the first page." }),
+				Type.String({ description: "Case-insensitive substring, searched from the most recent chats backwards; omit it to list the first page." }),
+			),
+			cursor: Type.Optional(
+				Type.String({ description: "Continue an earlier search from where it stopped: the `cursor` its result gave. Use with the same `query`." }),
 			),
 			refresh: Type.Optional(Type.Boolean({ description: "Refetch instead of using the cached list" })),
 		}),
 		async execute(_id, params, signal) {
-			const first = await getChats(Boolean(params.refresh));
 			const q = (params.query ?? "").trim().toLowerCase();
-			// A query cannot answer "no match" over a partial list, so it reads the list to its end. Without one only the
-			// first page is listed. The read stops early if the tool call is interrupted.
+			if (params.cursor !== undefined) {
+				if (q === "") throw new Error("`cursor` continues a search: give the same `query` with it");
+				// A cursor is a Graph link fetched with the user's token: it must point at Graph and nowhere else.
+				if (!params.cursor.startsWith("https://graph.microsoft.com/")) throw new Error("`cursor` must be one a teams_chats result gave");
+			}
+			const first = params.cursor !== undefined ? await backend.chatsPage(params.cursor) : await getChats(Boolean(params.refresh));
+			const matches = (c: ChatRef) => q === "" || `${c.display ?? ""} ${c.label}`.toLowerCase().includes(q);
+			// Most recent first: a query stops at the first page holding a match, or after a page budget (a few
+			// seconds: Graph gives ~25 chats a page, and a long-lived account has thousands). Without one only the
+			// first page is listed. The walk stops early if the tool call is interrupted.
 			const chats: ChatRef[] = [];
+			let next: string | undefined;
+			let pages = 0;
 			for await (const page of cursorPages(first, (p) => p.next, (c) => backend.chatsPage(c), signal)) {
 				chats.push(...page.chats);
-				if (q === "") break;
+				pages++;
+				next = page.next;
+				if (q === "" || page.chats.some(matches) || pages >= CHATS_SEARCH_PAGES) break;
 			}
 			// A chat can arrive on two pages when the list moves under the walk; it is listed once.
 			const unique = new Map<string, ChatRef>(chats.map((c): [string, ChatRef] => [c.id, c]));
-			const hits = [...unique.values()].filter(
-				(c) => q === "" || `${c.display ?? ""} ${c.label}`.toLowerCase().includes(q),
-			);
+			const hits = [...unique.values()].filter(matches);
+			const where = `${unique.size} most recent chat(s)`;
+			const rest =
+				next === undefined
+					? ""
+					: q === ""
+						? "\nMore chats follow: pass `query` to search them."
+						: `\nSearched the ${where}, not the whole list: more chats follow. ${hits.length > 0 ? "Another chat with this name may exist further back. " : ""}To keep searching, call again with the same query and cursor: ${next}`;
 			if (hits.length === 0) {
-				return {
-					content: [{ type: "text", text: q ? `No chat matches "${params.query}".` : "No chats." }],
-					details: {},
-				};
+				const none = q ? (next === undefined ? `No chat matches "${params.query}".` : `No chat matches "${params.query}" among the ${where}.`) : "No chats.";
+				return { content: [{ type: "text", text: `${none}${rest}` }], details: {} };
 			}
 			const lines = hits.map((c) => `- ${c.display ?? c.label}  [${c.chat_type}]  id: ${c.id}`);
-			// Without a query only the first page is listed; say so when there is more behind it.
-			const more = q === "" && first.next !== undefined ? "\nMore chats follow: pass `query` to search all of them." : "";
 			return {
-				content: [{ type: "text", text: `${hits.length} chat(s)\n${lines.join("\n")}${more}` }],
+				content: [{ type: "text", text: `${hits.length} chat(s)\n${lines.join("\n")}${rest}` }],
 				details: {},
 			};
 		},
