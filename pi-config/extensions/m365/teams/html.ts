@@ -39,6 +39,11 @@ function attr(tag: string, name: string): string {
 	return m ? m[1] : "";
 }
 
+/** Escapes text for element content. Attribute values are never built from it. */
+export function escapeHtml(s: string): string {
+	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 export function htmlToText(html: string): string {
 	if (!html) return "";
 	let s = html;

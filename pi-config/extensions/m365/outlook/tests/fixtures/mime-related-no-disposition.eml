@@ -1,0 +1,21 @@
+From: Alice <alice@example.com>
+To: me@example.com
+Subject: Diagram
+Message-ID: <rel-1@example.com>
+Date: Thu, 15 Oct 2026 08:00:00 +0800
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="REL2"
+
+--REL2
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Diagram: <img src="cid:img2"></p></body></html>
+--REL2
+Content-Type: image/png; name="diagram.png"
+Content-Transfer-Encoding: base64
+Content-ID: <img2>
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6
+kgAAAABJRU5ErkJggg==
+--REL2--

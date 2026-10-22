@@ -1,0 +1,197 @@
+From: self@example.invalid
+To: self@example.invalid
+Subject: [omp outlook e2e] seed report
+Message-ID: <a408e9ca-6478-55b5-2d7a-dce008553e16@example.invalid>
+Date: Fri, 16 Oct 2026 07:09:59 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--_NmP-9b8d07a2c2ab167f-Part_1"
+
+----_NmP-9b8d07a2c2ab167f-Part_1
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+# Trace triage status
+
+> [!SUMMARY]
+> Key points
+> - The close gate is [not=
+ fixed]{.bad}; the open change only raises a log level.
+> - Local validation: [340 / 400 loops passed]{.warn}.
+
+|  |  |
+|---|---|
+| Ticket | EXAMPLE-101, assessed, not closed |
+| Owner | Alex Example =
+[(since Oct 9)]{.muted} |
+| Reproduces | [Yes]{.bad}, intermittent |
+
+## Changes
+
+| # | Change | Status |
+|---|---|---|
+| 1 | Close gate needs =
+fix verification | [Merged to main (Oct 15)]{.ok} |
+| 2 | Drop `trace-done` on merge | [Done]{.ok} |
+| 3 | Extra review policy =
+| [To do]{.muted} |
+| 4 | Windows host for the reproducer | [Blocked]{.bad}=
+ |
+
+Run the local check before merging:
+
+```sh
+uv run pytest tests/ -k =
+close_gate
+```
+
+- Tracking: [example tracker](https://tracker.example.=
+com/browse/EXAMPLE-101)
+- The owner handoff is waiting on review.
+
+This paragraph is deliberately long enough that it has to wrap when it is =
+laid out at sixty columns, so a wrapping bug in the renderer or in the =
+terminal shows up in this fixture first.
+
+=E4=B8=AD=E6=96=87=E6=B5=8B=
+=E8=AF=95
+
+----_NmP-9b8d07a2c2ab167f-Part_1
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<html><head><meta charset=3D"utf-8"></head><body><p =
+style=3D"font-family:'Segoe UI',Calibri,Arial,sans-serif;font-size:16px;col=
+or:rgb(31,35,40);margin:16px 0 6px 0"><b style=3D"font-weight:bold">Trace =
+triage status</b></p>
+<table style=3D"width:100%;border-collapse:collapse;m=
+argin:0 0 10px 0"><tbody style=3D"vertical-align:top"><tr =
+style=3D"vertical-align:top"><td style=3D"border-left:4px solid rgb(208,215=
+,222);background-color:rgb(246,248,250);padding:10px =
+14px;font-family:'Segoe UI',Calibri,Arial,sans-serif;font-size:14px;color:r=
+gb(31,35,40)"><p style=3D"font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40);margin:0 0 10px 0">Key =
+points</p>
+<ul style=3D"font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40);margin:0 0 10px =
+0;padding-left:24px"><li style=3D"font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40);margin:0 0 4px 0">The close =
+gate is <span style=3D"color:rgb(207,34,46);font-weight:bold">not =
+fixed</span>; the open change only raises a log level.</li>
+<li style=3D"font-family:'Segoe UI',Calibri,Arial,sans-serif;font-size:14px=
+;color:rgb(31,35,40);margin:0 0 4px 0">Local validation: <span =
+style=3D"color:rgb(154,103,0);font-weight:bold">340 / 400 loops =
+passed</span>.</li>
+</ul>
+</td></tr></tbody></table>
+<table style=3D"border-collapse:collapse;margin:0 0 10px 0"><tbody =
+style=3D"vertical-align:top"><tr style=3D"vertical-align:top"><td =
+style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40);background-color:rgb(246,248,=
+250);font-weight:bold;white-space:nowrap">Ticket</td><td =
+style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)">EXAMPLE-101, assessed, not =
+closed</td></tr><tr style=3D"vertical-align:top"><td style=3D"border:1px =
+solid rgb(208,215,222);padding:6px 10px;vertical-align:top;font-family:'Seg=
+oe UI',Calibri,Arial,sans-serif;font-size:14px;color:rgb(31,35,=
+40);background-color:rgb(246,248,250);font-weight:bold;white-space:nowrap">=
+Owner</td><td style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)">Alex Example <span =
+style=3D"color:rgb(87,96,106)">(since Oct 9)</span></td></tr><tr =
+style=3D"vertical-align:top"><td style=3D"border:1px solid rgb(208,215,=
+222);padding:6px 10px;vertical-align:top;font-family:'Segoe UI',Calibri,=
+Arial,sans-serif;font-size:14px;color:rgb(31,35,40);background-color:rgb(24=
+6,248,250);font-weight:bold;white-space:nowrap">Reproduces</td><td =
+style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)"><span style=3D"color:rgb(207=
+,34,46);font-weight:bold">Yes</span>, intermittent</td></tr></tbody></table=
+>
+<p style=3D"font-family:'Segoe UI',Calibri,Arial,sans-serif;font-size:16p=
+x;color:rgb(31,35,40);margin:16px 0 6px 0"><b style=3D"font-weight:bold">Ch=
+anges</b></p>
+<table style=3D"border-collapse:collapse;margin:0 0 10px =
+0"><thead style=3D"vertical-align:top"><tr style=3D"vertical-align:top"><th=
+ style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40);background-color:rgb(246,248,=
+250);font-weight:bold">#</th><th style=3D"border:1px solid rgb(208,215,=
+222);padding:6px 10px;vertical-align:top;font-family:'Segoe UI',Calibri,=
+Arial,sans-serif;font-size:14px;color:rgb(31,35,40);background-color:rgb(24=
+6,248,250);font-weight:bold">Change</th><th style=3D"border:1px solid =
+rgb(208,215,222);padding:6px 10px;vertical-align:top;font-family:'Segoe UI'=
+,Calibri,Arial,sans-serif;font-size:14px;color:rgb(31,35,=
+40);background-color:rgb(246,248,250);font-weight:bold">Status</th></tr></t=
+head><tbody style=3D"vertical-align:top"><tr style=3D"vertical-align:top"><=
+td style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)">1</td><td =
+style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)">Close gate needs fix =
+verification</td><td style=3D"border:1px solid rgb(208,215,222);padding:6px=
+ 10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)"><span style=3D"color:rgb(26,=
+127,55);font-weight:bold">Merged to main (Oct 15)</span></td></tr><tr =
+style=3D"vertical-align:top"><td style=3D"border:1px solid rgb(208,215,=
+222);padding:6px 10px;vertical-align:top;font-family:'Segoe UI',Calibri,=
+Arial,sans-serif;font-size:14px;color:rgb(31,35,40)">2</td><td =
+style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)">Drop <code =
+style=3D"font-family:Consolas,monospace;font-size:13px;background-color:rgb=
+(246,248,250);padding:1px 4px">trace-done</code> on merge</td><td =
+style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)"><span style=3D"color:rgb(26,=
+127,55);font-weight:bold">Done</span></td></tr><tr style=3D"vertical-align:=
+top"><td style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)">3</td><td =
+style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)">Extra review policy</td><td =
+style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)"><span style=3D"color:rgb(87,=
+96,106)">To do</span></td></tr><tr style=3D"vertical-align:top"><td =
+style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)">4</td><td =
+style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)">Windows host for the =
+reproducer</td><td style=3D"border:1px solid rgb(208,215,222);padding:6px =
+10px;vertical-align:top;font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40)"><span style=3D"color:rgb(207=
+,34,46);font-weight:bold">Blocked</span></td></tr></tbody></table>
+<p style=3D"font-family:'Segoe UI',Calibri,Arial,sans-serif;font-size:14px;=
+color:rgb(31,35,40);margin:0 0 10px 0">Run the local check before =
+merging:</p>
+<pre style=3D"font-family:Consolas,monospace;font-size:13px;ba=
+ckground-color:rgb(246,248,250);color:rgb(31,35,40);margin:0 0 10px =
+0;padding:10px 12px;white-space:pre-wrap">uv run pytest tests/ -k =
+close_gate</pre>
+<ul style=3D"font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40);margin:0 0 10px =
+0;padding-left:24px"><li style=3D"font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40);margin:0 0 4px 0">Tracking: =
+<a href=3D"https://tracker.example.com/browse/EXAMPLE-101" =
+style=3D"color:rgb(11,92,173)">example tracker</a></li>
+<li style=3D"font-family:'Segoe UI',Calibri,Arial,sans-serif;font-size:14px=
+;color:rgb(31,35,40);margin:0 0 4px 0">The owner handoff is waiting on =
+review.</li>
+</ul>
+<p style=3D"font-family:'Segoe UI',Calibri,Arial,=
+sans-serif;font-size:14px;color:rgb(31,35,40);margin:0 0 10px 0">This =
+paragraph is deliberately long enough that it has to wrap when it is laid =
+out at sixty columns, so a wrapping bug in the renderer or in the terminal =
+shows up in this fixture first.</p>
+<p style=3D"font-family:'Segoe UI',=
+Calibri,Arial,sans-serif;font-size:14px;color:rgb(31,35,40);margin:0 0 10px=
+ 0">=E4=B8=AD=E6=96=87=E6=B5=8B=E8=AF=95</p>
+</body></html>
+----_NmP-9b8d07a2c2ab167f-Part_1--

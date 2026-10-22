@@ -55,9 +55,14 @@ export function loadCache(): string | null {
 export function saveCache(serialized: string): void {
 	const p = cachePath();
 	fs.mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 });
-	fs.writeFileSync(p, serialized, { mode: 0o600 });
-	// writeFileSync only applies the mode when it creates the file; an existing
-	// one keeps whatever it had, which after a manual edit could be 0644.
+	// Write beside the target, then rename over it. Every omp or pi session loads
+	// this extension and rewrites the file on each token refresh; a reader in
+	// another process must see the old file or the new one, never a truncated one.
+	const tmp = `${p}.${process.pid}.tmp`;
+	fs.writeFileSync(tmp, serialized, { mode: 0o600 });
+	fs.renameSync(tmp, p);
+	// writeFileSync applies the mode only when it creates the file, and a tmp
+	// left by a crashed process with the same pid would already exist.
 	fs.chmodSync(p, 0o600);
 }
 

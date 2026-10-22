@@ -15,12 +15,16 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { Backend, ChatAddr, DownloadedFile, SelfMessage, UnreadItem, UnreadPayload } from "./backend.ts";
-import type { ChatRef, HistoryMessage, Person, SendTarget } from "./compose-overlay.ts";
-import { GraphError, type GraphClient } from "./graph.ts";
-import { tokenClaim } from "./auth.ts";
-import { htmlToText } from "./html.ts";
+import { tokenClaim } from "../core/auth.ts";
+import { GraphError, type GraphClient } from "../core/graph.ts";
+import { colleagueId, type Person, searchPeople } from "../core/people.ts";
+import { type DownloadedFile, downloadShared } from "../core/shares.ts";
+import type { Backend, ChatAddr, ChatHistoryPage, SelfHistoryPage, SelfMessage, UnreadItem, UnreadPayload } from "./backend.ts";
+import { HISTORY_MESSAGES, type ChatRef, type ChatsPage, type HistoryMessage, type SendTarget } from "./compose-overlay.ts";
+import { escapeHtml, htmlToText } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
+import { fillMentions, type Mention, type ResolvedMention } from "./mentions.ts";
+import { cursorPages } from "./paging.ts";
 import type { SkypeClient } from "./skype.ts";
 
 /** Raw shapes, only the fields used here. */
@@ -37,10 +41,24 @@ interface RawPreview {
 	from?: { user?: { displayName?: string } };
 	body?: { contentType?: string; content?: string };
 }
-interface RawPerson {
-	displayName?: string;
-	jobTitle?: string | null;
-	scoredEmailAddresses?: { address?: string }[];
+
+/**
+ * The directory id behind each mention: one lookup per distinct address (core/people.ts).
+ * An address that is not a colleague refuses the whole message.
+ */
+export async function resolveMentions(graph: GraphClient, mentions: readonly Mention[]): Promise<ResolvedMention[]> {
+	const oids = new Map<string, string>();
+	const out: ResolvedMention[] = [];
+	for (const m of mentions) {
+		const key = m.email.toLowerCase();
+		let oid = oids.get(key);
+		if (oid === undefined) {
+			oid = await colleagueId(graph, m.email);
+			oids.set(key, oid);
+		}
+		out.push({ ...m, oid });
+	}
+	return out;
 }
 
 interface RawMessage {
@@ -62,6 +80,26 @@ interface RawChat {
 	lastMessagePreview?: RawPreview | null;
 }
 
+/** A chat list page holds this many chats: Graph's cap for chats. */
+const CHAT_PAGE = 50;
+/** A walk over a conversation's messages asks for pages this size. */
+const MESSAGE_PAGE = 50;
+/** The first chat page orders by activity. Some tenants refuse that ordering, and get the plain query instead. */
+const CHATS_ORDERED = `/me/chats?$top=${CHAT_PAGE}&$expand=members,lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc`;
+const CHATS_PLAIN = `/me/chats?$top=${CHAT_PAGE}&$expand=members,lastMessagePreview`;
+
+/** One page of `/me/chats`. */
+interface ChatsResponse {
+	value?: RawChat[];
+	"@odata.nextLink"?: string;
+}
+
+/** One page of `/chats/{id}/messages`, newest first. */
+interface MessagesResponse {
+	value?: RawMessage[];
+	"@odata.nextLink"?: string;
+}
+
 /** Human-friendly name: topic, else every member's display name. */
 export function chatLabel(chat: RawChat): string {
 	if (chat.topic) return chat.topic;
@@ -79,8 +117,39 @@ export function peerLabel(chat: RawChat, myName: string): string {
 	if (chat.chatType !== "oneOnOne" || !myName) return chatLabel(chat);
 	const names = (chat.members ?? [])
 		.map((m) => m.displayName)
-		.filter((n): n is string => Boolean(n) && n.toLowerCase() !== myName.toLowerCase());
+		.filter((n): n is string => !!n && n.toLowerCase() !== myName.toLowerCase());
 	return names.length > 0 ? names.join(", ") : chatLabel(chat);
+}
+
+/**
+ * The last message as one line for the chat list: "" for a deleted message, a system event, or nothing but whitespace.
+ * In a group the preview names its sender, so the list says who spoke; in a one-to-one the row already names them.
+ */
+export function previewText(p: RawPreview | null | undefined, myName: string, chatType: string): string {
+	if (!p || p.isDeleted || p.eventDetail || (p.messageType ?? "message") !== "message") return "";
+	const body = p.body ?? {};
+	const raw = body.contentType === "html" ? htmlToText(body.content ?? "") : (body.content ?? "").trim();
+	const flat = raw.replace(/\s+/g, " ").trim();
+	if (!flat) return "";
+	const who = p.from?.user?.displayName ?? "";
+	const mine = myName !== "" && who.toLowerCase().includes(myName.toLowerCase());
+	const prefix = mine ? "me: " : who !== "" && chatType !== "oneOnOne" ? `${who}: ` : "";
+	return `${prefix}${flat}`.slice(0, 200);
+}
+
+/** A chat as the picker and the tools see it. */
+export function chatRef(c: RawChat, myName: string): ChatRef {
+	const last = c.lastMessagePreview;
+	return {
+		id: c.id,
+		label: chatLabel(c),
+		display: peerLabel(c, myName),
+		chat_type: c.chatType ?? "",
+		// Emails let a picker match a searched person to an existing chat by identity instead of by display-name string.
+		emails: [...new Set((c.members ?? []).map((m) => (m.email ?? "").toLowerCase()).filter(Boolean))].sort(),
+		preview: previewText(last, myName, c.chatType ?? ""),
+		...(last?.createdDateTime ? { last_at: last.createdDateTime } : {}),
+	};
 }
 
 /** Order-independent identities for a chat: Graph does not guarantee member
@@ -204,25 +273,6 @@ export function mentionsMe(m: RawMessage, myName: string): boolean {
 	return false;
 }
 
-/**
- * Graph's encoding for "a file, addressed by the URL a human was given".
- *
- * A Teams file attachment is a `reference` to the sender's OneDrive, and the
- * contentUrl is a web address, not an API path. /shares/{id} is the way in, and
- * the id is `u!` + unpadded base64url. Getting the padding wrong returns a 400
- * that says nothing about encoding.
- */
-export function shareId(url: string): string {
-	return `u!${Buffer.from(url).toString("base64url").replace(/=+$/, "")}`;
-}
-
-/** A remote name must never decide where on disk we write. */
-function safeName(name: string): string {
-	const base = name.split(/[\\/]/).pop() ?? "";
-	const cleaned = base.replace(/^\.+/, "").trim();
-	return cleaned || "teams-file";
-}
-
 function cacheDir(): string {
 	return path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "pi");
 }
@@ -241,7 +291,7 @@ interface CachedScan extends UnreadPayload {
 export class GraphBackend implements Backend {
 	constructor(
 		private readonly graph: GraphClient,
-		private readonly opts: { whoami: () => Promise<string>; maxChats?: number; skype?: SkypeClient },
+		private readonly opts: { whoami: () => Promise<string>; skype?: SkypeClient },
 	) {}
 
 	/**
@@ -366,69 +416,56 @@ export class GraphBackend implements Backend {
 		return out;
 	}
 
-	// ── Not yet ported (U5/U6/U6b) ─────────────────────────────────────────
+	// ── Chats and conversations ─────────────────────────────────────────────
 
 	/**
-	 * The chat list for the picker.
+	 * One page of the chat list, for the picker and the tools.
 	 *
-	 * `$orderby` on lastMessagePreview is refused by some tenants, so one
-	 * refusal falls back to the plain query -- but only one, and only after the
-	 * ordered attempt actually failed. A blanket retry would launder a 401 into
-	 * an empty picker.
+	 * No cursor asks for the first page, ordered by activity where the tenant allows it. `$orderby` on
+	 * lastMessagePreview is refused by some tenants, so one refusal falls back to the plain query -- but only here, on
+	 * the first page, and only after the ordered attempt actually failed. A blanket retry would launder a 401 into an
+	 * empty list. A cursor is the nextLink Graph gave for the page after, followed as given.
 	 */
-	async chats(maxChats: number): Promise<ChatRef[]> {
-		const ORDERED = "/me/chats?$top=50&$expand=members&$orderby=lastMessagePreview/createdDateTime desc";
-		const PLAIN = "/me/chats?$top=50&$expand=members";
-		let raw: RawChat[];
-		try {
-			raw = await this.graph.getAll<RawChat>(ORDERED, { max: maxChats });
-		} catch (e) {
-			if (!(e instanceof GraphError)) throw e;
-			raw = await this.graph.getAll<RawChat>(PLAIN, { max: maxChats });
+	async chatsPage(cursor?: string): Promise<ChatsPage> {
+		let page: ChatsResponse;
+		if (cursor !== undefined) {
+			page = await this.graph.get<ChatsResponse>(cursor);
+		} else {
+			try {
+				page = await this.graph.get<ChatsResponse>(CHATS_ORDERED);
+			} catch (e) {
+				if (!(e instanceof GraphError)) throw e;
+				page = await this.graph.get<ChatsResponse>(CHATS_PLAIN);
+			}
 		}
 		const me = await this.myName();
-		return raw.slice(0, maxChats).map((c) => ({
-			id: c.id,
-			label: chatLabel(c),
-			display: peerLabel(c, me),
-			chat_type: c.chatType ?? "",
-			// Emails let a picker match a searched person to an existing chat by
-			// identity instead of by display-name string.
-			emails: [...new Set((c.members ?? []).map((m) => (m.email ?? "").toLowerCase()).filter(Boolean))].sort(),
-		}));
+		return { chats: (page.value ?? []).map((c) => chatRef(c, me)), next: page["@odata.nextLink"] };
 	}
-	/**
-	 * One chat's recent history, oldest-first.
-	 *
-	 * Graph returns newest-first and caps a page at 50, so `top` is a message
-	 * count walked across pages -- not a page size. A client that reads one page
-	 * silently truncates, which is indistinguishable from a quiet chat.
-	 */
-	async messages(addr: ChatAddr, top: number): Promise<{ messages: HistoryMessage[]; me?: string; chat?: string | null; display?: string | null }> {
-		let chatId = addr.id ?? "";
-		let label: string | null = null;
-		let display: string | null = null;
-		if (!chatId) {
-			// Resolving a name costs a full chat-list fetch (~2.6s), which is why
-			// the id path above skips it.
-			const found = findChat(await this.chats(this.opts.maxChats ?? 50), addr.name ?? "");
-			chatId = found.id;
-			label = found.label;
-			display = found.display ?? null;
-		}
 
-		const raw = await this.graph.getAll<RawMessage>(`/chats/${chatId}/messages?$top=50`, { max: top });
-		const myName = await this.myName();
+	/**
+	 * Every chat, page after page. Name resolution and sending by name need the whole list: a chat past the first page
+	 * must still be reachable by its name, so the walk reads on until the server names no next page.
+	 */
+	async allChats(): Promise<ChatRef[]> {
+		const out: ChatRef[] = [];
+		const first = await this.chatsPage();
+		for await (const page of cursorPages(first, (p) => p.next, (c) => this.chatsPage(c))) out.push(...page.chats);
+		return out;
+	}
+
+	/** The conversation an address names: the id as given, or the one a name resolves to. A name costs the whole chat list. */
+	private async resolveChat(addr: ChatAddr): Promise<{ id: string; label: string | null; display: string | null }> {
+		if (addr.id) return { id: addr.id, label: null, display: null };
+		const found = findChat(await this.allChats(), addr.name ?? "");
+		return { id: found.id, label: found.label, display: found.display ?? null };
+	}
+
+	/** Graph messages as the panes show them: system events dropped, oldest first. */
+	private project(raw: RawMessage[], myName: string): HistoryMessage[] {
 		const me = myName.toLowerCase();
-		// Cap FIRST, then drop system events -- not the other way round. The
-		// Python takes filtered[:top] of the RAW newest-first list and only then
-		// removes joins and renames, so a chat full of events returns fewer than
-		// `top` rows. Filtering first quietly reaches further back in history:
-		// live parity measured 93 rows against the Python path's 70.
-		const out = raw
-			.slice(0, top)
+		return raw
 			.filter((m) => !isEmptyEvent(m))
-			.map((m) => {
+			.map((m): HistoryMessage => {
 				const sender = msgSender(m);
 				const body = m.body ?? {};
 				const files = msgFiles(m);
@@ -441,38 +478,66 @@ export class GraphBackend implements Backend {
 					md: body.contentType === "html" ? htmlToMarkdown(body.content ?? "", m.attachments ?? []) : msgText(m),
 					mentions_me: mentionsMe(m, me),
 					images: msgImages(m),
-					// Absent rather than empty when there are none: every consumer
-					// then only has to check one thing.
+					// Absent rather than empty when there are none: every consumer then only has to check one thing.
 					...(files.length > 0 ? { files } : {}),
 				};
 			})
 			.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
-
-		return { messages: out, me: myName, chat: label, display };
 	}
+
+	/**
+	 * Up to `top` of a chat's newest messages, oldest first: teams_read's count.
+	 *
+	 * Graph returns newest-first and caps a page, so `top` is a message count walked across pages -- not a page size.
+	 * A client that reads one page silently truncates, which is indistinguishable from a quiet chat. The cap comes
+	 * FIRST and system events are dropped after, as the Python does.
+	 */
+	async messages(addr: ChatAddr, top: number): Promise<{ messages: HistoryMessage[]; me?: string; chat?: string | null; display?: string | null }> {
+		const chat = await this.resolveChat(addr);
+		const raw = await this.graph.getAll<RawMessage>(`/chats/${chat.id}/messages?$top=${MESSAGE_PAGE}`, { max: top });
+		const myName = await this.myName();
+		return { messages: this.project(raw.slice(0, top), myName), me: myName, chat: chat.label, display: chat.display };
+	}
+
+	/** One page of a conversation's messages as Graph gives them: the raw messages, and the link to the page before. */
+	private async messagesPage(url: string): Promise<{ raw: RawMessage[]; older?: string }> {
+		const page = await this.graph.get<MessagesResponse>(url);
+		return { raw: page.value ?? [], older: page["@odata.nextLink"] };
+	}
+
+	/**
+	 * One page of a conversation for the pane: the newest with no cursor, the page before `cursor` otherwise. The cursor
+	 * is Graph's own nextLink. A page of events alone is passed over, and the walk reads on through as many of them as
+	 * there are, so a page is never blank while older messages exist.
+	 */
+	async historyPage(addr: ChatAddr, cursor?: string): Promise<ChatHistoryPage> {
+		const myName = await this.myName();
+		const start = cursor ?? `/chats/${(await this.resolveChat(addr)).id}/messages?$top=${HISTORY_MESSAGES}`;
+		let messages: HistoryMessage[] = [];
+		let older: string | undefined;
+		for await (const page of cursorPages(await this.messagesPage(start), (p) => p.older, (c) => this.messagesPage(c))) {
+			messages = this.project(page.raw, myName);
+			older = page.older;
+			if (messages.length > 0) break;
+		}
+		return { messages, me: myName, older };
+	}
+
 	/** 48:notes is chatsvc, not Graph. See skype.ts. */
 	selfMessages(sinceId: string, top: number): Promise<SelfMessage[]> {
 		return this.requireSkype().selfMessages(sinceId, top);
+	}
+
+	/** One page of the self-chat for the pane: the newest, then the page before `cursor`. See SkypeClient.selfPage. */
+	selfHistoryPage(cursor?: string): Promise<SelfHistoryPage> {
+		return this.requireSkype().selfPage(cursor, HISTORY_MESSAGES);
 	}
 	/** hostedContents needs the bearer, so it cannot be a plain <img src>. */
 	async image(url: string): Promise<Buffer> {
 		return this.graph.getBytes(url);
 	}
-	/**
-	 * People I actually interact with, ranked by Graph.
-	 *
-	 * /me/people rather than /users: the tenant throttles directory queries hard
-	 * (observed HTTP 429 on both $search and $filter), and the relevance graph is
-	 * the better answer for "who do I want to message" anyway.
-	 */
 	async people(query: string): Promise<Person[]> {
-		const data = await this.graph.get<{ value?: RawPerson[] }>(`/me/people?$search=${encodeURIComponent(query)}&$top=10`);
-		return (data.value ?? [])
-			.map((p) => {
-				const emails = (p.scoredEmailAddresses ?? []).map((e) => e.address ?? "").filter(Boolean);
-				return { name: p.displayName ?? "", email: emails[0]?.toLowerCase() ?? "", title: p.jobTitle ?? "" };
-			})
-			.filter((p) => p.name);
+		return searchPeople(this.graph, query);
 	}
 
 	/**
@@ -488,48 +553,40 @@ export class GraphBackend implements Backend {
 		await this.graph.post(`/chats/${chatId}/markChatReadForUser`, { user: { id: oid, tenantId: tid } });
 	}
 
-	/**
-	 * Fetch a shared file to disk.
-	 *
-	 * Metadata first, for two reasons: the real filename lives there rather than
-	 * in the URL, and the size lets an absurd download be refused before it
-	 * starts rather than after it has filled a disk.
-	 */
+	/** Fetch a shared file to disk; see downloadShared. */
 	async downloadFile(url: string, toPath?: string, opts: { maxBytes?: number } = {}): Promise<DownloadedFile> {
-		const maxBytes = opts.maxBytes ?? 256 * 1024 * 1024;
-		const item = await this.graph.get<{ name?: string; size?: number; file?: { mimeType?: string } }>(
-			`/shares/${shareId(url)}/driveItem`,
-		);
-		const name = safeName(item.name ?? "teams-file");
-		const size = item.size ?? 0;
-		if (size > maxBytes)
-			throw new Error(`${name} is too large: ${size} bytes, limit ${maxBytes}. Pass a bigger maxBytes if you mean it.`);
-
-		const bytes = await this.graph.getBytes(`/shares/${shareId(url)}/driveItem/content`);
-		// A half-written log that looks complete is worse than an error: it gets
-		// read, and the missing half is never noticed.
-		if (size > 0 && bytes.length !== size)
-			throw new Error(`${name} came back truncated: got ${bytes.length} bytes, Graph said ${size}`);
-
-		const target = toPath ?? path.join(fs.mkdtempSync(path.join(os.tmpdir(), "teams-file-")), name);
-		fs.mkdirSync(path.dirname(target), { recursive: true });
-		fs.writeFileSync(target, bytes);
-		return { name: item.name ?? name, size: bytes.length, path: target, mimeType: item.file?.mimeType };
+		return downloadShared(this.graph, url, toPath, opts);
 	}
 
-	async send(target: SendTarget, message: string, html: boolean): Promise<void> {
-		// Carried, not guessed: posting RichText/Html unconditionally once made
-		// plain text containing "<" disappear as markup.
-		const body = { body: { contentType: html ? "html" : "text", content: message } };
+	async send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = []): Promise<void> {
+		if (mentions.length > 0 && !html) throw new Error("an @mention can only be sent as html");
+		// Resolved before anything is posted: one address the directory does not
+		// know refuses the whole message.
+		const resolved = await resolveMentions(this.graph, mentions);
 
 		if (target.kind === "self") {
-			// 48:notes is chatsvc with a Skype token, not Graph.
-			await this.requireSkype().send(message, html);
+			// 48:notes is chatsvc with a Skype token, not Graph. Its mention markup
+			// is chatsvc's own, so the resolved list goes to skype.ts unchanged.
+			await this.requireSkype().send(message, html, resolved);
 			return;
 		}
 
+		// Carried, not guessed: posting RichText/Html unconditionally once made
+		// plain text containing "<" disappear as markup.
+		const content = fillMentions(message, resolved, (m, i) => `<at id="${i}">${escapeHtml(m.name)}</at>`);
+		const graphMentions = resolved.map((m, i) => ({
+			id: i,
+			mentionText: m.name,
+			mentioned: { user: { id: m.oid, displayName: m.name, userIdentityType: "aadUser" } },
+		}));
+		// Only present when someone is mentioned: a plain message's body is unchanged.
+		const body = {
+			body: { contentType: html ? "html" : "text", content },
+			...(graphMentions.length > 0 ? { mentions: graphMentions } : {}),
+		};
+
 		if (target.kind === "chat") {
-			const id = target.id || findChat(await this.chats(this.opts.maxChats ?? 50), target.chat).id;
+			const id = target.id || findChat(await this.allChats(), target.chat).id;
 			await this.graph.post(`/chats/${id}/messages`, body);
 			return;
 		}

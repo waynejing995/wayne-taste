@@ -39,6 +39,8 @@ pi's own _config_ (global rules, settings.json, statusline, saved workflows) has
 
 omp's own config (global rules, task agents such as the three wayne-code-review agents `review-voice-1`, `review-voice-2`, `review-design-conformance`) is owned the same way by `omp-config/sync.sh`, delegated from `sync.sh` as stage 3. Edits to an agent file are live on omp's next agent discovery; adding or renaming one needs a sync. omp extensions (`omp-config/extensions/<n>.ts`, e.g. `subdir-context.ts`, which injects subdirectory AGENTS.md/CLAUDE.md on first read/write) are linked the same way; an edit needs an omp restart, adding one needs a sync. `~/.omp/agent/config.yml` is not synced — it is machine/secret-specific, and it owns the `review` model role that `review-voice-2` binds via `model: "@review"`.
 
+omp plugins are installed by the same script: `omp-config/sync.sh` runs `npm install` for `pi-config/extensions/m365` (Teams and Outlook in one package) when its `node_modules` is absent, links it to `~/.omp/plugins/node_modules/pi-ext-m365`, and merges an enabled entry for it into `~/.omp/plugins/omp-plugins.lock.json`. The retired `pi-ext-teams` and `pi-ext-outlook` links and lock entries are removed when they are still there.
+
 ## Daily rule
 
 | You did this | Action needed |
@@ -65,16 +67,17 @@ Two things are deliberately not in git, via each extension's own `.gitignore`:
   names, addresses and conversation text. It stays on the machine it was written
   on; a clone gets a clean extension.
 
-`sync.sh` only ever ADDS links. Machine-local extensions (herdr, orca) are left
-untouched.
+`sync.sh` adds links, and removes only links into `pi-config/extensions/` whose
+target is gone (a renamed or merged extension). Machine-local extensions (herdr,
+orca) are left untouched.
 
 **Symlinks split module identity.** A test that imports
 `~/.pi/agent/extensions/<n>/foo.ts` gets a different module object from the one
 the extension itself loads via `./foo.ts`, because the loader caches by resolved
 path. `instanceof` then fails across the two, and a stubbed function is a stub
 nobody calls — the observed symptom was a test suite that hung on a real device-
-code login. Resolve the real path first; `tests/ext-path.mjs` in the Teams
-extension is the pattern.
+code login. Resolve the real path first; `m365/teams/tests/ext-path.mjs` is the
+pattern.
 
 ## sync.sh
 

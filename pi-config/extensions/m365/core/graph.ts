@@ -86,9 +86,13 @@ export class GraphClient {
 		throw new GraphError(`Graph ${status} on ${url}: ${code}${detail ? ` — ${detail}` : ""}`, status, text);
 	}
 
-	async get<T = Record<string, unknown>>(pathOrUrl: string): Promise<T> {
+	/** Extra headers are merged over the bearer and Accept defaults. */
+	async get<T = Record<string, unknown>>(
+		pathOrUrl: string,
+		opts: { headers?: Record<string, string> } = {},
+	): Promise<T> {
 		const url = this.url(pathOrUrl);
-		const r = await this.doFetch(url, { headers: await this.headers() });
+		const r = await this.doFetch(url, { headers: await this.headers(opts.headers) });
 		const text = await r.text();
 		if (r.status < 200 || r.status >= 300) this.fail(r.status, text, url);
 		return this.parse(text, r.status) as T;
@@ -118,12 +122,21 @@ export class GraphClient {
 	}
 
 	async post<T = Record<string, unknown>>(pathOrUrl: string, payload: unknown): Promise<T> {
+		return this.send("POST", pathOrUrl, JSON.stringify(payload), "application/json");
+	}
+
+	async patch<T = Record<string, unknown>>(pathOrUrl: string, payload: unknown): Promise<T> {
+		return this.send("PATCH", pathOrUrl, JSON.stringify(payload), "application/json");
+	}
+
+	/** Raw string body, sent as-is under contentType: base64 MIME for the mail endpoints. */
+	async postText<T = Record<string, unknown>>(pathOrUrl: string, body: string, contentType: string): Promise<T> {
+		return this.send("POST", pathOrUrl, body, contentType);
+	}
+
+	private async send<T>(method: string, pathOrUrl: string, body: string, contentType: string): Promise<T> {
 		const url = this.url(pathOrUrl);
-		const r = await this.doFetch(url, {
-			method: "POST",
-			headers: await this.headers({ "Content-Type": "application/json" }),
-			body: JSON.stringify(payload),
-		});
+		const r = await this.doFetch(url, { method, headers: await this.headers({ "Content-Type": contentType }), body });
 		const text = await r.text();
 		if (r.status < 200 || r.status >= 300) this.fail(r.status, text, url);
 		return this.parse(text, r.status) as T;
