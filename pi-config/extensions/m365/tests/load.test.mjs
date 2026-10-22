@@ -5,7 +5,7 @@
 import { realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createJiti } from "/root/.nvm/versions/node/v22.22.1/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/jiti/lib/jiti.mjs";
+import { createJiti, PI } from "./host.mjs";
 
 // Resolved: importing through a symlink gives a second copy of every module (see teams/tests/ext-path.mjs).
 const ROOT = realpathSync(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -15,7 +15,7 @@ globalThis.fetch = async (url) => {
 	throw new Error(`a test reached the network: ${url}`);
 };
 
-const D = "/root/.nvm/versions/node/v22.22.1/lib/node_modules/@earendil-works/pi-coding-agent";
+const D = PI;
 const jiti = createJiti(import.meta.url, {
 	alias: {
 		"@earendil-works/pi-coding-agent": `${D}/dist/index.js`,
