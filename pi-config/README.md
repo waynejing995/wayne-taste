@@ -9,7 +9,7 @@ Single source of truth for Wayne's pi coding-agent config, shipped the same way 
 | `settings.json` | **reference** suggested package list, theme, defaults | `~/.pi/agent/settings.json` — copied only if absent, never overwritten |
 | `pi-statusline.json` | statusline layout/palette | `~/.pi/agent/pi-statusline.json` |
 | `workflows/saved/wayne-code-review-flow.json` | dual model-family review workflow (portable) | `~/.pi/workflows/saved/` |
-| `extensions/` | Teams integration and the mind-explode decision DAG panel/tools | `~/.pi/agent/extensions/<name>` |
+| `extensions/` | Teams and Outlook (`m365`) integration and the mind-explode decision DAG panel/tools | `~/.pi/agent/extensions/<name>` |
 | `../CLAUDE.md` | global rules (shared SoT, not a file of this dir) | `~/.pi/agent/AGENTS.md` |
 | `internal-models-setup.md` | **guide** to wire the AMD internal model provider | — (manual, secret-specific) |
 | `sync.sh` | symlink shipped config → `~/.pi/...` (idempotent) | — |
@@ -80,23 +80,22 @@ bash "${WAYNE_SKILLS_DIR}/pi-config/sync.sh"             # convert to symlinks
 
 Either way `pi-config/sync.sh` is the sole owner of what lands in `~/.pi`; the repo-level script delegates to it rather than repeating its link list.
 
-`sync.sh` refuses to clobber a real (non-symlink) file — back up + `rm` the live one first if you want the SoT to take over.
+`sync.sh` refuses to clobber a real (non-symlink) file — back up + `rm` the live one first if you want the SoT to take over. It also removes a link into this directory whose target is gone, such as one left by a retired or merged extension.
 
 ## Extensions
 
-`extensions/teams` — Microsoft Teams in pi: unread in the status bar, a compose
-overlay, and tools for reading, sending, searching people and downloading shared
-files. Talks to Graph directly; `/teams login` signs in with a device code and
-keeps its own token cache under `~/.cache/pi/teams-auth/`.
-
-`sync.sh` links it into `~/.pi/agent/extensions/` and installs its three runtime
-dependencies on first sync. Read `extensions/teams/README.md` before using it —
-in particular the note on which client identity it signs in as.
+`extensions/m365` — Microsoft Teams and Outlook in one package. Teams: unread in the
+status bar, a compose overlay, and tools for reading, sending, searching people and
+downloading shared files; `/teams login` signs in with a device code and keeps its
+token cache under `~/.cache/pi/teams-auth/`. Outlook: a three-pane `/outlook` mail
+view and mail tools, reusing the Teams sign-in. `sync.sh` links it into
+`~/.pi/agent/extensions/m365` and installs its npm dependencies on first sync. Read
+`extensions/m365/README.md` before using it.
 
 `extensions/mind-explode-dag` — a live decision DAG above the input box for
 `wayne-mind-explode` runs, plus the `wayne_resolve_decision` and
 `wayne_upsert_decision_node` write tools. `/dag` or `alt+g` focuses the panel;
-`/dag-run` pins a run. `sync.sh` links it alongside Teams. See
+`/dag-run` pins a run. `sync.sh` links it alongside m365. See
 [the extension README](extensions/mind-explode-dag/README.md) for controls and
 write semantics.
 

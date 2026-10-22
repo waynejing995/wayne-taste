@@ -15,8 +15,8 @@
 #
 # Extensions: only the ones shipped in pi-config/extensions/ are linked. Any
 # other extension in ~/.pi/agent/extensions (herdr, orca, machine-local
-# experiments) is left completely alone -- this script adds links, it never
-# removes what it did not create.
+# experiments) is left completely alone -- this script adds links and prunes dangling
+# links into pi-config/extensions/ (an extension that was retired). It removes nothing else.
 #
 # NOT synced here (intentionally): models.json (machine/secret specific — see
 # internal-models-setup.md), ~/.tmux.conf, and all state (auth.json, trust.json,
@@ -159,6 +159,56 @@ for ext_dir in "${SOT}"/extensions/*/; do
     fi
   fi
 done
+
+# Prints the physical location of a link's immediate target, leaf as written, or returns 1
+# when that cannot be verified. A relative target is relative to the link's own directory.
+# The parent is resolved with cd -P, so ".." and symlinks in it resolve as the kernel
+# resolves them: the target's text proves nothing ("extensions/../../x" is not inside
+# extensions). A missing parent cannot be verified. A missing leaf is fine, because a
+# dangling link's leaf is missing by definition.
+target_location() {  # target_location <link>
+  local link="$1" target parent leaf base
+  target="$(readlink "$link")" || return 1
+  case "$target" in
+    /*) ;;
+    *)
+      base="$(cd -P -- "$(dirname -- "$link")" >/dev/null 2>&1 && pwd -P)" || return 1
+      target="${base}/${target}"
+      ;;
+  esac
+  parent="$(dirname -- "$target")"
+  leaf="$(basename -- "$target")"
+  case "$leaf" in
+    ''|.|..|/) return 1 ;;
+  esac
+  parent="$(cd -P -- "$parent" >/dev/null 2>&1 && pwd -P)" || return 1
+  case "$parent" in
+    /) printf '/%s\n' "$leaf" ;;
+    *) printf '%s/%s\n' "$parent" "$leaf" ;;
+  esac
+}
+
+# Prune: a dangling symlink whose target lies under pi-config/extensions/ (an extension that
+# was retired or merged into another), judged by physical location. A real file or directory,
+# and any link pointing elsewhere, is never touched.
+ext_phys="$(cd -P -- "${SOT}/extensions" >/dev/null 2>&1 && pwd -P)"
+if [ -n "$ext_phys" ]; then
+  for link in "${AGENT}/extensions"/*; do
+    [ -L "$link" ] && [ ! -e "$link" ] || continue
+    loc="$(target_location "$link")" || continue
+    case "$loc" in
+      "${ext_phys}/"*) ;;
+      *) continue ;;
+    esac
+    if [ "$DRY" = "--dry-run" ]; then
+      echo "WOULD PRUNE ${link}"
+    elif rm "$link"; then
+      echo "PRUNE ${link}"
+    else
+      report_issue "could not prune dangling link ${link}"
+    fi
+  done
+fi
 
 echo
 echo "Done with ${ISSUES} pi-config issue(s). All possible syncs were attempted."

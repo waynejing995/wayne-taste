@@ -19,15 +19,19 @@
  * Three surfaces depend on this: teams_send target=self, teams_read
  * target=self, and the /teams remote channel poll.
  */
-import type { SelfMessage } from "./backend.ts";
-import { htmlToText } from "./html.ts";
+import type { SelfHistoryPage, SelfMessage } from "./backend.ts";
+import { escapeHtml, htmlToText } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
+import { fillMentions, type ResolvedMention } from "./mentions.ts";
+import { cursorPages } from "./paging.ts";
 
 export const SKYPE_SCOPES = ["https://api.spaces.skype.com/.default"];
 const SELF_CONVERSATION = "48:notes";
 const AUTHZ_URL = "https://teams.microsoft.com/api/authsvc/v1.0/authz";
 /** Only used when authsvc does not name a region. */
 const DEFAULT_MESSAGING = "https://amer.ng.msg.teams.microsoft.com/v1";
+/** A self-chat walk asks for pages this size; the link chatsvc gives carries the rest. */
+const WALK_PAGE = 50;
 
 type Transport = (
 	url: string,
@@ -84,15 +88,23 @@ export class SkypeClient {
 	}
 
 	/**
-	 * Messages, oldest-first.
+	 * One page of the self-chat as chatsvc sends it: newest first, with the link to the page before it.
 	 *
-	 * `sinceId` is the remote channel's cursor. chatsvc ids are monotonic
-	 * millisecond timestamps, which is what makes them usable as one; ignoring
-	 * it would re-execute a command that already ran.
+	 * The link is `_metadata.backwardLink`. Checked against the live service: it sits on the messaging host, and its
+	 * query carries startTime, syncState, pageSize and view. A page with no messages ends the history, whatever link it
+	 * carries. The link is followed with the skype token, so only on the host that issued it.
 	 */
-	async selfMessages(sinceId: string, top = 20): Promise<SelfMessage[]> {
+	private async fetchPage(pageSize: number, cursor?: string): Promise<{ raw: RawSkypeMessage[]; older?: string }> {
 		const { skypeToken, messaging } = await this.authorize();
-		const url = this.conversationUrl(messaging, `?pageSize=${top}&view=msnp24Equivalent|supportsMessageProperties`);
+		let url: string;
+		if (cursor === undefined) {
+			url = this.conversationUrl(messaging, `?pageSize=${pageSize}&view=msnp24Equivalent|supportsMessageProperties`);
+		} else {
+			if (new URL(cursor).origin !== new URL(messaging).origin) {
+				throw new Error("chatsvc named an older page on another host; refusing to send the token there");
+			}
+			url = cursor;
+		}
 		const r = await this.doFetch(url, {
 			headers: {
 				"X-Skypetoken": skypeToken,
@@ -102,8 +114,13 @@ export class SkypeClient {
 		});
 		const text = await r.text();
 		if (r.status < 200 || r.status >= 300) throw new Error(`chatsvc ${r.status}: ${text.slice(0, 200)}`);
-		const raw = (JSON.parse(text) as { messages?: RawSkypeMessage[] }).messages ?? [];
+		const body = JSON.parse(text) as { messages?: RawSkypeMessage[]; _metadata?: { backwardLink?: string } };
+		const raw = body.messages ?? [];
+		return { raw, older: raw.length > 0 ? body._metadata?.backwardLink || undefined : undefined };
+	}
 
+	/** Messages as the pane shows them: control frames and empties dropped, newer than `sinceId` when given, oldest first. */
+	private project(raw: RawSkypeMessage[], sinceId: string): SelfMessage[] {
 		const out: SelfMessage[] = [];
 		for (const m of raw) {
 			const id = String(m.id ?? "");
@@ -111,14 +128,55 @@ export class SkypeClient {
 			// Typing indicators and other control frames are not messages.
 			if ((m.messagetype ?? "").startsWith("Control/")) continue;
 			const html = m.content ?? "";
-			const text2 = htmlToText(html);
-			if (!text2) continue;
+			const flat = htmlToText(html);
+			if (!flat) continue;
 			// The self-chat used to skip Markdown conversion entirely, so code
 			// blocks I sent myself came back flat while every other chat rendered.
-			out.push({ id, at: m.composetime ?? "", text: text2, md: htmlToMarkdown(html) });
+			out.push({ id, at: m.composetime ?? "", text: flat, md: htmlToMarkdown(html) });
 		}
 		out.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
 		return out;
+	}
+
+	/**
+	 * Messages, oldest first.
+	 *
+	 * With `sinceId` (the remote channel's cursor) this is one page of what is newer. chatsvc ids are monotonic
+	 * millisecond timestamps, which is what makes them usable as one; ignoring it would re-execute a command that
+	 * already ran.
+	 *
+	 * Without one it is the newest `top`: older pages are read until `top` raw messages are in hand, the newest `top`
+	 * kept, and only then are control frames and empties dropped -- the same order the Graph path uses.
+	 */
+	async selfMessages(sinceId: string, top = 20): Promise<SelfMessage[]> {
+		if (sinceId) return this.project((await this.fetchPage(top)).raw, sinceId);
+		const size = Math.min(top, WALK_PAGE);
+		const raw: RawSkypeMessage[] = [];
+		const first = await this.fetchPage(size);
+		for await (const page of cursorPages(first, (p) => p.older, (c) => this.fetchPage(size, c))) {
+			raw.push(...page.raw);
+			if (raw.length >= top) break;
+		}
+		raw.sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0));
+		return this.project(raw.slice(0, top), "");
+	}
+
+	/**
+	 * One page of the self-chat for the pane: the newest with no cursor, the page before `cursor` otherwise.
+	 *
+	 * A page of control frames alone is passed over, and the walk reads on through as many of them as there are, so a
+	 * page never comes back empty while older messages exist.
+	 */
+	async selfPage(cursor: string | undefined, pageSize: number): Promise<SelfHistoryPage> {
+		let messages: SelfMessage[] = [];
+		let older: string | undefined;
+		const first = await this.fetchPage(pageSize, cursor);
+		for await (const page of cursorPages(first, (p) => p.older, (c) => this.fetchPage(pageSize, c))) {
+			messages = this.project(page.raw, "");
+			older = page.older;
+			if (messages.length > 0) break;
+		}
+		return { messages, older };
 	}
 
 	/**
@@ -127,8 +185,33 @@ export class SkypeClient {
 	 * `messagetype` follows the content type. It used to be RichText/Html
 	 * unconditionally, so plain text containing "<" was parsed as markup:
 	 * `Foo<T>` vanished and newlines collapsed.
+	 *
+	 * A mention is chatsvc's own markup: a Mention span in the content, and
+	 * `properties.mentions`, a JSON string that names each person by `8:orgid:<oid>`.
 	 */
-	async send(content: string, html: boolean): Promise<void> {
+	async send(content: string, html: boolean, mentions: readonly ResolvedMention[] = []): Promise<void> {
+		const payload =
+			mentions.length === 0
+				? { content, messagetype: html ? "RichText/Html" : "Text" }
+				: {
+						content: fillMentions(
+							content,
+							mentions,
+							(m, i) => `<span itemtype="http://schema.skype.com/Mention" itemscope itemid="${i}">${escapeHtml(m.name)}</span>`,
+						),
+						messagetype: "RichText/Html",
+						properties: {
+							mentions: JSON.stringify(
+								mentions.map((m, i) => ({
+									"@type": "http://schema.skype.com/Mention",
+									itemid: String(i),
+									mri: `8:orgid:${m.oid}`,
+									mentionType: "person",
+									displayName: m.name,
+								})),
+							),
+						},
+					};
 		const { skypeToken, messaging } = await this.authorize();
 		const r = await this.doFetch(this.conversationUrl(messaging), {
 			method: "POST",
@@ -138,7 +221,7 @@ export class SkypeClient {
 				"Content-Type": "application/json",
 				"User-Agent": "Mozilla/5.0 TeamsPrototype/1.0",
 			},
-			body: JSON.stringify({ content, messagetype: html ? "RichText/Html" : "Text" }),
+			body: JSON.stringify(payload),
 		});
 		if (r.status < 200 || r.status >= 300) throw new Error(`chatsvc send ${r.status}: ${(await r.text()).slice(0, 200)}`);
 	}

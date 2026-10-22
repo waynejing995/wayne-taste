@@ -67,11 +67,11 @@ click per refresh-token lifetime is a bad trade. Nothing here ever reads it.
 | Surface | What it does |
 |---|---|
 | Status bar | `Teams: 3 unread` — chats holding unread activity, polled every 10 min |
-| `teams_send` tool | The agent sends a Teams message when you tell it to. self / chat / channel. **It says what you asked, worded naturally, at the size you asked for** — rephrasing is fine; padding it with summaries and background you never mentioned is not |
-| `teams_read` tool | The agent reads the last 20 messages of a chat or the self-chat. A shared file becomes two lines: the name, and the url `teams_download` needs |
+| `teams_send` tool | The agent sends a Teams message when you tell it to. self / chat / channel. **It says what you asked, worded naturally, at the size you asked for** — rephrasing is fine; padding it with summaries and background you never mentioned is not. To notify someone it writes `@[Name](email)`; see [@mentions](#mentions) |
+| `teams_read` tool | The agent reads the last 20 messages of a chat or the self-chat (`limit` up to 200). A shared file becomes two lines: the name, and the url `teams_download` needs |
 | `teams_download` tool | Fetches a file someone shared, to a local path. Size-capped (256 MB default) |
 | `teams_unread` tool | The agent reads the unread list |
-| `/teams` | Two-pane floating composer: chats left, history + draft right |
+| `/teams` | Two-pane overlay laid out like Outlook's: chats left, the conversation (history and draft) right. It loads more chats and older history as you reach their ends. See [Paging](#paging) |
 | `/teams remote on` | **Unverified, deferred.** Post `pi: <task>` to your self-chat and this session runs it, then replies there |
 
 `/teams` with no argument opens the composer. Other subcommands:
@@ -80,29 +80,31 @@ click per refresh-token lifetime is a bad trade. Nothing here ever reads it.
 ## The composer
 
 ```
-╭─ teams ────────────────────────────────────────────────╮
-│ CHATS                │ Family, Given                   │
-│ ▸ Family, Given      │ 06:20 Family, Given             │
-│   Other, Person      │   I looked at that patch        │
-│   [Team] Standup     │ 06:28 me                        │
-│                      │   no problem, fixed it          │
-│                      │ ─────────────────────────────── │
-│ filter: fam          │ > draft█                        │
-│ enter send · ^j newline · ^f format · tab chats · esc  │
-╰────────────────────────────────────────────────────────╯
+╭─ Teams — Family, Given · 1 unread ───────────────────────────────────╮
+│ Chats                    │ Family, Given                             │
+│ ──────────────────────── │ ───────────────────────────────────────── │
+│ ● Family, Given    06:20 │ 06:20  Family, Given                      │
+│   I looked at that patch │   I looked at that patch                  │
+│   Other, Person    08-18 │ 06:28  me                                 │
+│   no problem, fixed it   │   no problem, fixed it                    │
+│ filter:                  │ ───────────────────────────────────────── │
+│                          │ > draft█                                  │
+│ 12 chats loaded · ↓ at the end loads more                            │
+│ enter send · ↑↓ scroll · ←→ caret · ^f format · ^r reload            │
+╰──────────────────────────────────────────────────────────────────────╯
 ```
 
 | Pane | Keys |
 |---|---|
-| Chats | type to filter · `↑↓` move · `enter` open · `^r` refetch the list · `^p` find a person |
-| | `●` marks a chat with unread activity; the header shows how many are in view |
-| People (`^p`) | type a name · `enter` searches · `enter` again opens the matching chat · `^p` back |
-| Composer | `enter` send · `←→` `home` `end` move · `backspace`/`delete` edit · `^j` newline · `^r` refetch this conversation · `^f` cycle md→html / raw html / plain text |
-| History | `↑↓` scroll a line · `PgUp`/`PgDn` scroll a page. It sticks to the newest message; while scrolled up the separator says how far back you are, and opening a chat or sending a message returns to the bottom. |
-| Both | `tab` switch pane · `esc` close |
+| Chats | type to filter · `↑↓` `PgUp`/`PgDn` move · `enter` or `→` open · `tab` conversation · `^r` refetch the first page · `^p` find a person · `esc` close |
+| | `●` marks a chat with unread activity; the title counts them. Each row shows the last message and when it came in. Reaching the last loaded chat loads the next page |
+| People (`^p`) | type a name · `enter` searches · `enter` again opens the matching chat · `^p` back to chats |
+| Conversation | `enter` send · `←→` `home` `end` move the caret · `←` with nothing typed goes back to the chats (with a draft it only moves the caret, so a half-written message never types into the filter) · `backspace`/`delete` edit · `^j` newline · `^r` refetch the newest page · `^f` cycle md→html / raw html / plain text · `^o` pictures |
+| History | `↑↓` scroll a line · `PgUp`/`PgDn` scroll a page. It sticks to the newest message. Scrolling to the top loads the page before, added above without moving what you are reading. |
+| Both | `tab` switch pane · `esc` in the chats closes; in the conversation it goes back to the chats |
 
-`^r` refreshes whatever pane has focus — the chat list on the left, the open
-conversation's messages on the right. The hint line names the current one, so
+`^r` refreshes whatever pane has focus — the first page of the chat list on the left, the
+newest page of the open conversation on the right. The hint line names the current one, so
 the binding is never ambiguous about what it will refetch.
 
 The composer is a real edit buffer with a caret, not an append-only field:
@@ -111,8 +113,9 @@ CJK width are computed in one pass (`layoutDraft`), because a caret is an index
 into the text and mapping it onto a wrapped line is only correct if the same
 pass produces both.
 
-Opening a chat loads its last 20 messages; sending refreshes them, so a sent
-message is visible in the pane rather than merely reported as sent.
+Opening a chat loads its newest 20 messages. Scrolling to the top of them loads the page
+before, and so on back to the start of the conversation; sending reloads the newest page,
+so a sent message is visible in the pane rather than merely reported as sent.
 
 Opening the composer also refreshes the unread scan (through the same 10-minute
 disk cache), so the dots reflect now rather than whenever the last poll landed.
@@ -122,14 +125,35 @@ watermark the Teams client moves — so the desktop client agrees. The local lis
 is pruned only *after* that call succeeds; a failure leaves the dot up and says
 why in the status line. The badge is never merely hidden.
 
-The chat list is stale-while-revalidate: the composer opens instantly from
-`~/.cache/pi/teams-chats.json`, and if that cache is older than 5 minutes one
-background fetch refreshes the list in place. `^r` forces it. A refresh failure
-is shown in the status line instead of being swallowed.
+The chat list is stale-while-revalidate: the composer opens instantly from the first
+page in `~/.cache/pi/teams-chats.json`, and if that cache is older than 5 minutes one
+background fetch refreshes the first page in place (unless the list has already been
+paged past it). `^r` forces it. A refresh failure is shown in the status line instead
+of being swallowed.
 
 Every rendered row is padded to exactly the frame width. A row wider than the
-frame corrupts the whole TUI, so the render is regression-tested at 60/80/100/120
+frame corrupts the whole TUI, so the render is regression-tested at 60/80/100/120/200
 columns, including CJK width.
+
+## Paging
+
+Nothing is loaded beyond what the user reaches. Each kind of list has a first page and a cursor for the one after it:
+
+| List | First page | Next page: the cursor |
+|---|---|---|
+| Chat list | `/me/chats`, as many as Graph gives a page (25-40 observed despite `$top=50`), ordered by activity where the tenant allows it | the `@odata.nextLink` Graph gave, followed as given |
+| Conversation | the newest 20 messages (`$top=20`) | the `@odata.nextLink` for the page before |
+| Self-chat (48:notes) | chatsvc, `pageSize=20` | `_metadata.backwardLink`, the page before |
+
+- **Chat list.** Reaching the last loaded chat with `↓` or `PgDn` asks for the next page and appends it. A filter with no match among the loaded chats keeps asking until one matches or the list ends, and the status line says which. Finding a person's existing chat in `^p` pages the same way.
+- **Conversation.** Scrolling to the top of the loaded history asks for the page before and puts it above, without moving the message you are reading. Nothing older says `start of conversation`. A page that fails is shown in the status line, and the next key at the top retries it.
+- **One at a time.** Each list asks for one page at a time: a key pressed while a page is out joins that request.
+- **Cache.** `~/.cache/pi/teams-chats.json` holds the first page and its cursor (version 2). A file from an older build is ignored, not read as a complete list.
+- **`teams_read`** takes `limit` up to 200 and pages until it has that many messages, keeping the newest. **`teams_chats`** without `query` lists the first page and says whether more follow; with `query` it searches the whole list and refuses to report "no match" over a partial walk.
+- **The script backend** cannot ask for a second page. Its first pages still work. Following a cursor it handed out fails with a message saying to set `"backend": "graph"`.
+- **Guards.** A walk ends where the server stops naming a next page; there is no page count to reach. A cursor the server has already given is refused as a loop, in the walks and in the overlay alike, so a server that repeats itself is reported rather than read forever. A query search reads the whole chat list, and an interrupted tool call stops it. A chatsvc link is followed only on the host that issued it, since it carries the skype token.
+
+The self-chat cursor was confirmed against the live service with one read-only call: `_metadata.backwardLink` is present, sits on the messaging host, and its query carries `startTime`, `syncState`, `pageSize` and `view`. Messages come newest first.
 
 ## Config
 
@@ -155,7 +179,7 @@ A malformed config is a hard error at load, not a silent fallback to defaults.
 
 ## Tests
 
-Not shipped. The suite (27 offline suites plus live parity against the Python
+Not shipped. The suite (33 offline suites plus live parity against the Python
 implementation) was written against a real mailbox and holds real names,
 addresses and conversation text, so it stays on the machine it was developed on
 rather than in a repository other people clone.
@@ -242,22 +266,43 @@ released on `/teams remote off` or session shutdown for that reason.
 `<h1-6>`, `<p>`, `<b>/<strong>`, `<i>`, `<a>`, `<ul>/<ol>/<li>`, `<pre>`,
 `<code>`, `<blockquote>`.
 
+## @mentions
+
+`teams_send` notifies someone when the agent writes `@[Display Name](their.email@domain)`.
+The target must be a bare address: `[text](url)` stays a link. A mention is
+whatever the Markdown parser reads as one (`mentions.ts` renders with a mention
+extension), so an example in a code span, a fenced (```` ``` ```` or `~~~`) or
+indented code block, or an escaped `\@[…](…)` is shown as written and notifies nobody.
+
+- Each address is looked up once, with `GET /me/people?$search="<address>"`,
+  before anything is posted; only an organization user whose address matches
+  exactly counts, and its people `id` is the directory object id. `/users/{email}`
+  is not used: the tenant throttles it (429 for minutes). An address not among
+  your people fails the whole send with an error that names it, and nothing is
+  posted. The agent is told to take addresses from `teams_people` and never to
+  guess one. The Outlook extension takes the same `@[Name](address)` syntax.
+- A Graph chat or channel message gets `<at id="N">` in the body and a `mentions`
+  array that carries the directory object id.
+- The self-chat (`48:notes`) gets chatsvc's form instead: a Mention span, and
+  `properties.mentions`, a JSON string that names each person as
+  `8:orgid:<object id>`.
+- The `script` backend refuses a message with a mention, because it has no
+  directory lookup.
+
 ## Dependencies
 
-`npm install` in this directory (already done). Only `marked`.
+Installed once for the whole package in `../node_modules` (see `../README.md`).
 
 ## Pictures
 
-This terminal cannot draw them. tty7 26.8.3 implements the Kitty graphics
-protocol and answers `a=q`, but it leaves an already-placed image behind when
-the screen scrolls — and pi's regular mode redraws by emitting newlines at the
-bottom of the screen, so every frame scrolls. Measured from `PI_TUI_WRITE_LOG`:
-the image is placed, then pi writes 53 more newlines, and the picture is left
-53 rows adrift. `fullscreen` mode misplaces it immediately instead.
+Pictures are described, not drawn. Drawing them was tried in tty7 26.10.0 —
+telling pi and omp the terminal speaks the Kitty graphics protocol, then showing
+the picture full screen — and the layout came out wrong, so the capability is
+left as each host detects it (tty7 is not on either host's list).
 
-So the model reads them out instead. When a conversation loads, every image in
-it is described in the background and the description replaces the marker in
-the history pane:
+When a conversation loads, every image in it is described in the background
+(`../core/describe-image.ts`) and the description replaces the marker in the
+history pane:
 
 ```
 2026-08-20 15:56  Family, Given
@@ -272,12 +317,12 @@ is written into the line rather than leaving a silent bare marker.
 `teams_read` also attaches the pictures themselves (up to 4, newest first), so
 the agent can answer questions about them directly.
 
-### If the terminal ever grows working image support
+### Seeing the picture itself
 
-`^o` still opens a viewer built on pi's own `Image` component, and the code is
-in place — it just refuses while `getCapabilities().images` is null. Re-enable
-`~/.pi/agent/extensions/tty7-images.ts.disabled` once tty7 keeps placements
-glued to their cells while scrolling.
+`^o` opens a viewer (`image-viewer.ts`, pi's `Image` component in a plain
+custom UI), ← → stepping through the conversation's pictures — on a terminal
+the host knows can draw images. Elsewhere, tty7 included, it says so and the
+descriptions stand in.
 
 ## Message formatting
 
@@ -321,9 +366,11 @@ already knows the id, so it passes `--chat-id` and skips that lookup entirely:
 **4.26s → 1.86s**. Sending takes the same shortcut. Name addressing still works
 for the agent tools, which only have a name to go on.
 
+A name resolves against the whole chat list, walked page by page, so a chat past the first page is still found by name.
+
 ## Reaching someone not in the list
 
-The picker lists 100 chats. `^p` searches `/me/people` — the relevance graph of
+The picker pages through your chats as you reach the end of the list. `^p` searches `/me/people` — the relevance graph of
 people you actually interact with, since directory queries (`/users`) are
 throttled to 429 in this tenant. A result is matched to an existing chat **by
 email**, not by display name.
