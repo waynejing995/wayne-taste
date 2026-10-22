@@ -12,7 +12,7 @@
  * --dry-run works on a small in-memory mailbox and never reads the token cache.
  * See tests/LIVE-TEST-RULES.md.
  */
-import { createJiti } from "/root/.nvm/versions/node/v22.22.1/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/jiti/lib/jiti.mjs";
+import { createJiti, PI } from "../../tests/host.mjs";
 // Resolved paths: importing through the symlink would give a SECOND copy of
 // every module, and `instanceof` across the two silently fails. See ext-path.mjs.
 import { ext } from "./ext-path.mjs";
@@ -21,7 +21,7 @@ const MARKS = ["[omp outlook e2e]", "[omp outlook probe]"];
 const BASE = "https://graph.microsoft.com/v1.0";
 const SOURCES = ["inbox", "archive", "sentitems", "drafts"];
 
-const D = "/root/.nvm/versions/node/v22.22.1/lib/node_modules/@earendil-works/pi-coding-agent";
+const D = PI;
 const jiti = createJiti(import.meta.url, {
 	alias: {
 		"@earendil-works/pi-coding-agent": `${D}/dist/index.js`,

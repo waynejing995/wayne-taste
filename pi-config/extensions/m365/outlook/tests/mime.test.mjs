@@ -24,14 +24,14 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createJiti } from "/root/.nvm/versions/node/v22.22.1/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/jiti/lib/jiti.mjs";
+import { createJiti, PI } from "../../tests/host.mjs";
 // Resolved paths: importing through the symlink would give a SECOND copy of
 // every module, and `instanceof` across the two silently fails. See ext-path.mjs.
 import { ext } from "./ext-path.mjs";
 
 const { createDocument } = createRequire(ext("package.json"))("@mixmark-io/domino");
 
-const D = "/root/.nvm/versions/node/v22.22.1/lib/node_modules/@earendil-works/pi-coding-agent";
+const D = PI;
 const jiti = createJiti(import.meta.url, {
 	alias: {
 		"@earendil-works/pi-coding-agent": `${D}/dist/index.js`,

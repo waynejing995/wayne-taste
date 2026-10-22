@@ -15,11 +15,11 @@
  *
  *   node tests/status.test.mjs
  */
-import { createJiti } from "/root/.nvm/versions/node/v22.22.1/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/jiti/lib/jiti.mjs";
+import { createJiti, PI } from "../../tests/host.mjs";
 // Resolved paths: importing through the symlink would give a second copy of every module. See ext-path.mjs.
 import { ext } from "./ext-path.mjs";
 
-const D = "/root/.nvm/versions/node/v22.22.1/lib/node_modules/@earendil-works/pi-coding-agent";
+const D = PI;
 const jiti = createJiti(import.meta.url, {
 	alias: {
 		"@earendil-works/pi-coding-agent": `${D}/dist/index.js`,

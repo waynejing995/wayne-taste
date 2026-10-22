@@ -34,8 +34,12 @@ the old separate `teams` / `outlook` (`pi-ext-teams` / `pi-ext-outlook`) install
 ## Tests
 
 ```sh
-node tests/run.mjs     # Teams' suite, Outlook's suite, and the package load check
+npm install            # once
+npm test               # node tests/run.mjs
 ```
 
-All offline: no sign-in, no network. Each half's suite also runs on its own from
-its directory (`node tests/run.mjs` in `teams/` or `outlook/`).
+All offline: no sign-in, no network. Runs Outlook's suite and the package load
+check. Teams' suite is local-only (`teams/.gitignore`: it was written against a
+real mailbox and holds real names and messages); it runs where it exists and is
+reported as skipped in a clone. The tests load the code through pi's own jiti,
+found by `tests/host.mjs` under `npm root -g`, or at `PI_CODING_AGENT_DIR`.
