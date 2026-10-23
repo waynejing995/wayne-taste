@@ -60,8 +60,11 @@ cache silently.
 - **`/outlook signature`:** edit your signature (below).
 
 `outlook_send` sends only when the user asks for it explicitly. Mail the agent
-sends ends with the footer `sent by omp agent`. Mail you send from `/outlook`
-carries no footer. Recipient and @mention addresses come from `outlook_people`
+sends carries the footer `sent by omp agent` right after its own body (and
+signature), above any quoted original, so a reply never stacks its footer under
+someone else's mail. Mail you send from `/outlook` carries no footer. The quoted
+original's header gives `Sent` in local time and leaves out `Cc` when there was none.
+Recipient and @mention addresses come from `outlook_people`
 or from the mail being answered; the tool descriptions forbid guessing one.
 
 ### Signature
@@ -74,7 +77,7 @@ It is read at every send, so a change applies to the next message.
 
 Every message gets it — agent-sent and drafted mail, and mail you write in
 `/outlook`, where it shows dimmed under the body. It goes after the body and
-above the quoted original, as Outlook places it; the agent footer stays last.
+above the quoted original, as Outlook places it; the agent footer follows it.
 The tool descriptions tell the agent not to sign mail itself.
 
 ### Folders

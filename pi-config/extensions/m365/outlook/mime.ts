@@ -9,6 +9,7 @@
  */
 import MailComposer from "nodemailer/lib/mail-composer";
 import PostalMime, { type Address as PostalAddress } from "postal-mime";
+import { formatLocal } from "../core/time.ts";
 import { htmlToMarkdown } from "./convert.ts";
 import { base, esc, mentionsIn, renderMarkdown, THEME } from "./render.ts";
 
@@ -75,17 +76,26 @@ const listed = (list: Address[]): string => list.map((a) => (a.name ? `${a.name}
 const bodyOf = (html: string): string => /<body\b[^>]*>([\s\S]*?)<\/body\s*>/i.exec(html)?.[1] ?? html;
 
 /**
- * The quoted original as the HTML and text of a reply or forward: an Outlook-style
- * separator (From, Sent, To, Cc, Subject), then the original, each line `> ` in text.
+ * The header lines Outlook puts above a quoted original: From, Sent (local time), To, Cc, Subject.
+ * Cc is left out when the original had none, as Outlook does. Shared by the MIME and the compose overlay.
  */
-function quoteOf(q: ParsedMail): { html: string; text: string } {
+export function quoteFields(q: ParsedMail): [string, string][] {
 	const fields: [string, string][] = [
 		["From", listed(q.from ? [q.from] : [])],
-		["Sent", q.date ?? ""],
+		["Sent", formatLocal(q.date ?? "")],
 		["To", listed(q.to)],
-		["Cc", listed(q.cc)],
-		["Subject", q.subject],
 	];
+	if (q.cc.length > 0) fields.push(["Cc", listed(q.cc)]);
+	fields.push(["Subject", q.subject]);
+	return fields;
+}
+
+/**
+ * The quoted original as the HTML and text of a reply or forward: an Outlook-style
+ * separator (quoteFields), then the original, each line `> ` in text.
+ */
+function quoteOf(q: ParsedMail): { html: string; text: string } {
+	const fields = quoteFields(q);
 	const style = base();
 	const separator =
 		`<hr style="border:0;border-top:1px solid ${THEME.border};margin:12px 0">` +
@@ -203,19 +213,21 @@ export type BuildInput = ComposeDraft & { from: Address; markdown: string; signa
 
 /**
  * The MIME bytes of a draft. `to`, `cc` and `subject` go out exactly as given, so
- * an edited value wins. `signature` (Markdown) follows the body and precedes the quoted
- * original, as in Outlook. `footer` is literal text in the text part and Markdown in the HTML part.
+ * an edited value wins. `signature` (Markdown) follows the body; `footer` follows the
+ * signature; the quoted original comes last, as in Outlook. The footer belongs to the new
+ * message, so it never lands under someone else's quoted mail. `footer` is literal text in
+ * the text part and Markdown in the HTML part.
  */
 export async function buildEml(d: BuildInput): Promise<Buffer> {
 	const quote = d.quote ? quoteOf(d.quote) : { html: "", text: "" };
 	const signature = d.signature?.trim() ?? "";
 	// A signature is laid out by line ("Best,\nAlex"), so each newline is a hard break rather than Markdown's space.
 	const signatureHtml = signature ? bodyOf(renderMarkdown(signature.split("\n").join("  \n"))) : "";
+	const footerHtml = d.footer ? bodyOf(renderMarkdown(d.footer)) : "";
 	const html =
 		`<html><head><meta charset="utf-8"></head><body>${bodyOf(renderMarkdown(d.markdown))}` +
-		`${signatureHtml}${quote.html}` +
-		`${d.footer ? bodyOf(renderMarkdown(d.footer)) : ""}</body></html>`;
-	const text = [d.markdown, signature, quote.text].filter(Boolean).join("\n\n") + (d.footer ?? "");
+		`${signatureHtml}${footerHtml}${quote.html}</body></html>`;
+	const text = [[d.markdown, signature].filter(Boolean).join("\n\n") + (d.footer ?? ""), quote.text].filter(Boolean).join("\n\n");
 	return new MailComposer({
 		from: d.from,
 		to: d.to,
