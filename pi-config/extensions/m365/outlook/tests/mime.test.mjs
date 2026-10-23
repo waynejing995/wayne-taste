@@ -214,33 +214,45 @@ await section("U10 reply and forward bodies: headers, order, quote forms", async
 	check("U10 HTML fragment without <body>: the whole fragment is in the HTML part", (fm.html ?? "").includes(fragment));
 });
 
-await section("U11 agent footer ends both parts", async () => {
+await section("U11 agent footer belongs to the new message: after the body, before the quoted original", async () => {
 	const orig = await load("mime-original.eml");
 	const footer = AGENT_FOOTER;
 	const mail = await parseEml(await compose(respondDefaults("reply", orig, SELF), "Done.\n", footer));
 	const html = mail.html ?? "";
-	check(
-		"U11 HTML body ends with the footer, after the quoted original",
-		createDocument(html).body.textContent.trim().endsWith("sent by omp agent") && inOrder(html, ["Status is ", "sent by omp agent"]),
-	);
-	const lastLine = (mail.text ?? "").split("\n").filter((l) => l.trim() !== "").at(-1);
-	equal("U11 text part's last line is the footer", lastLine, "*sent by omp agent*");
+	const htmlText = createDocument(html).body.textContent;
+	check("U11 HTML: body, footer, then the quoted original", inOrder(htmlText, ["Done.", "sent by omp agent", "Status is "]), htmlText);
+	check("U11 text: body, footer, then the quoted original", inOrder(mail.text ?? "", ["Done.", "*sent by omp agent*", "> Status is green."]), mail.text);
+	const fresh = await parseEml(await compose({ kind: "new", to: [], cc: [], subject: "n", references: [], attachments: [] }, "Hi.\n", footer));
+	const lastLine = (fresh.text ?? "").split("\n").filter((l) => l.trim() !== "").at(-1);
+	equal("U11 a new message's text part ends with the footer", lastLine, "*sent by omp agent*");
 	const bare = await parseEml(await compose(respondDefaults("reply", orig, SELF), "Done.\n"));
 	check("U11 without a footer, neither part says sent by omp agent", !(bare.html ?? "").includes("sent by omp agent") && !(bare.text ?? "").includes("sent by omp agent"));
 });
 
-await section("U11 a signature follows the body and precedes the quoted original and the footer, in both parts", async () => {
+await section("U11 a signature follows the body and precedes the footer and the quoted original, in both parts", async () => {
 	const orig = await load("mime-original.eml");
 	const draft = respondDefaults("reply", orig, SELF);
 	const mail = await parseEml(await buildEml({ ...draft, from: ME, markdown: "Done.\n", signature: "Best,\n**Alex Doe**\n", footer: AGENT_FOOTER }));
 	const text = createDocument(mail.html ?? "").body.textContent;
-	check("U11 HTML: body, signature, original, footer in that order", inOrder(text, ["Done.", "Alex Doe", "Status is ", "sent by omp agent"]), text);
+	check("U11 HTML: body, signature, footer, original in that order", inOrder(text, ["Done.", "Alex Doe", "sent by omp agent", "Status is "]), text);
 	check("U11 the signature's Markdown is rendered", /<b[^>]*>Alex Doe<\/b>|<strong[^>]*>Alex Doe<\/strong>/.test(mail.html ?? ""), mail.html);
 	check("U11 each signature line stays its own line", /Best,<br\s*\/?>\s*<(b|strong)\b/.test(mail.html ?? ""), mail.html);
-	check("U11 text: body, signature, original, footer in that order", inOrder(mail.text ?? "", ["Done.", "**Alex Doe**", "Status is ", "sent by omp agent"]), mail.text);
+	check("U11 text: body, signature, footer, original in that order", inOrder(mail.text ?? "", ["Done.", "**Alex Doe**", "sent by omp agent", "Status is "]), mail.text);
 	const blank = await parseEml(await buildEml({ ...draft, from: ME, markdown: "Done.\n", signature: "  \n" }));
 	const unsigned = await parseEml(await buildEml({ ...draft, from: ME, markdown: "Done.\n" }));
 	equal("U11 a blank signature adds nothing", [blank.text, blank.html], [unsigned.text, unsigned.html]);
+});
+
+await section("U10 quote header: Sent in local time, no Cc line when the original had no Cc", async () => {
+	const orig = await load("mime-original.eml");
+	const noCc = { ...orig, cc: [] };
+	const mail = await parseEml(await compose(respondDefaults("reply", noCc, SELF), "Ok.\n"));
+	check("U10 no Cc line in HTML", !/<b>Cc:<\/b>/.test(mail.html ?? ""), mail.html);
+	check("U10 no Cc line in text", !/\*\*Cc:\*\*/.test(mail.text ?? ""), mail.text);
+	check("U10 Sent is not a raw ISO timestamp", !/Sent:(<\/b>|\*\*) \d{4}-\d{2}-\d{2}T/.test(`${mail.html}\n${mail.text}`), mail.text);
+	check("U10 Sent is YYYY-MM-DD HH:MM", /\*\*Sent:\*\* \d{4}-\d{2}-\d{2} \d{2}:\d{2}  $/m.test(mail.text ?? ""), mail.text);
+	const withCc = await parseEml(await compose(respondDefaults("reply", orig, SELF), "Ok.\n"));
+	check("U10 Cc line kept when the original had Cc", /\*\*Cc:\*\* carol@example\.com/.test(withCc.text ?? ""), withCc.text);
 });
 
 await section("U11 an @mention is an Outlook mention anchor in HTML; the text part keeps the Markdown", async () => {

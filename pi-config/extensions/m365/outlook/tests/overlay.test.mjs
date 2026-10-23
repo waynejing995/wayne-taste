@@ -26,6 +26,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const { openOutlookOverlay } = await jiti.import(ext("overlay.ts"));
 const { buildEml, parseEml, respondDefaults } = await jiti.import(ext("mime.ts"));
+const { formatLocal } = await jiti.import(ext("../core/time.ts"));
 const { renderMarkdown } = await jiti.import(ext("render.ts"));
 const { htmlToMarkdown } = await jiti.import(ext("convert.ts"));
 const pc = await jiti.import(`${D}/dist/index.js`);
@@ -829,11 +830,22 @@ await scenario("U24 the reply shows the original's From, Sent, To, Cc, Subject, 
 	const at = rows.findIndex((r) => r.startsWith("From: "));
 	check("U24 the quoted block begins with From", at > 0, JSON.stringify(rows));
 	eq("U24 quoted From line", rows[at], "From: Alice <alice@example.com>");
-	eq("U24 quoted Sent line", rows[at + 1], "Sent: 2026-10-14T01:30:00.000Z");
+	eq("U24 quoted Sent line", rows[at + 1], `Sent: ${formatLocal("2026-10-14T01:30:00.000Z")}`);
 	eq("U24 quoted To line", rows[at + 2], "To: me@example.com; bob@example.com");
 	eq("U24 quoted Cc line", rows[at + 3], "Cc: carol@example.com; me@example.com");
 	eq("U24 quoted Subject line", rows[at + 4], "Subject: Quarterly status");
 	check("U24 the quoted body follows the header lines", rows.slice(at + 5).some((r) => r.includes("Status is [green]{.ok}.")));
+});
+
+await scenario("U24 the quote omits the Cc line when the original had none", async () => {
+	const noCc = { ...MAIL, cc: [] };
+	const s = session({ draftFor: async (kind, id) => ({ ...respondDefaults(kind, noCc, [SELF]), id }) });
+	await s.tick();
+	s.press("r");
+	await s.tick();
+	const rows = contentRows(s.lines(100));
+	const at = rows.findIndex((r) => r.startsWith("From: "));
+	eq("U24 To is followed directly by Subject", [rows[at + 2]?.split(":")[0], rows[at + 3]?.split(":")[0]], ["To", "Subject"]);
 });
 
 await scenario("U24 the compose quote is the original's Markdown table and tone, not its plain-text part", async () => {
@@ -891,6 +903,20 @@ await scenario("U25 pager renders the seed: aligned tables, colours, wrapped par
 		if (w === 60) check("U25 @60 the paragraph wraps onto a continuation line", start >= 0 && end > start, `${start} ${end}`);
 	}
 	s.press("q");
+});
+
+await scenario("U25 a key/value sheet renders without an empty header row", async () => {
+	const md = "|  |  |\n|---|---|\n| Coffee level | Optimal |\n| Mood | Excellent |";
+	const s = session({ read: async (id) => ({ summary: rowOf(id), mail: MAIL, markdown: md, images: [] }) });
+	await s.tick();
+	s.press("\r");
+	await s.tick();
+	for (const w of WIDTHS) {
+		const rows = contentRows(s.lines(w));
+		const top = rows.findIndex((r) => r.startsWith("┌"));
+		check(`U25 @${w} the first row under the top border is a key`, top >= 0 && rows[top + 1].includes("Coffee level"), JSON.stringify(rows.slice(top, top + 3)));
+		check(`U25 @${w} the sheet is still closed`, rows.some((r) => r.startsWith("└")));
+	}
 });
 
 await scenario("U25 a failed move shows its error in the status line and keeps the row", async () => {

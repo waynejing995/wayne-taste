@@ -13,7 +13,7 @@ import type { Component, MarkdownTheme, TUI } from "@earendil-works/pi-tui";
 import { htmlToMarkdown } from "./convert.ts";
 import type { FolderInfo, Mailbox, MailImage, Summary } from "./mailbox.ts";
 import { isShared, type SharedLink, sharedLinks } from "./files.ts";
-import { type Address, type ComposeDraft, type MailAttachment, type ParsedMail, withMentioned } from "./mime.ts";
+import { type Address, type ComposeDraft, type MailAttachment, type ParsedMail, quoteFields, withMentioned } from "./mime.ts";
 
 export type OverlayDeps = Pick<Mailbox, "list" | "search" | "read" | "draftFor" | "build" | "submit" | "saveDraft" | "move" | "setRead" | "folders"> & {
 	refreshUnread(): Promise<void>;
@@ -77,6 +77,7 @@ const SPLIT_HINTS: Partial<Record<Mode, string>> = {
 const TONE_COLOR: Record<Tone, ThemeColor> = { ok: "success", bad: "error", warn: "warning", muted: "dim", info: "accent" };
 const TONE_SPAN = /\[([^\]\n]+)\]\{\.(ok|bad|warn|muted|info)\}/g;
 const PRINTABLE = /^[^\x00-\x1f\x7f]+$/;
+const ANSI = /\x1b\[[0-9;]*m/g;
 /** The caret: a reverse-video cell after the text, with the IME cursor marker in front. */
 const CARET = `${CURSOR_MARKER}\x1b[7m \x1b[27m`;
 
@@ -127,6 +128,23 @@ function draftNow(c: Compose): ComposeDraft {
 			.map((address) => known.find((k) => k.address.toLowerCase() === address.toLowerCase()) ?? { address }),
 	);
 	return { ...c.base, to, cc, subject: c.subject };
+}
+
+/**
+ * Rendered Markdown lines with the blank header row of each headerless table removed.
+ * A key/value sheet is written `|  |  |` (render.ts); pi-tui always draws the header row,
+ * so without this the pager shows an empty box above the first key.
+ */
+function dropBlankTableHeaders(lines: string[]): string[] {
+	const out: string[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		out.push(lines[i]);
+		const top = lines[i].replace(ANSI, "").trimStart();
+		const header = (lines[i + 1] ?? "").replace(ANSI, "").trim();
+		const sep = (lines[i + 2] ?? "").replace(ANSI, "").trimStart();
+		if (top.startsWith("┌") && /^│[\s│]*│$/.test(header) && sep.startsWith("├")) i += 2;
+	}
+	return out;
 }
 
 class OutlookOverlay implements Component {
@@ -820,7 +838,7 @@ class OutlookOverlay implements Component {
 		const pictured = p.images.reduce((md, { label }) => md.split(`[${label}]`).join(`[${seen(label)}]`), p.markdown);
 		// Tone spans become theme colours, so the Markdown renderer lays them out like any other text.
 		const painted = pictured.replace(TONE_SPAN, (_all, text: string, tone: Tone) => this.theme.fg(TONE_COLOR[tone], text));
-		const body = new Markdown(painted, 0, 0, this.md).render(inner);
+		const body = dropBlankTableHeaders(new Markdown(painted, 0, 0, this.md).render(inner));
 		// Attachments the body does not show, a picture among them with its description.
 		const shown = new Set(p.images.filter(({ label }) => p.markdown.includes(`[${label}]`)).map((m) => m.image));
 		const files = p.mail.attachments
@@ -856,9 +874,9 @@ class OutlookOverlay implements Component {
 		return { lines, caret };
 	}
 
-	/** The original under the body, read-only: Outlook's separator lines, then the body quoted with "> ". */
+	/** The original under the body, read-only: Outlook's separator lines (quoteFields), then the body quoted with "> ". */
 	private quoteRows(q: ParsedMail, inner: number): string[] {
-		const head = [`From: ${who(q.from)}`, `Sent: ${q.date ?? ""}`, `To: ${listed(q.to)}`, `Cc: ${listed(q.cc)}`, `Subject: ${q.subject}`];
+		const head = quoteFields(q).map(([k, v]) => `${k}: ${v}`);
 		// The body the pager shows (Mailbox.read): the HTML as Markdown when there is HTML, else the text.
 		const text = (q.html ? htmlToMarkdown(q.html) : (q.text ?? "")).trimEnd();
 		const quoted = text ? text.split("\n").map((l) => `> ${l}`) : [];
