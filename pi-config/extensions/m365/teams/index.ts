@@ -45,6 +45,7 @@ import * as auth from "../core/auth.ts";
 import { describeImage, type LoadedImage } from "../core/describe-image.ts";
 import { GraphClient } from "../core/graph.ts";
 import type { Person } from "../core/people.ts";
+import { safeName, saveNew } from "../core/save-file.ts";
 import { setStatusPart } from "../core/status-row.ts";
 import { formatLocal } from "../core/time.ts";
 import type { Backend, SelfMessage, UnreadItem } from "./backend.ts";
@@ -250,6 +251,7 @@ export default function (pi: ExtensionAPI) {
 			// A different scope, so a different token: the self-chat is chatsvc,
 			// not Graph, and a failure there must be attributable to that credential.
 			skype: new SkypeClient(() => auth.getToken({ scopes: SKYPE_SCOPES })),
+			sharepointToken: (host) => auth.getToken({ scopes: [`https://${host}/.default`] }),
 		});
 	}
 
@@ -849,6 +851,94 @@ export default function (pi: ExtensionAPI) {
 				// "too large" and "access denied" call for different next steps.
 				return { content: [{ type: "text", text: `Download failed: ${e instanceof Error ? e.message : e}` }], details: {} };
 			}
+		},
+	});
+
+	pi.registerTool({
+		name: "teams_transcript",
+		label: "Teams Transcript",
+		description:
+			"Read the speaker-attributed transcript of a recorded Microsoft Teams meeting, or list the " +
+			"recorded sessions available in a meeting thread. Find the meeting first with teams_chats " +
+			"(meetings have `[meeting]` and an id like `19:meeting_...@thread.v2`) and pass `chat_id`; " +
+			"a `chat` name also works if unambiguous. By default it fetches the latest completed recording's " +
+			"transcript. For a recurring meeting, pass `date` (e.g. '2026-10-23') to select a session, or " +
+			"`list: true` to list available recorded sessions and their dates.",
+		parameters: Type.Object({
+			chat_id: Type.Optional(
+				Type.String({ description: "Meeting chat id from teams_chats (19:meeting_...@thread.v2). Preferred over `chat`." }),
+			),
+			chat: Type.Optional(
+				Type.String({ description: "Meeting name, if you have no `chat_id`. Ambiguous names are an error." }),
+			),
+			date: Type.Optional(
+				Type.String({ description: "Optional date (e.g. '2026-10-23') to pick a specific session of a recurring meeting. Default: latest." }),
+			),
+			list: Type.Optional(
+				Type.Boolean({ description: "Only list recorded sessions available in this meeting thread without downloading the transcript." }),
+			),
+			path: Type.Optional(
+				Type.String({
+					description: "Optional new file path to save the Markdown transcript to; an existing file is never overwritten.",
+				}),
+			),
+		}),
+		async execute(_id, params) {
+			if (!params.chat_id && !params.chat) {
+				throw new Error("teams_transcript requires 'chat_id' (preferred) or 'chat'");
+			}
+			const res = await backend.transcript(
+				{ id: params.chat_id, name: params.chat },
+				{ date: params.date, list: Boolean(params.list) },
+			);
+			if (res.kind === "list") {
+				if (res.recordings.length === 0) {
+					return {
+						content: [{ type: "text", text: `No completed recordings found in "${res.chat}".` }],
+						details: { count: 0 },
+					};
+				}
+				const lines = res.recordings.map(
+					(r, idx) =>
+						`${idx + 1}. ${formatLocal(r.startedAt || r.recordedAt)}${r.duration ? ` · duration ${r.duration}` : ""} · ${r.title}`,
+				);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `${res.recordings.length} recorded session(s) in "${res.chat}":\n${lines.join("\n")}`,
+						},
+					],
+					details: { count: res.recordings.length },
+				};
+			}
+			const t = res.transcript;
+			let savedNote = "";
+			let savedPath: string | undefined;
+			if (params.path) {
+				const defaultName = `${safeName(t.title)}-${(t.startedAt || t.recordedAt).slice(0, 10)}.md`;
+				savedPath = saveNew(params.path, defaultName, Buffer.from(t.markdown, "utf8"));
+				savedNote = `Saved to: ${savedPath}\n`;
+			}
+			const warnNote = t.fallbackWarning ? `⚠ ${t.fallbackWarning}\n` : "";
+			const header =
+				`${t.title} — ${formatLocal(t.startedAt || t.recordedAt)}` +
+				`${t.duration ? ` · duration ${t.duration}` : ""}` +
+				` · ${t.entries} utterances · speakers: ${t.speakers.join(", ") || "(unknown)"}\n` +
+				warnNote +
+				savedNote;
+			return {
+				content: [{ type: "text", text: `${header}\n${t.markdown}` }],
+				details: {
+					title: t.title,
+					startedAt: t.startedAt,
+					duration: t.duration,
+					entries: t.entries,
+					speakers: t.speakers,
+					...(t.fallbackWarning ? { fallbackWarning: t.fallbackWarning } : {}),
+					...(savedPath ? { path: savedPath } : {}),
+				},
+			};
 		},
 	});
 

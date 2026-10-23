@@ -50,7 +50,7 @@ await extension({
 
 const teams = tools.filter((t) => t.startsWith("teams_"));
 const outlook = tools.filter((t) => t.startsWith("outlook_"));
-check("Teams' tools are registered", teams.includes("teams_send") && teams.includes("teams_read") && teams.includes("teams_download"), teams.join(","));
+check("Teams' tools are registered", teams.includes("teams_send") && teams.includes("teams_read") && teams.includes("teams_download") && teams.includes("teams_transcript"), teams.join(","));
 check("Outlook's tools are registered", outlook.length === 10 && outlook.includes("outlook_download"), outlook.join(","));
 check("nothing else is registered", tools.length === teams.length + outlook.length, tools.join(","));
 check("every tool name once", new Set(tools).size === tools.length, tools.join(","));

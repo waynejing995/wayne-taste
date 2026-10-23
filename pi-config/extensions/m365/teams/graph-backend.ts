@@ -26,6 +26,7 @@ import { htmlToMarkdown } from "./markdown.ts";
 import { fillMentions, type Mention, type ResolvedMention } from "./mentions.ts";
 import { cursorPages } from "./paging.ts";
 import type { SkypeClient } from "./skype.ts";
+import { fetchMeetingTranscript, type MeetingTranscriptResult } from "./transcript.ts";
 
 /** Raw shapes, only the fields used here. */
 interface RawMember {
@@ -291,7 +292,11 @@ interface CachedScan extends UnreadPayload {
 export class GraphBackend implements Backend {
 	constructor(
 		private readonly graph: GraphClient,
-		private readonly opts: { whoami: () => Promise<string>; skype?: SkypeClient },
+		private readonly opts: {
+			whoami: () => Promise<string>;
+			skype?: SkypeClient;
+			sharepointToken?: (host: string) => Promise<string>;
+		},
 	) {}
 
 	/**
@@ -556,6 +561,23 @@ export class GraphBackend implements Backend {
 	/** Fetch a shared file to disk; see downloadShared. */
 	async downloadFile(url: string, toPath?: string, opts: { maxBytes?: number } = {}): Promise<DownloadedFile> {
 		return downloadShared(this.graph, url, toPath, opts);
+	}
+
+	/** Fetch a meeting transcript or list its recorded sessions; see fetchMeetingTranscript. */
+	async transcript(addr: ChatAddr, opts: { date?: string; list?: boolean } = {}): Promise<MeetingTranscriptResult> {
+		if (!this.opts.sharepointToken) {
+			throw new Error("meeting transcripts need a SharePoint token supplier; none was configured for this backend");
+		}
+		const chat = await this.resolveChat(addr);
+		return fetchMeetingTranscript({
+			chatId: chat.id,
+			chatLabel: chat.display ?? chat.label ?? undefined,
+			date: opts.date,
+			list: opts.list,
+			skype: this.requireSkype(),
+			graph: this.graph,
+			sharepointToken: this.opts.sharepointToken,
+		});
 	}
 
 	async send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = []): Promise<void> {
