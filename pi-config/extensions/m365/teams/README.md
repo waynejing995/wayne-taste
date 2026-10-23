@@ -70,6 +70,7 @@ click per refresh-token lifetime is a bad trade. Nothing here ever reads it.
 | `teams_send` tool | The agent sends a Teams message when you tell it to. self / chat / channel. **It says what you asked, worded naturally, at the size you asked for** — rephrasing is fine; padding it with summaries and background you never mentioned is not. To notify someone it writes `@[Name](email)`; see [@mentions](#mentions) |
 | `teams_read` tool | The agent reads the last 20 messages of a chat or the self-chat (`limit` up to 200). A shared file becomes two lines: the name, and the url `teams_download` needs |
 | `teams_download` tool | Fetches a file someone shared, to a local path. Size-capped (256 MB default) |
+| `teams_transcript` tool | Reads the speaker-attributed transcript of a recorded meeting (`19:meeting_...@thread.v2`), or lists its recorded sessions (`list: true`, `date: "YYYY-MM-DD"` picks one). If the speaker-attributed Stream JSON is unavailable it falls back to WebVTT, which can lose speakers; the result then carries a `fallbackWarning` |
 | `teams_unread` tool | The agent reads the unread list |
 | `/teams` | Two-pane overlay laid out like Outlook's: chats left, the conversation (history and draft) right. It loads more chats and older history as you reach their ends. See [Paging](#paging) |
 | `/teams remote on` | **Unverified, deferred.** Post `pi: <task>` to your self-chat and this session runs it, then replies there |

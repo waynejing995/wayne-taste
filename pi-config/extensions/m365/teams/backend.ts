@@ -23,6 +23,7 @@ import type { DownloadedFile } from "../core/shares.ts";
 import type { Person } from "../core/people.ts";
 import { type ChatRef, type ChatsPage, type HistoryMessage, HISTORY_MESSAGES, type SendTarget } from "./compose-overlay.ts";
 import type { Mention } from "./mentions.ts";
+import type { MeetingTranscriptResult } from "./transcript.ts";
 
 /** One chat holding unread activity. Chat-level: Graph's preview carries no
   * mention data, so an honest per-message count does not exist here. */
@@ -103,6 +104,11 @@ export interface Backend {
 	 * SharePoint/OneDrive address, not an API endpoint.
 	 */
 	downloadFile(url: string, toPath?: string, opts?: { maxBytes?: number }): Promise<DownloadedFile>;
+	/**
+	 * Fetch a meeting's transcript (or list its recorded sessions) from its
+	 * `19:meeting_...@thread.v2` conversation via chatsvc + SharePoint.
+	 */
+	transcript(addr: ChatAddr, opts?: { date?: string; list?: boolean }): Promise<MeetingTranscriptResult>;
 	markRead(chatId: string): Promise<void>;
 	/**
 	 * `mentions` are the @mentions cut from the Markdown (mentions.ts). Only the
@@ -192,6 +198,12 @@ export class ScriptBackend implements Backend {
 		// would be indistinguishable from a file that is genuinely empty.
 		return Promise.reject(
 			new Error('the script backend cannot download files; set "backend": "graph" in ~/.pi/agent/teams.json'),
+		);
+	}
+
+	transcript(): Promise<never> {
+		return Promise.reject(
+			new Error('the script backend cannot read meeting transcripts by chat; set "backend": "graph" in ~/.pi/agent/teams.json'),
 		);
 	}
 

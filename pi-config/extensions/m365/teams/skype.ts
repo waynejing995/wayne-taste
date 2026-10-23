@@ -38,7 +38,7 @@ type Transport = (
 	init: { method?: string; headers: Record<string, string>; body?: string },
 ) => Promise<{ status: number; text(): Promise<string> }>;
 
-interface RawSkypeMessage {
+export interface RawSkypeMessage {
 	id?: string;
 	composetime?: string;
 	content?: string;
@@ -83,8 +83,8 @@ export class SkypeClient {
 		return this.auth;
 	}
 
-	private conversationUrl(messaging: string, suffix = ""): string {
-		return `${messaging.replace(/\/$/, "")}/users/ME/conversations/${encodeURIComponent(SELF_CONVERSATION)}/messages${suffix}`;
+	private conversationUrl(messaging: string, suffix = "", conversation = SELF_CONVERSATION): string {
+		return `${messaging.replace(/\/$/, "")}/users/ME/conversations/${encodeURIComponent(conversation)}/messages${suffix}`;
 	}
 
 	/**
@@ -117,6 +117,33 @@ export class SkypeClient {
 		const body = JSON.parse(text) as { messages?: RawSkypeMessage[]; _metadata?: { backwardLink?: string } };
 		const raw = body.messages ?? [];
 		return { raw, older: raw.length > 0 ? body._metadata?.backwardLink || undefined : undefined };
+	}
+
+	/**
+	 * Newest messages of any chatsvc conversation (such as a `19:meeting_...@thread.v2` thread).
+	 *
+	 * Meeting recording and transcript cards (`RichText/Media_CallRecording`) are posted as
+	 * chatsvc control messages that Graph's `/chats/{id}/messages` does not expose with their
+	 * OneDrive/SharePoint transcript metadata.
+	 */
+	async conversationMessages(conversationId: string, pageSize = 200): Promise<RawSkypeMessage[]> {
+		const { skypeToken, messaging } = await this.authorize();
+		const url = this.conversationUrl(
+			messaging,
+			`?pageSize=${pageSize}&view=msnp24Equivalent|supportsMessageProperties`,
+			conversationId,
+		);
+		const r = await this.doFetch(url, {
+			headers: {
+				"X-Skypetoken": skypeToken,
+				Accept: "application/json",
+				"User-Agent": "Mozilla/5.0 TeamsPrototype/1.0",
+			},
+		});
+		const text = await r.text();
+		if (r.status < 200 || r.status >= 300) throw new Error(`chatsvc ${r.status}: ${text.slice(0, 200)}`);
+		const body = JSON.parse(text) as { messages?: RawSkypeMessage[] };
+		return body.messages ?? [];
 	}
 
 	/** Messages as the pane shows them: control frames and empties dropped, newer than `sinceId` when given, oldest first. */

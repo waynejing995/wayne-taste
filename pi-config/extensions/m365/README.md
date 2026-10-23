@@ -7,7 +7,7 @@ both; each half keeps its own tools (`teams_*`, `outlook_*`), its own command
 | Directory | What it is | Read |
 | --- | --- | --- |
 | `core/` | What both halves use: sign-in, Graph, people, SharePoint files, saving, picture descriptions, @mention syntax, status row, time | below |
-| `teams/` | Chats: unread count, the `/teams` overlay, send/read/people/download tools, the self-chat remote channel | `teams/README.md` — read its sign-in note first |
+| `teams/` | Chats: unread count, the `/teams` overlay, send/read/people/download/transcript tools, the self-chat remote channel | `teams/README.md` — read its sign-in note first |
 | `outlook/` | Mail: the `/outlook` three-pane reader and composer, ten mail tools, signature | `outlook/README.md` |
 
 ## core/
