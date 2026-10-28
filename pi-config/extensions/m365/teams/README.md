@@ -136,6 +136,12 @@ Every rendered row is padded to exactly the frame width. A row wider than the
 frame corrupts the whole TUI, so the render is regression-tested at 60/80/100/120/200
 columns, including CJK width.
 
+In a Tern pane the composer is not rows: it describes itself as Tern nodes
+(`describe` in `compose-overlay.ts`, see `../README.md`, In Tern) — the chats as a
+native list, each message as Markdown, the filter and the draft as native fields,
+the hints as keycaps. The keys are the same; a click selects a chat, a double-click
+opens it.
+
 ## Paging
 
 Nothing is loaded beyond what the user reaches. Each kind of list has a first page and a cursor for the one after it:

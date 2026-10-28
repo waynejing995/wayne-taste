@@ -10,6 +10,7 @@ import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, Key, Markdown, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Component, MarkdownTheme, TUI } from "@earendil-works/pi-tui";
+import * as tn from "../core/tern-native.ts";
 import { htmlToMarkdown } from "./convert.ts";
 import type { FolderInfo, Mailbox, MailImage, Summary } from "./mailbox.ts";
 import { isShared, type SharedLink, sharedLinks } from "./files.ts";
@@ -148,6 +149,12 @@ function dropBlankTableHeaders(lines: string[]): string[] {
 }
 
 class OutlookOverlay implements Component {
+	get nativeOverlay(): tn.OverlayProps {
+		return tn.overlayProps("outlook", this.nativeTitle());
+	}
+	/** Bumped per pager scroll key: Tern moves the native reading pane's scroller once per bump (core/tern-native.ts). */
+	private nativeScroll: { by: "line-up" | "line-down" | "page-up" | "page-down"; n: number } = { by: "line-down", n: 0 };
+	private readonly describeMemo = tn.memo();
 	private mode: Mode = "index";
 	/** The folder listed: a well-known name or a folder id, and what the title calls it. */
 	private folder = { id: "inbox", label: "Inbox" };
@@ -535,6 +542,9 @@ class OutlookOverlay implements Component {
 		if (!p) return;
 		const { w, rows } = this.readingSize();
 		const last = Math.max(0, this.pagerRows(p, w).length - rows);
+		// In Tern the message is one native scroller: the same keys move it there, by a `scroll` op.
+		const by = data === "j" || matchesKey(data, Key.down) ? "line-down" : data === "k" || matchesKey(data, Key.up) ? "line-up" : data === " " || matchesKey(data, Key.pageDown) ? "page-down" : matchesKey(data, Key.pageUp) ? "page-up" : undefined;
+		if (by) this.nativeScroll = { by, n: this.nativeScroll.n + 1 };
 		if (data === "j" || matchesKey(data, Key.down)) this.pagerTop = Math.min(this.pagerTop + 1, last);
 		else if (data === "k" || matchesKey(data, Key.up)) this.pagerTop = Math.min(Math.max(this.pagerTop - 1, 0), last);
 		else if (data === " " || matchesKey(data, Key.pageDown)) this.pagerTop = Math.min(this.pagerTop + rows, last);
@@ -891,6 +901,261 @@ class OutlookOverlay implements Component {
 		if (this.mode === "search" && this.status === "") return `/${this.searchText}${CARET}`;
 		if (this.status === "") return "";
 		return this.statusError ? this.theme.fg("error", this.status) : this.status;
+	}
+
+	// ── Tern layer (core/tern-native.ts) ─────────────────────────────────
+	// The same state, described as Tern nodes. Only omp in a Tern pane calls this; keys still go through handleInput.
+
+	/** The sheet's title: what the row view's frame title says for the same screen. */
+	private nativeTitle(): string {
+		if (this.mode === "save" && this.opened) return `Save from: ${this.opened.summary.subject}`;
+		if (this.compose) return TITLES[this.compose.base.kind];
+		if (this.mode === "pager" && this.opened && !this.wide()) return this.opened.summary.subject;
+		if (this.mode === "picker" && !this.wide()) return "Folders";
+		return this.indexTitle();
+	}
+
+	/** Three panes in Tern: the pane is wide enough and no draft has the screen (the row view's `split()`, on Tern's width). */
+	private wide(): boolean {
+		return (this.tui.terminal?.columns ?? this.width) >= SPLIT_MIN && !this.compose;
+	}
+
+	/** A message's headers, body (Markdown, pictures described) and attachments, as the pager shows them. */
+	private nativeMessage(p: Opened): tn.NativeNode[] {
+		const mine = this.describedId === p.summary.id;
+		const seen = (label: string) => {
+			if (!mine) return label;
+			const text = this.described.get(label);
+			return text ? `${label} — ${text}` : `${label} — describing…`;
+		};
+		const head: [string, string][] = [
+			["From", who(p.summary.from)],
+			["To", listed(p.mail.to)],
+			["Cc", listed(p.mail.cc)],
+			["Date", stamp(p.summary.received, true)],
+		];
+		const pictured = p.images.reduce((md, { label }) => md.split(`[${label}]`).join(`[${seen(label)}]`), p.markdown);
+		// Tone spans (`[text]{.ok}`) are this package's Markdown dialect; Tern's reads them as text, so keep the text.
+		const plain = pictured.replace(TONE_SPAN, (_all, text: string) => text);
+		const shown = new Set(p.images.filter(({ label }) => p.markdown.includes(`[${label}]`)).map((m) => m.image));
+		const files = p.mail.attachments
+			.filter((a) => !shown.has(a))
+			.map((a, i) => {
+				const pic = p.images.find((m) => m.image === a);
+				return tn.text([tn.span(`📎 ${a.filename} · ${a.mimeType}${pic ? ` · ${seen(pic.label)}` : ""}`, "warning")], { wrap: "word" }, `att${i}`);
+			});
+		return [
+			tn.text([tn.span(p.summary.subject, "strong")], { wrap: "word" }, "subject"),
+			tn.node("kv", { items: head.filter(([, v]) => v !== "").map(([k, v]) => ({ k: [tn.span(k, "muted")], v })) }, undefined, "headers"),
+			tn.node("rule", {}, undefined, "rule"),
+			tn.md(tn.mdNoMath(plain), "body"),
+			...files,
+		];
+	}
+
+	private messageItems(): tn.NativeNode[] {
+		const today = new Date().toDateString();
+		return this.rows.map((r, i) => {
+			const when = new Date(r.received).toDateString() === today ? stamp(r.received, false).slice(6) : stamp(r.received, false).slice(0, 5);
+			const sender = r.from ? r.from.name || r.from.address : "";
+			return tn.item(`m${i}`, {
+				label: r.isRead ? sender : [tn.span(sender, "strong")],
+				detail: [tn.span(r.subject, r.isRead ? "" : "strong"), tn.span(`  ${r.preview.replace(/\s+/g, " ").trim()}`, "muted")],
+				value: [tn.span(`${r.hasAttachments ? "📎 " : ""}${when}`, "dim")],
+				tone: r.isRead ? undefined : "warning",
+			});
+		});
+	}
+
+	private folderItems(): tn.NativeNode[] {
+		return this.folderList.map((f, i) => {
+			const parts = f.path.split("/");
+			return tn.item(`f${i}`, {
+				label: `${"  ".repeat(parts.length - 1)}${parts.at(-1)}`,
+				value: f.unread > 0 ? [tn.span(String(f.unread), "accent")] : undefined,
+			});
+		});
+	}
+
+	private saveNodes(p: Opened): tn.NativeNode[] {
+		const items = this.saveItems(p).map((item, i) =>
+			tn.item(`s${i}`, {
+				label: item.kind === "attachment" ? `📎 ${item.attachment.filename}` : `🔗 ${item.link.text}`,
+				detail:
+					item.kind === "attachment"
+						? [tn.span(`${item.attachment.mimeType} · ${(item.attachment.size / 1024).toFixed(0)} KB`, "muted")]
+						: [tn.span("SharePoint/OneDrive", "muted")],
+			}),
+		);
+		return [
+			tn.text([tn.span("Save which file? (to ~/Downloads, never overwriting)", "dim")], undefined, "save-head"),
+			tn.selectList("save", items, items.length > 0 ? `s${this.saveSel}` : null, { grow: 1, min: { h: 0 } }),
+		];
+	}
+
+	/** The draft's fields: the focused one is a native field (Tern focuses it), the others its text. */
+	private composeNodes(c: Compose): tn.NativeNode[] {
+		const out: tn.NativeNode[] = FIELDS.map((f) => {
+			const label = tn.text([tn.span(LABELS[f].trim(), c.focus === f ? "accent strong" : "muted")], { wrap: "none", min: { w: `${LABEL_W}ch` } });
+			const value = c[f];
+			const field =
+				c.focus !== f
+					? tn.text(value || " ", { wrap: "word", grow: 1 })
+					: f === "body"
+						? tn.editor(value, value.length, { placeholder: "write the message (Markdown)", maxLines: 12 }, "field")
+						: tn.input(value, value.length, { placeholder: f === "subject" ? "subject" : "addresses, separated by , or ;" }, "field");
+			return tn.row([label, { ...field, p: { ...field.p, grow: 1 } }], { gap: "sm", align: "start" }, f);
+		});
+		const signature = this.deps.signature();
+		if (signature) out.push(tn.text([tn.span(signature, "dim")], { wrap: "word" }, "signature"));
+		const q = c.base.quote;
+		if (q) {
+			const head = quoteFields(q).map(([k, v]) => `${k}: ${v}`).join("\n");
+			const text = (q.html ? htmlToMarkdown(q.html) : (q.text ?? "")).trimEnd();
+			out.push(tn.node("rule", {}, undefined, "quote-rule"), tn.text([tn.span(head, "dim")], { wrap: "word" }, "quote-head"));
+			if (text) out.push(tn.text([tn.span(text.split("\n").map((l) => `> ${l}`).join("\n"), "dim")], { wrap: "word" }, "quote"));
+		}
+		return out;
+	}
+
+	/** The keycaps under the panes: the keys HINTS and SPLIT_HINTS name for this mode. */
+	private hintNodes(): tn.NativeNode {
+		const h = (keys: string[], label: string) => ({ keys, label });
+		const wide = this.wide();
+		const byMode: Record<Mode, { keys: string[]; label: string }[]> = {
+			index: [
+				h(["up", "down"], "move"), h(["enter"], "read"), ...(wide ? [h(["left"], "folders")] : [h(["c"], "folders")]), h(["/"], "search"),
+				h(["m"], "new"), h(["r"], "reply"), h(["g"], "reply all"), h(["f"], "forward"), h(["a"], "archive"), h(["d"], "delete"),
+				h(["N"], "read/unread"), h(["escape"], "close"),
+			],
+			search: [h(["enter"], "search"), h(["escape"], "back to folder")],
+			picker: [h(["up", "down"], "move"), h(["enter"], "open folder"), h(["escape"], wide ? "messages" : "back")],
+			pager: [
+				h(["up", "down"], "line"), h(["pageUp", "pageDown"], "page"), h(["s"], "save files"), h(["r"], "reply"), h(["g"], "reply all"),
+				h(["f"], "forward"), h(["escape"], wide ? "messages" : "back"),
+			],
+			save: [h(["up", "down"], "move"), h(["enter"], "save to ~/Downloads"), h(["escape"], "back")],
+			compose: [h(["tab"], "next field"), h(["ctrl+s"], "send"), h(["ctrl+p"], "save draft"), h(["escape"], "discard")],
+			"confirm-send": [h(["y"], "send now"), h(["n"], "keep editing")],
+			"confirm-discard": [h(["y"], "discard"), h(["n"], "keep editing")],
+		};
+		return tn.hints(byMode[this.mode]);
+	}
+
+	describe(cx: tn.DescribeContext): tn.NativeNode | null {
+		if (!cx.supports("list") || !cx.supports("md") || !cx.supports("input")) return null;
+		const wide = this.wide();
+		if (wide) {
+			// What render() does once the layout is known: the folders pane and the preview of the highlight.
+			this.ensureFolders();
+			this.schedulePreview();
+		}
+		const reading = this.mode === "pager" || this.mode === "save" ? this.opened : this.previewOf(this.rows[this.sel]);
+		const c = this.compose;
+		const sig = [
+			this.mode, wide, this.folder.id, this.rows.length, this.rows.map((r) => (r.isRead ? 1 : 0)).join(""), this.query ?? "", this.sel,
+			this.pickSel, this.saveSel, this.searchText, this.status, this.statusError, this.busy, this.folderList.length,
+			this.folderList.map((f) => f.unread).join(), reading?.summary.id ?? "", [...this.described.values()].join("\u0001"),
+			this.describedId ?? "", c ? `${c.focus}\u0001${c.to}\u0001${c.cc}\u0001${c.subject}\u0001${c.body}` : "", this.nativeScroll.n,
+			this.previews.size,
+			// The pane heights below come from the terminal's rows: a resize must rebuild the tree.
+			this.tui.terminal?.rows ?? 24,
+		].join("\u0000");
+		return this.describeMemo(sig, () => {
+			// The sheet's body does not hand its height down: the panes get one, the terminal less head, status and hints.
+			const paneLines = Math.max(6, (this.tui.terminal?.rows ?? 24) - 9);
+			const listRows = Math.max(3, Math.floor((paneLines - 2) / 2));
+			const fill = { grow: 1, min: { h: 0 } };
+			const heading = (label: string, on: boolean, key: string) =>
+				tn.text([tn.span(label, on ? "accent strong" : "muted")], { truncate: "end" }, key);
+			const messageList = tn.selectList("messages", this.messageItems(), this.rows.length > 0 ? `m${this.sel}` : null, {
+				...fill,
+				max: { lines: listRows },
+				empty: this.busy ? "loading…" : "(no messages)",
+			});
+			const searchField =
+				this.mode === "search" ? [tn.input(this.searchText, this.searchText.length, { placeholder: "search mail, enter to run", prompt: "/" }, "search")] : [];
+			const readingPane = (msg: Opened | undefined): tn.NativeNode =>
+				({
+					...tn.col(
+						msg ? this.nativeMessage(msg) : [tn.text([tn.span(this.rows[this.sel] ? "loading…" : "", "dim")], undefined, "empty")],
+						{ gap: "sm", ...fill, max: { h: `${paneLines - 1}lines` } },
+						"reading",
+					),
+					scroll: this.nativeScroll,
+				});
+			let panes: tn.NativeNode[];
+			if (c) {
+				panes = [tn.col(this.composeNodes(c), { gap: "sm", ...fill }, "compose")];
+			} else if (this.mode === "save" && this.opened) {
+				panes = [tn.col(this.saveNodes(this.opened), { gap: "sm", ...fill }, "save")];
+			} else if (wide) {
+				panes = [
+					tn.col(
+						[heading("Folders", this.mode === "picker", "head"), tn.selectList("folders", this.folderItems(), this.folderList.length > 0 ? `f${this.mode === "picker" ? this.pickSel : Math.max(0, this.currentFolderIndex())}` : null, { ...fill, max: { lines: listRows }, empty: "loading…" })],
+						{ gap: "sm", basis: 0.16, shrink: 0, min: { w: "18ch", h: 0 }, max: { w: "32ch" } },
+						"folders",
+					),
+					tn.col(
+						[heading("Messages", this.mode === "index" || this.mode === "search", "head"), ...searchField, messageList],
+						{ gap: "sm", basis: 0.32, shrink: 0, min: { w: "36ch", h: 0 }, max: { w: "64ch" } },
+						"list",
+					),
+					tn.col([readingPane(reading)], { gap: "sm", grow: 1, min: { w: 0, h: 0 } }, "read"),
+				];
+			} else if (this.mode === "picker") {
+				panes = [tn.col([tn.selectList("folders", this.folderItems(), this.folderList.length > 0 ? `f${this.pickSel}` : null, { ...fill, max: { lines: listRows } })], { ...fill }, "folders")];
+			} else if (this.mode === "pager" && this.opened) {
+				panes = [readingPane(this.opened)];
+			} else {
+				panes = [tn.col([...searchField, messageList], { gap: "sm", ...fill }, "list")];
+			}
+			const prompt = this.mode === "confirm-send" ? "Send?" : this.mode === "confirm-discard" ? "Discard draft?" : undefined;
+			const statusNode = prompt
+				? tn.row([tn.text([tn.span(prompt, "warning strong")]), tn.button("Yes", "yes", "y"), tn.button("No", "no", "n")], { gap: "md", align: "center" }, "status")
+				: tn.text(this.status ? [tn.span(this.status, this.statusError ? "error" : "accent")] : " ", { truncate: "end" }, "status");
+			return tn.col(
+				[
+					tn.row(panes, { gap: "md", align: "stretch", min: { h: `${paneLines}lines` }, max: { h: `${paneLines}lines` } }, "split"),
+					statusNode,
+					this.hintNodes(),
+				],
+				{ gap: "sm", grow: 1 },
+			);
+		});
+	}
+
+	/** Pointer actions on the described nodes, routed to the paths the matching keys take. */
+	handleNativeEvent(event: tn.NativeUiEvent): void {
+		if (this.busy) return;
+		if ((event.type === "select" || event.type === "activate") && "item" in event) {
+			const i = Number.parseInt(event.item.slice(1), 10);
+			if (!Number.isFinite(i)) return;
+			const kind = event.item[0];
+			if (kind === "m") {
+				this.sel = i;
+				if (this.mode === "picker" || this.mode === "pager") this.mode = "index";
+				if (event.type === "activate" && this.rows[i]) this.openRow(this.rows[i]);
+			} else if (kind === "f") {
+				this.pickSel = i;
+				this.mode = "picker";
+				if (event.type === "activate") this.pickerKey("\r");
+			} else if (kind === "s") {
+				this.saveSel = i;
+				if (event.type === "activate") this.saveKey("\r");
+			}
+		} else if (event.type === "action" && "act" in event) {
+			if (this.mode === "confirm-send") this.confirmSendKey(event.act === "yes" ? "y" : "n");
+			else if (this.mode === "confirm-discard") this.confirmDiscardKey(event.act === "yes" ? "y" : "n");
+		} else if (event.type === "edit" && "from" in event) {
+			const c = this.compose;
+			const current = this.mode === "search" ? this.searchText : c ? c[c.focus] : undefined;
+			if (current === undefined || event.len !== current.length) return;
+			const next = current.slice(0, event.from) + event.text + current.slice(event.to);
+			if (this.mode === "search") this.searchText = next.replace(/\n/g, " ");
+			else if (c) c[c.focus] = c.focus === "body" ? next : next.replace(/\n/g, " ");
+		}
+		this.tui.requestRender();
 	}
 }
 
