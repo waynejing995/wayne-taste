@@ -120,6 +120,9 @@ move between panes: ← or `c` from messages to folders, → or Tab back; Enter,
 or Tab from messages to the reading pane, ← / Esc / `q` back; Tab from the
 reading pane to folders. The folders pane is the folder picker below.
 
+In a Tern pane the same keys apply; a click selects a message or folder, a
+double-click opens it, and the Send?/Discard? prompts also have Yes/No buttons.
+
 ### Index
 
 | Key | Action |

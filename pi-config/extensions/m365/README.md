@@ -22,7 +22,29 @@ both; each half keeps its own tools (`teams_*`, `outlook_*`), its own command
 | `describe-image.ts` | A model-written description of a picture, cached on disk (`~/.cache/pi/teams-alt`) |
 | `mention.ts` | The `@[Name](address)` syntax as a Markdown extension, so code and escaped examples never mention anyone |
 | `status-row.ts` | One status-bar row for both counts (omp gives each status key its own line) |
+| `tern-native.ts` | The Tern layer: TSP node builders the two overlays describe themselves with (below) |
 | `time.ts` | Local time formatting |
+
+## In Tern
+
+When omp runs in a [Tern](https://docs.stencil.so/tern/protocol/) pane it speaks
+the Tern Surface Protocol, and both overlays describe themselves as native nodes
+(`describe(cx)`): Tern draws `/teams` and `/outlook` with its own lists, Markdown,
+fields and keycaps, across the whole pane. Without that layer Tern shows the
+terminal rows in a narrow frame labelled "fallback".
+
+Only the drawing changes: keys still reach `handleInput`, so every shortcut is the
+same; a click or double-click on a list item, or on a Yes/No button, goes to the code
+path of the matching key. Elsewhere (a plain terminal, tmux, pi) nobody calls
+`describe`, and the overlays draw rows as before.
+
+Tern details the layer relies on, from omp 18.13 and Tern 0.9.5:
+
+- the sheet body scrolls as a whole and does not pass its height down, so the panes
+  get an explicit height in lines, and a list needs `max.lines` for a scroller of its own;
+- Tern focuses the first `input`/`editor` a focused overlay describes, so only the
+  active pane gets a field and the other shows its text;
+- Tern's Markdown reads `$…$` as TeX, so `$` outside code is escaped (`mdNoMath`).
 
 ## Install
 

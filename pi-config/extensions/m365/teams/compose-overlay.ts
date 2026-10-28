@@ -34,6 +34,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { LoadedImage } from "../core/describe-image.ts";
+import * as tn from "../core/tern-native.ts";
 import type { Person } from "../core/people.ts";
 import { formatLocal } from "../core/time.ts";
 import { showImage } from "./image-viewer.ts";
@@ -312,6 +313,10 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 			let histMax = 0;
 			/** Lines the history showed at the last render: the PgUp/PgDn step. */
 			let histRows = 10;
+			/** Bumped per scroll key: Tern moves the native history's scroller once per bump (core/tern-native.ts). */
+			let nativeScroll: { by: "line-up" | "line-down" | "page-up" | "page-down"; n: number } = { by: "line-down", n: 0 };
+			/** True while omp describes this overlay to Tern (describe ran since the last render): scroll keys go to Tern's scroller. */
+			let nativeLive = false;
 			let fmt = 0;
 			let status = "";
 			let statusError = false;
@@ -484,8 +489,9 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 				}
 			}
 
-			/** url -> description, or "" while one is being fetched. */
+			/** url -> description, or "" while one is being fetched. `altRev` counts changes, for the Tern memo. */
 			const alt = new Map<string, string>();
+			let altRev = 0;
 
 			// One theme and one cache for the whole window: re-parsing every
 			// message on every keystroke would make typing crawl.
@@ -540,11 +546,13 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 						.altText(url)
 						.then((text) => {
 							alt.set(url, text);
+							altRev++;
 							rerender();
 						})
 						.catch((e) => {
 							// Visible, not silent: an undescribed picture should say so.
 							alt.set(url, `(could not be described: ${e})`);
+							altRev++;
 							rerender();
 						});
 				}
@@ -1037,6 +1045,14 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 					return;
 				}
 
+				// In Tern the history is one native scroller that Tern clamps, and render() never runs, so the row
+				// view's boundary (histMax, set by convPane) means nothing there: the keys only move the scroller,
+				// and older messages come from the "load older" button at its top.
+				const by = matchesKey(data, Key.up) ? "line-up" : matchesKey(data, Key.down) ? "line-down" : matchesKey(data, Key.pageUp) ? "page-up" : matchesKey(data, Key.pageDown) ? "page-down" : undefined;
+				if (by && nativeLive) {
+					nativeScroll = { by, n: nativeScroll.n + 1 };
+					return rerender();
+				}
 				if (matchesKey(data, Key.up)) {
 					scrollUp(1);
 				} else if (matchesKey(data, Key.down)) {
@@ -1259,7 +1275,216 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 				return `${wide ? CONV_HINT : CONV_HINT_SHORT}${pics}`;
 			}
 
-			const component: Component & Focusable & { dispose?(): void } = {
+			// ── Tern layer (core/tern-native.ts) ─────────────────────────────
+			// The same state, described as Tern nodes. Only omp in a Tern pane calls this.
+
+			/** History messages in Markdown, with picture descriptions and file lines, one node per message. */
+			function historyNodes(): tn.NativeNode[] {
+				if (loading) return [tn.text([tn.span("loading…", "dim")], undefined, "loading")];
+				if (historyError) return [tn.text([tn.span(historyError, "error")], { wrap: "word" }, "error")];
+				if (history.length === 0) {
+					const empty = opened ? "(no recent messages)" : "open a chat from the list: enter or →";
+					return [tn.text([tn.span(empty, "dim")], undefined, "empty")];
+				}
+				const out: tn.NativeNode[] = [];
+				if (historyOlder === undefined) out.push(tn.node("rule", { label: "start of conversation" }, undefined, "start"));
+				else out.push(tn.button(olderLoading ? "loading older…" : "load older messages", "older"));
+				let n = 0;
+				history.forEach((m, i) => {
+					const who = m.mine ? "me" : m.sender;
+					const tone = m.mentions_me ? "warning" : m.mine ? "accent" : "success";
+					const head = [tn.span(formatLocal(m.at), "dim"), tn.span(`  ${who}`, `${tone} strong`)];
+					if (m.mentions_me) head.push(tn.span("  @you", "warning"));
+					const body = (m.files ?? []).reduce((acc, f) => acc.split(`\u{1f4ce} [${f.name}](${f.url})`).join("").trim(), m.md ?? m.text);
+					const source = (m.images ?? []).reduce((acc, url) => {
+						n++;
+						const described = alt.get(url);
+						return acc.replace("[image]", described ? `[image ${n}: ${described}]` : `[image ${n}: describing…]`);
+					}, body);
+					const parts: tn.NativeNode[] = [tn.text(head, { wrap: "none", truncate: "end" }, "head")];
+					if (source) parts.push(tn.md(tn.mdNoMath(source), "body"));
+					for (const [j, f] of (m.files ?? []).entries()) {
+						parts.push(tn.text([{ t: `📎 ${f.name}`, s: "warning link", href: f.url }], { truncate: "end" }, `file${j}`));
+					}
+					// Keyed by the message, not its index: a prepended older page then adds nodes instead of re-keying all.
+					const msg = tn.col(parts, { gap: "xs" }, tn.stableKey(`${m.at}\u0000${m.sender}\u0000${m.text}`));
+					// A node reveals itself when added: the newest message is new on open and on every arrival, so the
+					// pane opens at the bottom. Older pages prepend under other keys and leave the view where it is.
+					out.push(i === history.length - 1 ? { ...msg, reveal: "end" } : msg);
+				});
+				return out;
+			}
+
+			function chatItems(): tn.NativeNode[] {
+				if (mode === "people") {
+					return people.map((p, i) => tn.item(`p${i}`, { label: p.name, detail: [tn.span(p.email, "muted")] }));
+				}
+				const unread = new Set(deps.unreadIds());
+				return rows().map((r, i) => {
+					const isUnread = r.id !== "" && unread.has(r.id);
+					return tn.item(`c${i}`, {
+						label: isUnread ? [tn.span(r.display, "strong")] : r.display,
+						detail: r.preview ? [tn.span(r.preview, "muted")] : undefined,
+						value: [tn.span(chatWhen(r.at), "dim")],
+						tone: isUnread ? "warning" : undefined,
+					});
+				});
+			}
+
+			/** The keycaps under the panes: the same keys as the row hints, per pane. */
+			function hintNodes(): tn.NativeNode {
+				const images = imageRefs().length;
+				const list: { keys: string[]; label: string }[] =
+					pane === "list"
+						? mode === "people"
+							? [
+									{ keys: ["enter"], label: peopleSearched ? "open" : "search" },
+									{ keys: ["ctrl+p"], label: "chats" },
+									{ keys: ["escape"], label: "close" },
+								]
+							: [
+									{ keys: ["up", "down"], label: "move" },
+									{ keys: ["enter"], label: "open" },
+									{ keys: ["tab"], label: "conversation" },
+									{ keys: ["ctrl+p"], label: "find someone" },
+									{ keys: ["ctrl+r"], label: "reload" },
+									{ keys: ["escape"], label: "close" },
+								]
+						: [
+								{ keys: ["enter"], label: "send" },
+								{ keys: ["ctrl+j"], label: "newline" },
+								{ keys: ["pageUp", "pageDown"], label: "scroll" },
+								{ keys: ["ctrl+f"], label: `format: ${FORMATS[fmt]}` },
+								{ keys: ["ctrl+r"], label: "reload" },
+								...(images > 0
+									? [{ keys: ["ctrl+o"], label: `${getCapabilities().images ? "view" : "describe"} ${images} image(s)` }]
+									: []),
+								{ keys: ["tab"], label: "chats" },
+							];
+				return tn.hints(list);
+			}
+
+			const describeMemo = tn.memo();
+
+			function describe(cx: tn.DescribeContext): tn.NativeNode | null {
+				if (!cx.supports("list") || !cx.supports("md") || !cx.supports("input")) return null;
+				const sig = [
+					pane, mode, filter, sel, draft, caret, fmt, status, statusError, loading, historyError,
+					histGen, history.length, history[0]?.at ?? "", historyOlder ?? "", olderLoading, altRev, chats.length, chatsNext ?? "", nativeScroll.n,
+					people.length, peopleSearched, searching, targetName, deps.unreadIds().join(),
+					// The pane heights below come from the terminal's rows: a resize must rebuild the tree.
+					tui.terminal?.rows ?? 24,
+				].join("\u0000");
+				nativeLive = true;
+				return describeMemo(sig, () => {
+					const count = mode === "people" ? people.length : rows().length;
+					if (sel >= count) sel = Math.max(0, count - 1);
+					// The sheet's body scrolls as a whole and does not hand its height down, so the panes get an explicit
+					// one, as omp's split-pane does: the terminal less the sheet's head, status and hints. Inside, the list
+					// `max` (in rows) and the history `max.h` (in lines) give each its own scroller.
+					const paneLines = Math.max(6, (tui.terminal?.rows ?? 24) - 9);
+					const listLines = Math.max(3, Math.floor((paneLines - 4) / 2));
+					const fill = { grow: 1, min: { h: 0 } };
+					const left = tn.col(
+						[
+							tn.text([tn.span(mode === "people" ? "People" : "Chats", pane === "list" ? "accent strong" : "muted")], undefined, "head"),
+							tn.selectList("chats", chatItems(), count > 0 ? `${mode === "people" ? "p" : "c"}${sel}` : null, {
+								...fill,
+								max: { lines: listLines },
+								empty: filter.trim() ? `no match for "${filter.trim()}"` : mode === "people" ? (searching ? "searching…" : "enter to search") : "no chats",
+							}),
+							// Tern focuses the first field a focused overlay describes, so only the active pane gets one; the
+							// other shows its text, as the row view does.
+							pane === "list"
+								? tn.input(
+										filter,
+										filter.length,
+										{ placeholder: mode === "people" ? "find someone: type a name, enter to search" : "type to filter chats" },
+										"filter",
+									)
+								: tn.text([tn.span(`${mode === "people" ? "search" : "filter"}: ${filter}`, "muted")], { truncate: "end" }, "filter"),
+						],
+						{ gap: "sm", basis: 0.3, shrink: 0, min: { w: "32ch", h: 0 }, max: { w: "56ch" } },
+						"left",
+					);
+					const right = tn.col(
+						[
+							tn.text([tn.span(targetName, pane === "composer" ? "accent strong" : "muted")], { truncate: "end" }, "head"),
+							// Newest at the bottom: the last message is revealed when a conversation (or a new message) lands;
+							// scroll keys move the scroller.
+							{ ...tn.col(historyNodes(), { gap: "md", ...fill, max: { h: `${Math.max(4, paneLines - 6)}lines` } }, "history"), scroll: nativeScroll },
+							pane === "composer"
+								? tn.editor(
+										draft,
+										tn.utf16Offset(draft, caret),
+										{ placeholder: opened ? `message ${targetName}` : "pick a chat first", prompt: ">", maxLines: 6 },
+										"composer",
+									)
+								: tn.text([tn.span(`> ${draft}`, draft ? "" : "dim")], { wrap: "word", lines: 6 }, "composer"),
+						],
+						{ gap: "sm", grow: 1, min: { w: 0, h: 0 } },
+						"right",
+					);
+					const standing = pane === "composer" ? `format: ${FORMATS[fmt]}` : mode === "people" ? "enter to search" : chatsSummary();
+					const statusSpans = status !== "" ? [tn.span(status, statusError ? "error" : "accent")] : [tn.span(standing, "muted")];
+					return tn.col(
+						[
+							tn.row([left, right], { gap: "md", align: "stretch", min: { h: `${paneLines}lines` }, max: { h: `${paneLines}lines` } }, "split"),
+							tn.text(statusSpans, { truncate: "end" }, "status"),
+							hintNodes(),
+						],
+						{ gap: "sm", grow: 1 },
+					);
+				});
+			}
+
+			/** Pointer actions on the described nodes, routed to the paths the matching keys take. */
+			function handleNativeEvent(event: tn.NativeUiEvent): void {
+				if ((event.type === "select" || event.type === "activate") && "item" in event) {
+					const i = Number.parseInt(event.item.slice(1), 10);
+					if (!Number.isFinite(i)) return;
+					pane = "list";
+					sel = i;
+					if (event.type === "activate") {
+						if (mode === "people") {
+							if (people[i]) void selectPerson(people[i]);
+						} else {
+							const r = rows()[i];
+							if (r) void selectRow(r);
+						}
+					}
+					return rerender();
+				}
+				if (event.type === "action" && "act" in event && event.act === "older") {
+					atTop();
+					return rerender();
+				}
+				if (event.type === "edit" && "from" in event) {
+					const isFilter = event.key.endsWith("filter");
+					const current = isFilter ? filter : draft;
+					if (event.len !== current.length) return;
+					const next = current.slice(0, event.from) + event.text + current.slice(event.to);
+					if (isFilter) {
+						filter = next.replace(/\n/g, " ");
+						sel = 0;
+						if (mode === "people") peopleSearched = false;
+						else fillFilter();
+					} else {
+						draft = next;
+						draftRev++;
+						caret = tn.charIndex(next, event.cursor);
+						pane = "composer";
+					}
+					return rerender();
+				}
+			}
+
+			const component: Component & Focusable & { dispose?(): void; readonly nativeOverlay: tn.OverlayProps } = {
+				get nativeOverlay() {
+					return tn.overlayProps("teams", titleText());
+				},
+				describe,
+				handleNativeEvent,
 				get focused() {
 					return _focused;
 				},
@@ -1267,6 +1492,7 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 					_focused = v;
 				},
 				render(width: number): string[] {
+					nativeLive = false;
 					const B = bodyRows();
 					const inner = width - 4;
 					const lw = leftWidth(inner);
