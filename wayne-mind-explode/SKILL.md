@@ -23,13 +23,16 @@ Create only design artifacts, and only two kinds.
 - `spec.md` — the candidate, until the user approves its exact bytes
 - the handoff packet owned by `wayne-checkpoint`
 
-**Durable, in `docs/`** — one living page per topic, the sole artifact that outlives the run:
+**Durable** — the only artifacts that outlive the run:
 
-- `docs/specs/<topic>.md` — replaced in place from an approved candidate, never re-dated
+- `docs/specs/<topic>.md` — one living page per topic, replaced in place from an approved candidate, never re-dated
+- `GLOSSARY.md` at the repository root — the project's domain terms, one entry per term, written only at Q
 
-`docs/specs/` holds only bytes the user has approved. Each revision enters it by being moved there at node V and leaves only by becoming `deprecated`. Until then the candidate lives in the run directory, which is why an abandoned run leaves nothing behind and why the living page never shows unapproved design.
+`docs/specs/` holds only bytes the user has approved. Each revision enters it by being moved there at node V and leaves only by becoming `deprecated`. Until then the candidate lives in the run directory, which is why an abandoned run leaves no unapproved bytes behind and why the living page never shows unapproved design.
 
 Nothing else goes in `docs/`. A run abandoned mid-design is the normal case, not the exception, and anything it left in `docs/` would sit there forever looking exactly like a shipped design. Keeping the whole working set outside the tracked tree removes that failure instead of scheduling a cleanup for it.
+
+`GLOSSARY.md` takes only a term meaning that the user chose at Q. A meaning the user chose is approved design even if the run stops before V, so it may enter the tracked tree at once. A term meaning is intent that the code cannot carry, and every later session reads it instead of inferring it again.
 
 ## Flow
 
@@ -98,7 +101,7 @@ Seed the run-scoped log from [the template](templates/decision-log.jsonl) — on
 
 ### B. Research project and lessons
 
-**Initial survey.** Start with the topic's living spec and every spec named by its `Depends on` edges; these are the current design, not background reading. Use parallel subagents to research all relevant directions and seed known root and dependent nodes.
+**Initial survey.** Start with the topic's living spec and every spec named by its `Depends on` edges; these are the current design, not background reading. If the repository has a `GLOSSARY.md`, read it and use its terms in every question and in the spec. Use parallel subagents to research all relevant directions and seed known root and dependent nodes.
 
 **Check spec freshness before seeding.** A spec is current only if its metadata supports that claim and no evidence contradicts it. Check these dates first:
 
@@ -113,7 +116,7 @@ No `verified` entry means design-approved but never run, not stale; only `wayne-
 - **KB:** find semantically matching lessons, prior decisions, research, how-tos, and project notes. Surface matches and log whether the user applies or skips them.
 - **Web:** research similar implementations and reusable solutions for software-stack selection. Otherwise, search only when current external facts could change a design choice. Store source URLs in the decision's `reference`; a source that cannot be reopened is not evidence.
 
-**Classify the result.** Evidence-backed facts resolve without user confirmation, but P must persist their numbered evidence before they become resolved. Only trusted spec references may seed resolved nodes directly. Every design-relevant source fact belongs in both a `decision` record and the DAG, never only in prose notes. Intent, priority, risk, scope, and trade-offs are user-owned `choice` nodes. Ambiguous or conflicting evidence also stays open as a choice.
+**Classify the result.** Evidence-backed facts resolve without user confirmation, but P must persist their numbered evidence before they become resolved. Only trusted spec references may seed resolved nodes directly. Every design-relevant source fact belongs in both a `decision` record and the DAG, never only in prose notes. Intent, priority, risk, scope, and trade-offs are user-owned `choice` nodes. Ambiguous or conflicting evidence also stays open as a choice. A fact that only running something can establish (layout, timing, real library behavior) may be settled by a throwaway spike; log the observation as the fact's evidence.
 
 **Expand consequences.** After every resolved node, identify new purpose/scope, ownership, interface, data/control flow, failure/concurrency, compatibility, operations, verification, or rollback decisions. Persist every real child before selecting the next node; a broad parent answer does not resolve its consequences.
 
@@ -138,6 +141,8 @@ Include software-stack selection as a required choice, using B's research to ide
 ### Q. Persist one user decision
 
 Append only the answered decision as one new `decision` record and verify it is durable before researching or asking the next branch. In the same write, rewrite that node's line to `resolved` with `resolved_by` set, and append all children opened by the answer. If the answer did not resolve the choice, leave the node `open` and return to D without writing a decision record.
+
+If the answer settles what a domain term means, or that two words name one concept, update the repository-root `GLOSSARY.md` after the decision record is durable. Write the term, a one-line definition, the aliases to avoid, and the `<slug>:D<number>` of the decision. If the decision supersedes an earlier meaning, replace that entry instead of adding a second one.
 
 ### E. Converge and approve design
 
