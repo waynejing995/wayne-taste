@@ -9,19 +9,21 @@ Turn an unresolved idea into approved design inputs for `wayne-plan`.
 
 ## Boundary
 
-Own discovery, decision convergence, design approval, test-design delegation, conflict resolution, spec writing, independent design review, and handoff. Never implement code or write an implementation plan. Do not commit, branch, push, or publish unless separately requested.
+Own discovery, decision convergence, design approval, test-design delegation, conflict resolution, spec writing, independent design review, and handoff. Never implement code or write an implementation plan. Do not branch, push, or publish. The only commit this skill makes is the post-J commit of the approved spec (and `GLOSSARY.md` if this run changed it), described at CMT.
 
 `decision locked`, `design approved`, or an equivalent milestone freezes design state; it never authorizes execution. Continue only this Flow, hand off to `wayne-plan`, and stop. Never execute the plan or invoke `wayne-work`.
 
 Create only design artifacts, and only two kinds.
 
-**Run-scoped, in `.wayne/runs/<topic>/`** — working state, gitignored, absorbed or promoted before handoff:
+Resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` (`STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh)`). If the resolver fails, report that and stop; never fall back to a repo-local `.wayne/` or `/tmp`. Cross-stage references to `<state>` artifacts are absolute paths.
+
+**Run-scoped, in `<state>/runs/<topic>/`** — working state, outside the repository, absorbed or promoted before handoff:
 
 - `decision-log.jsonl`
 - `test-matrix.md` through `wayne-test-design`
 - `review-{product|engineering}.md` — each voice's latest report; the log carries the rounds
 - `spec.md` — the candidate, until the user approves its exact bytes
-- the handoff packet owned by `wayne-checkpoint`
+- the handoff packet owned by `wayne-checkpoint` (under `<state>/checkpoints/`)
 
 **Durable** — the only artifacts that outlive the run:
 
@@ -57,6 +59,7 @@ flowchart TB
     R["Revise from findings"]
     U{"Review mechanism available?"}
     X(["Stop: review unavailable"])
+    CMT["Commit the approved spec"]
     L(["Handoff to wayne-plan"])
 
     A --> B
@@ -80,19 +83,20 @@ flowchart TB
     V -->|"no: revise"| I
     V -->|"yes"| J
     J --> K
-    K -->|"yes"| L
+    K -->|"yes"| CMT
     K -->|"no"| ADJ
     ADJ -->|"carrier loss / real defect"| R
     ADJ -->|"challenges a decision / upstream gap"| D
-    ADJ -->|"all remaining non-blocking"| L
+    ADJ -->|"all remaining non-blocking"| CMT
     R --> M
+    CMT --> L
 ```
 
 ## Process
 
 ### A. Open or resume the decision log
 
-Read `../_shared/pipeline-id-contract.md` completely. Before anything else, resolve whether this topic already has a living spec at `docs/specs/<topic>.md`.
+Read `../_shared/pipeline-id-contract.md` completely. Resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` before writing; if the resolver fails, report that and stop. Write the log at `$STATE/runs/<topic>/decision-log.jsonl`. Before anything else, resolve whether this topic already has a living spec at `docs/specs/<topic>.md`.
 
 - **No spec.** New topic. Create the log with `meta.status` `in-progress` and start decision IDs at `D1`.
 - **Spec exists.** This run amends that spec; it never opens a second one. Read the whole file — every entry of its `## Decisions` section, and every spec named in a `Depends on` line. Create the log with `meta.status` `in-progress`, and **continue that spec's decision numbering**. Restarting at `D1` puts two `D1`s in one spec and destroys the uniqueness its namespaced IDs depend on. An already-recorded decision is reversed only by a new record naming it in `supersedes`; never edit or delete the existing entry, and never silently re-decide it because it was absent from this run's context.
@@ -182,7 +186,7 @@ Only the user chooses between these. Defaulting to "the spec is stale" launders 
 
 Read [the spec contract](references/spec-contract.md) in full before drafting; it owns frontmatter, section contents, architecture and diagrams, requirement/decision traceability, and writing rules. Use [the spec skeleton](templates/spec.md) for a new topic; for an amendment, start from the current living page under the contract's `## Candidate versus in force` rules.
 
-Write only the candidate at `.wayne/runs/<topic>/spec.md`, never the living page at this node. Set `generated` to this run's actor and time.
+Write only the candidate at `<state>/runs/<topic>/spec.md`, never the living page at this node. Set `generated` to this run's actor and time.
 
 1. **Write the narrative first, then derive the appendix.** Integrate load-bearing decisions into the architecture or alternatives they shaped; do not build an R/D catalog and add explanatory prose afterwards.
 2. **Absorb the matrix's E2E layer into `## Verification`.** Carry the existing contract forward rather than authoring a second one; follow the spec contract's verification-state ownership rules.
@@ -190,7 +194,7 @@ Write only the candidate at `.wayne/runs/<topic>/spec.md`, never the living page
 
 ### M. Run the mechanical checks
 
-Every path that reaches V has just rewritten the candidate's bytes, so I and R both land here. Run both checkers against `.wayne/runs/<topic>/spec.md`, fix what they report in the candidate, and re-run until both are clean.
+Every path that reaches V has just rewritten the candidate's bytes, so I and R both land here. Run both checkers against `<state>/runs/<topic>/spec.md`, fix what they report in the candidate, and re-run until both are clean.
 
 - [the format checker](scripts/check_spec_format.py) — `uv run <path> <candidate>` — the bounded sections downstream stages parse, the `R`/`D` contracts, the narrative/appendix divider, layering with prose per level, and the two prose habits with a signature. On an amendment add `--compare docs/specs/<topic>.md`, which proves the rewrite dropped no `R<n>` or `D<n>`.
 - [the mermaid checker](scripts/check_mermaid.mjs) — `node <path> <candidate>` — parses every `mermaid` block with mermaid's own grammar and rejects a renderer config or a diagram type outside the portable profile. It installs its pinned parser once under `~/.cache/`; the spec bytes never leave the machine. This gate exists because every reader of the spec downstream — the three voices at J included — reads the source rather than the rendering, so a diagram that renders as an error box in the user's editor is caught by nobody else.
@@ -199,11 +203,11 @@ A checker that cannot run is a hard stop: report the missing capability rather t
 
 ### U. Require an independent-review mechanism
 
-Establish that the mechanism exists before a page goes in force; this node discovers capability and does not review anything. Find how the current agent launches isolated read-only subagents, and record what it is. The review criteria are provider-neutral and live in the three templates below; only the dispatch mechanism is host-specific. J launches one subagent per voice, in parallel, each carrying exactly one protocol path — `references/product-review.md`, `references/engineering-review.md`, and `references/decision-carriage.md` — over the same artifact set: the approved spec revision, the decision log, and the test matrix. No voice edits anything, and the gate is computed only after all three return. Product and engineering must land on different model families — they argue about the same bytes, so one family collapses them into one opinion. Carriage compares two artifacts against each other rather than arguing, so its independence comes from a fresh isolated context; it may share a family. If the isolated executions cannot be started, if any voice fails or returns nothing, or if product and engineering collapse onto one model family, return `REVIEW_UNAVAILABLE` with the missing capability and stop, before anything is promoted. If the failure only surfaces when J actually runs, move the page back to `.wayne/runs/<topic>/spec.md`, clear `written_spec_approved` and `approved_spec_sha256`, and return `REVIEW_UNAVAILABLE` from there: an in-force page no voice could read is worse than no page. Never simulate a voice in one local analysis or silently downgrade to fewer reviews. A requested model is not a routed model: after J runs, read each reviewer execution's actual model from the host's run metadata, and void the run the same way if any voice fell back to the session default or product and engineering resolved to one family.
+Establish that the mechanism exists before a page goes in force; this node discovers capability and does not review anything. Find how the current agent launches isolated read-only subagents, and record what it is. The review criteria are provider-neutral and live in the three templates below; only the dispatch mechanism is host-specific. J launches one subagent per voice, in parallel, each carrying exactly one protocol path — `references/product-review.md`, `references/engineering-review.md`, and `references/decision-carriage.md` — over the same artifact set: the approved spec revision, the decision log, and the test matrix. No voice edits anything, and the gate is computed only after all three return. Product and engineering must land on different model families — they argue about the same bytes, so one family collapses them into one opinion. Carriage compares two artifacts against each other rather than arguing, so its independence comes from a fresh isolated context; it may share a family. If the isolated executions cannot be started, if any voice fails or returns nothing, or if product and engineering collapse onto one model family, return `REVIEW_UNAVAILABLE` with the missing capability and stop, before anything is promoted. If the failure only surfaces when J actually runs, move the page back to `<state>/runs/<topic>/spec.md`, clear `written_spec_approved` and `approved_spec_sha256`, and return `REVIEW_UNAVAILABLE` from there: an in-force page no voice could read is worse than no page. Never simulate a voice in one local analysis or silently downgrade to fewer reviews. A requested model is not a routed model: after J runs, read each reviewer execution's actual model from the host's run metadata, and void the run the same way if any voice fell back to the session default or product and engineering resolved to one family.
 
 ### V. Approve the written spec
 
-The review mechanism is already known by this point; a page must not go in force before it is certain that anyone can review it. Show the candidate at `.wayne/runs/<topic>/spec.md` and ask the user to approve that exact written revision. A prior section-by-section approval is not approval of the file bytes. On rejection, log one decision, revise the candidate, and ask again. Start no reviewer until the written revision is explicitly approved.
+The review mechanism is already known by this point; a page must not go in force before it is certain that anyone can review it. Show the candidate at `<state>/runs/<topic>/spec.md` and ask the user to approve that exact written revision. A prior section-by-section approval is not approval of the file bytes. On rejection, log one decision, revise the candidate, and ask again. Start no reviewer until the written revision is explicitly approved.
 
 On approval, set `written_spec_approved` to `true` and `approved_spec_sha256` to the digest of the approved bytes in the log's `meta` line, then **move** the candidate onto `docs/specs/<topic>.md` byte for byte — replacing the previous revision on an amendment, creating the page on a new topic. Move, never copy: two copies would immediately begin to disagree. Never edit during or after the move; the bytes the reviewers in J read are the bytes the user approved, and changing so much as the status line would make that untrue.
 
@@ -219,14 +223,14 @@ On approval, set `written_spec_approved` to `true` and `approved_spec_sha256` to
 
 The protocols own the detailed review criteria. Carriage is an independent audit of I's transcription, not an author self-check; the other two voices treat the log as context, not as the artifact being transcribed.
 
-**Record evidence.** Keep each voice's latest report at `.wayne/runs/<topic>/review-{product|engineering|carriage}.md`, with its role, verdict, and the digest of the bytes it read. Preserve history in the decision log: append one `decision` record per round with `"source":"review"` and the report path in `reference`. Never rewrite an earlier round's record.
+**Record evidence.** Keep each voice's latest report at `<state>/runs/<topic>/review-{product|engineering|carriage}.md`, with its role, verdict, and the digest of the bytes it read. Preserve history in the decision log: append one `decision` record per round with `"source":"review"` and the report path in `reference`. Never rewrite an earlier round's record.
 
 **Count valid rounds.** Three valid rounds is the cap. One round dispatches all three voices against one promoted page; it counts only when every voice actually executes on its own routed model and returns a report naming the digest it read. A failed execution, termination before its report, empty result, or collapse onto another voice's model family produces no judgment: rerun it and count nothing. **Three voices in one round are not three rounds.**
 
 **Handle outcomes through the existing Flow.**
 
-- **Before the cap:** all three voices must pass. Route `REVISE` through adjudication; when a revision is required, move `docs/specs/<topic>.md` back to `.wayne/runs/<topic>/spec.md`, clear `written_spec_approved` and `approved_spec_sha256`, and revise the candidate. Obtain V's approval of the revised bytes before promotion, then rerun every voice against the promoted page. Never leave an unapproved or half-revised page in `docs/specs/`.
-- **On the third valid round:** take findings through ADJ as usual, then proceed. Append anything still open to the decision log as non-blocking, naming the round cap as the reason. Do not send the page back for a fourth revision/review cycle.
+- **Before the cap:** all three voices must pass. Route `REVISE` through adjudication; when a revision is required, move `docs/specs/<topic>.md` back to `<state>/runs/<topic>/spec.md`, clear `written_spec_approved` and `approved_spec_sha256`, and revise the candidate. Obtain V's approval of the revised bytes before promotion, then rerun every voice against the promoted page. Never leave an unapproved or half-revised page in `docs/specs/`.
+- **On the third valid round:** take findings through ADJ as usual, then proceed to CMT. Append anything still open to the decision log as non-blocking, naming the round cap as the reason. Do not send the page back for a fourth revision/review cycle.
 
 **Protect approved bytes.** The cap relaxes only the verdict gate. All three voices must still have executed against the same final bytes, whose digest is `approved_spec_sha256`; a voice that never ran cannot satisfy the cap. Any later design-content edit makes those passes stale. The sole exception is `wayne-verify` appending a runtime `verified` entry after ship: it confirms the same design without re-arming the gate. Never add review notes to the spec after the passes, or let a reviewer write its own pass into the bytes it reviewed.
 
@@ -243,13 +247,23 @@ A `CHALLENGES_DECISION` needs a durable node before it can be asked: append one 
 
 Promotion proceeds once every finding is either resolved by a revision or non-blocking. A finding the user already rejected never re-blocks, however many rounds raise it again.
 
+### CMT. Commit the approved spec
+
+Once J finishes — all three voices pass, or the third valid round's cap is reached and findings are adjudicated — commit the in-force page before L. A REVISE cycle has already moved the page back to `<state>/runs/<topic>/spec.md`, so no commit exists yet: never amend or revert to undo a spec commit that was not made.
+
+The commit contains only `docs/specs/<topic>.md` plus `GLOSSARY.md` if this run changed it. `git add --` those allowed paths first — a new-topic spec or a first `GLOSSARY.md` is untracked, and `git commit` will not pick it up. Then `git commit -s --` the same pathspec so nothing else already staged is included. Nothing else the user had uncommitted may be swept in. Push and PR are not authorized.
+
+Message follows the global commit format: `<JIRA> - title`, or `feat:/<topic> - spec: <title>` when there is no ticket; `[why]` / `[how]`; `git commit -s`. Sign-off as the effective `git config user.name` / `user.email` (repo-level wins over global). If that identity is a `*Robot*` / `noreply` address, ask the user instead of committing. No `Co-Authored-By` robot trailers; never edit git config.
+
+Record the resulting SHA; L puts it in the handoff.
+
 ### L. Handoff to wayne-plan
 
-Rewrite the log's `meta` line: `status` to `design-approved`, `spec` and `test_matrix` to their paths. `design-approved` requires `frontier_locked` and `written_spec_approved` to already be `true`; it records that both gates were passed, and never stands in for either. Tell the user their paths and that `wayne-plan` is the next agent. Invoke `wayne-checkpoint` in handoff mode with those artifacts and `next agent: wayne-plan`; return the packet without auto-advancing. End here.
+Rewrite the log's `meta` line: `status` to `design-approved`, `spec` and `test_matrix` to their paths (`spec` is `docs/specs/<topic>.md`; `test_matrix` is the absolute `<state>/runs/<topic>/test-matrix.md`). `design-approved` requires `frontier_locked` and `written_spec_approved` to already be `true`; it records that both gates were passed, and never stands in for either. Tell the user their paths, the spec commit SHA, and that `wayne-plan` is the next agent. Invoke `wayne-checkpoint` in handoff mode with those artifacts, the spec commit SHA, and `next agent: wayne-plan`; return the packet without auto-advancing. End here.
 
 ## Red lines
 
-- No code, scaffolding, implementation plan, or unrequested commit.
+- No code, scaffolding, implementation plan, or commit other than the post-J spec commit at CMT.
 - No question whose answer exists in the repository or approved sources.
 - No spec before all required decisions and conflicts are resolved.
 - No duplicated E2E contract or second test-matrix owner.

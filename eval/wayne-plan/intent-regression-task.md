@@ -6,6 +6,7 @@ idempotent delivery retry feature. Discover and read the decision log, spec, mat
 repository context, active plans, and local lessons. This is a return-only run: do
 not checkpoint, implement, commit, branch, push, or invoke a downstream stage.
 
-If all gates pass, write one approved plan under `docs/plans/` and give the
-normal user-visible completion response. Do not modify any upstream artifact. No
-evaluator, expected lesson, or expected final language is available during the run.
+If all gates pass, write one approved plan under `/workspace/wayne-home/projects/repo/plans/`
+and return its path, then give the normal user-visible completion response. Do not modify
+any upstream artifact. No evaluator, expected lesson, or expected final language is
+available during the run.

@@ -84,7 +84,7 @@ Then dispatch **one read-only subagent per selected section**, in parallel, **1-
 
 Require it to return findings that change planning quality — stronger rationale, sequencing, verification, risk treatment, or a repository reference — and forbid it implementation code, shell commands, and edits of any kind. Prefer repository and `WAYNE_KB_DIR` evidence over external sources; go external only when the gap cannot be closed from the repository. When two agents conflict, repository-grounded evidence beats generic advice and official documentation beats a secondary summary; a real remaining tradeoff is recorded in the plan rather than resolved silently.
 
-Keep the returns inline. Only when the selection is large enough that inline returns would crowd the context, have each agent write one compact file into a fresh `mktemp -d` directory and return a one-line summary — outside the repository, never `.wayne/`, so the scope proof still holds.
+Keep the returns inline. Only when the selection is large enough that inline returns would crowd the context, have each agent write one compact file into a fresh `mktemp -d` directory and return a one-line summary — outside the repository and never under `<state>`, so the scope proof still holds.
 
 ## 4. Strengthen
 

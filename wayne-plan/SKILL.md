@@ -13,7 +13,7 @@ Produce an English implementation plan that a fresh `wayne-work` agent can execu
 - An approved decision log is upstream read-only. Do not restore the retired `plan-complete` writeback or add a plan link there; the plan and checkpoint carry that relationship without creating a second state writer.
 - Stop on unresolved product behavior or compatibility policy; do not silently choose it. Do not brainstorm, design the test matrix, implement code, run the feature, commit, or ship.
 - Never invoke or depend on `gstack` or a `gstack`-named skill. Review criteria and reviewer templates stay provider-agnostic and independent of the authoring context; only the dispatch mechanism may be host-specific.
-- Before the final checkpoint handoff, planning may change only the new plan file. `wayne-checkpoint` separately owns its checkpoint artifacts. If source artifacts or unrelated files need edits, stop and ask the user to fix or expand scope first.
+- Before the final checkpoint handoff, planning may change only the new plan file under `<state>/plans/`. The repository must not change. `wayne-checkpoint` separately owns its checkpoint artifacts under `<state>/checkpoints/`. If source artifacts or unrelated files need edits, stop and ask the user to fix or expand scope first.
 
 ## Flow
 
@@ -81,7 +81,7 @@ flowchart TB
 
 ### S. Pick the path
 
-- Read `../_shared/pipeline-id-contract.md` completely, then answer one structural question before reading anything expensive: **does this run carry a decision log?**
+- Read `../_shared/pipeline-id-contract.md` completely, then resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` (`STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh)`). If the resolver fails, report that and stop; never fall back to a repo-local `.wayne/` or `/tmp`. The plan is written to `$STATE/plans/`. Then answer one structural question before reading anything expensive: **does this run carry a decision log?**
 - **Yes** — a design run just handed off. Continue at A: there are `R<number>`s, decisions, and U-SEED rows that must be traced forward, and the standard path exists to carry them.
 - **No** — a converged direct request. Load [lite planning](references/lite-planning.md) and follow it; it replaces A, B, E, and F, and rejoins at C. Do not read the standard template or build a working coverage map — there are no upstream obligations to map.
 - This is a fact about the run's inputs, not a size judgment, so it cannot be argued either way. A living spec with no decision log is still the lite path: read the spec as context, cite it, amend nothing.
@@ -99,7 +99,7 @@ flowchart TB
 
 ### B. Bind evidence and context
 
-- Record the starting `git rev-parse HEAD` and `git status --short`. Use them at review time to prove that only the new plan file changed; do not inventory, recursively read, or hash the repository tree.
+- Record the starting `git rev-parse HEAD` and `git status --short`. Use them at review time to prove that the repository did not change (the plan lives under `<state>/plans/`, outside the repo); do not inventory, recursively read, or hash the repository tree.
 - Build a temporary working coverage map from the actual decision log, spec, and matrix. Its shape is free: it exists to help the agent trace requirements, decisions, U-SEED rows, E ownership, exact literals, and forbidden alternatives. Read every source completely and classify obligations in context; never use a parser, headings, IDs, keywords, or regex to claim semantic completeness.
 - Trace each requirement and decision forward to planned units. Inspect architecture, real files and symbols, similar implementation and test patterns, and active-plan assumptions. Compare clauses governing the same behavior and stop upstream when they conflict. Do not ask for information discoverable from these sources.
 
@@ -120,7 +120,7 @@ flowchart TB
 
 ### F. Draft the canonical plan
 
-- Use [the plan template](templates/plan-template.md) as a readable starting point, not a grammar. Choose the next unused filename for the current date; keep paths repository-relative and the prose English. Adapt headings or grouping when that makes the plan clearer without losing required information.
+- Use [the plan template](templates/plan-template.md) as a readable starting point, not a grammar. Choose the next unused filename for the current date under `$STATE/plans/`; keep implementation paths repository-relative and the prose English. Adapt headings or grouping when that makes the plan clearer without losing required information.
 - Right-size detail to the actual dependency graph and risk. A small standalone change may use one or a few compact units; cross-cutting or high-risk work needs enough detail to close its real interfaces and failure paths. Never add units, prose, or review work to satisfy a size/depth quota.
 - Order units by dependency. Give every unit closed inputs/outputs, files and symbols, concrete control logic, test ownership, E coverage, verification, and source traces so another agent can implement it from the plan plus repository.
 - When a unit adds or changes a gate, validator, or classifier, close the producer-to-judge boundary inside that unit: the author's instructions generated from the judge's own constant, the rule's literal example round-tripped through the judge, and a pinned snapshot of what the judge receives. See `../_shared/cybernetics-lens.md` §4a.
@@ -142,7 +142,7 @@ flowchart TB
 - Source-fidelity reverse-checks every source obligation and U seed, E ownership, scope, decisions, rationale, and intended behavior in both directions.
 - Execution-readiness independently checks dependency closure, interfaces, real files/symbols, unit ownership, U coverage, E advancement, cleanup, placeholders, and whether a fresh `wayne-work` agent could execute each unit without product redesign or inventing behavior.
 - Design-conformance independently checks that the plan builds the approved architecture: component realization, state ownership, interface signatures, flow order, carried technology constraints, and whether every deviation is declared. A plan can satisfy every obligation and still build a different system, and neither other voice sees that — one reads clauses, the other judges the plan as written. It applies only when the origin has a living spec to compare against; a converged direct request with no spec records `Design conformance: none — <reason>` in the plan and dispatches two voices.
-- Every review compares the starting HEAD/status, the agent's write history, and the current diff before checkpoint handoff. Any mutation beyond the new plan file fails the scope review. Git evidence is sufficient; do not scan unrelated files.
+- Every review compares the starting HEAD/status, the agent's write history, and the current diff before checkpoint handoff. Any mutation of the repository fails the scope review. The plan lives under `<state>/plans/` and is not a git artifact. Git evidence is sufficient; do not scan unrelated files.
 - No reviewer may substitute headings, section order, table shape, keywords, substring checks, regex, a script, or template agreement for contextual reading. Provider/tool termination before a report is invalid and must be rerun.
 - Every **applicable** voice must actually execute, and A and B must not collapse onto one model family. A missing mechanism, a failed or empty voice, or that collapse returns `REVIEW_UNAVAILABLE`; never claim a review that did not run, simulate a voice locally, or drop an applicable voice. A declared not-applicable voice is not a downgrade: it is written into the plan with its reason, where a reader can challenge it. Silently omitting one is.
 - A requested model is not a routed model. After the run, read the actual model of each reviewer execution from the host's run metadata. If a voice fell back to the session default, or A and B resolved to one family, the run is void: return `REVIEW_UNAVAILABLE` rather than reporting its gate.
@@ -171,7 +171,7 @@ flowchart TB
 
 ### J. Present the plan
 
-- Present only after all three reviews pass adjudication. Then set plan status from `active` to `approved` and confirm the final scope diff before handoff. Unless the caller supplied an exact response contract, summarize the approved plan and evidence concisely in Chinese while the plan file remains English. Report its path; discard temporary working notes after the review record no longer needs them.
+- Present only after all three reviews pass adjudication. Then set plan status from `active` to `approved` and confirm the repository still has no planning-time mutation before handoff. Unless the caller supplied an exact response contract, summarize the approved plan and evidence concisely in Chinese while the plan file remains English. Report its absolute path; discard temporary working notes after the review record no longer needs them.
 
 ### L. Checkpoint handoff
 

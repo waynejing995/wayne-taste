@@ -17,8 +17,12 @@ case_dir="$harness/cases/$case_name"
 [[ -d "$case_dir/repo" ]] || { echo "missing case repo: $case_name" >&2; exit 2; }
 [[ ! -e "$workspace" ]] || { echo "workspace exists: $workspace" >&2; exit 2; }
 
-mkdir -p "$workspace/repo" "$workspace/skill"
+mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/wayne-home"
 cp -R "$case_dir/repo/." "$workspace/repo/"
+# Seeded plan state lives under WAYNE_HOME, beside repo/, never inside the repository.
+if [[ -d "$case_dir/wayne-home" ]]; then
+    cp -R "$case_dir/wayne-home/." "$workspace/wayne-home/"
+fi
 cp -R "$skill_dir/." "$workspace/skill/"
 cp "$case_dir/task.md" "$workspace/task.md"
 

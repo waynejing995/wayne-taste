@@ -137,7 +137,7 @@ Before reviewing code quality, understand **what was supposed to be built** and 
 
 1. Read commit messages: `git log --oneline $BASE_SHA..$HEAD_SHA`
 2. Read PR description if exists: `gh pr view --json body -q .body 2>/dev/null`
-3. List plan/spec files as the range had them — `git ls-tree -r --name-only "$HEAD_SHA" -- docs` — and read any that reference this branch or topic with `git show "$HEAD_SHA:<path>"`. Where the range changed or deleted one, read `git show "$BASE_SHA:<path>"` as well
+3. List spec files as the range had them — `git ls-tree -r --name-only "$HEAD_SHA" -- docs` — and read any that reference this branch or topic with `git show "$HEAD_SHA:<path>"`. Where the range changed or deleted one, read `git show "$BASE_SHA:<path>"` as well. The plan, if any, lives under `<state>/plans/` (resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh`; stop if the resolver fails); read it directly from disk — it is not in the object store.
 4. `git show "$HEAD_SHA:TODOS.md" 2>/dev/null`, if the range carries one
 
 Discovery and reading both go through the object store here for the same reason the rule files do: judging an old range against whatever spec happens to be checked out today produces a confident review of a change nobody made.

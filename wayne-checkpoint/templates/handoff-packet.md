@@ -6,14 +6,14 @@ timestamp: {ISO-8601}
 pipeline_stage: {triage|brainstorm|plan|work|review|verify|ship}
 pipeline_phase: {specific phase within the calling skill, e.g. "Wave 2 done"}
 route: {caller route verdict | none for a linear stage}
-snapshot: {primary repository-relative artifact}
+snapshot: {primary artifact path}
 next_agent: {one available wayne-* Skill slug}
 trigger: manual
 goal_included: {true|false}
-decision_log: .wayne/runs/{topic}/decision-log.jsonl
-plan: docs/plans/{file}.md
-spec: docs/specs/{topic}.md          # .wayne/runs/{topic}/spec.md while still draft
-test_matrix: .wayne/runs/{topic}/test-matrix.md
+decision_log: <state>/runs/{topic}/decision-log.jsonl   # absolute
+plan: <state>/plans/{file}.md                           # absolute
+spec: docs/specs/{topic}.md                             # <state>/runs/{topic}/spec.md while still draft
+test_matrix: <state>/runs/{topic}/test-matrix.md        # absolute
 files_modified:
   - path/to/file1
   - path/to/file2

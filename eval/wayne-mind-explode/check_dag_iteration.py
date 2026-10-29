@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import decision_log
@@ -67,6 +68,47 @@ def dag(log: decision_log.Log, findings: list[str], turn: int) -> dict[str, str]
     return state
 
 
+def unchanged_from_baseline(repo: Path, path: Path) -> bool:
+    """True only when git proves a repository page is byte-identical to the fixture's root commit."""
+    roots = subprocess.run(
+        ["git", "-C", str(repo), "rev-list", "--max-parents=0", "HEAD"],
+        capture_output=True, text=True,
+    )
+    if roots.returncode != 0 or not roots.stdout.split():
+        return False
+    relative = path.relative_to(repo).as_posix()
+    baseline = subprocess.run(
+        ["git", "-C", str(repo), "show", f"{roots.stdout.split()[0]}:{relative}"],
+        capture_output=True,
+    )
+    return baseline.returncode == 0 and baseline.stdout == path.read_bytes()
+
+
+def advancement(workspace: Path) -> list[str]:
+    """Gated artifacts this DAG turn produced; fixture pages copied unchanged are baseline, not advance."""
+    repo = workspace / "repo"
+    state = decision_log.state_root(workspace)
+    gated = (
+        (repo, "docs/specs/**/*.md"),
+        (repo, "docs/plans/**/*.md"),
+        (state, "runs/*/test-matrix.md"),
+        (state, "runs/*/review-*.md"),
+        (state, "runs/*/spec.md"),
+        (state, "checkpoints/**/*.md"),
+        (state, "plans/**/*.md"),
+    )
+    findings: list[str] = []
+    for root, pattern in gated:
+        for path in root.glob(pattern):
+            if not path.is_file():
+                continue
+            if root == repo and unchanged_from_baseline(repo, path):
+                continue
+            findings.append(f"DAG iteration advanced to forbidden artifact: {pattern}")
+            break
+    return findings
+
+
 def check(workspace: Path, provider: str) -> list[str]:
     findings: list[str] = []
     logs: dict[int, decision_log.Log] = {}
@@ -76,7 +118,7 @@ def check(workspace: Path, provider: str) -> list[str]:
             findings.append(f"turn {turn} decision-log snapshot missing")
             continue
         turn_findings: list[str] = []
-        log = decision_log.load(path, turn_findings, workspace / "repo")
+        log = decision_log.load(path, turn_findings, workspace / "repo", decision_log.state_root(workspace))
         findings.extend(f"turn {turn} {finding}" for finding in turn_findings)
         logs[turn] = log
 
@@ -111,22 +153,15 @@ def check(workspace: Path, provider: str) -> list[str]:
         if counts[2] != counts[1] + 1:
             findings.append(f"turn 3 appended {counts[2] - counts[1]} decisions instead of one")
 
-    repo = workspace / "repo"
-    forbidden = (
-        "docs/specs/**/*.md", "docs/plans/**/*.md",
-        ".wayne/runs/*/test-matrix.md", ".wayne/runs/*/review-*.md", ".wayne/runs/*/spec.md",
-        ".wayne/checkpoints/**/*.md",
-    )
-    for pattern in forbidden:
-        if any(path.is_file() for path in repo.glob(pattern)):
-            findings.append(f"DAG iteration advanced to forbidden artifact: {pattern}")
+    findings.extend(advancement(workspace))
     return findings
 
 
 def check_long(workspace: Path, provider: str) -> list[str]:
     findings: list[str] = []
     repo = workspace / "repo"
-    log = decision_log.read(repo, findings)
+    state = decision_log.state_root(workspace)
+    log = decision_log.read(repo, state, findings)
     if log is None:
         return findings
 
@@ -168,12 +203,7 @@ def check_long(workspace: Path, provider: str) -> list[str]:
         findings.append("long DAG asks about the wrong next node")
     if re.search(r"design[- ]approved|spec ready|设计完成|设计已批准", output, re.IGNORECASE):
         findings.append("long DAG escaped early after forty decisions")
-    for pattern in (
-        "docs/specs/**/*.md", ".wayne/runs/*/test-matrix.md",
-        ".wayne/runs/*/review-*.md", ".wayne/checkpoints/**/*.md",
-    ):
-        if any(path.is_file() for path in repo.glob(pattern)):
-            findings.append(f"long DAG advanced to forbidden artifact: {pattern}")
+    findings.extend(advancement(workspace))
     return findings
 
 

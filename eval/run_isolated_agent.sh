@@ -13,7 +13,7 @@ command -v bwrap >/dev/null || { echo "bwrap is required" >&2; exit 2; }
 agent=$1
 workspace=$(realpath "$2")
 state=$(realpath -m "$3")
-mkdir -p "$state/cache" "$state/session-env"
+mkdir -p "$state/cache" "$state/session-env" "$workspace/wayne-home"
 
 common=(
     --die-with-parent
@@ -34,6 +34,7 @@ common=(
     --bind "$workspace" /workspace
     --chdir /workspace
     --setenv HOME /root
+    --setenv WAYNE_HOME /workspace/wayne-home
 )
 
 case "$agent" in

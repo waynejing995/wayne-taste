@@ -3,7 +3,7 @@
 - current stage: `triage`
 - verdict: `fix-now`
 - selected next agent: `wayne-test-design`
-- snapshot: `.wayne/triage/normalize-whitespace.md`
+- snapshot: `/workspace/wayne-home/projects/repo/triage/normalize-whitespace.md`
 - cause: one internal normalization branch drops surrounding whitespace
 - failing repro: `normalize(" A ")` returns `" a "`, expected `"a"`
 - acceptance: preserve lowercase behavior and make the failing repro pass

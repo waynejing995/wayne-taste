@@ -17,9 +17,27 @@ This file is the single owner of identifiers exchanged between Wayne stages. Pro
 
 Canonical numbers are positive decimal integers without leading zeroes. IDs are recognized only in their defining bounded table or section; a matching token in prose, another table, a review report, or a filename has no cross-stage meaning. Never inventory IDs by scanning a whole file for `R\d+`, `D\d+`, or similar tokens.
 
+## Project state directory
+
+Wayne working state lives outside the repository, in one directory per real project:
+
+```text
+${WAYNE_HOME:-~/.wayne}/projects/<key>/      # <state> below
+  runs/<topic>/        decision-log.jsonl, spec.md (candidate), test-matrix.md, review-*.md
+  plans/               implementation plans from wayne-plan
+  checkpoints/         checkpoints and handoff packets from wayne-checkpoint
+  triage/              evidence files from wayne-triage
+```
+
+Resolve `<state>` only with [the resolver](scripts/wayne-state-dir.sh): `bash <skills>/_shared/scripts/wayne-state-dir.sh [dir]` prints the absolute path and creates it. `<key>` is the `origin` repository path (`AMD-GPU-Virtual/TRACE`), or the main worktree's directory name when there is no `origin`. Every clone and worktree of one repository therefore shares one `<state>`; a worktree never gets its own. Outside a git repository the resolver exits non-zero: report that, never fall back to a repo-local `.wayne/` or `/tmp`.
+
+The repository receives only approved, durable design: `docs/specs/<topic>.md`, `GLOSSARY.md`, `docs/verification.md`. Nothing under `<state>` is ever committed, and no stage writes a `.wayne/` directory or `.gitignore` entry into the repository.
+
+Cross-stage references to `<state>` artifacts are absolute paths, because they are not repository files. Repository artifacts stay repository-relative.
+
 ## Defining structures
 
-The decision log is `.wayne/runs/<topic>/decision-log.jsonl`: one compact JSON object per physical line, one line per entity, no comments and no trailing commas. Three record types, discriminated by `type`.
+The decision log is `<state>/runs/<topic>/decision-log.jsonl`: one compact JSON object per physical line, one line per entity, no comments and no trailing commas. Three record types, discriminated by `type`.
 
 ```jsonl
 {"type":"meta","topic":"delivery-retry","status":"in-progress","spec":null,"test_matrix":null,"frontier_locked":false,"written_spec_approved":false,"approved_spec_sha256":null}
@@ -43,7 +61,7 @@ A `resolved` node is never silently reopened. Reversing what it settled is a new
 | `meta` | `topic` | string | the run's topic slug; also names the run directory |
 | `meta` | `status` | string | `in-progress` or `design-approved` |
 | `meta` | `spec` | string \| null | `docs/specs/<topic>.md`, `null` until the spec is in force |
-| `meta` | `test_matrix` | string \| null | `.wayne/runs/<topic>/test-matrix.md`, `null` until it exists |
+| `meta` | `test_matrix` | string \| null | absolute `<state>/runs/<topic>/test-matrix.md`, `null` until it exists |
 | `meta` | `frontier_locked` | boolean | the user froze the decision frontier |
 | `meta` | `written_spec_approved` | boolean | the user approved the exact written spec bytes |
 | `meta` | `approved_spec_sha256` | string \| null | the digest of the bytes the user approved; `null` until then |
@@ -100,7 +118,7 @@ Compatibility is read-only. No downstream stage may rewrite an upstream decision
 | decision-log records, DAG, `meta.status` | `wayne-mind-explode` | `in-progress` → `design-approved`; downstream read-only |
 | spec requirements `R<number>` | `wayne-mind-explode` / approved product-design stage | authored in the spec's bounded `## Requirements` section; frozen before test design and planning |
 | U-SEED definitions and seed Status | `wayne-test-design` | authored as `S<number>` + `☐`; downstream preserves source bytes |
-| authoritative E table | `wayne-test-design` | lives in one run-scoped matrix under `.wayne/runs/<topic>/` as `E<number>` rows |
+| authoritative E table | `wayne-test-design` | lives in one run-scoped matrix under `<state>/runs/<topic>/` as `E<number>` rows |
 | authoritative E Status | `wayne-verify` | test design initializes `⬜`; Verify alone changes the authoritative matrix to `✅/❌` |
 | plan E snapshot | `wayne-plan` | byte-for-byte design-time derived view; remains `⬜` and is never a status owner |
 | plan structure, `I<number>`, `U<number>` definitions | `wayne-plan` | `active` while drafting → `approved` only after both independent AI reviews |

@@ -13,7 +13,7 @@ command -v bwrap >/dev/null || { echo "bwrap is required" >&2; exit 2; }
 agent=$1
 workspace=$(realpath "$2")
 state=$(realpath -m "$3")
-mkdir -p "$state/cache" "$state/session-env"
+mkdir -p "$state/cache" "$state/session-env" "$workspace/wayne-home"
 
 common=(
     --die-with-parent --new-session --unshare-all --share-net
@@ -21,7 +21,8 @@ common=(
     --ro-bind /lib64 /lib64 --ro-bind /etc /etc --dev /dev --proc /proc
     --tmpfs /tmp --dir /root --dir /root/.cache
     --bind "$state/cache" /root/.cache
-    --bind "$workspace" /workspace --chdir /workspace --setenv HOME /root
+    --bind "$workspace" /workspace --chdir /workspace/repo --setenv HOME /root
+    --setenv WAYNE_HOME /workspace/wayne-home
 )
 
 case "$agent" in
@@ -47,7 +48,7 @@ case "$agent" in
             --bind "$state/codex-home" /root/.codex \
             --setenv CODEX_HOME /root/.codex \
             --setenv PATH /root/.local/bin:/root/.nvm/versions/node/v22.22.1/bin:/usr/local/bin:/usr/bin:/bin \
-            /bin/bash -lc 'codex exec --ephemeral --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -C /workspace -m "$MODEL" -c model_reasoning_effort="\"$EFFORT\"" -o /workspace/codex-final.txt - < /workspace/task.md > /workspace/codex-trace.log 2>&1'
+            /bin/bash -lc 'codex exec --ephemeral --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -C /workspace/repo -m "$MODEL" -c model_reasoning_effort="\"$EFFORT\"" -o /workspace/codex-final.txt - < /workspace/task.md > /workspace/codex-trace.log 2>&1'
         ;;
     *)
         echo "unknown agent: $agent" >&2

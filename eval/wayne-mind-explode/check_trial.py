@@ -20,24 +20,29 @@ E2E_HEADER = "| ID | Env: entrypoint | Setup | Action | Observable outcome | Sta
 RECOMMENDATION = re.compile(r"My recommendation:|我的建议|我的推荐|建议|推荐", re.IGNORECASE)
 
 # The only outputs a design run may leave, bound to the one topic it is designing.
-# Everything else it produces lives under `.wayne/`, which is why an abandoned run
-# leaves no residue; a second topic's artifacts are scope drift, not output.
+# The repository receives the living spec and the glossary; run-scoped artifacts
+# live under `<state>`, which is never committed. Each side has its own allowlist,
+# and a file outside its side's allowlist is a finding. A second topic's artifacts
+# are scope drift, not output.
 HARNESS_STATE = re.compile(r"\.eval/(?:review-events\.jsonl|(?:product|engineering)-count)")
 
 
 def writable(topic: str | None) -> tuple[re.Pattern[str], ...]:
-    # Without a readable topic nothing outside `.wayne/` is writable: an unknown
-    # topic is the moment to tighten, not the moment to allow every spec.
+    # Without a readable topic nothing is writable: an unknown topic is the moment
+    # to tighten, not the moment to allow every spec.
     slug = re.escape(topic) if topic else r"(?!)"
     return (
         re.compile(rf"docs/specs/{slug}\.md"),
-        re.compile(r"\.wayne/\.gitignore"),
-        re.compile(r"\.wayne/checkpoints/[^/]+\.md"),
-        re.compile(
-            rf"\.wayne/runs/{slug}/"
-            rf"(?:decision-log\.jsonl|test-matrix\.md|spec\.md|review-(?:product|engineering)\.md)"
-        ),
+        re.compile(r"GLOSSARY\.md"),
         HARNESS_STATE,
+    )
+
+
+def writable_state(topic: str | None) -> tuple[re.Pattern[str], ...]:
+    slug = re.escape(topic) if topic else r"(?!)"
+    return (
+        re.compile(rf"runs/{slug}/(?:decision-log\.jsonl|spec\.md|test-matrix\.md|review-(?:product|engineering)\.md)"),
+        re.compile(r"checkpoints/[^/]+\.md"),
     )
 
 # A living page is named after its topic. A leading date or a `-design` suffix is a
@@ -52,15 +57,29 @@ def forbidden_patterns(topic: str | None) -> tuple[str, ...]:
     return (
         f"docs/specs/{slug}.md",
         "docs/plans/**/*.md",
-        f".wayne/runs/{slug}/test-matrix.md",
-        f".wayne/runs/{slug}/review-*.md",
-        f".wayne/runs/{slug}/spec.md",
-        ".wayne/checkpoints/**/*.md",
+        f"state/runs/{slug}/test-matrix.md",
+        f"state/runs/{slug}/review-*.md",
+        f"state/runs/{slug}/spec.md",
+        "state/checkpoints/**/*.md",
+        "state/plans/**/*.md",
     )
 
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def root_relative_matches(repo: Path, state: Path, pattern: str) -> set[str]:
+    """Files a root-relative pattern names: `state/...` lives under `<state>`, anything else under `repo`."""
+    in_state = pattern.startswith("state/")
+    root = state if in_state else repo
+    glob = pattern.removeprefix("state/")
+    prefix = "state/" if in_state else ""
+    return {
+        prefix + path.relative_to(root).as_posix()
+        for path in root.glob(glob)
+        if path.is_file()
+    }
 
 
 def load_output(path: Path) -> str:
@@ -83,7 +102,7 @@ def exactly_one(root: Path, pattern: str, label: str, findings: list[str]) -> Pa
 
 
 def resolve(repo: Path, relative: object, label: str, findings: list[str]) -> Path | None:
-    """Resolve a meta path, refusing to read anything outside the trial repository."""
+    """Resolve the repository-relative spec path, refusing anything outside the repository."""
     if not isinstance(relative, str) or not relative:
         findings.append(f"decision log meta does not name the {label}")
         return None
@@ -101,7 +120,28 @@ def resolve(repo: Path, relative: object, label: str, findings: list[str]) -> Pa
     return path
 
 
-def forbidden_advance(repo: Path, topic: str | None, label: str, findings: list[str]) -> None:
+def resolve_state(state: Path, value: object, label: str, findings: list[str]) -> Path | None:
+    """Resolve an absolute sandbox path under `<state>`, refusing anything outside it."""
+    if not isinstance(value, str) or not value:
+        findings.append(f"decision log meta does not name the {label}")
+        return None
+    path = decision_log.host_path(state, value)
+    if path is None:
+        findings.append(f"decision log meta {label} escapes the state root: {value}")
+        return None
+    if not path.is_file():
+        findings.append(f"decision log meta {label} does not exist: {value}")
+        return None
+    return path
+
+def artifact_name(repo: Path, state: Path, path: Path) -> str:
+    """How a handoff cites an artifact: repository-relative in the repo, absolute under `<state>`."""
+    if path.is_relative_to(state):
+        return decision_log.sandbox_path(state, path)
+    return path.relative_to(repo).as_posix()
+
+
+def forbidden_advance(repo: Path, state: Path, topic: str | None, label: str, findings: list[str]) -> None:
     """Artifacts this run created or edited before it was entitled to.
 
     An amendment run starts from an existing `docs/specs/<topic>.md`; that page is
@@ -118,16 +158,19 @@ def forbidden_advance(repo: Path, topic: str | None, label: str, findings: list[
         return {name for name in out.split("\0") if name}
 
     try:
-        baseline = nul("ls-files", "-z")
-        touched = nul("diff", "--name-only", "-z", "HEAD", "--")
-    except (OSError, subprocess.CalledProcessError):
+        fixture_root = subprocess.run(
+            ["git", "rev-list", "--max-parents=0", "HEAD"],
+            cwd=repo, check=True, capture_output=True, text=True,
+        ).stdout.split()[0]
+        baseline = nul("ls-tree", "-r", "-z", "--name-only", fixture_root)
+        touched = nul("diff", "--name-only", "-z", fixture_root, "--")
+    except (OSError, subprocess.CalledProcessError, IndexError):
         baseline, touched = set(), set()
 
     present = {
-        path.relative_to(repo).as_posix()
+        name
         for pattern in forbidden_patterns(topic)
-        for path in repo.glob(pattern)
-        if path.is_file()
+        for name in (root_relative_matches(repo, state, pattern))
     }
     # A deleted baseline artifact is a mutation of the same gated path.
     def gated(name: str) -> bool:
@@ -143,7 +186,7 @@ def forbidden_advance(repo: Path, topic: str | None, label: str, findings: list[
         findings.append(f"{label} advanced past its gate: {matches}")
 
 
-def check_source_boundary(repo: Path, topic: str | None, findings: list[str]) -> None:
+def check_source_boundary(repo: Path, state: Path, topic: str | None, findings: list[str]) -> None:
     allowed = writable(topic)
     if not (repo / ".git").is_dir():
         findings.append("trial repository has no frozen Git baseline")
@@ -155,14 +198,28 @@ def check_source_boundary(repo: Path, topic: str | None, findings: list[str]) ->
         )
         return [line for line in result.stdout.splitlines() if line]
 
-    for relative in git_lines("diff", "--name-only", "HEAD", "--"):
+    # The fixture's root commit is the frozen baseline. A design run may add one
+    # commit (the CMT commit that promotes the spec); anything else is history drift.
+    root = git_lines("rev-list", "--max-parents=0", "HEAD")[0]
+    commits = git_lines("rev-list", "--reverse", f"{root}..HEAD")
+    if len(commits) > 1:
+        findings.append(f"design trial changed commit history: {len(commits)} commits after the baseline")
+    for commit in commits:
+        for relative in git_lines("diff-tree", "--no-commit-id", "--name-only", "-r", commit):
+            if relative not in {f"docs/specs/{topic}.md", "GLOSSARY.md"}:
+                findings.append(f"CMT commit touches a non-design path: {relative}")
+
+    for relative in git_lines("diff", "--name-only", root, "--"):
         if not any(pattern.fullmatch(relative) for pattern in allowed):
             findings.append(f"source input modified: {relative}")
-    if git_lines("rev-list", "--count", "HEAD") != ["1"]:
-        findings.append("design trial changed commit history")
 
-    # `.wayne/.gitignore` is an allowed output, so an agent could hide a cross-topic
-    # artifact behind it; enumerate ignored paths too.
+    # Repository state is never a `.wayne/` directory, however created: it is
+    # gitignored, untracked, or committed, and each of those is a finding.
+    if (repo / ".wayne").exists():
+        findings.append("repository contains a .wayne/ directory")
+
+    # Enumerate ignored paths too: an agent could otherwise hide a stray artifact
+    # behind a gitignore entry.
     untracked = sorted(
         set(git_lines("ls-files", "--others", "--exclude-standard"))
         | {line for line in git_lines("ls-files", "--others", "--ignored", "--exclude-standard")
@@ -174,7 +231,16 @@ def check_source_boundary(repo: Path, topic: str | None, findings: list[str]) ->
         if not any(pattern.fullmatch(relative) for pattern in allowed):
             findings.append(f"unexpected file outside design outputs: {relative}")
 
-    plans = sorted(path.as_posix() for path in (repo / "docs" / "plans").glob("**/*") if path.is_file())
+    state_files = (
+        sorted(path.relative_to(state).as_posix() for path in state.rglob("*") if path.is_file())
+        if state.is_dir()
+        else []
+    )
+    state_allowed = writable_state(topic)
+    for relative in state_files:
+        if not any(pattern.fullmatch(relative) for pattern in state_allowed):
+            findings.append(f"unexpected state file outside design outputs: {relative}")
+    plans = [name for name in state_files if name.startswith("plans/")]
     if plans:
         findings.append(f"implementation plan written by design skill: {plans}")
 
@@ -205,11 +271,11 @@ def topic_of(log: "decision_log.Log | None") -> str | None:
     return log.topic_dir.name or None
 
 
-def validate_complete(repo: Path, case: str, output: str) -> list[str]:
+def validate_complete(repo: Path, state: Path, case: str, output: str) -> list[str]:
     findings: list[str] = []
-    log = decision_log.read(repo, findings)
-    check_source_boundary(repo, topic_of(log), findings)
-    handoff = exactly_one(repo, ".wayne/checkpoints/*.md", "handoff packet", findings)
+    log = decision_log.read(repo, state, findings)
+    check_source_boundary(repo, state, topic_of(log), findings)
+    handoff = exactly_one(state, "checkpoints/*.md", "handoff packet", findings)
 
     spec: Path | None = None
     matrix: Path | None = None
@@ -218,7 +284,7 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
         if str(log.meta.get("status", "")) != "design-approved":
             findings.append(f"decision log meta.status={log.meta.get('status')!r}, expected 'design-approved'")
         spec = resolve(repo, log.meta.get("spec"), "spec", findings)
-        matrix = resolve(repo, log.meta.get("test_matrix"), "test matrix", findings)
+        matrix = resolve_state(state, log.meta.get("test_matrix"), "test matrix", findings)
         if spec is not None and not LIVING_SPEC.fullmatch(log.meta["spec"]):
             findings.append(f"approved spec is not a living page: {log.meta['spec']}")
         if spec is not None and log.meta.get("approved_spec_sha256") != digest(spec):
@@ -241,7 +307,7 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
         ]
         for role in ("product", "engineering"):
             report = log.topic_dir / f"review-{role}.md"
-            relative = report.relative_to(repo).as_posix()
+            relative = decision_log.sandbox_path(state, report)
             if not report.is_file():
                 findings.append(f"missing final {role} review report")
             else:
@@ -374,30 +440,31 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
             findings.append(f"{role} review report does not name the final spec digest")
 
     artifacts = [path for path in (log.path if log else None, spec, matrix) if path]
+    names = [artifact_name(repo, state, path) for path in artifacts]
     if handoff:
         handoff_text = handoff.read_text(encoding="utf-8")
         for needle in ("status: design-approved", "next_agent: wayne-plan"):
             if needle not in handoff_text:
                 findings.append(f"handoff missing {needle!r}")
-        for artifact in artifacts:
-            if artifact.relative_to(repo).as_posix() not in handoff_text:
-                findings.append(f"handoff omits {artifact.relative_to(repo).as_posix()}")
+        for name in names:
+            if name not in handoff_text:
+                findings.append(f"handoff omits {name}")
 
     if "wayne-plan" not in output:
         findings.append("user-visible handoff does not name wayne-plan")
-    for artifact in artifacts:
-        if artifact.relative_to(repo).as_posix() not in output:
-            findings.append(f"user-visible handoff omits {artifact.relative_to(repo).as_posix()}")
+    for name in names:
+        if name not in output:
+            findings.append(f"user-visible handoff omits {name}")
     return findings
 
 
-def validate_conflict(repo: Path, output: str) -> list[str]:
+def validate_conflict(repo: Path, state: Path, output: str) -> list[str]:
     findings: list[str] = []
-    log = decision_log.read(repo, findings)
-    check_source_boundary(repo, topic_of(log), findings)
+    log = decision_log.read(repo, state, findings)
+    check_source_boundary(repo, state, topic_of(log), findings)
     if log is not None and str(log.meta.get("status", "")) == "design-approved":
         findings.append("conflict case marked its decision log design-approved")
-    forbidden_advance(repo, topic_of(log), "conflict case", findings)
+    forbidden_advance(repo, state, topic_of(log), "conflict case", findings)
     if (repo / ".eval" / "review-events.jsonl").is_file():
         findings.append("conflict case advanced past its decision gate: review events exist")
     question_marks = output.count("?") + output.count("？")
@@ -410,10 +477,10 @@ def validate_conflict(repo: Path, output: str) -> list[str]:
     return findings
 
 
-def validate_decision_locked(repo: Path, output: str) -> list[str]:
+def validate_decision_locked(repo: Path, state: Path, output: str) -> list[str]:
     findings: list[str] = []
-    log = decision_log.read(repo, findings)
-    check_source_boundary(repo, topic_of(log), findings)
+    log = decision_log.read(repo, state, findings)
+    check_source_boundary(repo, state, topic_of(log), findings)
     if log is not None:
         if str(log.meta.get("status", "")) == "design-approved":
             findings.append("locked frontier was promoted to design-approved")
@@ -429,7 +496,7 @@ def validate_decision_locked(repo: Path, output: str) -> list[str]:
         if unresolved:
             findings.append(f"decision lock reopened nodes: {unresolved}")
 
-    forbidden_advance(repo, topic_of(log), "decision lock", findings)
+    forbidden_advance(repo, state, topic_of(log), "decision lock", findings)
 
     question_marks = output.count("?") + output.count("？")
     if question_marks != 1:
@@ -441,10 +508,10 @@ def validate_decision_locked(repo: Path, output: str) -> list[str]:
     return findings
 
 
-def validate_depth_recommendation(repo: Path, output: str) -> list[str]:
+def validate_depth_recommendation(repo: Path, state: Path, output: str) -> list[str]:
     findings: list[str] = []
-    log = decision_log.read(repo, findings)
-    check_source_boundary(repo, topic_of(log), findings)
+    log = decision_log.read(repo, state, findings)
+    check_source_boundary(repo, state, topic_of(log), findings)
     if log is not None:
         identifiers = log.decision_ids()
         if identifiers != [1, 2, 3]:
@@ -487,7 +554,7 @@ def validate_depth_recommendation(repo: Path, output: str) -> list[str]:
         if str(log.meta.get("status", "")) == "design-approved":
             findings.append("depth case converged before child choices")
 
-    forbidden_advance(repo, topic_of(log), "depth case", findings)
+    forbidden_advance(repo, state, topic_of(log), "depth case", findings)
 
     question_marks = output.count("?") + output.count("？")
     if question_marks != 1:
@@ -522,6 +589,7 @@ def validate(
     provider: str = "auto",
 ) -> list[str]:
     repo = workspace / "repo"
+    state = decision_log.state_root(workspace).resolve()
     if not repo.is_dir():
         return [f"missing trial repository: {repo}"]
     try:
@@ -531,16 +599,16 @@ def validate(
     if not output:
         return ["agent produced no user-visible output"]
     if case in COMPLETE_CASES:
-        findings = validate_complete(repo, case, output)
+        findings = validate_complete(repo, state, case, output)
         if trace_path is not None:
             findings.extend(validate_trace(trace_path, provider))
         return findings
     if case == "conflict":
-        return validate_conflict(repo, output)
+        return validate_conflict(repo, state, output)
     if case == "decision-locked":
-        return validate_decision_locked(repo, output)
+        return validate_decision_locked(repo, state, output)
     if case == "depth-recommendation":
-        return validate_depth_recommendation(repo, output)
+        return validate_depth_recommendation(repo, state, output)
     return [f"unknown case: {case}"]
 
 

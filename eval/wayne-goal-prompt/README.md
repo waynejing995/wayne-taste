@@ -20,6 +20,10 @@ Run every composition case with Claude-primary and Codex-primary. Run bundled
 scripts plus dispatch protocol checks directly. Infrastructure termination before
 an observable artifact is `invalid`, not a behavioral loss.
 
+The `existing-plan` plan is seeded from `cases/existing-plan/wayne-home/` into
+`wayne-home/` beside `repo/`. `run_agent.sh` pins `WAYNE_HOME=/workspace/wayne-home`,
+so the task cites `/workspace/wayne-home/projects/repo/plans/2026-07-17-retry-plan.md`.
+
 ## Current gates
 
 ```bash

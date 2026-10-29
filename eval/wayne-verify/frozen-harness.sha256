@@ -1,1 +1,1 @@
-f4dcda56c224757ec64ad2937eeef8da1736c36fc3e788dc7e99e48981722b78  eval/wayne-verify (tasks, fixtures, intent, runner, and checkers; excludes reports, hashes, and __pycache__)
+fee16f3cad594785e2b7e26b44a04d8a738a58d9f37d453494960c1071efe48b  eval/wayne-verify (tasks, fixtures, intent, runner, and checkers; excludes eval-report.md, *.sha256, and __pycache__)

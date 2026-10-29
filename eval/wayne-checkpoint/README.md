@@ -40,3 +40,8 @@ packet-semantic pass/fail verdict.
 
 Generated workspaces, candidates, model state, and traces live only under
 `eval/.runs/wayne-checkpoint/`.
+
+The trial's Wayne state is seeded from `cases/<case>/wayne-home/` and
+`fixture/wayne-home/` into `wayne-home/` beside `repo/`. `run_agent.sh` pins
+`WAYNE_HOME=/workspace/wayne-home`, so packets are read from
+`wayne-home/projects/repo/checkpoints/`.

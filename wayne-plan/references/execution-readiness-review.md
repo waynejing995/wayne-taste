@@ -37,7 +37,7 @@ Read the units in order and simulate execution.
 
 ## Scope evidence
 
-Compare the freeze-time git state against the declared allowed mutation paths. Any authored change beyond the new plan file is a scope failure. Git evidence is sufficient; do not scan unrelated files.
+Compare the freeze-time git state against the declared allowed mutation paths. Any authored change to the repository is a scope failure. The plan lives under `<state>/plans/`, outside the object store. Git evidence is sufficient; do not scan unrelated files.
 
 ## Non-oracles
 

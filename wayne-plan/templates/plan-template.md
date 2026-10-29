@@ -164,6 +164,6 @@ none — control flow is fully specified by the approach
 ## Sources & References
 
 - **Origin:** `docs/specs/<topic>.md`
-- **Decision log:** `.wayne/runs/<topic>/decision-log.jsonl`
-- **Test matrix:** `.wayne/runs/<topic>/test-matrix.md`
+- **Decision log:** `<state>/runs/<topic>/decision-log.jsonl`
+- **Test matrix:** `<state>/runs/<topic>/test-matrix.md`
 - **Repository evidence:** `path/to/file::symbol`

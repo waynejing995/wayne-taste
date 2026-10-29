@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
-LOG_GLOB = ".wayne/runs/*/decision-log.jsonl"
-LOG_RELATIVE = re.compile(r"(?:^|/)\.wayne/runs/[^/]+/decision-log\.jsonl$")
+LOG_GLOB = "runs/*/decision-log.jsonl"
+LOG_RELATIVE = re.compile(r"(?:^|/)runs/[^/]+/decision-log\.jsonl$")
 
 DECISION_ID = re.compile(r"^D([1-9]\d*)$")
 NODE_ID = re.compile(r"^N([1-9]\d*)$")
@@ -52,6 +52,29 @@ def SAFE_RELATIVE(value: str) -> bool:
     if not value or value.startswith(("/", "~")):
         return False
     return ".." not in PurePosixPath(value).parts
+
+
+# `<state>` as a trial agent sees it. A trial pins WAYNE_HOME to /workspace/wayne-home,
+# and its repository has no origin, so the project key is `repo`.
+SANDBOX_STATE = "/workspace/wayne-home/projects/repo"
+
+
+def state_root(workspace: Path) -> Path:
+    """Host path of `<state>` in a trial workspace (`/workspace` is the workspace)."""
+    return workspace / "wayne-home" / "projects" / "repo"
+
+
+def host_path(state: Path, value: object) -> Path | None:
+    """Host path of an absolute sandbox path under `<state>`; None when it escapes."""
+    if not isinstance(value, str) or not value.startswith(f"{SANDBOX_STATE}/"):
+        return None
+    path = (state / value[len(SANDBOX_STATE) + 1 :]).resolve()
+    return path if state.resolve() in path.parents else None
+
+
+def sandbox_path(state: Path, path: Path) -> str:
+    """The absolute sandbox spelling of a file under `<state>`."""
+    return f"{SANDBOX_STATE}/{path.relative_to(state).as_posix()}"
 
 
 SCHEMA: dict[str, dict[str, type | tuple[type, ...]]] = {
@@ -130,17 +153,17 @@ class Log:
         return [str(record.get("source", "")).casefold() for record in self.decisions]
 
 
-def find_log(repo: Path, findings: list[str]) -> Path | None:
-    matches = sorted(repo.glob(LOG_GLOB))
+def find_log(state: Path, findings: list[str]) -> Path | None:
+    matches = sorted(state.glob(LOG_GLOB))
     if len(matches) != 1:
         findings.append(
-            f"expected exactly one decision log; found={[p.relative_to(repo).as_posix() for p in matches]}"
+            f"expected exactly one decision log; found={[sandbox_path(state, p) for p in matches]}"
         )
         return None
     return matches[0]
 
 
-def load(path: Path, findings: list[str], repo: Path | None = None) -> Log:
+def load(path: Path, findings: list[str], repo: Path, state: Path) -> Log:
     """Parse and structurally validate one decision log."""
     log = Log(path=path)
     try:
@@ -212,11 +235,10 @@ def load(path: Path, findings: list[str], repo: Path | None = None) -> Log:
                 citation = str(reference)
                 superseded = EXTERNAL_DECISION.match(citation)
                 if superseded:
-                    if repo is not None:
-                        trust_external(
-                            repo, superseded.group(1), citation.split(":D", 1)[1],
-                            f"decision {identifier} supersedes", findings,
-                        )
+                    trust_external(
+                        repo, superseded.group(1), citation.split(":D", 1)[1],
+                        f"decision {identifier} supersedes", findings,
+                    )
                 elif not DECISION_ID.match(citation):
                     findings.append(f"decision {identifier} supersedes malformed {reference!r}")
             provenance = record.get("reference")
@@ -225,25 +247,32 @@ def load(path: Path, findings: list[str], repo: Path | None = None) -> Log:
                 is_url(provenance)
                 or EXTERNAL_DECISION.match(str(provenance))
                 or SAFE_RELATIVE(str(provenance))
+                or host_path(state, provenance) is not None
             ):
                 findings.append(f"decision {identifier} reference is not locatable: {provenance!r}")
             if source == "web" and not is_url(provenance):
                 findings.append(f"web decision {identifier} carries no source URL")
             if source not in SELF_LOCATING and provenance is None:
                 findings.append(f"{source} decision {identifier} does not locate its answer")
-            if repo is not None and isinstance(provenance, str):
+            if isinstance(provenance, str):
                 external_ref = EXTERNAL_DECISION.match(provenance)
                 if external_ref:
                     trust_external(
                         repo, external_ref.group(1), provenance.split(":D", 1)[1],
                         f"decision {identifier}", findings,
                     )
-                elif not is_url(provenance) and SAFE_RELATIVE(provenance):
+                elif SAFE_RELATIVE(provenance) and not is_url(provenance):
                     target = (repo / provenance).resolve()
                     if repo.resolve() not in target.parents or not target.is_file():
                         findings.append(
                             f"decision {identifier} references a path that does not exist: {provenance}"
                         )
+                elif provenance.startswith(f"{SANDBOX_STATE}/") and (
+                    (sandbox := host_path(state, provenance)) is None or not sandbox.is_file()
+                ):
+                    findings.append(
+                        f"decision {identifier} references a path that does not exist: {provenance}"
+                    )
             log.decisions.append(record)
         else:
             identifier = str(record.get("id", ""))
@@ -286,11 +315,10 @@ def load(path: Path, findings: list[str], repo: Path | None = None) -> Log:
             citation = str(resolved_by)
             external = EXTERNAL_DECISION.match(citation)
             if external:
-                if repo is not None:
-                    trust_external(
-                        repo, external.group(1), citation.split(":D", 1)[1],
-                        f"node {identifier}", findings,
-                    )
+                trust_external(
+                    repo, external.group(1), citation.split(":D", 1)[1],
+                    f"node {identifier}", findings,
+                )
             elif not DECISION_ID.match(citation):
                 findings.append(f"node {identifier} resolved_by={resolved_by!r} is malformed")
             elif citation not in resolved_ids:
@@ -341,17 +369,21 @@ def load(path: Path, findings: list[str], repo: Path | None = None) -> Log:
                 findings.append(f"frontier locked with unresolved nodes: {unresolved}")
 
         topic = str(log.meta.get("topic", ""))
-        for key, expected in (
-            ("spec", f"docs/specs/{topic}.md"),
-            ("test_matrix", f".wayne/runs/{topic}/test-matrix.md"),
-        ):
-            value = log.meta.get(key)
-            if value is None:
-                continue
-            if not isinstance(value, str) or not SAFE_RELATIVE(value):
-                findings.append(f"meta.{key}={value!r} is not a repository-relative path")
-            elif value != expected:
-                findings.append(f"meta.{key}={value!r} does not belong to topic {topic!r}")
+        spec = log.meta.get("spec")
+        if spec is not None:
+            if not isinstance(spec, str) or not SAFE_RELATIVE(spec):
+                findings.append(f"meta.spec={spec!r} is not a repository-relative path")
+            elif spec != f"docs/specs/{topic}.md":
+                findings.append(f"meta.spec={spec!r} does not belong to topic {topic!r}")
+        matrix = log.meta.get("test_matrix")
+        if matrix is not None:
+            matrix_path = host_path(state, matrix)
+            if matrix_path is None:
+                findings.append(f"meta.test_matrix={matrix!r} is not under {SANDBOX_STATE}")
+            elif matrix != f"{SANDBOX_STATE}/runs/{topic}/test-matrix.md":
+                findings.append(f"meta.test_matrix={matrix!r} does not belong to topic {topic!r}")
+            elif not matrix_path.is_file():
+                findings.append(f"meta.test_matrix={matrix!r} does not exist")
 
     return log
 
@@ -405,8 +437,8 @@ def trust_external(repo: Path, slug: str, number: str, label: str, findings: lis
         )
 
 
-def read(repo: Path, findings: list[str]) -> Log | None:
-    path = find_log(repo, findings)
+def read(repo: Path, state: Path, findings: list[str]) -> Log | None:
+    path = find_log(state, findings)
     if path is None:
         return None
-    return load(path, findings, repo)
+    return load(path, findings, repo, state)

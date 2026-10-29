@@ -25,8 +25,10 @@
  *   be worse than no panel.
  */
 
-import { existsSync, readdirSync, readFileSync, renameSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
-import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
@@ -39,6 +41,13 @@ const DEBOUNCE_MS = 120;
 /** Lines the panel occupies. It steals these from the transcript, so it is small. */
 const COMPACT_LINES = 12;
 const EXPANDED_LINES = 30;
+
+/**
+ * The shared resolver, which decides where a project's state lives. pi loads this
+ * file through a symlink from ~/.pi/agent/extensions and `import.meta.url` names
+ * that link, so the real path is resolved before `..` is counted.
+ */
+const STATE_RESOLVER = join(dirname(realpathSync(fileURLToPath(import.meta.url))), "..", "..", "..", "_shared", "scripts", "wayne-state-dir.sh");
 
 // ---------------------------------------------------------------- log model
 
@@ -170,8 +179,38 @@ export interface RunHandle {
 	status: string;
 }
 
-export function discoverRuns(cwd: string): RunHandle[] {
-	const runsDir = join(cwd, ".wayne", "runs");
+/** The text of a caught value, for a message that has to say what failed. */
+const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/**
+ * `<state>/runs` for the project that contains `cwd`, created if missing.
+ *
+ * `<state>` is whatever the shared resolver prints. It is the one place that
+ * knows how a project is keyed, so every clone and worktree of one repository
+ * lands in the same directory, and nothing is written into the checkout. The
+ * runs directory is made up front, so a watcher can bind to it before the first
+ * run exists.
+ *
+ * Throws with the resolver's own message outside a git repository. There is no
+ * fallback to a directory inside the working tree.
+ */
+export function runsRoot(cwd: string): string {
+	let state: string;
+	try {
+		state = execFileSync("bash", [STATE_RESOLVER, cwd], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).replace(/\n$/, "");
+	} catch (err) {
+		// The resolver explains a refusal on stderr. A failure to start bash leaves
+		// no stderr to read, so the error's own message stands in.
+		const stderr = err instanceof Error && "stderr" in err && typeof err.stderr === "string" ? err.stderr.trim() : "";
+		throw new Error(stderr || messageOf(err));
+	}
+	const root = join(state, "runs");
+	mkdirSync(root, { recursive: true });
+	return root;
+}
+
+/** Every run under a runs root from `runsRoot`, most recently written first. */
+export function discoverRuns(runsDir: string): RunHandle[] {
 	if (!existsSync(runsDir)) return [];
 	const found: RunHandle[] = [];
 	for (const entry of readdirSync(runsDir, { withFileTypes: true })) {
@@ -200,8 +239,8 @@ export function discoverRuns(cwd: string): RunHandle[] {
  * easily be the most recently touched one, so picking by mtime silently pins
  * the panel to a finished design — which looks exactly like a live one.
  */
-export function activeRuns(cwd: string): RunHandle[] {
-	return discoverRuns(cwd).filter((r) => r.status === "in-progress");
+export function activeRuns(runsDir: string): RunHandle[] {
+	return discoverRuns(runsDir).filter((r) => r.status === "in-progress");
 }
 
 // -------------------------------------------------------------- the component
@@ -254,7 +293,8 @@ export class DagPanel implements Component, Focusable {
 	private readonly callbacks: DagPanelCallbacks;
 	private readonly requestRender: () => void;
 
-	private cwd = process.cwd();
+	/** The runs root being followed. Null outside a project, where there is nothing to show. */
+	private root: string | null = null;
 	private run: RunHandle | null = null;
 	private selection: Selection = { mode: "auto", topic: null };
 	/** In-progress runs at the last scan. More than one is the ambiguous state. */
@@ -262,7 +302,6 @@ export class DagPanel implements Component, Focusable {
 	/** Last reported presence, so the wiring is only told when it flips. */
 	private present = false;
 	private state: LogState = emptyState();
-	private rootWatcher: FSWatcher | null = null;
 	private runsWatcher: FSWatcher | null = null;
 	private debounce: ReturnType<typeof setTimeout> | null = null;
 
@@ -295,36 +334,34 @@ export class DagPanel implements Component, Focusable {
 	// -- data ---------------------------------------------------------------
 
 	/**
-	 * Start following `<cwd>/.wayne/runs`.
+	 * Start following the runs of the project that contains `cwd`.
 	 *
-	 * The directory usually does not exist yet: a design run creates it. So this
-	 * also watches `cwd` for `.wayne` appearing and rebinds — without that, a run
-	 * started mid-session never shows up on its own and the panel silently stays
-	 * empty for the whole session it was meant to narrate.
+	 * Outside a git repository there is nothing to follow, so the panel stays
+	 * absent. The runs directory exists as soon as the project resolves, so the
+	 * watch binds now and a run started later is picked up by the same recursive
+	 * watch.
 	 */
 	start(cwd: string): void {
-		this.cwd = cwd;
 		this.closeWatchers();
-		if (existsSync(cwd)) {
-			this.rootWatcher = watch(cwd, () => this.schedule());
+		try {
+			this.root = runsRoot(cwd);
+		} catch {
+			// The write tools and /dag-run report the resolver's message; the panel
+			// has nothing to show, so it stays absent.
+			this.root = null;
 		}
-		this.bindRunsWatcher();
+		if (this.root) {
+			// Recursive: one watcher covers both a write inside the selected run's
+			// log and a brand new run directory appearing beside it.
+			this.runsWatcher = watch(this.root, { recursive: true }, () => this.schedule());
+		}
 		this.rescan();
-	}
-
-	private bindRunsWatcher(): void {
-		const runsDir = join(this.cwd, ".wayne", "runs");
-		if (this.runsWatcher || !existsSync(runsDir)) return;
-		// Recursive: one watcher covers both a write inside the selected run's
-		// log and a brand new run directory appearing beside it.
-		this.runsWatcher = watch(runsDir, { recursive: true }, () => this.schedule());
 	}
 
 	private schedule(): void {
 		if (this.debounce) clearTimeout(this.debounce);
 		this.debounce = setTimeout(() => {
 			this.debounce = null;
-			this.bindRunsWatcher();
 			this.rescan();
 		}, DEBOUNCE_MS);
 	}
@@ -344,7 +381,7 @@ export class DagPanel implements Component, Focusable {
 	 * that says it does not know which you mean.
 	 */
 	private rescan(): void {
-		const all = discoverRuns(this.cwd);
+		const all = this.root ? discoverRuns(this.root) : [];
 		const active = all.filter((r) => r.status === "in-progress");
 		this.activeCount = active.length;
 
@@ -933,9 +970,7 @@ export class DagPanel implements Component, Focusable {
 	invalidate(): void {}
 
 	private closeWatchers(): void {
-		this.rootWatcher?.close();
 		this.runsWatcher?.close();
-		this.rootWatcher = null;
 		this.runsWatcher = null;
 	}
 
@@ -1273,7 +1308,7 @@ export default function mindExplodeDagExtension(pi: ExtensionAPI) {
 		if (ctx.mode !== "tui") return;
 		// Mount unconditionally to obtain the renderer and start watching, then
 		// let the panel's own presence report decide whether it stays on screen.
-		// `.wayne/runs` usually does not exist yet — the design run creates it.
+		// A run started later is picked up by the watch on the runs directory.
 		const p = mount(ctx);
 		p?.start(ctx.cwd);
 	});
@@ -1297,9 +1332,16 @@ export default function mindExplodeDagExtension(pi: ExtensionAPI) {
 	pi.registerCommand("dag-run", {
 		description: "Pin the DAG panel to a specific mind-explode run",
 		handler: async (_args, ctx) => {
-			const runs = discoverRuns(ctx.cwd);
+			let root: string;
+			try {
+				root = runsRoot(ctx.cwd);
+			} catch (err) {
+				ctx.ui.notify(messageOf(err), "error");
+				return;
+			}
+			const runs = discoverRuns(root);
 			if (runs.length === 0) {
-				ctx.ui.notify("No .wayne/runs/<topic>/decision-log.jsonl found", "warning");
+				ctx.ui.notify(`No ${root}/<topic>/decision-log.jsonl found`, "warning");
 				return;
 			}
 			const labels = runs.map((r) => `${r.topic}  [${r.status}]`);
@@ -1322,14 +1364,20 @@ export default function mindExplodeDagExtension(pi: ExtensionAPI) {
 	 * decision into the wrong design is not recoverable by reading the error.
 	 */
 	const targetRun = (cwd: string): { run: RunHandle } | { error: string } => {
+		let root: string;
+		try {
+			root = runsRoot(cwd);
+		} catch (err) {
+			return { error: messageOf(err) };
+		}
 		const pinned = panel?.attachedTopic;
 		if (pinned) {
-			const run = discoverRuns(cwd).find((r) => r.topic === pinned);
+			const run = discoverRuns(root).find((r) => r.topic === pinned);
 			if (run) return { run };
 		}
-		const active = activeRuns(cwd);
+		const active = activeRuns(root);
 		if (active.length === 1) return { run: active[0]! };
-		if (active.length === 0) return { error: "no in-progress mind-explode run in this project; seed .wayne/runs/<topic>/decision-log.jsonl first" };
+		if (active.length === 0) return { error: `no in-progress mind-explode run in this project; seed ${root}/<topic>/decision-log.jsonl first` };
 		return { error: `${active.length} runs are in-progress (${active.map((r) => r.topic).join(", ")}); pin one with /dag-run before recording decisions` };
 	};
 

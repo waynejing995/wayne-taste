@@ -13,6 +13,7 @@ from pathlib import Path
 CASES = {"provider-isolation", "proof-axis", "missing-native-evidence", "simple", "absorb-existing"}
 HEADER = "| ID | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |"
 LEGACY_HEADER = "| # | User path | Env: process | Env: data | Env: entrypoint | Observable (pass = ?) | Status |"
+TOPIC = "test-design"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -115,15 +116,27 @@ def names_missing_native_proof(text: str) -> bool:
     ) is not None
 
 
+def state_dir(workspace: Path) -> Path:
+    return workspace / "wayne-home" / "projects" / "repo"
+
+
+def matrix_path(workspace: Path) -> Path:
+    return state_dir(workspace) / "runs" / TOPIC / "test-matrix.md"
+
+
 def check(workspace: Path, case_name: str) -> list[str]:
     findings: list[str] = []
     repo = workspace / "repo"
-    matrix = repo / "docs/test-matrix/matrix.md"
-    if not matrix.is_file():
-        return ["matrix artifact missing"]
+    state = state_dir(workspace)
+    matrix = matrix_path(workspace)
     changed = [row[3:] for row in git(repo, "status", "--porcelain=v1", "--untracked-files=all").splitlines() if len(row) > 3]
-    if changed != ["docs/test-matrix/matrix.md"]:
-        findings.append(f"wrote outside the approved matrix path: {changed}")
+    if changed:
+        findings.append(f"wrote outside the approved matrix path: repository changed {changed}")
+    if not matrix.is_file():
+        return findings + ["matrix artifact missing"]
+    state_files = sorted(p.relative_to(state).as_posix() for p in state.rglob("*") if p.is_file())
+    if state_files != [matrix.relative_to(state).as_posix()]:
+        findings.append(f"wrote outside the approved matrix path: state holds {state_files}")
     text = matrix.read_text(encoding="utf-8")
     lower = text.lower()
     useed_label = "U-SEED (wayne-plan re-authors + locks)"

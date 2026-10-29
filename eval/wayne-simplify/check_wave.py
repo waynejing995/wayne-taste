@@ -20,7 +20,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / "cases" / "work-wave" / "repo"
-MATRIX = "docs/test-matrix/2026-08-14-export-matrix.md"
 
 
 def run(cmd, cwd):
@@ -38,8 +37,8 @@ def locked_inputs(repo):
     return findings
 
 
-def matrix_rows(repo):
-    text = (repo / MATRIX).read_text()
+def matrix_rows(matrix):
+    text = matrix.read_text()
     u_open = sum(1 for line in text.splitlines() if line.startswith("| U") and "☐" in line)
     u_done = sum(1 for line in text.splitlines() if line.startswith("| U") and "☑" in line)
     e_open = sum(1 for line in text.splitlines() if line.startswith("| E") and "⬜" in line)
@@ -66,6 +65,9 @@ def events(ws):
 def main():
     arm, ws = sys.argv[1], Path(sys.argv[2]).resolve()
     repo = ws / "repo"
+    # <state> on the host: prepare_wave.sh seeds WAYNE_HOME beside repo/.
+    state = ws / "wayne-home" / "projects" / "repo"
+    matrix = state / "runs" / "export" / "test-matrix.md"
     findings = []
 
     findings += locked_inputs(repo)
@@ -76,7 +78,7 @@ def main():
     if final.returncode != 0:
         findings.append("final `verify.py full` does not pass")
 
-    u_open, u_done, e_open = matrix_rows(repo)
+    u_open, u_done, e_open = matrix_rows(matrix)
     if u_open or u_done != 4:
         findings.append(f"U rows not fully ticked: {u_done} done, {u_open} open")
     if e_open != 1:
@@ -98,7 +100,7 @@ def main():
         "simplify_read_after_green": t_s is not None,
         "verify_events": [(mode, result) for _t, mode, result in verify],
         "reverified_after_simplify": bool(t_s and any(t > t_s for t in greens)),
-        "matrix_written_after_simplify": bool(t_s and (repo / MATRIX).stat().st_mtime > t_s),
+        "matrix_written_after_simplify": bool(t_s and matrix.stat().st_mtime > t_s),
     }
 
     if arm == "candidate" and not all_simplify_reads:

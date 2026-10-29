@@ -27,7 +27,8 @@ Wave-integration harness (proves the `wayne-work` node S, not the standalone pas
 
 | File                    | Owns                                                                              |
 | ----------------------- | ---------------------------------------------------------------------------------- |
-| `cases/work-wave/repo`  | a two-unit plan whose units both need the same normalization, so the wave diff duplicates it |
+| `cases/work-wave/repo`  | repository fixture: locked tests, `scripts/verify.py`, export decisions; two units need the same normalization, so the wave diff duplicates it |
+| `cases/work-wave/wayne-home` | run state beside `repo/` (approved plan, run test matrix), copied to `$ws/wayne-home`. The plan cites `/workspace/wayne-home/...`, so a wave agent must see `$ws` at `/workspace`, cwd `/workspace/repo`, and `WAYNE_HOME=/workspace/wayne-home`; no runner in this harness pins that yet |
 | `prepare_wave.sh`       | builds `/tmp/wayne-simplify-wave/<arm>`: control = `wayne-work` at git HEAD without the skill, candidate = working-tree `wayne-work` plus the skill |
 | `check_wave.py`         | observable state only — locked inputs, git state, U/E rows, final verification, recorded logs |
 | `watch_reads.py`        | inotify read log, corroboration only; a read timestamp is not proof of execution     |

@@ -6,10 +6,12 @@ harness=$(cd "$(dirname "$0")" && pwd); repo_root=$(cd "$harness/../.." && pwd)
 case_dir="$harness/cases/$case_name"
 [[ -f "$skill_dir/SKILL.md" && -f "$case_dir/task.md" ]] || exit 2
 [[ ! -e "$workspace" ]] || { echo "workspace exists: $workspace" >&2; exit 2; }
-mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/_shared"
+# Wayne state lives under WAYNE_HOME, beside repo/, never inside it.
+mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/_shared/scripts" "$workspace/wayne-home/projects/repo"
 cp -R "$case_dir/repo/." "$workspace/repo/"
 cp -R "$skill_dir/." "$workspace/skill/"
-cp "$repo_root/_shared/e2e-contract.md" "$workspace/_shared/e2e-contract.md"
+cp "$repo_root/_shared/e2e-contract.md" "$repo_root/_shared/pipeline-id-contract.md" "$workspace/_shared/"
+cp "$repo_root/_shared/scripts/wayne-state-dir.sh" "$workspace/_shared/scripts/"
 cp "$case_dir/task.md" "$workspace/task.md"
 git -C "$workspace/repo" init -q
 git -C "$workspace/repo" config user.name "Eval Fixture"

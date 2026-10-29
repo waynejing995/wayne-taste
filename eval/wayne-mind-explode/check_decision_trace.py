@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-DECISION_PATH = re.compile(r"(?:^|/)\.wayne/runs/[^/]+/decision-log\.jsonl$")
+DECISION_PATH = re.compile(r"(?:^|/)wayne-home/projects/[^/]+/runs/[^/]+/decision-log\.jsonl$")
 DECISION_ID = re.compile(r"^D([1-9]\d*)$")
 
 

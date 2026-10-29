@@ -13,6 +13,8 @@ ws="/tmp/wayne-simplify-wave/$arm"
 rm -rf "$ws"
 mkdir -p "$ws/skill"
 cp -r "$here/cases/work-wave/repo" "$ws/repo"
+# Run state is seeded beside repo/ under WAYNE_HOME, never inside the repository.
+cp -r "$here/cases/work-wave/wayne-home" "$ws/wayne-home"
 cp -r "$sot/_shared" "$ws/skill/_shared"
 
 mkdir -p "$ws/skill/wayne-work"

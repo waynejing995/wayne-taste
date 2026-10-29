@@ -10,8 +10,10 @@ import subprocess
 from pathlib import Path
 
 
-HARNESS = Path(__file__).resolve().parent
-REPO_ROOT = HARNESS.parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# The repo-local state directory the contract forbids; every check and calibration
+# uses this name.
+REPO_LOCAL_STATE_DIR = ".wayne"
 CASES = {
     "failure",
     "test-then-fix",
@@ -32,6 +34,8 @@ INTERNAL = {
     "multiple-signal": ("needs-plan", "wayne-plan"),
     "architecture": ("escalate-architecture", "wayne-mind-explode"),
 }
+
+
 def load_output(path: Path) -> str:
     text = path.read_text(encoding="utf-8")
     try:
@@ -67,8 +71,7 @@ def git_lines(repo: Path, *args: str) -> list[str]:
     return [line for line in result.stdout.splitlines() if line]
 
 
-def check_source_boundary(repo: Path, case: str, findings: list[str]) -> None:
-    del case
+def check_source_boundary(repo: Path, findings: list[str]) -> None:
     if not (repo / ".git").is_dir():
         findings.append("trial repository has no frozen Git baseline")
         return
@@ -77,25 +80,43 @@ def check_source_boundary(repo: Path, case: str, findings: list[str]) -> None:
     if git_lines(repo, "rev-list", "--count", "HEAD") != ["1"]:
         findings.append("trial commit history changed after the frozen baseline")
 
+    # No --exclude-standard: an ignored file is still a mutation. Git never lists an
+    # empty directory, so the repo-local state directory is also checked on disk.
+    if (repo / REPO_LOCAL_STATE_DIR).exists():
+        findings.append(f"repository contains {REPO_LOCAL_STATE_DIR}/ state; state belongs under WAYNE_HOME")
+    for relative in git_lines(repo, "ls-files", "--others"):
+        findings.append(f"unexpected untracked repository file: {relative}")
+    state = state_root(repo)
     allowed = (
-        re.compile(r"\.wayne/\.gitignore"),
-        re.compile(r"\.wayne/triage/\.gitignore"),
-        re.compile(r"\.wayne/triage/[^/]+\.md"),
-        re.compile(r"\.wayne/triage-reports/[^/]+\.md"),
-        re.compile(r"\.wayne/checkpoints/[^/]+\.md"),
+        re.compile(r"triage/[^/]+\.md"),
+        re.compile(r"checkpoints/[^/]+\.md"),
     )
-    added = git_lines(repo, "ls-files", "--others", "--exclude-standard")
-    for relative in added:
-        if not any(pattern.fullmatch(relative) for pattern in allowed):
-            findings.append(f"unexpected mutation outside triage state: {relative}")
+    if state.is_dir():
+        for path in sorted(state.rglob("*")):
+            if path.is_dir():
+                continue
+            relative = path.relative_to(state).as_posix()
+            if not any(pattern.fullmatch(relative) for pattern in allowed):
+                findings.append(f"unexpected state file: {relative}")
+
+
+def state_root(repo: Path) -> Path:
+    """Host path of the trial's `<state>`: the WAYNE_HOME tree beside `repo/`."""
+    return repo.parent / "wayne-home" / "projects" / "repo"
 
 
 def evidence_files(repo: Path) -> list[Path]:
-    return sorted((repo / ".wayne" / "triage").glob("*.md"))
+    return sorted((state_root(repo) / "triage").glob("*.md"))
 
 
 def checkpoints(repo: Path) -> list[Path]:
-    return sorted((repo / ".wayne" / "checkpoints").glob("*.md"))
+    return sorted((state_root(repo) / "checkpoints").glob("*.md"))
+
+
+def sandbox_path(repo: Path, host_file: Path) -> str:
+    """The `/workspace` spelling of a state file: what the agent writes into a handoff."""
+    relative = host_file.relative_to(state_root(repo)).as_posix()
+    return f"/workspace/wayne-home/projects/repo/{relative}"
 
 
 def markdown_section(text: str, heading: str) -> str | None:
@@ -177,7 +198,7 @@ def check_handoff(
         "status": "handoff",
         "pipeline_stage": "triage",
         "route": route,
-        "snapshot": evidence.relative_to(repo).as_posix(),
+        "snapshot": sandbox_path(repo, evidence),
         "next_agent": expected_agent,
         "trigger": "manual",
     }
@@ -190,7 +211,7 @@ def check_handoff(
     if not re.fullmatch(r"wayne-[a-z0-9-]+", frontmatter.get("next_agent", "")):
         findings.append("handoff next_agent is not one Skill slug")
     for needle in (
-        evidence.relative_to(repo).as_posix(),
+        sandbox_path(repo, evidence),
         expected_agent,
         "manual",
         "Auto-advance",
@@ -260,7 +281,7 @@ def expected_fields(case: str) -> dict[str, str]:
 
 def validate_complete(repo: Path, case: str, output: str) -> list[str]:
     findings: list[str] = []
-    check_source_boundary(repo, case, findings)
+    check_source_boundary(repo, findings)
     evidence = evidence_files(repo)
     if len(evidence) != 1:
         findings.append(f"expected one evidence SSoT; found={[p.as_posix() for p in evidence]}")
@@ -324,9 +345,9 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
     return findings
 
 
-def validate_missing(repo: Path, output: str) -> list[str]:
+def validate_missing(repo: Path) -> list[str]:
     findings: list[str] = []
-    check_source_boundary(repo, "missing-data", findings)
+    check_source_boundary(repo, findings)
     if evidence_files(repo):
         findings.append("missing-data case wrote evidence before data existed")
     if checkpoints(repo):
@@ -336,7 +357,7 @@ def validate_missing(repo: Path, output: str) -> list[str]:
 
 def validate_no_match(repo: Path, output: str) -> list[str]:
     findings: list[str] = []
-    check_source_boundary(repo, "no-match", findings)
+    check_source_boundary(repo, findings)
     evidence = evidence_files(repo)
     if len(evidence) != 1:
         findings.append(f"no-match requires one evidence SSoT; found={len(evidence)}")
@@ -375,7 +396,7 @@ def validate(workspace: Path, case: str, output_path: Path) -> list[str]:
     if case in INTERNAL or case in {"approval-denied", "external-owner"}:
         return validate_complete(repo, case, output)
     if case == "missing-data":
-        return validate_missing(repo, output)
+        return validate_missing(repo)
     if case == "no-match":
         return validate_no_match(repo, output)
     return [f"unknown case: {case}"]

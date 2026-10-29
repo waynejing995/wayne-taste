@@ -1,11 +1,11 @@
 ---
 name: wayne-checkpoint
-description: Save and resume working state within the project, and act as the handoff conductor between Wayne pipeline stages. Captures git state, decision log progress, plan status, and remaining work so you can pick up exactly where you left off across sessions. Also emits a standardized "handoff packet" (snapshot + next agent + self-contained next prompt + optional goal) at the end of each pipeline stage to standardize the transition to the next stage — without ever advancing it. Stored in .wayne/checkpoints/ (project-scoped, gitignored). Use when asked to "checkpoint", "save progress", "where was I", "resume", "pick up where I left off", or "hand off"; also auto-called by other Wayne pipeline skills as their final step to produce a handoff packet.
+description: Save and resume working state within the project, and act as the handoff conductor between Wayne pipeline stages. Captures git state, decision log progress, plan status, and remaining work so you can pick up exactly where you left off across sessions. Also emits a standardized "handoff packet" (snapshot + next agent + self-contained next prompt + optional goal) at the end of each pipeline stage to standardize the transition to the next stage — without ever advancing it. Stored under <state>/checkpoints/ (per-project under ~/.wayne, shared by all worktrees, never in the repo). Use when asked to "checkpoint", "save progress", "where was I", "resume", "pick up where I left off", or "hand off"; also auto-called by other Wayne pipeline skills as their final step to produce a handoff packet.
 ---
 
 # Wayne Checkpoint
 
-Save and resume working state. Project-scoped — everything stays in `.wayne/checkpoints/`.
+Save and resume working state. Per-project under ~/.wayne, shared by all worktrees, never in the repo.
 
 This skill only specifies the save / resume / list checkpoint workflow and the pipeline handoff workflow.
 
@@ -13,7 +13,7 @@ Read `../_shared/pipeline-id-contract.md` before copying pipeline artifacts. Pre
 
 ## Files Written
 
-checkpoint and handoff-packet markdown files at `.wayne/checkpoints/`.
+checkpoint and handoff-packet markdown files at `<state>/checkpoints/`. Resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` (`STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh)`). If the resolver fails, report that and stop; never fall back to a repo-local `.wayne/` or `/tmp`. Cross-stage references to `<state>` artifacts are absolute paths.
 
 ## Commands
 
@@ -45,7 +45,7 @@ git log --oneline -10 2>/dev/null
 
 Use exact artifact paths supplied by the caller or already recorded by the active pipeline stage. Never select an owner by modification time, filename order, heading, or ID-shaped text. In a standalone save, discover candidates only to locate them; if more than one could be active, ask which exact path is authoritative.
 
-For each supplied artifact, record its repository-relative path, owner, SHA-256, and observed state. Decision counts, unit progress, and E statuses are derived snapshots for orientation only. The decision log, plan, and test matrix remain the only owners; a checkpoint never becomes their replacement.
+For each supplied artifact, record its path (repository-relative for repo files, absolute for `<state>` artifacts), owner, SHA-256, and observed state. Decision counts, unit progress, and E statuses are derived snapshots for orientation only. The decision log, plan, and test matrix remain the only owners; a checkpoint never becomes their replacement.
 
 ### Step 3: Summarize Context
 
@@ -63,16 +63,14 @@ Use AI contextual reading for stage, intent, decisions, and remaining work. Git 
 ### Step 4: Write Checkpoint
 
 ```bash
-mkdir -p .wayne/checkpoints
-
-# Self-contained gitignore (one-time setup)
-[ -f .wayne/.gitignore ] || echo "*" > .wayne/.gitignore
+STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh) || exit 1
+mkdir -p "$STATE/checkpoints"
 
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 echo "TIMESTAMP=$TIMESTAMP"
 ```
 
-Write to `.wayne/checkpoints/{TIMESTAMP}-{title-slug}.md`.
+Write to `$STATE/checkpoints/{TIMESTAMP}-{title-slug}.md`.
 
 **Read first, then write:** `templates/checkpoint-template.md` relative to this skill directory.
 
@@ -100,7 +98,7 @@ Confirm to user (in Chinese):
 ════════════════════════════
 标题:     {title}
 分支:     {branch}
-文件:     .wayne/checkpoints/{filename}
+文件:     $STATE/checkpoints/{filename}
 修改文件: {N} 个
 阶段:     {pipeline stage}
 ════════════════════════════
@@ -113,8 +111,9 @@ Confirm to user (in Chinese):
 ### Step 1: Find Checkpoints
 
 ```bash
-if [ -d .wayne/checkpoints ]; then
-  find .wayne/checkpoints -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null | head -10
+STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh) || exit 1
+if [ -d "$STATE/checkpoints" ]; then
+  find "$STATE/checkpoints" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null | head -10
 else
   echo "NO_CHECKPOINTS"
 fi
@@ -208,8 +207,9 @@ If no branch mismatch, auto-invoke immediately — no question needed.
 ## List Flow
 
 ```bash
-if [ -d .wayne/checkpoints ]; then
-  find .wayne/checkpoints -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null
+STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh) || exit 1
+if [ -d "$STATE/checkpoints" ]; then
+  find "$STATE/checkpoints" -maxdepth 1 -name "*.md" -type f 2>/dev/null | xargs ls -1t 2>/dev/null
 else
   echo "NO_CHECKPOINTS"
 fi
@@ -279,13 +279,13 @@ Determine the current pipeline stage from the calling skill or an explicit resum
 | `verify`       | `wayne-ship`        |
 | `ship`         | `wayne-compound`    |
 
-For a non-linear caller such as `wayne-triage`, do not reinterpret its verdict. Require the caller to supply `pipeline_stage`, `route`, one repository-relative `snapshot`, and exactly one `next_agent`. The target must be one available `wayne-*` Skill slug, never a verdict, chain, or external owner. If no internal target applies or validation fails, write no packet and return `NO_WAYNE_HANDOFF: <route> — <reason>`.
+For a non-linear caller such as `wayne-triage`, do not reinterpret its verdict. Require the caller to supply `pipeline_stage`, `route`, one `snapshot` path (repository-relative for repo files, absolute for `<state>` artifacts), and exactly one `next_agent`. The target must be one available `wayne-*` Skill slug, never a verdict, chain, or external owner. If no internal target applies or validation fails, write no packet and return `NO_WAYNE_HANDOFF: <route> — <reason>`.
 
 ### Step 3: Build the Packet
 
 Assemble the four required parts plus the optional goal:
 
-1. **snapshot** — current git state plus exact repository-relative artifact paths, owners, hashes, and derived progress observed from those owners. It never embeds a second authoritative decision, unit, or E-status table.
+1. **snapshot** — current git state plus exact artifact paths (repository-relative for repo files, absolute for `<state>` artifacts), owners, hashes, and derived progress observed from those owners. It never embeds a second authoritative decision, unit, or E-status table.
 2. **next agent** — from the routing table above.
 3. **next prompt** — a SELF-CONTAINED routing prompt for the next step. Name the branch, snapshot and authoritative plan/spec/matrix paths, scope, acceptance criteria, and out-of-scope. Preserve meaning through AI reading of the complete owners; do not rebuild it from headings, keywords, ID scans, or checkpoint summaries. Do not write "continue from before".
 4. **goal (OPTIONAL)** — a success-criteria / Goal-Driven block (per CLAUDE.md "Goal-Driven Execution"). Include ONLY when concrete success criteria are extractable. When present, the next step may loop autonomously toward the goal; when absent, the next step follows its prompt/plan steps strictly.
@@ -296,16 +296,14 @@ Assemble the four required parts plus the optional goal:
 ### Step 4: Persist + Surface
 
 ```bash
-mkdir -p .wayne/checkpoints
-
-# Self-contained gitignore (one-time setup) — same as Save Flow
-[ -f .wayne/.gitignore ] || echo "*" > .wayne/.gitignore
+STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh) || exit 1
+mkdir -p "$STATE/checkpoints"
 
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 echo "TIMESTAMP=$TIMESTAMP"
 ```
 
-Write the packet to `.wayne/checkpoints/{TIMESTAMP}-handoff-{stage}-to-{next}.md` (same directory as checkpoints, same gitignore).
+Write the packet to `$STATE/checkpoints/{TIMESTAMP}-handoff-{stage}-to-{next}.md` (same directory as checkpoints).
 
 **Read first, then write:** `templates/handoff-packet.md` relative to this skill directory.
 
@@ -320,7 +318,7 @@ The template is a readable starting layout. It shares familiar field names with 
 下一步:   {next agent}
 触发方式: 手动 — 说"下一步" / "继续" / "go"
 目标块:   {已包含 / 已省略}
-文件:     .wayne/checkpoints/{filename}
+文件:     $STATE/checkpoints/{filename}
 ════════════════════════════
 ```
 
@@ -366,7 +364,7 @@ The `pipeline_stage` field tells **resume** which skill to suggest. The next age
 
 ## Key Principles
 
-- **Project-scoped** — `.wayne/checkpoints/`, not `~/.gstack/`. Travels with the repo.
+- **Per-project under ~/.wayne** — shared by all worktrees, never in the repo.
 - **Append-only** — never overwrite or delete existing checkpoints
 - **Read-only** — never modifies code, only reads state and writes checkpoint files
 - **Pipeline-aware** — captures which Wayne skill was active and what phase

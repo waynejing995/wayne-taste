@@ -27,8 +27,10 @@ Contextual reading decides which clauses are requirements, decisions, findings, 
 Write English Markdown to:
 
 ```text
-docs/plans/YYYY-MM-DD-NNN-<feat|fix|refactor>-<3-5-word-name>-plan.md
+<state>/plans/YYYY-MM-DD-NNN-<feat|fix|refactor>-<3-5-word-name>-plan.md
 ```
+
+Resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` (`STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh)`). If the resolver fails, report that and stop; never fall back to a repo-local `.wayne/` or `/tmp`. The plan is not a repository file; its path is absolute.
 
 Use a clear date, sequence, change type, and short lowercase name. Keep lightweight metadata so downstream agents can identify the plan and lifecycle, for example:
 
@@ -37,11 +39,11 @@ title: <non-empty title>
 type: <feat|fix|refactor>
 status: active
 date: YYYY-MM-DD
-origin: <repo-relative source path or none — converged direct request>
-decisions: <repo-relative decision-log path or none — no decision log exists>
+origin: <repo-relative spec path or none — converged direct request>
+decisions: <absolute <state>/runs/<topic>/decision-log.jsonl path or none — no decision log exists>
 ```
 
-The filename and metadata must agree in meaning. Source paths are repository-relative and name the actual inputs. Status remains `active` while drafting; only both independent review passes authorize `approved`. `wayne-work` accepts only an approved plan. Metadata order and YAML surface style are not correctness requirements.
+The filename and metadata must agree in meaning. Spec paths stay repository-relative; decision-log and matrix paths are absolute `<state>` paths. Status remains `active` while drafting; only both independent review passes authorize `approved`. `wayne-work` accepts only an approved plan. Metadata order and YAML surface style are not correctness requirements.
 
 ## 3. Required plan information
 
@@ -116,7 +118,7 @@ On an active conflict or absent owned E contract, do not create a plan. Return a
 ```text
 STATUS: BLOCKED
 REASON: PLAN_CONFLICT or MISSING_E2E
-ARTIFACTS: <semicolon-separated repo-relative paths>
+ARTIFACTS: <semicolon-separated artifact paths>
 OWNER: product-design or test-design
 <one concise Chinese explanation>
 ```
@@ -131,7 +133,7 @@ Independent AI reviews own acceptance:
 - execution-readiness checks unit closure, dependencies, interfaces, real files and symbols, cleanup, U ownership, E advancement, risks, and whether a fresh executor can work without inventing a decision;
 - design-conformance checks that the plan builds the approved architecture: component realization, state ownership, interface signatures, flow order, carried technology constraints, and whether every deviation from a named spec surface is declared. It applies only when a living spec exists to compare against; otherwise the plan records `Design conformance: none — <reason>` and two voices run. A declared not-applicable voice is not a downgrade; a silently omitted one is.
 
-Every review compares the recorded starting commit/status, agent write history, and final Git diff before checkpoint handoff. Only the new plan may change during plan authoring; `wayne-checkpoint` later owns its own artifacts. A required change to a source artifact or unrelated file means the plan input or scope is incomplete: stop and ask the user. Do not recursively scan repository contents, open unrelated files, or require permission repair to prove scope.
+Every review compares the recorded starting commit/status, agent write history, and final Git diff before checkpoint handoff. The repository must not change during plan authoring; the plan lives under `<state>/plans/` and is not a git artifact. `wayne-checkpoint` later owns its own artifacts under `<state>/checkpoints/`. A required change to a source artifact or unrelated file means the plan input or scope is incomplete: stop and ask the user. Do not recursively scan repository contents, open unrelated files, or require permission repair to prove scope.
 
 Templates, Markdown shape, hash ledgers, section counts, and scripts do not prove plan correctness. If future tooling introduces a real non-AI plan consumer, add mechanical validation only for that consumer's published interface.
 

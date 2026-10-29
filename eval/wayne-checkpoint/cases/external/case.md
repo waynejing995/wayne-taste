@@ -3,7 +3,7 @@
 - current stage: `triage`
 - verdict: `escalate-incident`
 - selected next agent: none; this route is external
-- snapshot: `.wayne/triage/provider-outage.md`
+- snapshot: `/workspace/wayne-home/projects/repo/triage/provider-outage.md`
 - cause: confirmed external provider outage owned by another team
 - acceptance: preserve the report-only external route
 - out of scope: creating or invoking a Wayne pipeline handoff

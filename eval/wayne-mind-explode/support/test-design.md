@@ -1,6 +1,6 @@
 # Test-design support contract
 
-Write one matrix to `.wayne/runs/<topic>/test-matrix.md` after the design is
+Write one matrix to `/workspace/wayne-home/projects/repo/runs/<topic>/test-matrix.md` after the design is
 approved. It owns both layers:
 
 1. `## Unit / Integration Matrix` with behavior-focused rows.

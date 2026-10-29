@@ -56,7 +56,7 @@ def calibrate(skill: Path) -> list[str]:
         "decision-copy": ("templates/checkpoint-template.md", "### Decision Progress", "### Decision Log Snapshot"),
         "unit-copy": ("templates/checkpoint-template.md", "### Implementation Progress", "### Implementation Units (from plan)"),
         "missing-owner-table": ("templates/handoff-packet.md", "| Artifact | Path | Owner | SHA-256 | Observed state |", "| Artifact | Path | Observed state |"),
-        "missing-test-matrix": ("templates/checkpoint-template.md", "test_matrix: docs/test-matrix/{file}.md\n", ""),
+        "missing-test-matrix": ("templates/checkpoint-template.md", "test_matrix: <state>/runs/{topic}/test-matrix.md        # absolute\n", ""),
     }
     with tempfile.TemporaryDirectory(prefix="checkpoint-template-calibration-") as temp:
         root = Path(temp) / "skill"

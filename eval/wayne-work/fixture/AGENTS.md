@@ -3,9 +3,10 @@
 - Execute the approved plan exactly. Do not redesign its API or edit upstream
   decision/plan inputs.
 - Locked files: `tests/**`, `scripts/verify.py`, `docs/decisions/**`,
-  `docs/plans/**`, and every E row in the test matrix.
+  the approved plans under `/workspace/wayne-home/projects/repo/plans/`, and every E row in
+  the test matrix `/workspace/wayne-home/projects/repo/runs/delivery-retry/test-matrix.md`.
 - Allowed implementation writes: `src/relay/models.py`, `src/relay/service.py`,
-  `src/relay/__init__.py`, U status cells in the matrix, `.eval/verify-events.jsonl`,
-  and `.wayne/checkpoints/handoff.md`.
+  `src/relay/__init__.py`, U status cells in that test matrix, `.eval/verify-events.jsonl`,
+  and the handoff `/workspace/wayne-home/projects/repo/checkpoints/handoff.md`.
 - Do not commit, branch, stage, push, or invoke downstream review/ship skills.
 - Run Python through `uv run --no-project python`.
