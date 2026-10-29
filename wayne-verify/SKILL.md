@@ -1,6 +1,6 @@
 ---
 name: wayne-verify
-description: "Executes a carried E2E Verification Contract through the real process, data, entrypoint, and user path; captures fresh observable evidence; mutates only E2E Status; and gates shipping. Use for verify, e2e, run the feature, does it actually work, runtime verification, or /wayne-verify; never substitute unit tests or static review."
+description: "Executes a carried E2E Verification Contract through the real process, data, entrypoint, and user path; captures fresh observable evidence; mutates only E2E Status and the project verification recipe; and gates shipping. Use for verify, e2e, run the feature, does it actually work, runtime verification, or /wayne-verify; never substitute unit tests or static review."
 ---
 
 # Wayne Verify
@@ -9,9 +9,9 @@ Run the feature as its user runs it and decide the runtime gate from fresh evide
 
 ## Boundary and contract owner
 
-Read `../_shared/pipeline-id-contract.md` and `../_shared/e2e-contract.md` completely. They own the required E2E information, explicit no-E2E rationale, and Status lifecycle. Use the exact authoritative `.wayne/runs/<topic>/test-matrix.md` path carried by the handoff or supplied by the user; never select or mutate the read-only snapshot inside a plan. Do not author or repair the matrix.
+Read `../_shared/pipeline-id-contract.md` and `../_shared/e2e-contract.md` completely. They own the required E2E information, explicit no-E2E rationale, and Status lifecycle. Use the exact authoritative `<state>/runs/<topic>/test-matrix.md` path carried by the handoff or supplied by the user (absolute). If no path was supplied, resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` (`STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh)`); if the resolver fails, report that and stop, never falling back to a repo-local `.wayne/` or `/tmp`. Never select or mutate the read-only snapshot inside a plan. Do not author or repair the matrix.
 
-This skill alone may change the E2E `Status` cells (`⬜/✅/❌`). Never change a unit-integration status, another contract cell, or product code. Unit tests and static review have zero bearing on this gate.
+This skill alone may change the E2E `Status` cells (`⬜/✅/❌`). Never change a unit-integration status, another contract cell, or product code. Unit tests and static review have zero bearing on this gate. Besides the Status cells and the `verified` entry in Q, this skill writes only the project verification recipe at `docs/verification.md`, under the rules in R.
 
 ## Flow
 
@@ -31,6 +31,7 @@ flowchart TB
     N["Set fresh Status ❌"]
     T["Tear down and preserve evidence"]
     M{"More rows?"}
+    R["Update verification recipe"]
     Q{"Any ❌ or cleanup failure?"}
     W(["FAILED: return rows to wayne-work"])
     S(["PASSED: checkpoint handoff to wayne-ship"])
@@ -52,7 +53,8 @@ flowchart TB
     N --> T
     T --> M
     M -->|"yes"| C
-    M -->|"no"| Q
+    M -->|"no"| R
+    R --> Q
     Q -->|"yes"| W
     Q -->|"no"| S
 ```
@@ -74,6 +76,8 @@ Record the approved requirement and why it has no user-observable path, without 
 ### C. Prepare the declared environment
 
 Run every E entry in its authored order, including incoming `✅` or `❌`: those statuses are historical, not evidence for this session. Create a run scratch directory and capture the pre-run contract. Use the exact host/worktree, process, data, and entrypoint named by the row; never substitute your cwd, another worktree, a mock, or a convenient environment.
+
+If `docs/verification.md` exists, read it before the first row. Use its launch, readiness, drive, evidence, and cleanup steps where the row does not name them. If the recipe and the row disagree, follow the row, because the row is the contract.
 
 ### D. Start and observe readiness
 
@@ -98,6 +102,15 @@ Set `✅` only after the observable appears in this session. Set `❌` when star
 ### T. Tear down and preserve evidence
 
 Stop the exact process after every row, including failure paths, and prove it no longer owns its port/process/resource. Preserve readiness, drive, observable, failure, and teardown evidence. Cleanup failure keeps the gate failed; never report ship-ready while the verification process remains live.
+
+### R. Update the verification recipe
+
+The recipe saves the next run from discovering again how to start and drive this project. Keep `docs/verification.md` short, with these parts: launch command, readiness check, how to drive each real entrypoint, where evidence is captured, and cleanup.
+
+1. Write a step to the recipe only if that step ran and worked in this session. Do not write a step from a guess or from documentation alone, because an unrun step misleads the next run.
+2. If a recipe step failed because the project changed, replace it with the step that worked in this session, and report the change.
+3. If a recipe step failed and no replacement worked, mark that step `stale` with the observed failure.
+4. Do not use the recipe as evidence for any row. Only the fresh observable in G sets a Status.
 
 ### Q. Gate and route
 
