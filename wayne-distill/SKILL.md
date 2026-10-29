@@ -174,7 +174,7 @@ Write each approved candidate to `/tmp/wayne-distill-patterns/<kebab-name>.md`:
 
 Then invoke `/wayne-skill-forge` — it reads the pattern file, runs the house-style build + its own user gate before writing the SKILL.md.
 
-For _Extend_ verdicts: write the pattern with `verdict: Extend` + the target skill name; forge proposes the concrete diff and applies only on approval — no new file. An **anti-pattern graft** (a recurring mistake guarding an existing skill's territory) is an Extend whose diff adds a bullet to that skill's Anti-patterns section.
+For _Extend_ verdicts: write the pattern with `verdict: Extend` + the target skill name; forge proposes the concrete diff and applies only on approval — no new file. An **anti-pattern graft** (a recurring mistake guarding an existing skill's territory) is an Extend whose diff adds a bullet to that skill's Anti-patterns section. Before you propose a prose graft for a mistake, check whether architecture, a type, a lint or script check, or a behavior test can enforce the guard; if one can, propose that encoding instead of the bullet, because an agent can skip a bullet and nothing fails.
 
 ## Anti-patterns
 
