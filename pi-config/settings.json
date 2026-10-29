@@ -1,7 +1,7 @@
 {
-  "lastChangelogVersion": "0.85.1",
-  "defaultProvider": "google-amd",
-  "defaultModel": "gemini-3.8-flash",
+  "lastChangelogVersion": "1.4.0",
+  "defaultProvider": "magpie",
+  "defaultModel": "group/task-delegation",
   "defaultThinkingLevel": "high",
   "theme": "catppuccin-mocha",
   "packages": [
@@ -40,7 +40,9 @@
     "ds-amd/DeepSeek-v4-pro",
     "openai-amd/gpt-5.6-terra",
     "cursor/grok-4.6",
-    "google-amd/gemini-3.8-flash"
+    "google-amd/gemini-3.8-flash",
+    "magpie/group/task-delegation",
+    "magpie/copilot/gemini-3.8-flash"
   ],
   "terminal": {
     "showTerminalProgress": true,
