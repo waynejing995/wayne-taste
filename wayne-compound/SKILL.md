@@ -22,6 +22,7 @@ Before reading or writing the KB, read `~/.wayne/config.env`. It must set `WAYNE
 1. **Gather pipeline artifacts** — spec (`## Decisions`, `## Verification`), plan, review findings, commit messages
 2. **Extract the learning** — what was the real insight?
 3. **Classify** — bug fix, pattern, decision, how-to?
+   - **Choose the enforcement layer** — see Phase 3b
 4. **Check for duplicates** — MANDATORY before writing. Search KB and docs/solutions/ first. If anything similar exists, UPDATE or MERGE, do not create a new file. Specifically:
    - grep both the title AND the trigger keywords across `${KB_DIR}/`
    - list all lessons with `grep -rl "^type: lesson" "${KB_DIR}/how-to/" --include="*.md"` — **read every existing lesson title + trigger before deciding to write new**
@@ -43,6 +44,8 @@ flowchart TB
     A["Gather pipeline artifacts<br/>(decision log, plan,<br/>review, commits)"]
     B["Extract the real insight<br/>(not just what happened)"]
     C["Classify:<br/>bug / pattern / decision / how-to"]
+    L{"Structural layer<br/>can enforce it?"}
+    P["Record the enforcement,<br/>or propose it (do not implement)"]
     D["Search KB + docs/solutions/<br/>for duplicates"]
     E{"Duplicate found?"}
     F["Update existing entry"]
@@ -53,7 +56,10 @@ flowchart TB
 
     A --> B
     B --> C
-    C --> D
+    C --> L
+    L -->|"yes"| P
+    L -->|"no: judgment only"| D
+    P --> D
     D --> E
     E -->|"yes"| F
     E -->|"no"| G
@@ -113,6 +119,25 @@ Distill into:
 | **Decision** | `decisions/` | — (the spec's `## Decisions` suffices) | Made an architectural or design choice with rationale |
 | **How-to** | `how-to/` | `integration-issues/` | Figured out how to do something that wasn't documented |
 | **Pitfall** | `how-to/` | specific category | Found a trap that others will fall into |
+
+## Phase 3b: Choose the Enforcement Layer
+
+An agent can skip a prose rule and nothing fails. A check that fails cannot be skipped. For each lesson, find the first layer in this order that can enforce it:
+
+| Layer | Enforces the lesson by |
+| --- | --- |
+| Architecture | deleting the wrong way, or giving the state one owner, so nothing is left to copy |
+| Types / schema | making the bad state unrepresentable |
+| Lint / CI / script check | failing with an error message that names the fix |
+| Behavior test | failing when the observable behavior breaks |
+| Prose | KB lesson, repo doc, or skill text, for a judgment call that no check can catch |
+
+1. If the shipped change already contains the enforcement, record the layer and its path in the lesson body.
+2. If a structural layer can enforce the lesson but the shipped change does not contain it, propose the concrete encoding to the user: layer, location, and the failure message. Do not edit product code, because this skill only captures lessons. The user routes an accepted proposal through the normal Wayne implementation path.
+3. Record the proposal in the lesson body as `Enforcement: proposed <layer> — <encoding>`.
+4. If only prose can carry the lesson, write the lesson as usual.
+
+If a lesson names its enforcement, keep its prose to the takeaway and the reason. Do not restate the rule that the check already enforces, because two copies drift apart.
 
 ---
 
