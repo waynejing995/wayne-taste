@@ -3,7 +3,7 @@ set -euo pipefail
 [[ $# -eq 3 ]] || { echo "usage: $0 <claude|codex> <workspace> <state>" >&2; exit 2; }
 : "${MODEL:?}" "${EFFORT:?}"; command -v bwrap >/dev/null
 agent=$1; workspace=$(realpath "$2"); state=$(realpath -m "$3")
-mkdir -p "$state/cache" "$state/claude-home" "$state/codex-home"
+mkdir -p "$state/cache" "$state/claude-home" "$state/codex-home" "$workspace/wayne-home"
 [[ ! -f /root/.claude/settings.json ]] || jq '{env}' /root/.claude/settings.json > "$state/claude-home/settings.json"
 for file in config.toml model-catalog-1m.json installation_id version.json auth.json; do
   [[ ! -f "/root/.codex/$file" ]] || cp "/root/.codex/$file" "$state/codex-home/"
@@ -12,7 +12,7 @@ common=(--die-with-parent --new-session --unshare-all --share-net
   --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --ro-bind /lib64 /lib64
   --ro-bind /etc /etc --dev /dev --proc /proc --tmpfs /tmp --dir /root --dir /root/.cache --dir /root/.codex
   --bind "$state/cache" /root/.cache --bind "$state/codex-home" /root/.codex
-  --bind "$workspace" /workspace --chdir /workspace/repo --setenv HOME /root --setenv CODEX_HOME /root/.codex)
+  --bind "$workspace" /workspace --chdir /workspace/repo --setenv HOME /root --setenv CODEX_HOME /root/.codex --setenv WAYNE_HOME /workspace/wayne-home)
 case "$agent" in
   claude)
     bwrap "${common[@]}" --ro-bind /root/.local /root/.local --bind "$state/claude-home" /root/.claude \

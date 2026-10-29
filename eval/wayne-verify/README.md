@@ -26,6 +26,11 @@ tool termination before an observable result is `invalid`, not a behavioral loss
 Every PASSED case must emit one return-only checkpoint for `wayne-ship`;
 BLOCKED/FAILED cases must emit none and must never invoke the ship skill.
 
+The carried E2E matrix never lives in the repository. Each trial seeds it from
+`cases/<case>/wayne-home/projects/repo/runs/runtime/test-matrix.md` into
+`wayne-home/projects/repo/runs/runtime/`, and the checker compares the final matrix
+with that seed outside the Status cells.
+
 The checker emits `AI_REVIEW_REQUIRED` with commands, artifacts, status-transition,
 mutation-boundary, and event-order observations. [The blind semantic
 rubric](semantic-rubric.md) reads the full

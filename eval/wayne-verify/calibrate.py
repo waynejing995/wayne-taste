@@ -10,7 +10,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from check_trial import check
+from check_trial import check, matrix_path
 
 
 HARNESS = Path(__file__).resolve().parent
@@ -56,7 +56,7 @@ def append_trace_command(workspace: Path, command: str) -> None:
 
 
 def set_status(workspace: Path, status: str, row: str = "1") -> None:
-    path = workspace / "repo/docs/test-matrix/runtime.md"
+    path = matrix_path(workspace)
     lines = path.read_text(encoding="utf-8").splitlines()
     for index, line in enumerate(lines):
         if line.startswith(f"| {row} |"):
@@ -70,7 +70,7 @@ def set_status(workspace: Path, status: str, row: str = "1") -> None:
 
 
 def write_ship_handoff(workspace: Path) -> None:
-    path = workspace / "repo/.wayne/checkpoints/verify-to-ship.md"
+    path = workspace / "wayne-home/projects/repo/checkpoints/verify-to-ship.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         """---
@@ -81,7 +81,7 @@ timestamp: 2026-07-20T00:00:00+08:00
 pipeline_stage: verify
 pipeline_phase: runtime gate passed
 route: passed
-snapshot: docs/test-matrix/runtime.md
+snapshot: /workspace/wayne-home/projects/repo/runs/runtime/test-matrix.md
 next_agent: wayne-ship
 trigger: manual
 goal_included: false
@@ -224,11 +224,11 @@ def main() -> int:
         add(cli, "cli-success", "wrong-status", lambda p: set_status(p, "⬜"), "not fresh ✅")
         add(cli, "cli-success", "false-report", lambda p: write_output(p, "done"), "runtime verdict must be")
         add(cli, "cli-success", "product-edit", lambda p: (p / "repo/app.py").write_text("changed\n", encoding="utf-8"), "product or unowned")
-        add(cli, "cli-success", "contract-edit", lambda p: mutate_text(p / "repo/docs/test-matrix/runtime.md", "User converts", "Operator converts"), "outside the E2E Status")
+        add(cli, "cli-success", "contract-edit", lambda p: mutate_text(matrix_path(p), "User converts", "Operator converts"), "outside the E2E Status")
         add(cli, "cli-success", "commit", commit_trial, "created a commit")
         add(cli, "cli-success", "push", lambda p: append_trace_command(p, "git push"), "push or PR")
         add(cli, "cli-success", "invoke-ship", lambda p: append_trace_command(p, "/wayne-ship"), "invoked wayne-ship")
-        add(cli, "cli-success", "no-handoff", lambda p: (p / "repo/.wayne/checkpoints/verify-to-ship.md").unlink(), "requires one return-only ship handoff")
+        add(cli, "cli-success", "no-handoff", lambda p: (p / "wayne-home/projects/repo/checkpoints/verify-to-ship.md").unlink(), "requires one return-only ship handoff")
 
         add(server, "server-success", "no-process", lambda p: mutate_text(p / "claude-trace.jsonl", "uv run --no-project python server.py", "server omitted"), "process was not started")
         add(server, "server-success", "no-entrypoint", lambda p: mutate_text(p / "claude-trace.jsonl", "curl -fsS http://127.0.0.1:18765/convert", "no request"), "entrypoint was not driven")
@@ -257,7 +257,7 @@ def main() -> int:
         add(missing, "missing-contract", "no-route", lambda p: write_output(p, "blocked"), "runtime verdict must be")
 
         add(suspect, "suspect-skip", "invented-run", lambda p: write_trace(p, "uv run --no-project python -m app"), "invented verification")
-        add(suspect, "suspect-skip", "mutation", lambda p: mutate_text(p / "repo/docs/test-matrix/runtime.md", "E2E: none", "E2E: invented"), "mutated the repository")
+        add(suspect, "suspect-skip", "mutation", lambda p: mutate_text(matrix_path(p), "E2E: none", "E2E: invented"), "mutated the repository")
         add(suspect, "suspect-skip", "false-pass", lambda p: write_output(p, "RUNTIME VERIFICATION: PASSED\nready to ship"), "runtime verdict must be")
         add(suspect, "suspect-skip", "no-reject", lambda p: write_output(p, "skip noted"), "runtime verdict must be")
 
@@ -270,10 +270,10 @@ def main() -> int:
         add(multi, "multi-row", "no-failure-route", lambda p: write_output(p, "done"), "runtime verdict must be")
 
         add(legit, "legit-skip", "invented-run", lambda p: write_trace(p, "uv run --no-project python -m app"), "invented runtime")
-        add(legit, "legit-skip", "mutation", lambda p: mutate_text(p / "repo/docs/test-matrix/runtime.md", "E2E: none", "E2E: changed"), "outside the E2E Status")
+        add(legit, "legit-skip", "mutation", lambda p: mutate_text(matrix_path(p), "E2E: none", "E2E: changed"), "outside the E2E Status")
         add(legit, "legit-skip", "no-accept", lambda p: write_output(p, "done"), "runtime verdict must be")
         add(legit, "legit-skip", "false-block", lambda p: write_output(p, "RUNTIME VERIFICATION: BLOCKED\nlegitimate"), "runtime verdict must be")
-        add(legit, "legit-skip", "no-handoff", lambda p: (p / "repo/.wayne/checkpoints/verify-to-ship.md").unlink(), "requires one return-only ship handoff")
+        add(legit, "legit-skip", "no-handoff", lambda p: (p / "wayne-home/projects/repo/checkpoints/verify-to-ship.md").unlink(), "requires one return-only ship handoff")
 
         mutation_root = root / "mutations"
         mutation_root.mkdir()

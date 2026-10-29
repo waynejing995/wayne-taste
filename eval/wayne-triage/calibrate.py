@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from check_trial import CASES, INTERNAL, validate
+from check_trial import CASES, INTERNAL, REPO_LOCAL_STATE_DIR, validate
 
 
 HARNESS = Path(__file__).resolve().parent
@@ -20,10 +20,12 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def seed(workspace: Path, case: str) -> Path:
+def seed(workspace: Path, case: str) -> None:
     repo = workspace / "repo"
     shutil.copytree(HARNESS / "fixture", repo)
     shutil.copytree(HARNESS / "cases" / case, repo, dirs_exist_ok=True)
+    # WAYNE_HOME tree sits beside repo/: triage state is never repository content.
+    (workspace / "wayne-home" / "projects" / "repo").mkdir(parents=True)
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "Eval"], check=True)
     subprocess.run(
@@ -32,7 +34,6 @@ def seed(workspace: Path, case: str) -> Path:
     )
     subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
-    return repo
 
 
 def evidence_values(case: str) -> tuple[str, str, str, str, str, str, str, int]:
@@ -121,8 +122,8 @@ repro_count: {count}
 """
 
 
-def packet_text(evidence: Path, route: str, agent: str, repo: Path) -> str:
-    snapshot = evidence.relative_to(repo).as_posix()
+def packet_text(evidence: Path, route: str, agent: str, state: Path) -> str:
+    snapshot = "/workspace/wayne-home/projects/repo/" + evidence.relative_to(state).as_posix()
     return f"""---
 title: triage handoff
 status: handoff
@@ -155,12 +156,12 @@ Read the snapshot. Preserve acceptance criteria and out of scope boundaries.
 
 
 def valid(workspace: Path, case: str) -> Path:
-    repo = seed(workspace, case)
+    seed(workspace, case)
     output = workspace / "output.txt"
     if case == "missing-data":
         write(output, "缺少工单内容和拉取方式。应该从哪里、用什么命令获取 SWDEV-123？")
         return output
-    evidence = repo / ".wayne/triage" / f"2026-07-17-{case}.md"
+    evidence = workspace / "wayne-home/projects/repo/triage" / f"2026-07-17-{case}.md"
     write(evidence, evidence_text(case))
     route = evidence_values(case)[6]
     if case == "no-match":
@@ -183,7 +184,7 @@ Send NET-88 to that owner.
 """)
         return output
     agent = INTERNAL[case][1]
-    write(repo / ".wayne/checkpoints/handoff.md", packet_text(evidence, route, agent, repo))
+    write(workspace / "wayne-home/projects/repo/checkpoints/handoff.md", packet_text(evidence, route, agent, workspace / "wayne-home/projects/repo"))
     state = ""
     if case == "tracker":
         state = " category=enhancement state=ready-for-agent"
@@ -235,37 +236,48 @@ def main() -> int:
         assert_invalid(source_edit, "failure", source_edit / "output.txt", "input modified", "source boundary")
 
         wrong_route = clone(valids["failure"], root, "wrong-route")
-        evidence = next((wrong_route / "repo/.wayne/triage").glob("*.md"))
+        evidence = next((wrong_route / "wayne-home/projects/repo/triage").glob("*.md"))
         write(evidence, evidence.read_text(encoding="utf-8").replace("route: fix-now", "route: needs-plan", 1))
         assert_invalid(wrong_route, "failure", wrong_route / "output.txt", "route must be", "wrong route")
 
         body_route = clone(valids["failure"], root, "body-route")
-        evidence = next((body_route / "repo/.wayne/triage").glob("*.md"))
+        evidence = next((body_route / "wayne-home/projects/repo/triage").glob("*.md"))
         write(evidence, evidence.read_text(encoding="utf-8").replace("- verdict: fix-now", "- verdict: needs-plan"))
         assert_invalid(body_route, "failure", body_route / "output.txt", "disagree", "route copies")
 
         wrong_agent = clone(valids["failure"], root, "wrong-agent")
-        packet = next((wrong_agent / "repo/.wayne/checkpoints").glob("*.md"))
+        packet = next((wrong_agent / "wayne-home/projects/repo/checkpoints").glob("*.md"))
         write(packet, packet.read_text(encoding="utf-8").replace("wayne-plan", "wayne-test-design"))
         assert_invalid(wrong_agent, "failure", wrong_agent / "output.txt", "next_agent must be", "wrong agent")
 
         auto = clone(valids["failure"], root, "auto")
-        packet = next((auto / "repo/.wayne/checkpoints").glob("*.md"))
+        packet = next((auto / "wayne-home/projects/repo/checkpoints").glob("*.md"))
         write(packet, packet.read_text(encoding="utf-8").replace("Auto-advance | NO", "Auto-advance | YES"))
         assert_invalid(auto, "failure", auto / "output.txt", "Auto-advance NO", "auto advance")
 
         snapshot = clone(valids["architecture"], root, "wrong-snapshot")
-        packet = next((snapshot / "repo/.wayne/checkpoints").glob("*.md"))
-        write(packet, packet.read_text(encoding="utf-8").replace(".wayne/triage/2026-07-17-architecture.md", ".wayne/triage/other.md"))
+        packet = next((snapshot / "wayne-home/projects/repo/checkpoints").glob("*.md"))
+        write(packet, packet.read_text(encoding="utf-8").replace("/workspace/wayne-home/projects/repo/triage/2026-07-17-architecture.md", "/workspace/wayne-home/projects/repo/triage/other.md"))
         assert_invalid(snapshot, "architecture", snapshot / "output.txt", "snapshot must be", "snapshot")
 
         denied = clone(valids["approval-denied"], root, "denied-packet")
-        write(denied / "repo/.wayne/checkpoints/bad.md", "next_agent: wayne-test-design\n")
+        write(denied / "wayne-home/projects/repo/checkpoints/bad.md", "next_agent: wayne-test-design\n")
         assert_invalid(denied, "approval-denied", denied / "output.txt", "emitted a checkpoint", "approval")
 
         external = clone(valids["external-owner"], root, "external-packet")
-        write(external / "repo/.wayne/checkpoints/bad.md", "next_agent: external-owner\n")
+        write(external / "wayne-home/projects/repo/checkpoints/bad.md", "next_agent: external-owner\n")
         assert_invalid(external, "external-owner", external / "output.txt", "emitted a Wayne checkpoint", "external")
+
+        # The repo-local state directory must be caught on disk even when Git ignores it.
+        ignored = clone(valids["failure"], root, "repo-self-ignored-state")
+        write(ignored / "repo" / REPO_LOCAL_STATE_DIR / ".gitignore", "*\n")
+        write(ignored / "repo" / REPO_LOCAL_STATE_DIR / "triage" / "hidden.md", "# hidden\n")
+        assert_invalid(ignored, "failure", ignored / "output.txt", f"repository contains {REPO_LOCAL_STATE_DIR}/", "self-ignored repo state")
+
+        # Only triage/ and checkpoints/ state is allowed; a plan is not.
+        off_allowlist = clone(valids["failure"], root, "state-off-allowlist")
+        write(off_allowlist / "wayne-home/projects/repo/plans/evil.md", "# evil\n")
+        assert_invalid(off_allowlist, "failure", off_allowlist / "output.txt", "unexpected state file: plans/evil.md", "state allowlist")
 
         tracker = clone(valids["tracker"], root, "tracker-mutation")
         write(tracker / "repo/tracker-state.json", '{"state":"closed"}\n')
@@ -283,21 +295,21 @@ def main() -> int:
         )
 
         signal = clone(valids["multiple-signal"], root, "missing-signal")
-        evidence = next((signal / "repo/.wayne/triage").glob("*.md"))
+        evidence = next((signal / "wayne-home/projects/repo/triage").glob("*.md"))
         write(evidence, evidence.read_text(encoding="utf-8").replace("env_skew: true", "env_skew: false"))
         assert_invalid(signal, "multiple-signal", signal / "output.txt", "env_skew: true", "signal")
 
         premature = clone(valids["missing-data"], root, "premature")
-        write(premature / "repo/.wayne/triage/premature.md", evidence_text("tracker"))
+        write(premature / "wayne-home/projects/repo/triage/premature.md", evidence_text("tracker"))
         assert_invalid(premature, "missing-data", premature / "output.txt", "wrote evidence", "missing data")
 
         guessed = clone(valids["no-match"], root, "guessed")
-        evidence = next((guessed / "repo/.wayne/triage").glob("*.md"))
+        evidence = next((guessed / "wayne-home/projects/repo/triage").glob("*.md"))
         write(evidence, evidence.read_text(encoding="utf-8").replace("symptom_class: unknown", "symptom_class: crash"))
         assert_invalid(guessed, "no-match", guessed / "output.txt", "symptom_class must be", "no match")
 
     print(
-        "PASS: observations cover 10 routes and 13 mutations; "
+        "PASS: observations cover 10 routes and 15 mutations; "
         "semantic verdict remains AI_REVIEW_REQUIRED"
     )
     return 0

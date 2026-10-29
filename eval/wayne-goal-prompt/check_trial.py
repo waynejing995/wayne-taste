@@ -139,7 +139,7 @@ def check_compose(output: str, findings: list[str]) -> None:
 def check_plan(output: str, findings: list[str]) -> None:
     block = check_structure(output, findings)
     required = (
-        "docs/plans/2026-07-17-retry-plan.md",
+        "/workspace/wayne-home/projects/repo/plans/2026-07-17-retry-plan.md",
         "U1",
         "U2",
         "uv run --no-project python -m unittest discover -s tests -v",

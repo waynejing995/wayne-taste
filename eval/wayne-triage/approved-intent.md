@@ -6,7 +6,7 @@ tracker item into evidence-backed attribution and one consumable next route.
 | ID | Intended behavior | Source | Class | Owner | Oracle | Case | Status |
 |---|---|---|---|---|---|---|---|
 | T1 | Missing data and no fetch method asks exactly one where/how question and writes no state | `wayne-triage/SKILL.md@372759e`, Phase 0; current A | intended | triage | blind AI review of one user-owned decision; file observations | missing-data | VERIFIED |
-| T2 | Evidence in hand creates one `.wayne/triage` SSoT with complete observed citations | `wayne-triage/references/evidence-file-template.md@372759e` | intended | evidence guide | blind AI review of complete evidence and single ownership | all evidence cases | VERIFIED |
+| T2 | Evidence in hand creates one `<state>/triage` SSoT, outside the repository, with complete observed citations | `wayne-triage/references/evidence-file-template.md@372759e` | intended | evidence guide | blind AI review of complete evidence and single ownership | all evidence cases | VERIFIED |
 | T3 | Symptom and cause remain separate; all matching signals and playbooks run | `wayne-triage/SKILL.md@372759e`, Phases 2-4 | intended | triage | distinct axes, both signals true, and config-or-logic cause ownership | multiple-signal | VERIFIED |
 | T4 | No matching signal records both axes unknown, all signals false, `needs-info`, and no handoff | current `SKILL.md` Routes/C | control improvement | triage | blind evidence/route review plus file observations | no-match | VERIFIED |
 | T5 | Hypotheses are falsifiable, one-variable, eliminated by evidence, and traced backward | `wayne-triage/SKILL.md@372759e`, Phase 4 | intended | triage | blind review of causal evidence and falsifiability | internal failures | VERIFIED |

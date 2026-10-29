@@ -65,11 +65,13 @@ bash eval/wayne-mind-explode/prepare_trial.sh \
   gstack-ban wayne-mind-explode eval/.runs/wayne-mind-explode/control-gstack-ban
 ```
 
-Run `eval/run_isolated_agent.sh` from the repository root. The trial workspace
-contains the complete supplied skill (`skill/`, including its `templates/` and
-`references/`), the shared pipeline contract at `_shared/pipeline-id-contract.md`
-so the skill's own `../_shared/` link resolves, the support contracts, the task,
-and the fixture repository — nothing else.
+Run the agent with this harness's runner, `eval/wayne-mind-explode/run_trace_agent.sh`,
+from the repository root. It pins `WAYNE_HOME` to `/workspace/wayne-home` and starts the
+agent in `/workspace/repo`. The trial workspace contains the complete supplied skill
+(`skill/`, including its `templates/` and `references/`), the shared contract and resolver
+under `_shared/` (`pipeline-id-contract.md`, `scripts/wayne-state-dir.sh`) so the skill's
+own `../_shared/` links resolve, the support contracts, the task, the fixture repository,
+and the seeded `wayne-home/` state — nothing else.
 
 ## Check a trial
 
@@ -97,7 +99,7 @@ append-only review rounds.
 Scope evidence comes from the trial's starting commit, final diff/untracked paths,
 and native trace. The evaluator never walks or hashes unrelated repository files.
 The only durable output a design run may leave in the tracked tree is
-`docs/specs/<topic>.md`; run state lives in `.wayne/runs/<topic>/`.
+`docs/specs/<topic>.md`; run state lives in `<state>/runs/<topic>/`, outside the repository.
 
 The reproduced control failure from the prior complete run is:
 

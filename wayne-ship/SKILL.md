@@ -263,7 +263,7 @@ Rebase onto the remote base (not a local copy) so the PR is against the current 
 
 As the final step, after the commit (and push/PR, if requested) succeeds, retire the run-scoped artifacts, then call **`wayne-checkpoint` in handoff mode** to emit a handoff packet pointing to `wayne-compound` as the next agent (the pipeline's lessons-capture stage). The handoff-packet mechanism is defined in `wayne-checkpoint` — this skill only invokes it; it does not implement or advance it.
 
-**Retiring the run directory.** `.wayne/runs/<topic>/` is working state for one run and this skill owns clearing it. Because that tree is gitignored, this is hygiene rather than a correctness gate: a run abandoned before ship leaves nothing tracked either way, which is why the working set lives there instead of in `docs/`.
+**Retiring the run directory.** `<state>/runs/<topic>/` is working state for one run and this skill owns clearing it. Resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` (`STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh)`); if the resolver fails, report that and stop, never falling back to a repo-local `.wayne/` or `/tmp`. The tree lives outside the repository, so this is hygiene rather than a correctness gate: a run abandoned before ship leaves nothing tracked either way, which is why the working set lives there instead of in `docs/`. Plans under `<state>/plans/` stay as history; do not delete them.
 
 Before clearing it, confirm the run's content actually reached the spec:
 

@@ -19,19 +19,23 @@ from check_trial import E2E_HEADER, validate
 HARNESS = Path(__file__).resolve().parent
 
 TOPIC = "delivery-retry"
-RUN_DIR = f".wayne/runs/{TOPIC}"
+RUN_DIR = f"runs/{TOPIC}"
 LOG_REL = f"{RUN_DIR}/decision-log.jsonl"
 MATRIX_REL = f"{RUN_DIR}/test-matrix.md"
 SPEC_REL = f"docs/specs/{TOPIC}.md"
+MATRIX_SANDBOX = f"{decision_log.SANDBOX_STATE}/{MATRIX_REL}"
 
 
 def seed(workspace: Path, case: str) -> Path:
     repo = workspace / "repo"
     shutil.copytree(HARNESS / "fixture", repo)
-    overlay = HARNESS / "cases" / case / "repo"
-    if overlay.is_dir():
-        shutil.copytree(overlay, repo, dirs_exist_ok=True)
-    shutil.copy(HARNESS / "cases" / case / "case.md", repo / "case.md")
+    overlay = HARNESS / "cases" / case
+    if (overlay / "repo").is_dir():
+        shutil.copytree(overlay / "repo", repo, dirs_exist_ok=True)
+    # Seeded Wayne state is not repository content: it lives beside repo/, under WAYNE_HOME.
+    if (overlay / "wayne-home").is_dir():
+        shutil.copytree(overlay / "wayne-home", workspace / "wayne-home", dirs_exist_ok=True)
+    shutil.copy(overlay / "case.md", repo / "case.md")
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "Eval"], check=True)
     subprocess.run(
@@ -41,6 +45,11 @@ def seed(workspace: Path, case: str) -> Path:
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
     return repo
+
+
+def state_path(workspace: Path, relative: str) -> Path:
+    """A file under the trial's `<state>`, addressed by its state-relative path."""
+    return decision_log.state_root(workspace) / relative
 
 
 def write(path: Path, text: str) -> None:
@@ -76,7 +85,7 @@ def review_round(number: int, role: str, verdict: str, detail: str) -> dict[str,
         "consequences": None,
         "supersedes": [],
         "source": "review",
-        "reference": f"{RUN_DIR}/review-{role}.md",
+        "reference": f"{decision_log.SANDBOX_STATE}/{RUN_DIR}/review-{role}.md",
     }
 
 
@@ -87,7 +96,7 @@ def complete_records(approved_digest: str) -> list[dict[str, object]]:
             "topic": TOPIC,
             "status": "design-approved",
             "spec": SPEC_REL,
-            "test_matrix": MATRIX_REL,
+            "test_matrix": MATRIX_SANDBOX,
             "frontier_locked": True,
             "written_spec_approved": True,
             "approved_spec_sha256": approved_digest,
@@ -247,9 +256,10 @@ One lifecycle owner keeps retry transitions observable and controllable.
 def valid_complete(workspace: Path, case: str = "complete") -> Path:
     """Walk the real lifecycle: stage, approve, promote, review, revise, repeat."""
     repo = seed(workspace, case)
-    candidate = repo / f"{RUN_DIR}/spec.md"
+    state = decision_log.state_root(workspace)
+    candidate = state / f"{RUN_DIR}/spec.md"
     page = repo / SPEC_REL
-    write(repo / MATRIX_REL, matrix_text())
+    write(state / MATRIX_REL, matrix_text())
 
     # Round one: the candidate is approved and promoted, then both voices revise.
     write(candidate, spec_text(acceptance=False, consequences=False))
@@ -262,27 +272,27 @@ def valid_complete(workspace: Path, case: str = "complete") -> Path:
     page.replace(candidate)
     write(candidate, spec_text(acceptance=True, consequences=True))
     candidate.replace(page)
-    write(repo / f"{RUN_DIR}/review-product.md", run_review(repo, "product", page))
-    write(repo / f"{RUN_DIR}/review-engineering.md", run_review(repo, "engineering", page))
+    write(state / f"{RUN_DIR}/review-product.md", run_review(repo, "product", page))
+    write(state / f"{RUN_DIR}/review-engineering.md", run_review(repo, "engineering", page))
 
     write(
-        repo / LOG_REL,
+        state / LOG_REL,
         decision_log.dump(complete_records(hashlib.sha256(page.read_bytes()).hexdigest())),
     )
     write(
-        repo / ".wayne/checkpoints/handoff.md",
+        state / "checkpoints/handoff.md",
         f"""status: design-approved
 next_agent: wayne-plan
-decision_log: {LOG_REL}
+decision_log: {decision_log.SANDBOX_STATE}/{LOG_REL}
 spec: {SPEC_REL}
-test_matrix: {MATRIX_REL}
+test_matrix: {MATRIX_SANDBOX}
 next_prompt: Read the decision log, spec, and test matrix and create the implementation plan.
 """,
     )
     output = workspace / "output.txt"
     write(
         output,
-        f"设计已完成：`{LOG_REL}`、`{SPEC_REL}`、`{MATRIX_REL}`。下一步调用 wayne-plan。",
+        f"设计已完成：`{decision_log.SANDBOX_STATE}/{LOG_REL}`、`{SPEC_REL}`、`{MATRIX_SANDBOX}`。下一步调用 wayne-plan。",
     )
     return output
 
@@ -290,7 +300,7 @@ next_prompt: Read the decision log, spec, and test matrix and create the impleme
 def valid_conflict(workspace: Path) -> Path:
     repo = seed(workspace, "conflict")
     write(
-        repo / ".wayne/runs/durable-pause/decision-log.jsonl",
+        state_path(workspace, "runs/durable-pause/decision-log.jsonl"),
         decision_log.dump(
             [
                 {
@@ -345,13 +355,13 @@ def valid_decision_locked(workspace: Path) -> Path:
     return output
 
 
-def depth_log(repo: Path) -> Path:
-    return repo / ".wayne/runs/webhook-depth/decision-log.jsonl"
+def depth_log(state: Path) -> Path:
+    return state / "runs/webhook-depth/decision-log.jsonl"
 
 
 def valid_depth_recommendation(workspace: Path) -> Path:
     repo = seed(workspace, "depth-recommendation")
-    path = depth_log(repo)
+    path = depth_log(decision_log.state_root(workspace))
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     records.append(
         {
@@ -455,7 +465,7 @@ def schema_mutations(valid: Path, root: Path) -> None:
     ]
     for name, mutate, needle in lanes:
         trial = clone(valid, root, name)
-        mutate(trial / "repo" / LOG_REL)
+        mutate(state_path(trial, LOG_REL))
         assert_invalid(trial, "complete", trial / "output.txt", needle, name)
 
 
@@ -485,7 +495,7 @@ def main() -> int:
         schema_mutations(valid, root)
 
         missing_voice = clone(valid, root, "missing-voice")
-        (missing_voice / "repo" / f"{RUN_DIR}/review-engineering.md").unlink()
+        state_path(missing_voice, f"{RUN_DIR}/review-engineering.md").unlink()
         assert_invalid(
             missing_voice,
             "complete",
@@ -500,7 +510,7 @@ def main() -> int:
         assert_invalid(stale, "complete", stale / "output.txt", "did not pass the final spec revision", "stale review")
 
         plan = clone(valid, root, "plan-written")
-        write(plan / "repo/docs/plans/implementation.md", "# Forbidden plan\n")
+        write(state_path(plan, "plans/implementation.md"), "# Forbidden plan\n")
         assert_invalid(plan, "complete", plan / "output.txt", "implementation plan written", "plan boundary")
 
         duplicate = clone(valid, root, "duplicate-e2e")
@@ -604,7 +614,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
             dated_spec / "repo/docs/specs/2026-07-16-delivery-retry-design.md",
         )
         patch(
-            dated_spec / "repo" / LOG_REL,
+            state_path(dated_spec, LOG_REL),
             f'"spec":"{SPEC_REL}"',
             '"spec":"docs/specs/2026-07-16-delivery-retry-design.md"',
         )
@@ -619,14 +629,14 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         # --- the seven lanes the follow-up review demanded -------------------
         external = clone(valid, root, "external-resolution")
         patch(
-            external / "repo" / LOG_REL,
+            state_path(external, LOG_REL),
             '"resolved_by":"D1"',
             '"resolved_by":"authentication:D7"',
         )
         assert_valid(external, "complete", external / "output.txt", "external resolved_by")
 
         bad_external = clone(valid, root, "malformed-resolution")
-        patch(bad_external / "repo" / LOG_REL, '"resolved_by":"D1"', '"resolved_by":"D one"')
+        patch(state_path(bad_external, LOG_REL), '"resolved_by":"D1"', '"resolved_by":"D one"')
         assert_invalid(
             bad_external,
             "complete",
@@ -637,7 +647,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
 
         unsourced_web = clone(valid, root, "unsourced-web-fact")
         patch(
-            unsourced_web / "repo" / LOG_REL,
+            state_path(unsourced_web, LOG_REL),
             '"source":"codebase","reference":"docs/architecture.md"',
             '"source":"web","reference":null',
         )
@@ -650,7 +660,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
         unlocked = clone(valid, root, "approved-without-lock")
-        patch(unlocked / "repo" / LOG_REL, '"frontier_locked":true', '"frontier_locked":false')
+        patch(state_path(unlocked, LOG_REL), '"frontier_locked":true', '"frontier_locked":false')
         assert_invalid(
             unlocked,
             "complete",
@@ -674,7 +684,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
         copied = clone(valid, root, "copied-not-moved")
-        write(copied / "repo" / f"{RUN_DIR}/spec.md", (copied / "repo" / SPEC_REL).read_text(encoding="utf-8"))
+        write(state_path(copied, f"{RUN_DIR}/spec.md"), (copied / "repo" / SPEC_REL).read_text(encoding="utf-8"))
         assert_invalid(
             copied,
             "complete",
@@ -693,8 +703,46 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
             "topic-bound outputs",
         )
 
+        stray_wayne = clone(valid, root, "repo-wayne-directory")
+        write(stray_wayne / "repo/.wayne/checkpoints/handoff.md", "stray\n")
+        assert_invalid(
+            stray_wayne,
+            "complete",
+            stray_wayne / "output.txt",
+            "repository contains a .wayne/ directory",
+            "repo .wayne directory",
+        )
+
+        ignored_wayne = clone(valid, root, "repo-wayne-ignored")
+        write(ignored_wayne / "repo/.gitignore", ".wayne/\n")
+        write(ignored_wayne / "repo/.wayne/runs/hidden/decision-log.jsonl", "{}\n")
+        assert_invalid(
+            ignored_wayne,
+            "complete",
+            ignored_wayne / "output.txt",
+            "repository contains a .wayne/ directory",
+            "gitignored repo .wayne directory",
+        )
+
+        second_commit = clone(valid, root, "second-commit-disallowed")
+        write(second_commit / "repo/src/dispatcher.py", "# drift\n")
+        subprocess.run(["git", "-C", str(second_commit / "repo"), "add", "src/dispatcher.py"], check=True)
+        subprocess.run(["git", "-C", str(second_commit / "repo"), "commit", "-qm", "drift"], check=True)
+        assert_invalid(
+            second_commit,
+            "complete",
+            second_commit / "output.txt",
+            "CMT commit touches a non-design path: src/dispatcher.py",
+            "second commit touches a disallowed path",
+        )
+
+        cmt = clone(valid, root, "cmt-commit-accepted")
+        subprocess.run(["git", "-C", str(cmt / "repo"), "add", SPEC_REL], check=True)
+        subprocess.run(["git", "-C", str(cmt / "repo"), "commit", "-qm", "CMT"], check=True)
+        assert_valid(cmt, "complete", cmt / "output.txt", "CMT commit touching only the spec is accepted")
+
         tampered_report = clone(valid, root, "tampered-review-digest")
-        report = tampered_report / "repo" / f"{RUN_DIR}/review-product.md"
+        report = state_path(tampered_report, f"{RUN_DIR}/review-product.md")
         write(
             report,
             re.sub(r"^SHA256: .*$", "SHA256: " + "0" * 64, report.read_text(encoding="utf-8"), flags=re.MULTILINE),
@@ -709,8 +757,8 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
 
         orphan_outcome = clone(valid, root, "unreferenced-review-outcome")
         patch(
-            orphan_outcome / "repo" / LOG_REL,
-            f'"reference":"{RUN_DIR}/review-engineering.md"',
+            state_path(orphan_outcome, LOG_REL),
+            f'"reference":"{decision_log.SANDBOX_STATE}/{RUN_DIR}/review-engineering.md"',
             '"reference":null',
         )
         assert_invalid(
@@ -722,7 +770,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
         dangling = clone(valid, root, "dangling-reference")
-        patch(dangling / "repo" / LOG_REL, '"reference":"docs/architecture.md"', '"reference":"docs/gone.md"')
+        patch(state_path(dangling, LOG_REL), '"reference":"docs/architecture.md"', '"reference":"docs/gone.md"')
         assert_invalid(
             dangling,
             "complete",
@@ -732,7 +780,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
         phantom = clone(valid, root, "phantom-external-decision")
-        patch(phantom / "repo" / LOG_REL, '"resolved_by":"D1"', '"resolved_by":"authentication:D999"')
+        patch(state_path(phantom, LOG_REL), '"resolved_by":"D1"', '"resolved_by":"authentication:D999"')
         assert_invalid(
             phantom,
             "complete",
@@ -743,7 +791,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
 
         unresolved = clone(valid, root, "revise-not-resolved")
         patch(
-            unresolved / "repo" / LOG_REL,
+            state_path(unresolved, LOG_REL),
             '"id":"D4","question":"Product review outcome","decision":"PASS on the revised bytes"',
             '"id":"D4","question":"Product review outcome","decision":"REVISE again"',
         )
@@ -756,7 +804,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
         stale_seed = clone(valid, root, "stale-external-seed")
-        patch(stale_seed / "repo" / LOG_REL, '"resolved_by":"D1"', '"resolved_by":"authentication:D7"')
+        patch(state_path(stale_seed, LOG_REL), '"resolved_by":"D1"', '"resolved_by":"authentication:D7"')
         patch(
             stale_seed / "repo/docs/specs/authentication.md",
             "generated: { by: human:wayne, at: 2026-05-02T00:00:00Z }",
@@ -771,7 +819,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
         deprecated_seed = clone(valid, root, "deprecated-external-seed")
-        patch(deprecated_seed / "repo" / LOG_REL, '"resolved_by":"D1"', '"resolved_by":"authentication:D7"')
+        patch(state_path(deprecated_seed, LOG_REL), '"resolved_by":"D1"', '"resolved_by":"authentication:D7"')
         patch(
             deprecated_seed / "repo/docs/specs/authentication.md",
             "status: stable",
@@ -786,10 +834,10 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
         no_outcome = clone(valid, root, "no-review-outcome")
-        log_text = (no_outcome / "repo" / LOG_REL).read_text(encoding="utf-8")
+        log_text = state_path(no_outcome, LOG_REL).read_text(encoding="utf-8")
         write(
-            no_outcome / "repo" / LOG_REL,
-            log_text.replace(f'"reference":"{RUN_DIR}/review-engineering.md"', '"reference":null'),
+            state_path(no_outcome, LOG_REL),
+            log_text.replace(f'"reference":"{decision_log.SANDBOX_STATE}/{RUN_DIR}/review-engineering.md"', '"reference":null'),
         )
         assert_invalid(
             no_outcome,
@@ -802,7 +850,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         # A design this pipeline just produced has no `verified` entry; it must
         # still be citable, which is the rule the previous revision made impossible.
         never_run = clone(valid, root, "never-run-external-seed")
-        patch(never_run / "repo" / LOG_REL, '"resolved_by":"D1"', '"resolved_by":"queueing:D2"')
+        patch(state_path(never_run, LOG_REL), '"resolved_by":"D1"', '"resolved_by":"queueing:D2"')
         assert_valid(never_run, "complete", never_run / "output.txt", "never-run spec is citable")
 
         conflict = root / "conflict-valid"
@@ -818,6 +866,18 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
             advanced / "output.txt",
             "advanced past its gate",
             "conflict gate",
+        )
+
+        committed_advanced = clone(conflict, root, "conflict-committed-advanced")
+        write(committed_advanced / "repo/docs/specs/durable-pause.md", "# Premature spec\n")
+        subprocess.run(["git", "-C", str(committed_advanced / "repo"), "add", "docs/specs/durable-pause.md"], check=True)
+        subprocess.run(["git", "-C", str(committed_advanced / "repo"), "commit", "-qm", "CMT"], check=True)
+        assert_invalid(
+            committed_advanced,
+            "conflict",
+            committed_advanced / "output.txt",
+            "advanced past its gate",
+            "committed premature spec is still advancement",
         )
 
         locked = root / "decision-locked-valid"
@@ -858,7 +918,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
 
         locked_promoted = clone(locked, root, "decision-locked-promoted")
         patch(
-            locked_promoted / "repo/.wayne/runs/queued-webhook/decision-log.jsonl",
+            state_path(locked_promoted, "runs/queued-webhook/decision-log.jsonl"),
             '"status":"in-progress"',
             '"status":"design-approved"',
         )
@@ -872,7 +932,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
 
         locked_reopened = clone(locked, root, "decision-locked-reopened")
         patch(
-            locked_reopened / "repo/.wayne/runs/queued-webhook/decision-log.jsonl",
+            state_path(locked_reopened, "runs/queued-webhook/decision-log.jsonl"),
             '"decision":"Exhaustion behavior and operator recovery","status":"resolved","opens_when":"N3 resolved","resolved_by":"D4"',
             '"decision":"Exhaustion behavior and operator recovery","status":"open","opens_when":"N3 resolved","resolved_by":null',
         )
@@ -890,7 +950,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         assert_valid(depth, "depth-recommendation", depth_output, "positive depth recommendation")
 
         depth_child = clone(depth, root, "depth-missing-child")
-        path = depth_log(depth_child / "repo")
+        path = depth_log(decision_log.state_root(depth_child))
         write(
             path,
             "".join(
@@ -909,7 +969,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
 
         depth_orphan = clone(depth, root, "depth-orphan-child")
         patch(
-            depth_log(depth_orphan / "repo"),
+            depth_log(decision_log.state_root(depth_orphan)),
             '"id":"N4","parent":"N3"',
             '"id":"N4","parent":"N1"',
         )
@@ -969,7 +1029,7 @@ result = submit("d-1")  # DeliveryResult(status="FAILED", attempts=3)
         )
 
     print(
-        "PASS: observations cover 8 fixtures and 47 mutations; "
+        "PASS: observations cover 12 positive and 54 negative cases; "
         "semantic verdict remains AI_REVIEW_REQUIRED"
     )
     return 0

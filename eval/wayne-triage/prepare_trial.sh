@@ -28,13 +28,16 @@ actual_checkpoint=$(
     exit 2
 }
 
-mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/support"
+mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/support" "$workspace/_shared/scripts" "$workspace/wayne-home/projects/repo"
 cp -a "$harness/fixture/." "$workspace/repo/"
 cp -a "$harness/cases/$case_name/." "$workspace/repo/"
 cp -a "$skill_dir/." "$workspace/skill/"
 cp "$harness/trial-task.md" "$workspace/task.md"
 cp -a "$harness/support/." "$workspace/support/"
-cp -a "$checkpoint_dir" "$workspace/support/wayne-checkpoint"
+# Beside _shared/, so the checkpoint Skill's ../_shared/ references resolve.
+cp -a "$checkpoint_dir" "$workspace/wayne-checkpoint"
+cp "$repo_root/_shared/pipeline-id-contract.md" "$workspace/_shared/pipeline-id-contract.md"
+cp "$repo_root/_shared/scripts/wayne-state-dir.sh" "$workspace/_shared/scripts/wayne-state-dir.sh"
 
 git -C "$workspace/repo" init -q
 git -C "$workspace/repo" config user.name "Eval Fixture"

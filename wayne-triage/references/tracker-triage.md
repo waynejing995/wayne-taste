@@ -2,7 +2,7 @@
 
 The tracker surface of wayne-triage. A tracker item is a failure report with metadata: it needs the same spine (evidence SSoT → verify → root-cause enough to route → human-gate route), plus category/state classification and a durable handoff brief. **A PR is an issue with attached code** — same states, verify against the diff.
 
-Adapted from mattpocock/skills `triage` (MIT). Wayne deltas: data is fetched user-driven (never guessed); findings land in the `.wayne/triage/` evidence file; routing maps to Wayne pipeline stages; and — the key Wayne difference — **triage only PROPOSES a comment; it never publishes or mutates the tracker.**
+Adapted from mattpocock/skills `triage` (MIT). Wayne deltas: data is fetched user-driven (never guessed); findings land in the `<state>/triage/` evidence file; routing maps to Wayne pipeline stages; and — the key Wayne difference — **triage only PROPOSES a comment; it never publishes or mutates the tracker.**
 
 ## Triage proposes; it does not publish
 
@@ -43,11 +43,11 @@ Recommend exactly one category + one state. Conflicting signals → flag it in t
 1. **Gather context.** Read the full item (body, comments, labels, author, dates; PR → the diff too). Parse prior triage notes so you don't re-ask resolved questions.
 2. **Seen-before / redundancy (concept, not keyword).**
    - Search the codebase for an existing implementation of the requested behavior **by domain concept**, not the request's wording. Report where you looked. Found → it's an already-implemented `wontfix` (point to where it lives; do NOT record as a rejection).
-   - Check prior rejections: read the repo's `.out-of-scope/*.md` (if the repo keeps one) and any prior `.wayne/triage/` entry that matches by concept. A match → surface it: "we rejected/handled this before because <reason> — still holds?"
+   - Check prior rejections: read the repo's `.out-of-scope/*.md` (if the repo keeps one) and any prior `<state>/triage/` entry that matches by concept. A match → surface it: "we rejected/handled this before because <reason> — still holds?"
 3. **Recommend.** State your category + state recommendation with reasoning and a short codebase summary (including whether it's already implemented). Wait for direction.
 4. **Verify the claim (before any deep work).** Bug → reproduce from the reporter's steps. PR → check out the diff, run the relevant tests/commands. Report: confirmed (with code path), failed, or insufficient detail. **Insufficient repro = strong `needs-info`** — a confirmed repro is the entry ticket to any fix route (the Bug gate in SKILL.md Phase 5).
 5. **Grill if under-specified.** If the request needs shape, sharpen it one question at a time (use wayne-mind-explode's grill mode); capture resolved points so they aren't lost.
-6. **Record the outcome** — write findings to the `.wayne/triage/` evidence file, then render ONE complete proposed comment under `## Proposed tracker comment`. Never publish it or change labels/state/assignee yourself; a separate tracker-write owner or explicit additional authorization owns that action.
+6. **Record the outcome** — write findings to the `<state>/triage/` evidence file, then render ONE complete proposed comment under `## Proposed tracker comment`. Never publish it or change labels/state/assignee yourself; a separate tracker-write owner or explicit additional authorization owns that action.
    - `ready-for-agent` / `ready-for-human` → propose the durable brief (see below) + the recommended route per SKILL.md route table.
    - `needs-info` → propose triage notes: what's established, what's still needed (specific, actionable questions).
    - `wontfix` (recommend, don't close):

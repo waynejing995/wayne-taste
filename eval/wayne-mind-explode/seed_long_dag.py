@@ -9,7 +9,7 @@ from pathlib import Path
 import decision_log
 
 TOPIC = "queued-delivery"
-LOG_RELATIVE = f".wayne/runs/{TOPIC}/decision-log.jsonl"
+LOG_RELATIVE = f"runs/{TOPIC}/decision-log.jsonl"
 
 
 def records() -> list[dict[str, object]]:
@@ -88,7 +88,7 @@ def main() -> int:
     parser.add_argument("workspace", type=Path)
     args = parser.parse_args()
     workspace = args.workspace.resolve()
-    target = workspace / "repo" / LOG_RELATIVE
+    target = decision_log.state_root(workspace) / LOG_RELATIVE
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(build(), encoding="utf-8")
     return 0

@@ -7,7 +7,7 @@ idempotent delivery retry feature. Read `AGENTS.md` and discover source artifact
 yourself. Do not implement code, modify source inputs, run gstack, invoke a global
 review skill, commit, branch, push, or checkpoint.
 
-If every gate passes, write one new plan under `docs/plans/` and return its path.
+If every gate passes, write one new plan under `/workspace/wayne-home/projects/repo/plans/` and return its path.
 If a conflict or missing upstream E2E contract blocks planning, do not write a plan.
 Return a compact blocker containing status, reason, affected artifacts, owner, and
 a concise Chinese explanation. The following is an example, not a line grammar:
@@ -15,7 +15,7 @@ a concise Chinese explanation. The following is an example, not a line grammar:
 ```text
 STATUS: BLOCKED
 REASON: PLAN_CONFLICT or MISSING_E2E
-ARTIFACTS: <semicolon-separated repo-relative paths>
+ARTIFACTS: <semicolon-separated paths: repo-relative for repository files, absolute `/workspace/wayne-home/...` for state files>
 OWNER: product-design or test-design
 <one concise Chinese explanation>
 ```

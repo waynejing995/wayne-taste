@@ -141,3 +141,5 @@ Match skill overhead to task complexity:
 ## Wayne Paths & KB
 
 `~/.wayne/config.env` is the path registry: `WAYNE_SKILLS_DIR` → Wayne Taste clone; `WAYNE_KB_DIR` → personal knowledge base (Obsidian-compatible markdown vault).
+
+Wayne working state (decision logs, spec candidates, test matrices, plans, checkpoints, triage evidence) lives in `~/.wayne/projects/<origin-slug>/`, one per real project, shared by all its worktrees — never in the repository. Resolve it with `_shared/scripts/wayne-state-dir.sh`; layout in `_shared/pipeline-id-contract.md`. Only the approved spec (`docs/specs/<topic>.md`) and `GLOSSARY.md` enter the repo, committed by `wayne-mind-explode` after its reviews.

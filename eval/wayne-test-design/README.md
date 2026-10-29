@@ -7,8 +7,9 @@ historical routing, ownership, filename, runtime-location, and nested-caller int
 Generated state lives under `eval/.runs/wayne-test-design/`.
 
 Each Claude/Codex trial receives one isolated skill snapshot and approved spec and
-writes only `docs/test-matrix/matrix.md`. `check_trial.py` emits
-`AI_REVIEW_REQUIRED`; its observations feed the
+writes only `/workspace/wayne-home/projects/repo/runs/test-design/test-matrix.md`;
+the repository must stay unchanged. `check_trial.py` emits `AI_REVIEW_REQUIRED`; its
+observations feed the
 [blind matrix rubric](semantic-rubric.md). Headings, table shape, columns, Flow
 labels, and lexical matches cannot decide matrix or skill meaning.
 
@@ -36,3 +37,23 @@ For each case and lane, create a fresh workspace with `prepare_trial.sh`, run Cl
 and Codex separately with `run_agent.sh`, then give the task, sources, matrix, and
 checker observations to a blind AI reviewer using `semantic-rubric.md`. Never reuse a workspace, state
 directory, or output from an invalidated harness revision.
+
+## Freeze
+
+Regenerate pins only after the last edit, inner first: `harness.sha256` covers
+`frozen-harness.sha256`. Run from the repository root; each command prints one digest.
+
+```bash
+# frozen-harness.sha256: tasks, fixtures, intent, runner, checker; excludes reports, hashes, __pycache__
+find eval/wayne-test-design -type f ! -path '*/__pycache__/*' \
+  ! -name '*.sha256' ! -name eval-report.md -print0 \
+  | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+
+# harness.sha256: everything except itself and __pycache__
+find eval/wayne-test-design -type f ! -path '*/__pycache__/*' \
+  ! -name harness.sha256 -print0 \
+  | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+```
+
+Write each digest as `<digest>  <label>`, keeping the label already in the pin file.
+`control.sha256` freezes the pre-optimization skill revisions and is never regenerated.

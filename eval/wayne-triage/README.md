@@ -30,18 +30,31 @@ Internal implementation handoffs are checked against `wayne-plan` as the first o
 uv run --no-project python eval/wayne-triage/calibrate.py
 ```
 
-## Prepare and check
+## Prepare, run, and check
 
 ```bash
 bash eval/wayne-triage/prepare_trial.sh failure wayne-triage \
   eval/.runs/wayne-triage/control-failure
-
-Read the evidence file, sources, packet/report, trace, and any checker observations
-with the blind rubric before deciding the result.
-
-`check_trial.py` uses the trial's starting Git commit, final diff, and untracked
-paths for scope evidence. It never walks or hashes unrelated repository contents.
+MODEL=dvue-aoai-001-gpt-5.6-sol EFFORT=high \
+  bash eval/wayne-triage/run_agent.sh codex \
+  eval/.runs/wayne-triage/control-failure \
+  eval/.runs/wayne-triage/state-control-failure
+uv run --no-project python eval/wayne-triage/check_trial.py \
+  eval/.runs/wayne-triage/control-failure --case failure \
+  --output eval/.runs/wayne-triage/control-failure/codex-final.txt
 ```
 
-Run the trial through `eval/run_isolated_agent.sh`. Generated candidates, traces,
-workspaces, and provider state stay under gitignored `eval/.runs/wayne-triage/`.
+`run_agent.sh <claude|codex>` starts the agent in `/workspace/repo`, the directory the
+state resolver needs. It pins `WAYNE_HOME=/workspace/wayne-home` and
+`PYTHONDONTWRITEBYTECODE=1`, so test runs leave no bytecode in `repo/`. Claude writes
+`claude-result.json` instead of `codex-final.txt`; pass that file to `--output`.
+Triage state is `wayne-home/projects/repo/` beside `repo/`, created empty by
+`prepare_trial.sh`.
+
+Read the evidence file, sources, packet/report, trace, and any checker observations
+with the blind rubric before deciding the result. `check_trial.py` uses the trial's
+starting Git commit, final diff, untracked repository paths, and the state tree beside
+`repo/` for scope evidence. It never walks or hashes unrelated repository contents.
+
+Generated candidates, traces, workspaces, and provider state stay under gitignored
+`eval/.runs/wayne-triage/`.

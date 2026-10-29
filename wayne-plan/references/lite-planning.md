@@ -13,7 +13,7 @@ This is the proportionate path for a converged direct request — a logic error,
 | Node C | An active conflict still returns `PLAN_CONFLICT`. |
 | Node D | E ownership is still required: an owned E table, or the literal `E2E: none — <reason>`. Nest `wayne-test-design` when there is no matrix. |
 | Node G onward | Reviews, ADJ, N, present, checkpoint handoff — unchanged. |
-| Boundary | Only the new plan file changes. |
+| Boundary | Planning writes only the new plan under `<state>/plans/`; the repository does not change. |
 
 A living spec may exist even with no decision log — an old topic getting a small change. Read it as context and cite it; do not trace every `R<number>` in it, and do not amend it. Because it exists, the design-conformance voice applies.
 

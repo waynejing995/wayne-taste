@@ -31,7 +31,7 @@ Consumers derive the trust tier from `verified`: no entries = design-approved bu
 
 ## Candidate versus in force
 
-A run never edits `docs/specs/<topic>.md` directly. It stages its candidate at `.wayne/runs/<topic>/spec.md`, already carrying the `status: stable` it will hold in force, and the living page is replaced with those exact bytes only once the user has approved them. An amendment works the same way: it starts from the current in-force bytes, revises the candidate, and promotes.
+A run never edits `docs/specs/<topic>.md` directly. It stages its candidate at `<state>/runs/<topic>/spec.md`, already carrying the `status: stable` it will hold in force, and the living page is replaced with those exact bytes only once the user has approved them. An amendment works the same way: it starts from the current in-force bytes, revises the candidate, and promotes. The living page stays uncommitted until node CMT, after independent review finishes; a REVISE cycle moves it back to the run directory first, so no commit exists yet.
 
 The point is that `docs/specs/` never holds a byte the user did not approve, and the bytes the independent reviewers read are the bytes that were approved. A workflow that promotes first and adjusts afterwards — even only the status line — has already broken that, because the approval no longer names what is in force.
 

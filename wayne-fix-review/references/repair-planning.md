@@ -51,7 +51,7 @@ These are repair-specific acceptance obligations, not a second execution loop:
 
 ## Work return contract
 
-Work must still complete node L after its integrated gate passes: write one durable packet under `.wayne/checkpoints/` via `wayne-checkpoint` return-only mode or Work's supported canonical packet contract, verify the file exists and return its path. Preserve `next_agent: wayne-code-review` as the recommended next stage, not permission to invoke it. Work does not automatically execute code review; returning to Fix Review for final reconciliation neither replaces the checkpoint with a chat receipt nor skips L.
+Work must still complete node L after its integrated gate passes: write one durable packet under `<state>/checkpoints/` via `wayne-checkpoint` return-only mode or Work's supported canonical packet contract, verify the file exists and return its path. Resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` if this skill writes the file itself; if the resolver fails, report that and stop. Preserve `next_agent: wayne-code-review` as the recommended next stage, not permission to invoke it. Work does not automatically execute code review; returning to Fix Review for final reconciliation neither replaces the checkpoint with a chat receipt nor skips L.
 
 The packet includes the executed plan path, authoritative matrix path or explicit absence, unit results, actual changed paths, exact RED/GREEN and surface evidence, combined-check/compliance receipt, preserved baseline/scope and residual risks. Preserve Work's U ownership and any E status unchanged. If Work is blocked before J passes, return its blocker and existing evidence instead of claiming a completed L packet. Plan's no-checkpoint override above applies to Plan only, not Work.
 

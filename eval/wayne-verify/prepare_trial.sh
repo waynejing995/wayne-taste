@@ -18,12 +18,15 @@ case_dir="$harness/cases/$case_name"
 [[ -d "$case_dir/repo" ]] || { echo "missing case repo: $case_name" >&2; exit 2; }
 [[ ! -e "$workspace" ]] || { echo "workspace exists: $workspace" >&2; exit 2; }
 
-mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/_shared" "$workspace/support"
+mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/_shared/scripts" "$workspace/wayne-home"
 cp -R "$case_dir/repo/." "$workspace/repo/"
+if [[ -d "$case_dir/wayne-home" ]]; then cp -R "$case_dir/wayne-home/." "$workspace/wayne-home/"; fi
 cp -R "$skill_dir/." "$workspace/skill/"
 cp "$repo_root/_shared/e2e-contract.md" "$workspace/_shared/e2e-contract.md"
 cp "$repo_root/_shared/pipeline-id-contract.md" "$workspace/_shared/pipeline-id-contract.md"
-cp -R "$repo_root/wayne-checkpoint" "$workspace/support/wayne-checkpoint"
+cp "$repo_root/_shared/scripts/wayne-state-dir.sh" "$workspace/_shared/scripts/wayne-state-dir.sh"
+# Sibling of _shared: the checkpoint skill resolves ../_shared from its own directory.
+cp -R "$repo_root/wayne-checkpoint" "$workspace/wayne-checkpoint"
 cp "$case_dir/task.md" "$workspace/task.md"
 
 git -C "$workspace/repo" init -q

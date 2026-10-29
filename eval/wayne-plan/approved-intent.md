@@ -71,7 +71,7 @@ generic planning advice and deprecated/tool-specific review machinery.
 
 ## Plan information contract
 
-The plan is English Markdown under `docs/plans/` with lightweight lifecycle and
+The plan is English Markdown under `<state>/plans/` with lightweight lifecycle and
 source metadata. The template is a readable starting point, not a grammar.
 
 The plan must preserve the problem, requirements, boundaries, decisions, rationale,
@@ -93,7 +93,7 @@ When planning is blocked, do not create a plan. Return a compact blocker carryin
 ```text
 STATUS: BLOCKED
 REASON: PLAN_CONFLICT or MISSING_E2E
-ARTIFACTS: <semicolon-separated repo-relative paths>
+ARTIFACTS: <semicolon-separated repo-relative paths or absolute <state> paths>
 OWNER: product-design or test-design
 <one concise Chinese explanation>
 ```

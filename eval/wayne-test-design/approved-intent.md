@@ -2,7 +2,7 @@
 
 | ID | Intended behavior | Source | Oracle | Case | Status |
 |---|---|---|---|---|---|
-| TD01 | Produce a durable design artifact only; never implement or run tests | `636c81e:wayne-test-design/SKILL.md` boundary | only matrix path changes; no commands execute product tests | all | FROZEN |
+| TD01 | Produce a durable design artifact only; never implement or run tests | `636c81e:wayne-test-design/SKILL.md` boundary | repository has no changes and the state tree holds only the matrix path; no commands execute product tests | all | FROZEN |
 | TD02 | Matrix has U-SEED owned provisionally here and locked later by plan, plus E rows owned here with distinct status authorities; when no stable U seed exists it records an explicit reason | `cbe9307:wayne-test-design/SKILL.md` authorship and checklist step 6 | blind AI ownership review plus status observations; headings are guidance | all | FROZEN |
 | TD03 | Cover applicable positive/negative/edge/invalid/boundary/concurrency/error/persistence dimensions without quota bloat | `636c81e` no-over-design and dimensions | simple pure function omits impossible concurrency/persistence/auth rows | simple | FROZEN |
 | TD04 | Absorb an existing E2E draft into the matrix SSoT without changing its literals or leaving a second authored copy | `636c81e` Phase 3; `cbe9307` E ownership | source row appears verbatim with `⬜`; source spec unchanged | absorb-existing | FROZEN |
@@ -19,7 +19,7 @@
 | TD15 | A nested mind-explode invocation returns the matrix to its caller without auto-advancing; only a standalone unblocked run hands to plan | `636c81e:wayne-test-design/SKILL.md` Phase 8.3 and Integration | blind routing/trace review; Flow text is navigation evidence | static | FROZEN |
 | TD16 | Absorb an existing E contract or explicit no-E2E rationale once without semantic loss, then extend missing observable paths | `636c81e:wayne-test-design/SKILL.md` Phase 3 | blind AI comparison with the source plus single-owner review | absorb-existing/static | FROZEN |
 | TD17 | An unresolved native-proof conflict may produce a blocked matrix but never a plan-ready handoff | owner draft rule 4 plus `708779e` plan-approval boundary | blind conflict/handoff review plus native-evidence sources | missing-native/static | FROZEN |
-| TD18 | Default file mutation remains one approved matrix artifact; do not append a second authored state record | `636c81e` SSoT rule; frozen task boundary | Git status shows only the approved matrix path in behavior lanes | all | FROZEN |
+| TD18 | Default file mutation remains one approved matrix artifact; do not append a second authored state record | `636c81e` SSoT rule; frozen task boundary | Git status shows no repository change, and the state tree holds only the approved matrix path, in behavior lanes | all | FROZEN |
 
 ## Reverse source audit
 

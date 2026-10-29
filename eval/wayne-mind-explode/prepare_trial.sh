@@ -28,16 +28,23 @@ harness=$(cd "$(dirname "$0")" && pwd)
     exit 2
 }
 
-mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/support" "$workspace/_shared"
+mkdir -p "$workspace/repo" "$workspace/skill" "$workspace/support" "$workspace/_shared/scripts" "$workspace/wayne-home/projects/repo"
 cp -a "$harness/fixture/." "$workspace/repo/"
 if [[ -d "$harness/cases/$case_name/repo" ]]; then
     cp -a "$harness/cases/$case_name/repo/." "$workspace/repo/"
 fi
+# Seeded Wayne state is not repository content: it lives beside repo/, under WAYNE_HOME.
+if [[ -d "$harness/cases/$case_name/wayne-home" ]]; then
+    cp -a "$harness/cases/$case_name/wayne-home/." "$workspace/wayne-home/"
+fi
 cp "$harness/cases/$case_name/case.md" "$workspace/repo/case.md"
 # The whole skill, not just SKILL.md: it links its own templates and references,
-# and reads the shared pipeline contract as `../_shared/pipeline-id-contract.md`.
+# and reads the shared contract as `../_shared/pipeline-id-contract.md` and the
+# resolver as `../_shared/scripts/wayne-state-dir.sh`.
 cp -a "$skill_dir/." "$workspace/skill/"
-cp "$skill_dir/../_shared/pipeline-id-contract.md" "$workspace/_shared/"
+repo_root=$(cd "$harness/../.." && pwd)
+cp "$repo_root/_shared/pipeline-id-contract.md" "$workspace/_shared/"
+cp "$repo_root/_shared/scripts/wayne-state-dir.sh" "$workspace/_shared/scripts/"
 if [[ -f "$harness/cases/$case_name/task.md" ]]; then
     cp "$harness/cases/$case_name/task.md" "$workspace/task.md"
 else

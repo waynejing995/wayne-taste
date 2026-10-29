@@ -73,7 +73,7 @@ Choose failure, tracker, or tracker-plus-failure from observable input and load 
 
 ### C. Open the evidence SSoT
 
-Read [the evidence contract](references/evidence-file-template.md), then create exactly one `<cwd>/.wayne/triage/<date>-<slug>.md`. Quote the symptom verbatim and tag claims `[OBSERVED]`, `[INFERRED]`, or `[UNCERTAIN]`. Search relevant KB and prior triage frontmatter by concept; reuse a prior verdict only after verifying it still holds.
+Read [the evidence contract](references/evidence-file-template.md), then resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` (`STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh)`). If the resolver fails, report that and stop; never fall back to a repo-local `.wayne/` or `/tmp`. Create exactly one `$STATE/triage/<date>-<slug>.md`. Quote the symptom verbatim and tag claims `[OBSERVED]`, `[INFERRED]`, or `[UNCERTAIN]`. Search relevant KB and prior triage frontmatter by concept; reuse a prior verdict only after verifying it still holds.
 
 Even weak data is evidence of what is missing. If no symptom playbook matches, fill `symptom_class: unknown`, `cause_category: unknown`, set every signal false, record the missing observable in the repro section, and finish as `needs-info`. Never select a nearby playbook merely to keep moving.
 

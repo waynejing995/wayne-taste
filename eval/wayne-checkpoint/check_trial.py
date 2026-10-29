@@ -12,13 +12,21 @@ from pathlib import Path
 
 HARNESS = Path(__file__).resolve().parent
 REPO_ROOT = HARNESS.parent.parent
+# `<state>` as the trial agent sees it. run_agent.sh pins WAYNE_HOME to
+# /workspace/wayne-home, and the trial repository has no origin, so its key is `repo`.
+SANDBOX_STATE = "/workspace/wayne-home/projects/repo"
 CASES = {
-    "plan-regression": ("plan", "none", "wayne-work", "docs/plans/approved-plan.md"),
-    "fix-now": ("triage", "fix-now", "wayne-test-design", ".wayne/triage/normalize-whitespace.md"),
-    "needs-plan": ("triage", "needs-plan", "wayne-test-design", ".wayne/triage/shared-normalization.md"),
-    "escalate-architecture": ("triage", "escalate-architecture", "wayne-mind-explode", ".wayne/triage/retry-controller.md"),
-    "external": ("triage", "escalate-incident", "", ".wayne/triage/provider-outage.md"),
+    "plan-regression": ("plan", "none", "wayne-work", f"{SANDBOX_STATE}/plans/approved-plan.md"),
+    "fix-now": ("triage", "fix-now", "wayne-test-design", f"{SANDBOX_STATE}/triage/normalize-whitespace.md"),
+    "needs-plan": ("triage", "needs-plan", "wayne-test-design", f"{SANDBOX_STATE}/triage/shared-normalization.md"),
+    "escalate-architecture": ("triage", "escalate-architecture", "wayne-mind-explode", f"{SANDBOX_STATE}/triage/retry-controller.md"),
+    "external": ("triage", "escalate-incident", "", f"{SANDBOX_STATE}/triage/provider-outage.md"),
 }
+
+
+def state_root(workspace: Path) -> Path:
+    """Host path of the trial's `<state>`: the WAYNE_HOME tree beside `repo/`."""
+    return workspace / "wayne-home" / "projects" / "repo"
 
 
 def load_output(path: Path) -> str:
@@ -52,7 +60,7 @@ def product_diff(repo: Path) -> list[str]:
     findings = []
     for line in result.stdout.splitlines():
         path = line[3:]
-        if path and not path.startswith(".wayne/"):
+        if path:
             findings.append(f"product/input modified: {line}")
     return findings
 
@@ -66,7 +74,7 @@ def validate(workspace: Path, case: str, output_path: Path) -> list[str]:
         output = ""
         findings.append(f"no readable agent result: {type(error).__name__}")
     findings.extend(product_diff(repo))
-    packets = sorted((repo / ".wayne" / "checkpoints").glob("*.md"))
+    packets = sorted((state_root(workspace) / "checkpoints").glob("*.md"))
     stage, route, expected_agent, snapshot = CASES[case]
 
     if not expected_agent:

@@ -88,6 +88,8 @@ Every step is labeled with its scope, and the whole-workflow gate is never colla
 
 ### A. [whole-workflow] Check the plan before starting
 
+Resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` (`STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh)`) before reading or writing the plan or any other `<state>` artifact. If the resolver fails, report that and stop; never fall back to a repo-local `.wayne/` or `/tmp`. The plan lives under `<state>/plans/` (absolute path); H writes U status there.
+
 Read the repository instructions, approved plan, decision log, test matrix, and referenced spec completely. Do not start implementation until all of these are true:
 
 - the plan is approved and no other active plan conflicts;
@@ -191,7 +193,7 @@ Do not claim completion while any command, unit, U row, decision, or scope gate 
 
 ### L. [whole-workflow] Handoff to wayne-code-review
 
-Run this once per run, after J passes; it is never a per-unit step. Write one packet under `.wayne/checkpoints/` through `wayne-checkpoint` return-only mode or a supplied canonical contract. Verify the file exists and surface its path; without either mechanism, return the shared blocker information. Include plan/matrix paths, units, passing commands, changed paths, preserved scope, residual risks, and `next_agent: wayne-code-review`; final output repeats that literal but never invokes it.
+Run this once per run, after J passes; it is never a per-unit step. Write one packet under `$STATE/checkpoints/` through `wayne-checkpoint` return-only mode or a supplied canonical contract (`STATE` already resolved in A; do not skip A because checkpoint will write the packet). Verify the file exists and surface its path; without either mechanism, return the shared blocker information. Include plan/matrix paths, units, passing commands, changed paths, preserved scope, residual risks, and `next_agent: wayne-code-review`; final output repeats that literal but never invokes it.
 
 ## Red lines
 

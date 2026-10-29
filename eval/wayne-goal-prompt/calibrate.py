@@ -45,10 +45,10 @@ Completion criteria:
 这个 goal 对不对？在哪个 cwd 跑？"""
 
 PLAN = """```text
-Goal: Complete U1 and U2 from `docs/plans/2026-07-17-retry-plan.md`.
+Goal: Complete U1 and U2 from `/workspace/wayne-home/projects/repo/plans/2026-07-17-retry-plan.md`.
 
 Context:
-- Treat `docs/plans/2026-07-17-retry-plan.md` as the implementation SSoT.
+- Treat `/workspace/wayne-home/projects/repo/plans/2026-07-17-retry-plan.md` as the implementation SSoT.
 - Do not change files outside the plan's approved paths.
 
 Tasks:
@@ -259,7 +259,7 @@ def main() -> int:
         assert_invalid(
             plan,
             "existing-plan",
-            PLAN.replace("docs/plans/2026-07-17-retry-plan.md", "the plan"),
+            PLAN.replace("/workspace/wayne-home/projects/repo/plans/2026-07-17-retry-plan.md", "the plan"),
             "plan-backed goal omits",
             "plan-path",
         )

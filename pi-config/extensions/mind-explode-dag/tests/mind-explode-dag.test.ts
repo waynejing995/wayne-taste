@@ -10,14 +10,18 @@
  *      and see append / rewrite / atomic-rename all arrive through the watcher;
  *   4. run selection — attach to the one in-progress run, refuse to guess when
  *      several are, never pick a finished run by recency, and pick up a run
- *      created after start() in a project that had no `.wayne` at all;
+ *      created after start() in a project with no runs yet;
  *   5. follow mode — track the newest open node, stop on manual movement,
- *      resume on `g`.
+ *      resume on `g`;
+ *   6. the write path — a resolution is one whole-file write, and a refusal says why;
+ *   7. where state lives — one directory per project, from the shared resolver.
  *
  * Run: node --experimental-strip-types mind-explode-dag.test.ts
  */
 
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { linkDeps } from "./link-deps.mjs";
@@ -26,9 +30,11 @@ import { linkDeps } from "./link-deps.mjs";
 // where Node will look for them from the extension's real directory.
 linkDeps();
 
+// Both imports below are dynamic on purpose. A static import is hoisted above
+// linkDeps(), so pi-tui and typebox would not be where the subject resolves them.
 const { visibleWidth } = await import("@earendil-works/pi-tui");
 
-const { DagPanel, discoverRuns, activeRuns, parseLog, applyResolution, applyUpsert } = await import("../index.ts");
+const { default: mindExplodeDagExtension, DagPanel, discoverRuns, activeRuns, parseLog, applyResolution, applyUpsert, runsRoot } = await import("../index.ts");
 type DagPanelType = InstanceType<typeof DagPanel>;
 
 
@@ -36,8 +42,28 @@ type DagPanelType = InstanceType<typeof DagPanel>;
 const COMPACT = 12;
 const EXPANDED = 30;
 
-const ROOT = "/tmp/mind-explode-dag-fixture";
-const runDir = (topic: string) => join(ROOT, ".wayne", "runs", topic);
+/**
+ * Every project in this file lives under one sandbox, and WAYNE_HOME points into
+ * it, so the real ~/.wayne is never read or written. The resolver is the real one.
+ */
+const SANDBOX = mkdtempSync(join(tmpdir(), "mind-explode-dag-"));
+process.env.WAYNE_HOME = join(SANDBOX, "wayne-home");
+// Keep git from walking up out of the sandbox: a checkout above the temp dir must
+// not make the "outside a repository" cases look like one.
+process.env.GIT_CEILING_DIRECTORIES = tmpdir();
+
+/** A git repository with no origin, so the resolver keys its state by directory name. */
+const newProject = (name: string): string => {
+	const dir = join(SANDBOX, "projects", name);
+	mkdirSync(dir, { recursive: true });
+	// No template: a host's init.templateDir may name a missing directory, and git would warn on every init.
+	execFileSync("git", ["init", "-q", "--template=", dir]);
+	return dir;
+};
+
+const ROOT = newProject("fixture");
+const RUNS = runsRoot(ROOT);
+const runDir = (topic: string) => join(RUNS, topic);
 const logOf = (topic: string) => join(runDir(topic), "decision-log.jsonl");
 
 const meta = (topic: string, status: string) =>
@@ -83,6 +109,16 @@ const check = (name: string, ok: boolean, detail = "") => {
 	}
 };
 
+/** The message of whatever `fn` throws or rejects with, or null when it returns. */
+const errorOf = async (fn: () => unknown): Promise<string | null> => {
+	try {
+		await fn();
+		return null;
+	} catch (err) {
+		return err instanceof Error ? err.message : String(err);
+	}
+};
+
 /** Gate 1a: the one contract pi's TUI enforces on every component. */
 const assertWidths = (label: string, panel: DagPanelType) => {
 	for (const width of [40, 60, 90, 120, 200]) {
@@ -120,7 +156,6 @@ const cursorOf = (panel: DagPanelType) => (flat(panel).split("\n").find((l) => l
 
 // ---------------------------------------------------------------- run
 
-rmSync(ROOT, { recursive: true, force: true });
 mkdirSync(runDir("retry-budget"), { recursive: true });
 writeFileSync(logOf("retry-budget"), LIVE);
 mkdirSync(runDir("old-topic"), { recursive: true });
@@ -130,9 +165,9 @@ console.log("\n[gate 2] harness integrity");
 const parsed = parseLog(LIVE);
 check("fixture parses with no errors", parsed.errors.length === 0, parsed.errors.join("; "));
 check("5 nodes + 2 decisions + meta", parsed.nodes.size === 5 && parsed.decisions.size === 2 && parsed.meta !== null, `nodes=${parsed.nodes.size} decisions=${parsed.decisions.size}`);
-check("both runs are discovered", discoverRuns(ROOT).length === 2);
-check("only retry-budget is active", activeRuns(ROOT).map((r) => r.topic).join(",") === "retry-budget");
-check("the finished run is the newest on disk", discoverRuns(ROOT)[0]!.topic === "old-topic", "mtime order must make recency the wrong answer");
+check("both runs are discovered", discoverRuns(RUNS).length === 2);
+check("only retry-budget is active", activeRuns(RUNS).map((r) => r.topic).join(",") === "retry-budget");
+check("the finished run is the newest on disk", discoverRuns(RUNS)[0]!.topic === "old-topic", "mtime order must make recency the wrong answer");
 
 console.log("\n[gate 4] run selection");
 const panel = new DagPanel(theme, cb(), () => void renders++);
@@ -289,19 +324,18 @@ check("the panel says which state it is in", flat(panel).includes("2 runs are in
 assertWidths("ambiguous", panel);
 assertHeight("ambiguous", panel, COMPACT);
 
-panel.pin(discoverRuns(ROOT).find((r) => r.topic === "old-topic")!);
+panel.pin(discoverRuns(RUNS).find((r) => r.topic === "old-topic")!);
 check("/dag-run pins a finished run", panel.attachedTopic === "old-topic", String(panel.attachedTopic));
 check("a pinned run survives a rescan", await until(() => panel.attachedTopic === "old-topic"));
 panel.shutdown();
 
 console.log("\n[gate 4] presence — the widget only exists when a run does");
-const FRESH = "/tmp/mind-explode-dag-fresh";
-rmSync(FRESH, { recursive: true, force: true });
-mkdirSync(FRESH, { recursive: true });
+const FRESH = newProject("fresh");
+const FRESH_RUNS = runsRoot(FRESH);
 presence = [];
 const cold = new DagPanel(theme, cb(), () => void renders++);
 cold.start(FRESH);
-check("starting with no .wayne is not an error", cold.attachedTopic === null);
+check("starting in a project with no runs is not an error", cold.attachedTopic === null);
 // The widget costs transcript lines, so an idle project must not be told to
 // carry a box that says nothing.
 check("it never reports itself present with no run", presence.every((p) => p === false), JSON.stringify(presence));
@@ -309,8 +343,8 @@ check("it never reports itself present with no run", presence.every((p) => p ===
 // unmounted component, so a false positive here is a hung session.
 check("it is off screen, so focus must be refused", cold.onScreen === false);
 assertWidths("no run", cold);
-mkdirSync(join(FRESH, ".wayne", "runs", "late-topic"), { recursive: true });
-writeFileSync(join(FRESH, ".wayne", "runs", "late-topic", "decision-log.jsonl"), LIVE.replace('"retry-budget"', '"late-topic"'));
+mkdirSync(join(FRESH_RUNS, "late-topic"), { recursive: true });
+writeFileSync(join(FRESH_RUNS, "late-topic", "decision-log.jsonl"), LIVE.replace('"retry-budget"', '"late-topic"'));
 check("a run created later is picked up with no /dag", await until(() => cold.attachedTopic === "late-topic", 6000), String(cold.attachedTopic));
 check("and it announces itself present exactly once", presence.filter((p) => p).length === 1, JSON.stringify(presence));
 check("and it follows that run's frontier", cold.followingId === "N3", String(cold.followingId));
@@ -318,7 +352,7 @@ check("and it is now on screen, so focus is allowed", cold.onScreen === true);
 
 // Finishing the design takes the widget back off screen.
 writeFileSync(
-	join(FRESH, ".wayne", "runs", "late-topic", "decision-log.jsonl"),
+	join(FRESH_RUNS, "late-topic", "decision-log.jsonl"),
 	LIVE.replace('"retry-budget"', '"late-topic"').replace('"status":"in-progress"', '"status":"design-approved"'),
 );
 check("a finished run takes the widget away again", await until(() => presence[presence.length - 1] === false, 6000), JSON.stringify(presence));
@@ -327,11 +361,10 @@ cold.shutdown();
 
 
 console.log("\n[gate 1] a long DAG");
-const BIG = "/tmp/mind-explode-dag-big";
-rmSync(BIG, { recursive: true, force: true });
-mkdirSync(join(BIG, ".wayne", "runs", "big"), { recursive: true });
+const BIG = newProject("big");
+mkdirSync(join(runsRoot(BIG), "big"), { recursive: true });
 writeFileSync(
-	join(BIG, ".wayne", "runs", "big", "decision-log.jsonl"),
+	join(runsRoot(BIG), "big", "decision-log.jsonl"),
 	[
 		meta("big", "in-progress"),
 		...Array.from({ length: 80 }, (_, i) => [
@@ -449,10 +482,9 @@ check("upsert refuses to reopen a resolved node", !applyUpsert(BASE, { id: "N2",
 check("upsert refuses to amend a node that is not there", !applyUpsert(BASE, { id: "N42", kind: "fact", decision: "x" }).ok);
 
 // A write must not move a cursor the reader placed by hand.
-const W = "/tmp/mind-explode-dag-write";
-rmSync(W, { recursive: true, force: true });
-mkdirSync(join(W, ".wayne", "runs", "w"), { recursive: true });
-writeFileSync(join(W, ".wayne", "runs", "w", "decision-log.jsonl"), BASE);
+const W = newProject("write");
+mkdirSync(join(runsRoot(W), "w"), { recursive: true });
+writeFileSync(join(runsRoot(W), "w", "decision-log.jsonl"), BASE);
 const wp = new DagPanel(theme, cb(), () => void renders++);
 wp.start(W);
 check("the write fixture attached", wp.attachedTopic === "w", String(wp.attachedTopic));
@@ -462,12 +494,12 @@ wp.focused = true;
 wp.handleInput("j");
 const parked = cursorOf(wp);
 check("the cursor was parked by hand", wp.followingId === null && parked.includes("N2"), parked);
-const written = applyResolution(readFileSync(join(W, ".wayne", "runs", "w", "decision-log.jsonl"), "utf8"), {
+const written = applyResolution(readFileSync(join(runsRoot(W), "w", "decision-log.jsonl"), "utf8"), {
 	...base,
 	node_id: "N1",
 	opens: [{ kind: "choice", decision: "A brand new frontier node" }],
 });
-if (written.ok) writeFileSync(join(W, ".wayne", "runs", "w", "decision-log.jsonl"), written.text);
+if (written.ok) writeFileSync(join(runsRoot(W), "w", "decision-log.jsonl"), written.text);
 wp.refreshNow();
 check("a write does not move a hand-placed cursor", cursorOf(wp).includes("N2"), cursorOf(wp));
 check("the write is still visible in the header", flat(wp).includes("last D2"), flat(wp));
@@ -478,12 +510,58 @@ wp.refreshNow();
 check("follow tracks the new frontier node", followed === "N3" && wp.followingId === "N3", `${followed} -> ${wp.followingId}`);
 check("a second refresh does not move it again", (wp.refreshNow(), wp.followingId === "N3"));
 wp.shutdown();
-rmSync(W, { recursive: true, force: true });
 
 
-rmSync(ROOT, { recursive: true, force: true });
-rmSync(FRESH, { recursive: true, force: true });
-rmSync(BIG, { recursive: true, force: true });
+console.log("\n[gate 7] where the state lives");
+// The resolver is the real one. Every clone and worktree of a repository shares
+// one state directory, and no checkout ever receives any of it.
+const MAIN = newProject("state");
+execFileSync("git", ["-C", MAIN, "-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "--allow-empty", "-m", "init"]);
+const WORKTREE = join(SANDBOX, "projects", "state-worktree");
+execFileSync("git", ["-C", MAIN, "worktree", "add", "-q", "--detach", WORKTREE]);
+check("the runs root is under WAYNE_HOME, keyed by the repository", runsRoot(MAIN) === join(SANDBOX, "wayne-home", "projects", "state", "runs"), runsRoot(MAIN));
+check("a worktree of the same repository resolves to the same runs root", runsRoot(WORKTREE) === runsRoot(MAIN), `${runsRoot(WORKTREE)} vs ${runsRoot(MAIN)}`);
+check("neither checkout receives any state", readdirSync(MAIN).join(",") === ".git" && readdirSync(WORKTREE).join(",") === ".git");
+
+const LOOSE = join(SANDBOX, "loose");
+mkdirSync(LOOSE, { recursive: true });
+const refusal = await errorOf(() => runsRoot(LOOSE));
+check("outside a repository the resolver's own refusal is thrown", refusal === `wayne-state-dir: not inside a git repository: ${LOOSE}`, String(refusal));
+check("and nothing is created in that directory", readdirSync(LOOSE).length === 0);
+presence = [];
+const outside = new DagPanel(theme, cb(), () => void renders++);
+outside.start(LOOSE);
+check("the panel stays absent outside a repository", outside.attachedTopic === null && outside.onScreen === false);
+check("and never reports itself present", presence.every((p) => p === false), JSON.stringify(presence));
+outside.shutdown();
+
+// The write tools are the path the agent records through. Drive them through the
+// extension's own registration, so the test calls the same objects pi is handed.
+type RegisteredTool = { name: string; execute: (id: string, params: unknown, signal: unknown, onUpdate: unknown, ctx: { cwd: string }) => Promise<unknown> };
+const tools = new Map<string, RegisteredTool>();
+mindExplodeDagExtension({
+	on() {},
+	registerShortcut() {},
+	registerCommand() {},
+	registerTool(tool: RegisteredTool) {
+		tools.set(tool.name, tool);
+	},
+} as never);
+const resolveTool = tools.get("wayne_resolve_decision")!;
+
+const TOOLS = newProject("tools");
+mkdirSync(join(runsRoot(TOOLS), "w"), { recursive: true });
+const toolLog = join(runsRoot(TOOLS), "w", "decision-log.jsonl");
+writeFileSync(toolLog, BASE);
+const answer = { node_id: "N1", question: "How is the budget bounded?", decision: "Three attempts.", rationale: "A fixed bound stays observable.", consequences: null, source: "user" };
+const recorded = await errorOf(() => resolveTool.execute("call-1", answer, undefined, undefined, { cwd: TOOLS }));
+const landed = parseLog(readFileSync(toolLog, "utf8"));
+check("a write tool records into the state directory", recorded === null && landed.decisions.has("D2") && landed.nodes.get("N1")!.status === "resolved", recorded ?? landed.errors.join("; "));
+check("and the checkout receives nothing", readdirSync(TOOLS).join(",") === ".git");
+const toolRefusal = await errorOf(() => resolveTool.execute("call-2", answer, undefined, undefined, { cwd: LOOSE }));
+check("a write tool outside a repository refuses with the resolver's message", toolRefusal === `rejected: wayne-state-dir: not inside a git repository: ${LOOSE}`, String(toolRefusal));
+
+rmSync(SANDBOX, { recursive: true, force: true });
 
 console.log(`\n${failures.length === 0 ? "ALL GATES PASS" : `${failures.length} FAILED: ${failures.join(", ")}`}\n`);
 process.exit(failures.length === 0 ? 0 : 1);

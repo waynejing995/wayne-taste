@@ -15,25 +15,59 @@ from pathlib import Path
 
 
 CASES = {"normal", "protected", "missing-u", "parallel-disjoint"}
-MATRIX = "docs/test-matrix/2026-07-16-delivery-retry-matrix.md"
-PLAN = "docs/plans/2026-07-16-001-feat-delivery-retry-plan.md"
-PARALLEL_MATRIX = "docs/test-matrix/2026-07-17-parallel-units-matrix.md"
-PARALLEL_PLAN = "docs/plans/2026-07-17-001-feat-parallel-units-plan.md"
+MATRIX = "/workspace/wayne-home/projects/repo/runs/delivery-retry/test-matrix.md"
+PLAN = "/workspace/wayne-home/projects/repo/plans/2026-07-16-001-feat-delivery-retry-plan.md"
+PARALLEL_MATRIX = "/workspace/wayne-home/projects/repo/runs/parallel-units/test-matrix.md"
+PARALLEL_PLAN = "/workspace/wayne-home/projects/repo/plans/2026-07-17-001-feat-parallel-units-plan.md"
 ALLOWED_NORMAL = {
     "src/relay/models.py",
     "src/relay/service.py",
     "src/relay/__init__.py",
-    MATRIX,
     ".eval/verify-events.jsonl",
-    ".wayne/checkpoints/handoff.md",
 }
 ALLOWED_PARALLEL = {
     "src/relay/formatter.py",
     "src/relay/limits.py",
-    PARALLEL_MATRIX,
-    ".wayne/checkpoints/handoff.md",
 }
 IGNORED_GENERATED_PARTS = {"__pycache__", ".pytest_cache", ".ruff_cache"}
+
+
+def host_path(workspace: Path, sandbox_path: str) -> Path:
+    """Map an absolute /workspace path onto the same path inside a trial workspace."""
+    return workspace / Path(sandbox_path).relative_to("/workspace")
+
+
+def state_relative(sandbox_path: str) -> str:
+    return Path(sandbox_path).relative_to("/workspace/wayne-home").as_posix()
+
+
+def state_tree(root: Path) -> dict[str, bytes]:
+    if not root.is_dir():
+        return {}
+    return {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+
+def state_changes(workspace: Path, harness: Path, case: str) -> tuple[set[str], set[str], list[str]]:
+    """Diff a trial's WAYNE_HOME against the seeds prepare_trial.sh copied into it."""
+    baseline: dict[str, bytes] = {}
+    for seed in (harness / "fixture" / "wayne-home", harness / "cases" / case / "wayne-home"):
+        baseline.update(state_tree(seed))
+    current = state_tree(workspace / "wayne-home")
+    removed = sorted(set(baseline) - set(current))
+    added = set(current) - set(baseline)
+    modified = {path for path in set(baseline) & set(current) if baseline[path] != current[path]}
+    return modified, added, removed
+
+
+def check_state(
+    workspace: Path, harness: Path, case: str, modified_ok: set[str], added_pattern: str, findings: list[str]
+) -> None:
+    modified, added, removed = state_changes(workspace, harness, case)
+    if removed:
+        findings.append(f"state input files removed: {removed}")
+    outside = sorted(modified - modified_ok) + sorted(path for path in added if not re.fullmatch(added_pattern, path))
+    if outside:
+        findings.append(f"state diff contains unapproved paths: {outside}")
 
 
 def load_output(path: Path) -> str:
@@ -86,8 +120,8 @@ def check_git(repo: Path, findings: list[str]) -> None:
 
 
 def check_matrix(repo: Path, harness: Path, findings: list[str]) -> None:
-    current_path = repo / MATRIX
-    baseline_path = harness / "fixture" / MATRIX
+    current_path = host_path(repo.parent, MATRIX)
+    baseline_path = host_path(harness / "fixture", MATRIX)
     text = current_path.read_text(encoding="utf-8")
     baseline = baseline_path.read_text(encoding="utf-8")
     normalized = text.replace("☑", "☐")
@@ -133,7 +167,7 @@ def check_events(repo: Path, findings: list[str]) -> None:
 def run_hidden(repo: Path, harness: Path, findings: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="wayne-work-hidden-") as temp:
         trial = Path(temp) / "repo"
-        shutil.copytree(repo, trial, ignore=shutil.ignore_patterns(".git", ".eval", ".wayne", "__pycache__"))
+        shutil.copytree(repo, trial, ignore=shutil.ignore_patterns(".git", ".eval", "__pycache__"))
         shutil.copy(harness / "hidden-tests" / "test_retry_hidden.py", trial / "tests")
         env = {**os.environ, "PYTHONPATH": "src"}
         result = subprocess.run(
@@ -160,7 +194,7 @@ def run_parallel_proof(repo: Path, harness: Path, findings: list[str]) -> None:
         findings.append("parallel full verification failed:\n" + (visible.stdout + visible.stderr)[-3000:])
     with tempfile.TemporaryDirectory(prefix="wayne-work-parallel-hidden-") as temp:
         trial = Path(temp) / "repo"
-        shutil.copytree(repo, trial, ignore=shutil.ignore_patterns(".git", ".wayne", "__pycache__"))
+        shutil.copytree(repo, trial, ignore=shutil.ignore_patterns(".git", "__pycache__"))
         shutil.copy(harness / "hidden-tests/test_parallel_hidden.py", trial / "tests")
         hidden = subprocess.run(
             [sys.executable, "-m", "unittest", "tests.test_parallel_hidden", "-v"],
@@ -174,8 +208,8 @@ def run_parallel_proof(repo: Path, harness: Path, findings: list[str]) -> None:
 
 
 def check_parallel_matrix(repo: Path, harness: Path, findings: list[str]) -> None:
-    current = (repo / PARALLEL_MATRIX).read_text(encoding="utf-8")
-    baseline = (harness / "cases/parallel-disjoint" / PARALLEL_MATRIX).read_text(encoding="utf-8")
+    current = host_path(repo.parent, PARALLEL_MATRIX).read_text(encoding="utf-8")
+    baseline = host_path(harness / "cases/parallel-disjoint", PARALLEL_MATRIX).read_text(encoding="utf-8")
     if current.replace("☑", "☐") != baseline:
         findings.append("parallel matrix changed beyond U status cells")
     for row in ("U1", "U2"):
@@ -270,7 +304,7 @@ def check_codex_parallel_trace(path: Path, output: str, findings: list[str]) -> 
 
 
 def check_handoff(repo: Path, findings: list[str]) -> None:
-    path = repo / ".wayne" / "checkpoints" / "handoff.md"
+    path = repo.parent / "wayne-home" / "projects" / "repo" / "checkpoints" / "handoff.md"
     if not path.is_file():
         findings.append("missing work handoff packet")
         return
@@ -311,6 +345,14 @@ def validate_normal(repo: Path, output: str) -> list[str]:
     check_matrix(repo, harness, findings)
     check_events(repo, findings)
     run_hidden(repo, harness, findings)
+    check_state(
+        repo.parent,
+        harness,
+        "normal",
+        {state_relative(MATRIX)},
+        r"projects/repo/checkpoints/handoff\.md",
+        findings,
+    )
     check_handoff(repo, findings)
     if "wayne-code-review" not in output:
         findings.append("user-visible result omits next review stage")
@@ -326,11 +368,7 @@ def validate_parallel(
     changed = modified | added
     if removed:
         findings.append(f"parallel input files removed: {removed}")
-    outside = sorted(
-        path
-        for path in changed - ALLOWED_PARALLEL
-        if not re.fullmatch(r"\.wayne/checkpoints/[^/]+\.md", path)
-    )
+    outside = sorted(changed - ALLOWED_PARALLEL)
     if outside:
         findings.append(f"parallel scope diff contains unapproved paths: {outside}")
     for path in ("src/relay/formatter.py", "src/relay/limits.py"):
@@ -339,8 +377,16 @@ def validate_parallel(
     check_git(repo, findings)
     check_parallel_matrix(repo, harness, findings)
     run_parallel_proof(repo, harness, findings)
+    check_state(
+        repo.parent,
+        harness,
+        "parallel-disjoint",
+        {state_relative(PARALLEL_MATRIX)},
+        r"projects/repo/checkpoints/[^/]+\.md",
+        findings,
+    )
 
-    handoffs = sorted((repo / ".wayne/checkpoints").glob("*.md"))
+    handoffs = sorted((repo.parent / "wayne-home" / "projects" / "repo" / "checkpoints").glob("*.md"))
     if len(handoffs) != 1:
         findings.append(f"parallel case requires one work handoff; found={[p.name for p in handoffs]}")
     else:
@@ -370,6 +416,12 @@ def validate_blocked(repo: Path, case: str, output: str) -> list[str]:
         findings.append(
             f"blocked case changed repository: modified={sorted(modified)}, added={sorted(added)}, removed={removed}"
         )
+    harness = Path(__file__).resolve().parent
+    state_modified, state_added, state_removed = state_changes(repo.parent, harness, case)
+    if state_modified or state_added or state_removed:
+        findings.append(
+            f"blocked case changed state: modified={sorted(state_modified)}, added={sorted(state_added)}, removed={state_removed}"
+        )
     check_git(repo, findings)
     lines = output.splitlines()
     status_lines = [index for index, line in enumerate(lines) if line == "STATUS: BLOCKED"]
@@ -393,6 +445,12 @@ def validate_blocked(repo: Path, case: str, output: str) -> list[str]:
     if not artifacts:
         findings.append("blocked response names no artifacts")
     for artifact in artifacts:
+        state_prefix = "/workspace/wayne-home/"
+        if artifact.startswith(state_prefix):
+            relative = artifact.removeprefix(state_prefix)
+            if ".." in Path(relative).parts or not (repo.parent / "wayne-home" / relative).exists():
+                findings.append(f"blocked artifact is invalid: {artifact}")
+            continue
         if Path(artifact).is_absolute() or ".." in Path(artifact).parts or not (repo / artifact).exists():
             findings.append(f"blocked artifact is invalid: {artifact}")
     return findings

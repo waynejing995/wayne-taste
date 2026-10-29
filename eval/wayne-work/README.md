@@ -30,7 +30,13 @@ bash eval/wayne-work/prepare_trial.sh normal wayne-work \
   eval/.runs/wayne-work/control-normal
 ```
 
-Run with `eval/run_isolated_agent.sh`, then:
+Run the agent through the per-harness runner, which pins `WAYNE_HOME` and starts in
+`/workspace/repo`:
+
+```bash
+MODEL=<slug> EFFORT=<level> bash eval/wayne-work/run_agent.sh codex \
+  eval/.runs/wayne-work/control-normal eval/.runs/wayne-work/control-normal-state
+```
 
 ```bash
 uv run --no-project python eval/wayne-work/check_trial.py \
@@ -41,8 +47,10 @@ uv run --no-project python eval/wayne-work/check_trial.py \
 The scope collector uses the trial's starting commit, final diff, and untracked
 paths. It does not walk, read, or hash unrelated repository files.
 
-Use `eval/wayne-work/run_agent.sh` for `parallel-disjoint`; it preserves Claude
-stream events and Codex collaboration errors for the external trace oracle.
+Use `eval/wayne-work/run_agent.sh` for every case: it pins `WAYNE_HOME` to
+`/workspace/wayne-home` and starts the agent in `/workspace/repo`, which the state
+resolver requires. It also preserves Claude stream events and Codex collaboration errors
+for the external trace oracle.
 
 `control.sha256` locks the pre-change skill tree. `harness.sha256` hashes the
 ordered records for all harness files except this README, `eval-report.md`, and

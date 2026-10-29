@@ -8,8 +8,9 @@ do not assume that a legacy or globally installed reviewer exists.
 
 Complete the design workflow when all decisions are resolved. If source inputs
 conflict, stop at the decision gate and ask exactly one question with your
-recommendation. Do not implement code, write an implementation plan, commit,
-branch, push, publish, or use any globally installed review skill.
+recommendation. Do not implement code, write an implementation plan, branch, push,
+publish, or use any globally installed review skill. The only commit allowed is the
+skill's own spec commit.
 
 No evaluator, expected result, other skill version, or hidden test is available in
 this trial. Return only the concise user-visible response for this design turn.

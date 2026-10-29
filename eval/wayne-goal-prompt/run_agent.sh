@@ -13,7 +13,7 @@ command -v bwrap >/dev/null || { echo "bwrap is required" >&2; exit 2; }
 agent=$1
 workspace=$(realpath "$2")
 state=$(realpath -m "$3")
-mkdir -p "$state/cache" "$state/claude-home" "$state/codex-home"
+mkdir -p "$state/cache" "$state/claude-home" "$state/codex-home" "$workspace/wayne-home"
 if [[ -f /root/.claude/settings.json ]]; then
     jq '{env}' /root/.claude/settings.json > "$state/claude-home/settings.json"
 fi
@@ -30,6 +30,7 @@ common=(
     --bind "$state/codex-home" /root/.codex
     --bind "$workspace" /workspace --chdir /workspace/repo --setenv HOME /root
     --setenv CODEX_HOME /root/.codex
+    --setenv WAYNE_HOME /workspace/wayne-home
     --setenv RETRY_API_TOKEN s3cr3t-fixture-value
 )
 

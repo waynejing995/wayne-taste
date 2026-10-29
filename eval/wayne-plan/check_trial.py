@@ -55,6 +55,12 @@ SURFACE_TOKEN_RE = re.compile(
     r"(?![A-Za-z0-9_./:-])"
 )
 IGNORED_PARTS = {".git", ".pytest_cache", ".ruff_cache", ".venv", "__pycache__"}
+
+
+STATE_SANDBOX = "/workspace/wayne-home/projects/repo"
+STATE_RELATIVE = Path("wayne-home/projects/repo")
+
+
 def python_symbols(path: Path) -> set[str]:
     if path.suffix != ".py" or not path.is_file():
         return set()
@@ -165,13 +171,53 @@ def changed_paths(repo: Path, baseline: Path) -> tuple[list[str], list[str]]:
     return modified, added
 
 
+def state_files(root: Path) -> dict[str, bytes]:
+    if not root.is_dir():
+        return {}
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+
+def state_changes(state: Path, seed: Path) -> tuple[list[str], list[str], list[str]]:
+    before = state_files(seed)
+    after = state_files(state)
+    modified = sorted(path for path in before.keys() & after.keys() if before[path] != after[path])
+    added = sorted(after.keys() - before.keys())
+    removed = sorted(before.keys() - after.keys())
+    return modified, added, removed
+
+
+def artifact_exists(baseline: Path, artifact: str) -> bool:
+    if artifact.startswith(f"{STATE_SANDBOX}/"):
+        root = baseline / STATE_RELATIVE
+        relative = Path(artifact.removeprefix(f"{STATE_SANDBOX}/"))
+    else:
+        root = baseline
+        relative = Path(artifact)
+    if relative.is_absolute() or ".." in relative.parts:
+        return False
+    return (root / relative).exists()
+
+
 def validate_block(
-    repo: Path, baseline: Path, output: Path, case: str
+    workspace: Path, baseline: Path, output: Path, case: str
 ) -> list[str]:
     findings: list[str] = []
+    repo = workspace / "repo"
     modified, added = changed_paths(repo, baseline)
     if modified or added:
         findings.append(f"blocked case changed repository: modified={modified}, added={added}")
+    state_modified, state_added, state_removed = state_changes(
+        workspace / STATE_RELATIVE, baseline / STATE_RELATIVE
+    )
+    if state_modified or state_added or state_removed:
+        findings.append(
+            f"blocked case changed state: modified={state_modified}, "
+            f"added={state_added}, removed={state_removed}"
+        )
 
     lines = output.read_text(encoding="utf-8").splitlines()
     if len(lines) != 5 or any(not line.strip() for line in lines):
@@ -209,9 +255,8 @@ def validate_block(
     if not artifacts:
         findings.append("blocking response must name at least one artifact path")
     for artifact in artifacts:
-        candidate = Path(artifact)
-        if candidate.is_absolute() or ".." in candidate.parts or not (baseline / candidate).exists():
-            findings.append(f"blocking artifact is not a normalized existing repo path: {artifact}")
+        if not artifact_exists(baseline, artifact):
+            findings.append(f"blocking artifact is not a normalized existing repo or state path: {artifact}")
     return findings
 
 
@@ -224,24 +269,32 @@ def unit_blocks(text: str) -> list[tuple[str, str, str]]:
     return blocks
 
 
-def validate_plan(repo: Path, baseline: Path) -> list[str]:
+def validate_plan(workspace: Path, baseline: Path) -> list[str]:
     findings: list[str] = []
+    repo = workspace / "repo"
     modified, added = changed_paths(repo, baseline)
+    state_modified, state_added, state_removed = state_changes(
+        workspace / STATE_RELATIVE, baseline / STATE_RELATIVE
+    )
     expected_added: list[str] = []
-    for path in added:
+    for path in state_added:
         match = re.fullmatch(
-            r"docs/plans/\d{4}-\d{2}-\d{2}-\d{3}-(?:feat|fix|refactor)-([a-z0-9-]+)-plan\.md",
+            r"plans/\d{4}-\d{2}-\d{2}-\d{3}-(?:feat|fix|refactor)-([a-z0-9-]+)-plan\.md",
             path,
         )
         if match and 3 <= len(match.group(1).split("-")) <= 5:
             expected_added.append(path)
-    if modified:
-        findings.append(f"upstream or repository files were modified: {modified}")
-    if len(expected_added) != 1 or added != expected_added:
-        findings.append(f"expected exactly one added canonical plan; added={added}")
+    if modified or added:
+        findings.append(f"upstream or repository files were modified: modified={modified}, added={added}")
+    if state_modified or state_removed:
+        findings.append(
+            f"seeded state files were modified or removed: modified={state_modified}, removed={state_removed}"
+        )
+    if len(expected_added) != 1 or state_added != expected_added:
+        findings.append(f"expected exactly one added canonical plan; added={state_added}")
         return findings
 
-    plan_path = repo / expected_added[0]
+    plan_path = workspace / STATE_RELATIVE / expected_added[0]
     text = plan_path.read_text(encoding="utf-8")
     headings = re.findall(r"^## (.+?)\s*$", text, re.MULTILINE)
     if tuple(headings) != SECTIONS:
@@ -254,7 +307,7 @@ def validate_plan(repo: Path, baseline: Path) -> list[str]:
 
     spec = baseline / "docs/specs/2026-07-15-delivery-retry-design.md"
     decisions = baseline / "docs/decisions/2026-07-15-delivery-retry-decisions.md"
-    matrix = baseline / "docs/test-matrix/2026-07-15-delivery-retry-matrix.md"
+    matrix = baseline / STATE_RELATIVE / "runs/delivery-retry/test-matrix.md"
     requirements = source_ids(spec, r"^- (R\d+):",)
     decision_ids = source_ids(decisions, r"^\| (D\d+) \|",)
     seeds = source_ids(matrix, r"^\| (US\d+) \|",)
@@ -262,7 +315,9 @@ def validate_plan(repo: Path, baseline: Path) -> list[str]:
     allowed_file_paths = {
         path.relative_to(baseline).as_posix()
         for path in baseline.rglob("*")
-        if path.is_file() and not any(part in IGNORED_PARTS for part in path.parts)
+        if path.is_file()
+        and not any(part in IGNORED_PARTS for part in path.parts)
+        and not path.is_relative_to(baseline / "wayne-home")
     }
     allowed_file_paths.add("src/relay_queue/errors.py")
     test_body = section(text, "Test Matrix")
@@ -490,18 +545,18 @@ def validate_plan(repo: Path, baseline: Path) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("repo", type=Path)
+    parser.add_argument("workspace", type=Path)
     parser.add_argument("baseline", type=Path)
     parser.add_argument("--case", choices=("normal", "conflict", "missing-e2e"), required=True)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
     if args.case == "normal":
-        findings = validate_plan(args.repo, args.baseline)
+        findings = validate_plan(args.workspace, args.baseline)
     else:
         if args.output is None:
             raise SystemExit("--output is required for blocked cases")
-        findings = validate_block(args.repo, args.baseline, args.output, args.case)
+        findings = validate_block(args.workspace, args.baseline, args.output, args.case)
     result = {
         "semantic_verdict": "AI_REVIEW_REQUIRED",
         "case": args.case,

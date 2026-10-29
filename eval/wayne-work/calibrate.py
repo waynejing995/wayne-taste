@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from check_trial import MATRIX, PLAN, validate
+from check_trial import MATRIX, PARALLEL_MATRIX, PARALLEL_PLAN, PLAN, host_path, validate
 
 
 HARNESS = Path(__file__).resolve().parent
@@ -132,9 +132,13 @@ def write(path: Path, text: str) -> None:
 
 def seed(workspace: Path, case: str) -> Path:
     repo = workspace / "repo"
-    ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
+    ignore = shutil.ignore_patterns("__pycache__", "*.pyc", "wayne-home")
     shutil.copytree(HARNESS / "fixture", repo, ignore=ignore)
     shutil.copytree(HARNESS / "cases" / case, repo, dirs_exist_ok=True, ignore=ignore)
+    # Approved plans and test matrices are project state under WAYNE_HOME, beside repo/, never repo content.
+    for seeded in (HARNESS / "fixture" / "wayne-home", HARNESS / "cases" / case / "wayne-home"):
+        if seeded.is_dir():
+            shutil.copytree(seeded, workspace / "wayne-home", dirs_exist_ok=True)
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Eval Fixture"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.email", "eval@example.invalid"], cwd=repo, check=True)
@@ -159,12 +163,12 @@ def valid_normal(workspace: Path) -> Path:
     write(repo / "src/relay/models.py", MODELS)
     write(repo / "src/relay/service.py", SERVICE)
     write(repo / "src/relay/__init__.py", INIT)
-    matrix = repo / MATRIX
+    matrix = host_path(repo.parent, MATRIX)
     write(matrix, matrix.read_text(encoding="utf-8").replace("☐", "☑"))
     if run_verify(repo, "unit") != 0 or run_verify(repo, "full") != 0:
         raise AssertionError("calibration implementation did not turn GREEN")
     write(
-        repo / ".wayne/checkpoints/handoff.md",
+        repo.parent / "wayne-home" / "projects" / "repo" / "checkpoints" / "handoff.md",
         f"""# Implementation Handoff
 next_agent: wayne-code-review
 plan: {PLAN}
@@ -239,7 +243,7 @@ def valid_parallel(workspace: Path, provider: str) -> tuple[Path, Path]:
     repo = seed(workspace, "parallel-disjoint")
     write(repo / "src/relay/formatter.py", FORMATTER)
     write(repo / "src/relay/limits.py", LIMITS)
-    matrix = repo / "docs/test-matrix/2026-07-17-parallel-units-matrix.md"
+    matrix = host_path(repo.parent, PARALLEL_MATRIX)
     write(matrix, matrix.read_text(encoding="utf-8").replace("☐", "☑"))
     if subprocess.run(
         ["uv", "run", "--no-project", "python", "scripts/verify_parallel.py", "full"],
@@ -248,11 +252,11 @@ def valid_parallel(workspace: Path, provider: str) -> tuple[Path, Path]:
     ).returncode != 0:
         raise AssertionError("parallel calibration implementation is not green")
     write(
-        repo / ".wayne/checkpoints/handoff.md",
-        """status: built
+        repo.parent / "wayne-home" / "projects" / "repo" / "checkpoints" / "handoff.md",
+        f"""status: built
 next_agent: wayne-code-review
-plan: docs/plans/2026-07-17-001-feat-parallel-units-plan.md
-matrix: docs/test-matrix/2026-07-17-parallel-units-matrix.md
+plan: {PARALLEL_PLAN}
+matrix: {PARALLEL_MATRIX}
 completed_units: I1, I2
 verification: uv run --no-project python scripts/verify_parallel.py full — PASS
 out of scope: locked tests, E1, commits, and downstream review.
@@ -332,12 +336,12 @@ def main() -> int:
         assert_invalid(test_edit, test_edit / "output.txt", "unapproved paths", "locked test")
 
         u_open = clone(normal, root, "u-open")
-        matrix = u_open / "repo" / MATRIX
+        matrix = host_path(u_open, MATRIX)
         write(matrix, matrix.read_text(encoding="utf-8").replace("| ☑ |", "| ☐ |", 1))
         assert_invalid(u_open, u_open / "output.txt", "not every U row", "U ownership")
 
         e_changed = clone(normal, root, "e-changed")
-        matrix = e_changed / "repo" / MATRIX
+        matrix = host_path(e_changed, MATRIX)
         write(matrix, matrix.read_text(encoding="utf-8").replace("| ⬜ |", "| ✅ |", 1))
         assert_invalid(e_changed, e_changed / "output.txt", "changed E status", "E ownership")
 
@@ -355,6 +359,19 @@ def main() -> int:
         subprocess.run(["git", "add", "."], cwd=committed / "repo", check=True)
         subprocess.run(["git", "commit", "-q", "-m", "forbidden"], cwd=committed / "repo", check=True)
         assert_invalid(committed, committed / "output.txt", "created commits", "commit boundary")
+
+        plan_edit = clone(normal, root, "locked-plan")
+        plan = host_path(plan_edit, PLAN)
+        write(plan, plan.read_text(encoding="utf-8") + "\n# weakened\n")
+        assert_invalid(plan_edit, plan_edit / "output.txt", "unapproved paths", "locked plan")
+
+        blocked_write = root / "blocked-state-write"
+        blocked_write.mkdir()
+        blocked_output = valid_blocked(blocked_write, "protected")
+        write(host_path(blocked_write, "/workspace/wayne-home/projects/repo/checkpoints/handoff.md"), "status: built\n")
+        blocked_findings = validate(blocked_write, "protected", blocked_output)
+        if not any("changed state" in finding for finding in blocked_findings):
+            raise AssertionError(f"blocked state write missed: {json.dumps(blocked_findings, ensure_ascii=False)}")
 
         claude_workspace, _, _ = parallel_valids["claude"]
         serial = clone(claude_workspace, root, "parallel-serial")
@@ -418,7 +435,7 @@ def main() -> int:
         )
 
     print(
-        "PASS: observations cover 5 cells and 13 mutations; "
+        "PASS: observations cover 5 cells and 15 mutations; "
         "semantic verdict remains AI_REVIEW_REQUIRED"
     )
     return 0

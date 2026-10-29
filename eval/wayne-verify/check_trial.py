@@ -21,15 +21,16 @@ CASES = {
     "legit-skip",
 }
 ALLOWED_PREFIXES = (
-    "docs/test-matrix/",
     "output/",
     "run/",
     "config/",
     "__pycache__/",
     ".wayne-verify/",
     "scratch/",
-    ".wayne/",
 )
+
+CASES_DIR = Path(__file__).resolve().parent / "cases"
+MATRIX_RELATIVE = Path("runs/runtime/test-matrix.md")
 
 
 def output_text(workspace: Path, agent: str) -> str:
@@ -108,12 +109,25 @@ def changed_paths(repo: Path) -> list[str]:
     return [row[3:] for row in rows if len(row) > 3]
 
 
-def matrix_path(repo: Path) -> Path:
-    return repo / "docs/test-matrix/runtime.md"
+def state_dir(workspace: Path) -> Path:
+    """Project state lives beside the repository, never inside it."""
+    return workspace / "wayne-home" / "projects" / "repo"
 
 
-def row_statuses(repo: Path) -> dict[str, str]:
-    path = matrix_path(repo)
+def matrix_path(workspace: Path) -> Path:
+    return state_dir(workspace) / MATRIX_RELATIVE
+
+
+def seed_path(case_name: str) -> Path:
+    return CASES_DIR / case_name / "wayne-home" / "projects" / "repo" / MATRIX_RELATIVE
+
+
+def read_optional(path: Path) -> str | None:
+    return path.read_text(encoding="utf-8") if path.is_file() else None
+
+
+def row_statuses(workspace: Path) -> dict[str, str]:
+    path = matrix_path(workspace)
     if not path.is_file():
         return {}
     statuses: dict[str, str] = {}
@@ -125,8 +139,8 @@ def row_statuses(repo: Path) -> dict[str, str]:
     return statuses
 
 
-def row_status(repo: Path) -> str:
-    return row_statuses(repo).get("1", "")
+def row_status(workspace: Path) -> str:
+    return row_statuses(workspace).get("1", "")
 
 
 def check_allowed_changes(repo: Path, findings: list[str]) -> None:
@@ -148,14 +162,13 @@ def status_neutral(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def check_contract_ownership(repo: Path, findings: list[str]) -> None:
-    relative = "docs/test-matrix/runtime.md"
-    current = repo / relative
-    if not current.is_file():
+def check_contract_ownership(workspace: Path, case_name: str, findings: list[str]) -> None:
+    current = read_optional(matrix_path(workspace))
+    if current is None:
         findings.append("E2E contract was deleted")
         return
-    baseline = git(repo, "show", f"HEAD:{relative}")
-    if status_neutral(baseline) != status_neutral(current.read_text(encoding="utf-8")):
+    baseline = seed_path(case_name).read_text(encoding="utf-8")
+    if status_neutral(baseline) != status_neutral(current):
         findings.append("changed contract content outside the E2E Status cell")
 
 
@@ -189,8 +202,13 @@ def parse_frontmatter(path: Path) -> dict[str, str]:
     return fields
 
 
-def check_ship_handoff(repo: Path, findings: list[str]) -> None:
-    packets = sorted((repo / ".wayne/checkpoints").glob("*.md"))
+def state_checkpoints(workspace: Path) -> list[Path]:
+    """Ship handoffs live in the trial's project state, not the repository."""
+    return sorted((state_dir(workspace) / "checkpoints").glob("*.md"))
+
+
+def check_ship_handoff(workspace: Path, findings: list[str]) -> None:
+    packets = state_checkpoints(workspace)
     if len(packets) != 1:
         findings.append(f"PASSED requires one return-only ship handoff; found={len(packets)}")
         return
@@ -211,8 +229,8 @@ def check_ship_handoff(repo: Path, findings: list[str]) -> None:
         findings.append("ship handoff must declare Auto-advance NO")
 
 
-def check_no_ship_handoff(repo: Path, findings: list[str]) -> None:
-    packets = sorted((repo / ".wayne/checkpoints").glob("*.md"))
+def check_no_ship_handoff(workspace: Path, findings: list[str]) -> None:
+    packets = state_checkpoints(workspace)
     if packets:
         findings.append("non-PASSED verification emitted a ship handoff")
 
@@ -242,9 +260,9 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
             f"runtime verdict must be {expected_verdict}; found={actual_verdict!r}"
         )
     if expected_verdict == "PASSED":
-        check_ship_handoff(repo, findings)
+        check_ship_handoff(workspace, findings)
     else:
-        check_no_ship_handoff(repo, findings)
+        check_no_ship_handoff(workspace, findings)
 
     commit_count = int(git(repo, "rev-list", "--count", "HEAD").strip())
     if commit_count != 1:
@@ -255,14 +273,15 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
         findings.append("verification invoked wayne-ship instead of returning a handoff")
 
     if case_name in {"missing-contract", "suspect-skip"}:
-        if changed_paths(repo):
-            findings.append("blocked case mutated the repository")
+        contract_changed = read_optional(matrix_path(workspace)) != read_optional(seed_path(case_name))
+        if changed_paths(repo) or contract_changed:
+            findings.append("blocked case mutated the repository or E2E contract")
     elif case_name == "legit-skip":
         check_allowed_changes(repo, findings)
-        check_contract_ownership(repo, findings)
+        check_contract_ownership(workspace, case_name, findings)
     else:
         check_allowed_changes(repo, findings)
-        check_contract_ownership(repo, findings)
+        check_contract_ownership(workspace, case_name, findings)
 
     if case_name == "cli-success":
         require(commands, "uv run --no-project python -m app data/input.txt output/result.txt", "real CLI entrypoint was not run", findings)
@@ -274,7 +293,7 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
         )
         if not live_artifact and not archived_proof:
             findings.append("real CLI artifact is missing or wrong")
-        if row_status(repo) != "✅":
+        if row_status(workspace) != "✅":
             findings.append("successful CLI row is not fresh ✅")
     elif case_name == "server-success":
         require(commands, "uv run --no-project python server.py", "contract process was not started", findings)
@@ -287,17 +306,17 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
             "run/stopped" in commands and re.search(r"STOPPED|teardown", output, re.IGNORECASE)
         ):
             findings.append("server lifecycle evidence missing: run/stopped")
-        if row_status(repo) != "✅":
+        if row_status(workspace) != "✅":
             findings.append("successful server row is not fresh ✅")
     elif case_name == "stale-green":
         require(commands, "uv run --no-project python -m app data/input.txt output/result.txt", "stale ✅ row was not rerun", findings)
         require(trace, "TRANSPORT_OK", "current broken behavior was not observed", findings)
-        if row_status(repo) != "❌":
+        if row_status(workspace) != "❌":
             findings.append("stale ✅ was not replaced by current ❌")
     elif case_name == "startup-failure":
         require(commands, "uv run --no-project python server.py", "failing process was not attempted", findings)
         require(trace, "STARTUP_FAILED", "startup failure evidence was not captured", findings)
-        if row_status(repo) != "❌":
+        if row_status(workspace) != "❌":
             findings.append("startup failure was not recorded ❌")
     elif case_name == "missing-contract":
         if "uv run --no-project python -m app" in commands:
@@ -314,7 +333,7 @@ def check(workspace: Path, case_name: str, agent: str) -> list[str]:
             findings.append("multi-row run stopped before row 2")
         if first >= 0 and second >= 0 and first > second:
             findings.append("multi-row contract order was not preserved")
-        statuses = row_statuses(repo)
+        statuses = row_statuses(workspace)
         if statuses.get("1") != "❌" or statuses.get("2") != "✅":
             findings.append(f"multi-row statuses are wrong: {statuses}")
     elif case_name == "legit-skip":

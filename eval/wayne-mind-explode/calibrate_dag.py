@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -14,7 +15,6 @@ from seed_long_dag import LOG_RELATIVE as LONG_LOG_RELATIVE
 from seed_long_dag import records as long_records
 
 TOPIC = "queued-delivery"
-LOG_RELATIVE = f".wayne/runs/{TOPIC}/decision-log.jsonl"
 
 OWNER_FACT = "Dispatcher is the sole lifecycle owner"
 TOPOLOGY = "Delivery topology: inline or queue"
@@ -119,11 +119,21 @@ OUTPUTS = {
 }
 
 
+def git_repo(root: Path) -> Path:
+    """The repository every DAG trial starts from: the fixture, committed as prepare_trial.sh does."""
+    harness = Path(__file__).resolve().parent
+    repo = root / "repo"
+    shutil.copytree(harness / "fixture", repo)
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Eval"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "eval@example.invalid"], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture"], check=True)
+    return repo
+
+
 def seed(root: Path, **kwargs: object) -> Path:
-    (root / "repo").mkdir(parents=True)
-    # The real trial always carries the fixture repository; a codebase decision
-    # references a file in it, so the calibration must provide one too.
-    write(root / "repo/docs/architecture.md", "# Architecture\n\nDispatcher owns delivery.\n")
+    git_repo(root)
     for turn in (1, 2, 3):
         states, decisions = SNAPSHOTS[turn]
         write(root / f"turn-{turn}-decision-log.jsonl", log(states, decisions, **kwargs))
@@ -133,7 +143,7 @@ def seed(root: Path, **kwargs: object) -> Path:
 
 
 def seed_long(root: Path) -> Path:
-    write(root / "repo/docs/architecture.md", "# Architecture\n\nDispatcher owns delivery.\n")
+    git_repo(root)
     records = long_records()
     records.append(
         {
@@ -156,7 +166,7 @@ def seed_long(root: Path) -> Path:
             record["resolved_by"] = "D41"
         elif record["id"] == "N42":
             record["status"] = "open"
-    write(root / "repo" / LONG_LOG_RELATIVE, decision_log.dump(records))
+    write(decision_log.state_root(root) / LONG_LOG_RELATIVE, decision_log.dump(records))
     output = "My recommendation: expose manual replay with an operator audit trail. Which operator recovery path should we use?"
     write(root / "codex-final.txt", output)
     write(root / "claude-result.json", json.dumps({"result": output}) + "\n")
@@ -183,6 +193,16 @@ def main() -> int:
             raise AssertionError(f"positive Codex: {findings}")
         if findings := check(base, "claude"):
             raise AssertionError(f"positive Claude: {findings}")
+
+        # A prepared repository carries the fixture's living specs unchanged; that
+        # baseline is not advancement, but an edit to one of its pages is.
+        prepared = seed(Path(temp) / "prepared")
+        if findings := check(prepared, "codex"):
+            raise AssertionError(f"positive prepared fixture Codex: {findings}")
+        edited = seed(Path(temp) / "prepared-edited")
+        with (edited / "repo/docs/specs/queueing.md").open("a", encoding="utf-8") as handle:
+            handle.write("\nEdited during DAG iteration.\n")
+        expect(edited, "advanced to forbidden artifact: docs/specs/**/*.md", "edited baseline page")
 
         # The checker matches node meaning, not node numbering or wording.
         renumbered = seed(Path(temp) / "renumbered", offset=10)
@@ -322,7 +342,7 @@ def main() -> int:
         for label, old, new, needle in long_mutations:
             trial = Path(temp) / label
             shutil.copytree(long, trial)
-            replace(trial / "repo" / LONG_LOG_RELATIVE, old, new)
+            replace(decision_log.state_root(trial) / LONG_LOG_RELATIVE, old, new)
             findings = check_long(trial, "codex")
             if not any(needle in finding for finding in findings):
                 raise AssertionError(f"{label} escaped {needle!r}: {findings}")
@@ -342,7 +362,7 @@ def main() -> int:
             raise AssertionError(f"long multiple questions not detected: {findings}")
 
         print(
-            "PASS: DAG observations cover 11 lanes and 18 mutations; "
+            "PASS: DAG observations cover 12 positive and 19 negative cases; "
             "semantic verdict remains AI_REVIEW_REQUIRED"
         )
     return 0

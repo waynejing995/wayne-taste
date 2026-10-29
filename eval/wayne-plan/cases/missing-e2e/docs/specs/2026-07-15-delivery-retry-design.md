@@ -4,7 +4,7 @@ Status: approved
 Owner: product-design
 
 Primary decision log: `docs/decisions/2026-07-15-delivery-retry-decisions.md`
-Test matrix: `docs/test-matrix/2026-07-15-delivery-retry-matrix.md`
+Test matrix: `/workspace/wayne-home/projects/repo/runs/delivery-retry/test-matrix.md`
 
 ## Problem
 

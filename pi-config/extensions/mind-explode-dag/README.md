@@ -5,8 +5,10 @@ The live decision DAG of a `wayne-mind-explode` design run, above pi's input box
 
 During an interview the frontier is the thing you keep losing: which questions
 are still open, what was already settled and what it was settled *to*. It is all
-in `.wayne/runs/<topic>/decision-log.jsonl`, and reconstructing it from a long
-transcript is exactly the work the panel removes.
+in `${WAYNE_HOME:-~/.wayne}/projects/<key>/runs/<topic>/decision-log.jsonl`, and
+reconstructing it from a long transcript is exactly the work the panel removes.
+`<key>` names the repository, so every clone and worktree shares one state
+directory, and nothing is written into the checkout.
 
 ```
 ┌─ retry-budget · DAG MODE · following ────────────────────────────────────┐
@@ -69,6 +71,7 @@ reads them and corrects inside the same turn:
 rejected: N1 is already resolved by D1; reverse it with a new decision that supersedes it
 rejected: source=codebase must cite a reference; only user, constraint and default locate their own answer
 rejected: 2 runs are in-progress (a, b); pin one with /dag-run before recording decisions
+rejected: wayne-state-dir: not inside a git repository: /home/me/scratch
 ```
 
 **These tools are not a lock.** The workspace is writable and the agent has a
@@ -92,9 +95,10 @@ cursor belongs is follow mode's single answer, which the tool path and the
 watcher compute identically. What changed is reported as `last D<n>` in the
 header, which costs no movement.
 
-**One recursive watcher, no polling.** It watches `.wayne/runs` for both log
-writes and new runs, and watches the project root for `.wayne` first appearing —
-without that, a run started mid-session would never show up.
+**One recursive watcher, no polling.** It watches `<state>/runs` for both log
+writes and new runs. The runs directory is created when the project is resolved,
+so a run started mid-session is picked up by that same watch, with no rebinding.
+Outside a git repository there is no project and the panel stays absent.
 
 **Arrow keys can be stolen.** An extension input listener runs before the focused
 component, and pi-goal-x consumes plain arrows while its expanded dashboard is
@@ -106,15 +110,19 @@ open. `j`/`k` are there for that case; letters always reach a focused component.
 npm test    # node --experimental-strip-types tests/mind-explode-dag.test.ts
 ```
 
-118 assertions, no mocks of the thing under test: a real log on disk, a real
+128 assertions, no mocks of the thing under test: a real log on disk, a real
 `fs.watch`, real ANSI through `visibleWidth`. `tests/link-deps.mjs` points
 `node_modules` at the installed pi on first run, so the harness exercises the
 same pi-tui the extension will be handed.
 
-The gates are grouped by what they defend: the render contracts (no line wider
-than `width`, no panel taller than its declared budget), harness integrity, the
-happy path, run selection, follow mode, and the write path. Every one is either
-a contract this extension states or a bug that actually happened — the
-selected-row height mismatch that scrolled the highlight off screen, the
-duplicate-id log the writer must refuse, the hand-parked cursor a write must not
-disturb.
+The fixtures live in a temporary sandbox, with `WAYNE_HOME` pointed into it. Each
+project is a real `git init`, and the resolver the extension calls is the real
+`_shared/scripts/wayne-state-dir.sh`, so the state path is exercised end to end,
+not stubbed. The gates are grouped by what they defend: the render contracts (no
+line wider than `width`, no panel taller than its declared budget), harness
+integrity, the happy path, run selection, follow mode, the write path, and where
+state lives (one directory per repository, shared by its worktrees, nothing
+written into a checkout). Every one is either a contract this extension states or
+a bug that actually happened — the selected-row height mismatch that scrolled the
+highlight off screen, the duplicate-id log the writer must refuse, the hand-parked
+cursor a write must not disturb.

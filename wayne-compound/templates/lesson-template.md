@@ -42,5 +42,5 @@ related: [[folder/related-entry]]
 ## References
 
 - Decision log: [[decisions/YYYY-MM-DD-topic]]
-- Plan: docs/plans/YYYY-MM-DD-NNN-type-name-plan.md
+- Plan: <state>/plans/YYYY-MM-DD-NNN-type-name-plan.md
 - Repo doc: docs/solutions/category/filename.md
