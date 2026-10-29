@@ -86,6 +86,7 @@ flowchart TB
 - **No** — a converged direct request. Load [lite planning](references/lite-planning.md) and follow it; it replaces A, B, E, and F, and rejoins at C. Do not read the standard template or build a working coverage map — there are no upstream obligations to map.
 - This is a fact about the run's inputs, not a size judgment, so it cannot be argued either way. A living spec with no decision log is still the lite path: read the spec as context, cite it, amend nothing.
 - Either way, if the WHAT is unsettled, neither path applies — stop and route to `wayne-mind-explode`.
+- On both paths, if the repository has a `GLOSSARY.md`, read it and use its terms in the plan, so units, names, and the spec share one vocabulary.
 
 ### A. Discover sources
 
