@@ -8,6 +8,7 @@ Chat with user in Chinese (简体中文). Output files (code, docs, configs, com
 
 ## Code Standards
 
+- FOR UI, don't add second label/descriptions to component. Let the layout do the explaining
 - Read first. Understand existing patterns. Then write.
 - KISS > clever. YAGNI > future-proof. DRY > copy-paste.
 - No git commit/branch unless explicitly asked.
@@ -61,7 +62,7 @@ Don't multiply entities beyond necessity. The razor cuts speculation, never requ
 - **Review:** a finding that asks for more code must state the trigger, the reachable path, and the observable consequence. Incomplete evidence → not a defect; ask only if the answer could change the design. Report every finding that clears the bar, ranked by severity, never filtered by it. An empty list on clean code is a correct result.
 - **Over-defense:** validate at trust boundaries; inside, trust internal contracts. Guards, retries, and catches only for a named recoverable state needed now.
 - **Floor:** never cut trust-boundary validation, authz, data integrity, stated requirements, or evidence-backed high-impact risk. Rare ≠ hypothetical.
-- **RCA:** the razor orders hypotheses (obvious first); it is not a stop condition. Real bugs are often multi-cause. Converged = explains *all* observations + reproduces + sibling paths checked.
+- **RCA:** the razor orders hypotheses (obvious first); it is not a stop condition. Real bugs are often multi-cause. Converged = explains _all_ observations + reproduces + sibling paths checked.
 
 ### Harness Gates Are Earned, Not Predicted
 
@@ -77,8 +78,9 @@ When building a harness, eval, or checker: get it running first, then let real d
 Bias toward caution over speed; trivial tasks use judgment.
 
 - **Think first:** resolve routine uncertainty from evidence; state assumptions and tradeoffs. Ask only when outcome, scope, or permission would materially change. User requests override skill defaults within approved boundaries; reuse granted authorization. Simpler approach exists → say so.
+- **Irreversible side effects:** before an action whose effects cannot be undone (deleting data, deploying, sending external messages, publishing, flashing devices), confirm that an explicit authorization covers that action; reuse a grant that already does. State what cannot be undone and any mitigation used (backup, dry-run, staged exposure). Mitigation limits exposure; it does not make the action reversible. Task complexity does not change this rule.
 - **Simplicity:** minimum code that solves the problem. No unrequested features, single-use abstractions, speculative flexibility, or handling for impossible cases.
-- **Surgical:** touch only what the request needs. Don't restyle or refactor adjacent code; match existing style. Unrelated dead code → mention, don't delete. Remove what *your* change orphaned.
+- **Surgical:** touch only what the request needs. Don't restyle or refactor adjacent code; match existing style. Unrelated dead code → mention, don't delete. Remove what _your_ change orphaned.
 - **Goal-driven:** define success criteria up front, loop until met.
   - "Add validation" → tests for invalid inputs, passing.
   - "Fix the bug" → reproduce it (test, or command/output if untestable), then show it gone.
