@@ -204,7 +204,8 @@ export default function (pi: ExtensionAPI) {
 	let unreadInFlight = false;
 	let remoteInFlight = false;
 
-	let remotePending = false; // a remote command is mid-flight in this session
+	let remotePending = false; // a self-chat command (remote channel or watch) awaits its answer being posted back
+	let replyDue = false; // the turn that command started has ended: its answer is ready to post
 	let lastAssistantText = "";
 
 	/**
@@ -718,12 +719,16 @@ export default function (pi: ExtensionAPI) {
 		renderStatus();
 	}
 
-	/** The session is ending or being replaced: its watches go with it, and its undelivered cards with them. */
+	/** The session is ending or being replaced: its watches go with it, and its undelivered cards and unposted reply with them. */
 	function stopAllWatches(): void {
 		watchGeneration++;
 		for (const id of [...watches.keys()]) stopWatch(id);
 		pendingCards = [];
 		pendingCommands = [];
+		// A command's answer belongs to its session: the next session's turn must not be posted to Teams as it.
+		remotePending = false;
+		replyDue = false;
+		lastAssistantText = "";
 	}
 
 	/** Stop a watch named by chat id or label: the user names chats, the agent passes ids. */
@@ -769,13 +774,28 @@ export default function (pi: ExtensionAPI) {
 		if (!ctx || pendingCommands.length === 0) return;
 		const commands = pendingCommands;
 		pendingCommands = [];
-		// Only the first can start a turn; the rest, and any sent while the agent works, follow it.
+		// Only the first can start a turn; the rest, and any sent while the agent works, steer it.
 		let idle = ctx.isIdle();
 		for (const command of commands) {
 			ctx.ui.notify(`Teams self-chat → ${command.slice(0, 80)}`, "info");
 			// The prefix is stripped, so say where the prompt came from: bare text reads like card residue.
-			pi.sendUserMessage(`${SELF_COMMAND_MARK}\n${command}`, idle ? undefined : { deliverAs: "followUp" });
+			pi.sendUserMessage(`${SELF_COMMAND_MARK}\n${command}`, idle ? undefined : { deliverAs: "steer" });
 			idle = false;
+			// The user sent it from another device: the answer goes back to the self-chat, or they never see it.
+			remotePending = true;
+			lastAssistantText = "";
+		}
+		// The user is not at the terminal: say at once that the instruction reached the agent.
+		void ackToSelf(ctx, commands);
+	}
+
+	async function ackToSelf(ctx: ExtensionContext, commands: string[]): Promise<void> {
+		if (!cfg.remoteReply) return;
+		const list = commands.map((c) => `- ${c.length > 80 ? `${c.slice(0, 80)}…` : c}`).join("\n");
+		try {
+			await send({ kind: "self" }, mdToHtml(`ACK\n\n${list}${AGENT_FOOTER}`), true);
+		} catch (e) {
+			ctx.ui.notify(`Teams self-chat ACK failed: ${e}`, "error");
 		}
 	}
 
@@ -817,6 +837,7 @@ export default function (pi: ExtensionAPI) {
 		} finally {
 			watchInFlight = false;
 			renderStatus();
+			if (watchCtx) await replyToSelf(watchCtx);
 			flushCards();
 			runCommands();
 		}
@@ -1487,23 +1508,38 @@ export default function (pi: ExtensionAPI) {
 						.join("\n");
 	});
 
-	pi.on("agent_settled", async (_event, ctx) => {
-		if (!remotePending) return;
+	/**
+	 * Post the agent's last answer to the self-chat, once the work a self-chat command started is done.
+	 * The footer marks it as the agent's, so the self-chat watch skips it instead of reading it as a new note.
+	 */
+	async function replyToSelf(ctx: ExtensionContext): Promise<void> {
+		if (!remotePending || !replyDue || !ctx.isIdle()) return;
 		remotePending = false;
+		replyDue = false;
 		if (!cfg.remoteReply || !lastAssistantText.trim()) return;
 		try {
-			const html = `<b>🤖 pi · ${escapeHtml(path.basename(ctx.cwd))}</b><br><br>${mdToHtml(truncate(lastAssistantText.trim()))}`;
+			const html = `<b>🤖 pi · ${escapeHtml(path.basename(ctx.cwd))}</b><br><br>${mdToHtml(truncate(lastAssistantText.trim()) + AGENT_FOOTER)}`;
 			await send({ kind: "self" }, html, true);
 			flash(ctx, "replied ✓");
 		} catch (e) {
-			ctx.ui.notify(`Teams remote reply failed: ${e}`, "error");
+			ctx.ui.notify(`Teams self-chat reply failed: ${e}`, "error");
 		}
+	}
+
+	// pi says when the agent is done; omp has no agent_settled, so agent_end checks too (idle on the next tick).
+	pi.on("agent_settled", async (_event, ctx) => {
+		replyDue = remotePending;
+		await replyToSelf(ctx);
 	});
 
 	// A card held back during a turn goes in once the agent is idle. omp is not idle yet inside agent_end
 	// (the prompt is still settling), so look again on the next tick; the poll timer is the backstop.
-	pi.on("agent_end", async () => {
-		setTimeout(flushCards, 0);
+	pi.on("agent_end", async (_event, ctx) => {
+		replyDue = remotePending;
+		setTimeout(() => {
+			void replyToSelf(ctx);
+			flushCards();
+		}, 0);
 	});
 
 	// omp replaces the session in place on /new, /resume and /fork: a watch belongs to the session that started it.
