@@ -83,6 +83,27 @@ export class SkypeClient {
 		return this.auth;
 	}
 
+	/**
+	 * A chatsvc request with the cached skype token. The token expires (about a day) and nothing
+	 * tells us when, so a 401 drops the cache, swaps for a fresh one and tries exactly once more.
+	 * Without this a long-lived session (a self-chat watch) went 401 forever until restarted.
+	 */
+	private async skypeFetch(
+		build: (auth: { skypeToken: string; messaging: string }) => {
+			url: string;
+			init: { method?: string; headers: Record<string, string>; body?: string };
+		},
+	): Promise<{ status: number; text(): Promise<string> }> {
+		const once = async () => {
+			const { url, init } = build(await this.authorize());
+			return this.doFetch(url, init);
+		};
+		const r = await once();
+		if (r.status !== 401) return r;
+		this.auth = undefined;
+		return once();
+	}
+
 	private conversationUrl(messaging: string, suffix = "", conversation = SELF_CONVERSATION): string {
 		return `${messaging.replace(/\/$/, "")}/users/ME/conversations/${encodeURIComponent(conversation)}/messages${suffix}`;
 	}
@@ -95,22 +116,26 @@ export class SkypeClient {
 	 * carries. The link is followed with the skype token, so only on the host that issued it.
 	 */
 	private async fetchPage(pageSize: number, cursor?: string): Promise<{ raw: RawSkypeMessage[]; older?: string }> {
-		const { skypeToken, messaging } = await this.authorize();
-		let url: string;
-		if (cursor === undefined) {
-			url = this.conversationUrl(messaging, `?pageSize=${pageSize}&view=msnp24Equivalent|supportsMessageProperties`);
-		} else {
-			if (new URL(cursor).origin !== new URL(messaging).origin) {
-				throw new Error("chatsvc named an older page on another host; refusing to send the token there");
+		const r = await this.skypeFetch(({ skypeToken, messaging }) => {
+			let url: string;
+			if (cursor === undefined) {
+				url = this.conversationUrl(messaging, `?pageSize=${pageSize}&view=msnp24Equivalent|supportsMessageProperties`);
+			} else {
+				if (new URL(cursor).origin !== new URL(messaging).origin) {
+					throw new Error("chatsvc named an older page on another host; refusing to send the token there");
+				}
+				url = cursor;
 			}
-			url = cursor;
-		}
-		const r = await this.doFetch(url, {
-			headers: {
-				"X-Skypetoken": skypeToken,
-				Accept: "application/json",
-				"User-Agent": "Mozilla/5.0 TeamsPrototype/1.0",
-			},
+			return {
+				url,
+				init: {
+					headers: {
+						"X-Skypetoken": skypeToken,
+						Accept: "application/json",
+						"User-Agent": "Mozilla/5.0 TeamsPrototype/1.0",
+					},
+				},
+			};
 		});
 		const text = await r.text();
 		if (r.status < 200 || r.status >= 300) throw new Error(`chatsvc ${r.status}: ${text.slice(0, 200)}`);
@@ -127,19 +152,20 @@ export class SkypeClient {
 	 * OneDrive/SharePoint transcript metadata.
 	 */
 	async conversationMessages(conversationId: string, pageSize = 200): Promise<RawSkypeMessage[]> {
-		const { skypeToken, messaging } = await this.authorize();
-		const url = this.conversationUrl(
-			messaging,
-			`?pageSize=${pageSize}&view=msnp24Equivalent|supportsMessageProperties`,
-			conversationId,
-		);
-		const r = await this.doFetch(url, {
-			headers: {
-				"X-Skypetoken": skypeToken,
-				Accept: "application/json",
-				"User-Agent": "Mozilla/5.0 TeamsPrototype/1.0",
+		const r = await this.skypeFetch(({ skypeToken, messaging }) => ({
+			url: this.conversationUrl(
+				messaging,
+				`?pageSize=${pageSize}&view=msnp24Equivalent|supportsMessageProperties`,
+				conversationId,
+			),
+			init: {
+				headers: {
+					"X-Skypetoken": skypeToken,
+					Accept: "application/json",
+					"User-Agent": "Mozilla/5.0 TeamsPrototype/1.0",
+				},
 			},
-		});
+		}));
 		const text = await r.text();
 		if (r.status < 200 || r.status >= 300) throw new Error(`chatsvc ${r.status}: ${text.slice(0, 200)}`);
 		const body = JSON.parse(text) as { messages?: RawSkypeMessage[] };
@@ -239,17 +265,19 @@ export class SkypeClient {
 							),
 						},
 					};
-		const { skypeToken, messaging } = await this.authorize();
-		const r = await this.doFetch(this.conversationUrl(messaging), {
-			method: "POST",
-			headers: {
-				"X-Skypetoken": skypeToken,
-				Accept: "application/json",
-				"Content-Type": "application/json",
-				"User-Agent": "Mozilla/5.0 TeamsPrototype/1.0",
+		const r = await this.skypeFetch(({ skypeToken, messaging }) => ({
+			url: this.conversationUrl(messaging),
+			init: {
+				method: "POST",
+				headers: {
+					"X-Skypetoken": skypeToken,
+					Accept: "application/json",
+					"Content-Type": "application/json",
+					"User-Agent": "Mozilla/5.0 TeamsPrototype/1.0",
+				},
+				body: JSON.stringify(payload),
 			},
-			body: JSON.stringify(payload),
-		});
+		}));
 		if (r.status < 200 || r.status >= 300) throw new Error(`chatsvc send ${r.status}: ${(await r.text()).slice(0, 200)}`);
 	}
 }
