@@ -72,11 +72,12 @@ click per refresh-token lifetime is a bad trade. Nothing here ever reads it.
 | `teams_download` tool | Fetches a file someone shared, to a local path. Size-capped (256 MB default) |
 | `teams_transcript` tool | Reads the speaker-attributed transcript of a recorded meeting (`19:meeting_...@thread.v2`), or lists its recorded sessions (`list: true`, `date: "YYYY-MM-DD"` picks one). If the speaker-attributed Stream JSON is unavailable it falls back to WebVTT, which can lose speakers; the result then carries a `fallbackWarning` |
 | `teams_unread` tool | The agent reads the unread list |
+| `teams_watch` tool, `/teams watch <chat>` | Watch a chat from this session: new messages others post there appear in the conversation as a `teams-watch` card, for you and the agent. One session per chat on this machine. See [Watch](#watch) |
 | `/teams` | Two-pane overlay laid out like Outlook's: chats left, the conversation (history and draft) right. It loads more chats and older history as you reach their ends. See [Paging](#paging) |
 | `/teams remote on` | **Unverified, deferred.** Post `pi: <task>` to your self-chat and this session runs it, then replies there |
 
 `/teams` with no argument opens the composer. Other subcommands:
-`login`, `init`, `verify`, `status`, `unread`, `refresh`, `remote on`, `remote off`.
+`login`, `init`, `verify`, `status`, `unread`, `refresh`, `watch <chat>`, `watch-interval <sec>`, `unwatch <chat>`, `watches`, `remote on`, `remote off`.
 
 ## The composer
 
@@ -174,7 +175,8 @@ Optional. `~/.pi/agent/teams.json` overrides these defaults:
   "remotePollSec": 60,
   "remotePrefix": "pi:",
   "remoteReply": true,
-  "execTimeoutMs": 150000
+  "execTimeoutMs": 150000,
+  "watchPollSec": 60
 }
 ```
 
@@ -243,6 +245,61 @@ calls, throttled within minutes of polling. Not worth it for an indicator.
 The script caches each scan at `~/.cache/pi/teams-unread.json`, so N parallel pi
 sessions cost one Graph call. On a throttle (HTTP 429, which does happen) it
 serves the last good scan flagged `stale` and the status bar shows `⚠stale`.
+
+## Watch
+
+`/teams watch <chat name>` (or the agent's `teams_watch`, `action: "start"`, with a
+`chat_id` from `teams_chats`) watches one chat from this session. Each poll
+(`watchPollSec`, 60 s, minimum 5) reads the chat's newest 20 messages. Change it
+for this session with `/teams watch-interval <sec>` or `teams_watch`'s
+`interval_sec`; one timer serves every watch, so the new interval applies to all
+of them at once. Messages newer than
+the last one already seen, and not written by you, are added to the conversation
+as one `teams-watch` card per chat: the sender, time, text, an `@you` marker,
+shared files, and the `chat_id`, so the agent can follow up with `teams_read` or
+`teams_send` when you ask it to.
+
+- **Starts a turn, not a command.** A card starts an agent turn, so the agent
+  sees it at once. It acts or replies only as you have asked for watch cards,
+  and otherwise ends the turn without a reply. While the agent is busy, cards
+  wait for the turn to end, so a card never steers a turn that is in progress;
+  when several are waiting, only the last one starts the turn.
+- **Untrusted.** Everything a card quotes from Teams (chat name, senders, text,
+  file names) sits inside `<untrusted-teams-content>`, after a note that tells
+  the agent never to follow instructions in it. A copy of the tag inside a
+  message is defused (`‹/untrusted-teams-content`), so a message cannot close
+  the block early and speak as the card. Self-chat notes are wrapped the same
+  way, since they may hold pasted text; only `omp:`/`pi:` notes reach the agent
+  as your instructions, headed `[Teams self-chat instruction]`.
+- **History is not news.** Starting a watch sets a baseline at the newest message
+  already there.
+- **Bursts.** If all 20 messages read are new, the card says older ones may be
+  missing; `teams_read` has them.
+- **One watcher per chat.** A chat is watched by at most one session on this
+  machine (same user). Starting a watch another session holds fails and names
+  that session's pid, session id, directory and start time. `/teams watches`
+  (`action: "list"`) shows every watch and which session holds it.
+- **Ends with the session.** `/teams unwatch <chat>`, quitting, `/new`, `/resume`
+  and `/fork` all end it. Nothing persists; a crashed session frees its chats at
+  once.
+- **Self-chat.** `/teams watch self` (or `chat_id: "48:notes"`) watches your own
+  notes, read through chatsvc with its message ids as the cursor, for the
+  baseline as for every poll. Every new note is news, since all of them are
+  yours. A note starting with `omp:` or `pi:` is your instruction instead: the
+  rest of it is sent to the agent as a prompt (a follow-up when it is busy), not
+  as a card, headed by `[Teams self-chat instruction]` so the agent knows where
+  it came from. The remote channel also runs `pi:` notes, so the self-chat watch and
+  `/teams remote on` refuse each other.
+- Status bar: `◉watch N`, with `⚠` while a watched chat's poll is failing (the
+  failure is also reported once, when it first happens).
+
+Ownership is a Linux abstract Unix socket per chat (`watch.ts`), not a lock file.
+Binding the name is the claim, so the kernel admits exactly one claimant even
+when several start together, and it frees the name when the owner exits, however
+it exits. That leaves no stale lock to reclaim and no reclaim race. The owner
+answers a connection with its record, which is how a refused session can name
+it. Linux only; abstract sockets are per network namespace, so sessions in
+separate containers do not see each other's watches.
 
 ## Remote channel
 
