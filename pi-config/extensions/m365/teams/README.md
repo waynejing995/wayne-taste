@@ -256,6 +256,16 @@ as one `teams-watch` card per chat: the sender, time, text, an `@you` marker,
 shared files, and the `chat_id`, so the agent can follow up with `teams_read` or
 `teams_send` when you ask it to.
 
+Give a chat a standing rule with `/teams watch <chat> --policy "summarize only"`
+(or `teams_watch`'s `policy`). Every card from that chat carries the policy,
+marked as yours and kept outside the untrusted block, so cards from several
+watched chats never borrow each other's rule and a compacted early card loses
+nothing. Run the same command on a watched chat to replace it; `--policy` with no
+text clears it. With no policy the card says to show the messages and take no
+action, and a policy must say to send or reply before the agent posts anything.
+The self-chat takes a policy too, for its plain-note cards only: `omp:`/`pi:`
+notes are prompts, not cards, and stay instructions exactly as written.
+
 - **Starts a turn, not a command.** A card starts an agent turn, so the agent
   sees it at once. It acts or replies only as you have asked for watch cards,
   and otherwise ends the turn without a reply. While the agent is busy, cards
