@@ -17,7 +17,7 @@
  * says to run `/teams init`.
  *
  * Three surfaces depend on this: teams_send target=self, teams_read
- * target=self, and the /teams remote channel poll.
+ * target=self, and the self-chat watch poll.
  */
 import type { SelfHistoryPage, SelfMessage } from "./backend.ts";
 import { escapeHtml, htmlToText } from "./html.ts";
@@ -46,7 +46,7 @@ export interface RawSkypeMessage {
 }
 
 export class SkypeClient {
-	/** The swap is cached: the remote channel polls on a timer, and paying for
+	/** The swap is cached: the self-chat watch polls on a timer, and paying for
 	  * an authsvc round trip per poll would triple its cost. */
 	private auth?: { skypeToken: string; messaging: string };
 
@@ -168,7 +168,7 @@ export class SkypeClient {
 	/**
 	 * Messages, oldest first.
 	 *
-	 * With `sinceId` (the remote channel's cursor) this is one page of what is newer. chatsvc ids are monotonic
+	 * With `sinceId` (the self-chat watch's cursor) this is one page of what is newer. chatsvc ids are monotonic
 	 * millisecond timestamps, which is what makes them usable as one; ignoring it would re-execute a command that
 	 * already ran.
 	 *

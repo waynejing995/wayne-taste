@@ -84,8 +84,8 @@ export interface Backend {
 	/** One page of a conversation: the newest with no cursor, the page before `cursor` otherwise. Oldest first. */
 	historyPage(addr: ChatAddr, cursor?: string): Promise<ChatHistoryPage>;
 	/**
-	 * The self-chat. With `sinceId`, one page of what is newer than it (the remote
-	 * channel's cursor). Without, the newest `top`, walking back as far as needed.
+	 * The self-chat. With `sinceId`, one page of what is newer than it (the self-chat
+	 * watch's cursor). Without, the newest `top`, walking back as far as needed.
 	 */
 	selfMessages(sinceId: string, top: number): Promise<SelfMessage[]>;
 	/** One page of the self-chat: the newest with no cursor, the page before `cursor` otherwise. */
