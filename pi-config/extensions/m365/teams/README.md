@@ -282,7 +282,8 @@ shared files, and the `chat_id`, so the agent can follow up with `teams_read` or
 - **Self-chat.** `/teams watch self` (or `chat_id: "48:notes"`) watches your own
   notes, read through chatsvc with its message ids as the cursor, for the
   baseline as for every poll. Every new note is news, since all of them are
-  yours. A note starting with `omp:` or `pi:` is your instruction instead: the
+  yours. A note starting with `omp:` or `pi:` (the full-width `：` a Chinese
+  keyboard types works too) is your instruction instead: the
   rest of it is sent to the agent as a prompt (steering the turn when it is busy),
   not as a card, headed by `[Teams self-chat instruction]` so the agent knows
   where it came from. The self-chat gets an `ACK` listing the instructions at
