@@ -20,13 +20,10 @@
  * Surfaces:
  *   1. Status bar   -- how many chats hold unread activity (polled, cached).
  *   2. teams_send / teams_read / teams_unread / teams_chats / teams_people / teams_watch.
- *   3. /teams       -- compose box, unread list, login, chat watches, and the remote channel.
+ *   3. /teams       -- compose box, unread list, login, chat watches.
  *
- * Remote channel: with `/teams remote on`, a message you post to your own
- * Teams self-chat starting with `pi:` is executed in this session, and the
- * answer is posted back to the self-chat. It is off by default and guarded
- * by a cross-session lock, because "run whatever arrives over chat" is a
- * capability you should have to ask for out loud.
+ * Self-chat: `/teams watch self` turns notes starting with `omp:` or `pi:` into
+ * prompts in this session, ACKs them, and posts the answer back to the self-chat.
  */
 
 import * as fs from "node:fs";
@@ -73,12 +70,8 @@ interface TeamsConfig {
 
 	/** Seconds between unread scans. Teams is not a chat client; slow is fine. */
 	unreadPollSec: number;
-	/** Seconds between self-chat polls while the remote channel is armed. */
-	remotePollSec: number;
-	/** Only self-chat messages starting with this are executed. */
-	remotePrefix: string;
-	/** Post the agent's answer back to the self-chat after a remote command. */
-	remoteReply: boolean;
+	/** Post ACK and the agent's answer to the self-chat for a watched self-chat's omp:/pi: commands. */
+	selfReply: boolean;
 	/** Hard timeout for one script invocation. */
 	execTimeoutMs: number;
 	/** Seconds between polls of the chats this session watches (`teams_watch`). */
@@ -98,9 +91,7 @@ const DEFAULTS: TeamsConfig = {
 	// "backend": "script" if you need it.
 	script: "",
 	unreadPollSec: 600,
-	remotePollSec: 60,
-	remotePrefix: "pi:",
-	remoteReply: true,
+	selfReply: true,
 	execTimeoutMs: 150_000,
 	watchPollSec: 60,
 };
@@ -128,8 +119,6 @@ export function loadConfig(): TeamsConfig {
 
 const cacheDir = path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "pi");
 const CHATS_CACHE = path.join(cacheDir, "teams-chats.json");
-const REMOTE_LOCK = path.join(cacheDir, "teams-remote.lock");
-const REMOTE_CURSOR = path.join(cacheDir, "teams-remote-cursor.json");
 const CHATS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Messages read per watched chat per poll. When all of them are new, the card says older ones may be missing. */
 const WATCH_FETCH = 20;
@@ -197,14 +186,10 @@ export default function (pi: ExtensionAPI) {
 	 */
 	let backendError = "";
 	let transient = ""; // "sending…" / "sent ✓" / "send failed"
-	let remoteArmed = false;
 
 	let unreadTimer: ReturnType<typeof setInterval> | undefined;
-	let remoteTimer: ReturnType<typeof setInterval> | undefined;
 	let unreadInFlight = false;
-	let remoteInFlight = false;
-
-	let remotePending = false; // a self-chat command (remote channel or watch) awaits its answer being posted back
+	let selfReplyPending = false; // an omp:/pi: self-chat command awaits its answer being posted back
 	let replyDue = false; // the turn that command started has ended: its answer is ready to post
 	let lastAssistantText = "";
 
@@ -247,7 +232,6 @@ export default function (pi: ExtensionAPI) {
 			s = t.fg("dim", "Teams: 0");
 		}
 		if (unreadStale) s += t.fg("warning", " ⚠stale");
-		if (remoteArmed) s += t.fg("accent", " ⌁remote");
 		if (watches.size > 0) {
 			const failing = [...watches.values()].some((w) => w.error);
 			s += t.fg(failing ? "warning" : "accent", ` ◉watch ${watches.size}${failing ? " ⚠" : ""}`);
@@ -456,143 +440,8 @@ export default function (pi: ExtensionAPI) {
 		return s.length <= MAX_REPLY_CHARS ? s : `${s.slice(0, MAX_REPLY_CHARS)}\n\n…[truncated]`;
 	}
 
-	// ── Remote channel ──────────────────────────────────────────────────────
-
-	function pidAlive(pid: number): boolean {
-		try {
-			process.kill(pid, 0);
-			return true;
-		} catch {
-			return false;
-		}
-	}
-
-	/** The live session holding the remote channel, if any: it executes `pi:` self-chat notes too. */
-	function remoteHolder(): { pid: number; cwd: string } | null {
-		if (remoteArmed) return { pid: process.pid, cwd: process.cwd() };
-		try {
-			const held = JSON.parse(fs.readFileSync(REMOTE_LOCK, "utf8"));
-			return pidAlive(held.pid) ? held : null;
-		} catch {
-			return null;
-		}
-	}
-
-	function acquireRemoteLock(ctx: ExtensionContext) {
-		if (fs.existsSync(REMOTE_LOCK)) {
-			try {
-				const held = JSON.parse(fs.readFileSync(REMOTE_LOCK, "utf8"));
-				if (held.pid !== process.pid && pidAlive(held.pid)) {
-					throw new Error(
-						`remote channel already owned by pid ${held.pid} (${held.cwd}). ` +
-							`Run "/teams remote off" there first.`,
-					);
-				}
-			} catch (e) {
-				if (e instanceof SyntaxError) fs.rmSync(REMOTE_LOCK, { force: true });
-				else throw e;
-			}
-		}
-		fs.mkdirSync(cacheDir, { recursive: true });
-		fs.writeFileSync(
-			REMOTE_LOCK,
-			JSON.stringify({ pid: process.pid, cwd: ctx.cwd, at: new Date().toISOString() }),
-		);
-	}
-
-	function releaseRemoteLock() {
-		try {
-			const held = JSON.parse(fs.readFileSync(REMOTE_LOCK, "utf8"));
-			if (held.pid === process.pid) fs.rmSync(REMOTE_LOCK, { force: true });
-		} catch {
-			// No lock, or someone else's -- nothing of ours to release.
-		}
-	}
-
-	function readCursor(): string {
-		try {
-			return String(JSON.parse(fs.readFileSync(REMOTE_CURSOR, "utf8")).lastId ?? "");
-		} catch {
-			return "";
-		}
-	}
-
-	function writeCursor(id: string) {
-		fs.mkdirSync(cacheDir, { recursive: true });
-		fs.writeFileSync(REMOTE_CURSOR, JSON.stringify({ lastId: id }));
-	}
-
 	async function readSelfChat(sinceId: string, top = 20): Promise<SelfMessage[]> {
 		return backend.selfMessages(sinceId, top);
-	}
-
-	async function pollRemote(ctx: ExtensionContext) {
-		if (remoteInFlight || !remoteArmed) return;
-		remoteInFlight = true;
-		try {
-			const cursor = readCursor();
-			const msgs = await readSelfChat(cursor);
-			if (msgs.length === 0) return;
-
-			// Advance the cursor over everything seen, prefixed or not, so a
-			// plain note in the self-chat is never re-examined forever.
-			writeCursor(msgs[msgs.length - 1].id);
-
-			const prefix = cfg.remotePrefix.toLowerCase();
-			for (const m of msgs) {
-				const text = m.text.trim();
-				if (!text.toLowerCase().startsWith(prefix)) continue;
-				const body = text.slice(cfg.remotePrefix.length).trim();
-				if (!body) continue;
-
-				ctx.ui.notify(`Teams remote → ${body.slice(0, 80)}`, "info");
-				remotePending = true;
-				lastAssistantText = "";
-				const idle = ctx.isIdle();
-				pi.sendUserMessage(body, idle ? undefined : { deliverAs: "followUp" });
-			}
-		} catch (e) {
-			ctx.ui.notify(`Teams remote poll failed: ${e}`, "warning");
-		} finally {
-			remoteInFlight = false;
-		}
-	}
-
-	async function armRemote(ctx: ExtensionContext) {
-		// A self-chat watch also runs `pi:` notes: with both on, every command would run twice.
-		const selfWatch = (await listOwners()).find((o) => o.chatId === SELF_CHAT);
-		if (selfWatch) throw new Error(`the self-chat is watched by ${describeOwner(selfWatch)}, which already runs its pi: notes. Unwatch it first.`);
-		acquireRemoteLock(ctx);
-		try {
-			// Baseline first: only messages posted after arming are executed, or
-			// turning the channel on would replay your entire note history.
-			const msgs = await readSelfChat("", 5);
-			if (msgs.length > 0) writeCursor(msgs[msgs.length - 1].id);
-		} catch (e) {
-			// Never keep a lock we are not actually servicing.
-			releaseRemoteLock();
-			throw e;
-		}
-		remoteArmed = true;
-		remoteTimer = setInterval(() => void pollRemote(ctx), cfg.remotePollSec * 1000);
-		remoteTimer.unref?.();
-		renderStatus(ctx);
-		ctx.ui.notify(
-			`Teams remote ON — post "${cfg.remotePrefix} <task>" to your self-chat ` +
-				`(polled every ${cfg.remotePollSec}s, replies ${cfg.remoteReply ? "ON" : "OFF"}).`,
-			"info",
-		);
-	}
-
-	function disarmRemote(ctx?: ExtensionContext) {
-		if (remoteTimer) clearInterval(remoteTimer);
-		remoteTimer = undefined;
-		remoteArmed = false;
-		releaseRemoteLock();
-		if (ctx) {
-			renderStatus(ctx);
-			ctx.ui.notify("Teams remote OFF.", "info");
-		}
 	}
 
 	// ── Watch ───────────────────────────────────────────────────────────────
@@ -630,8 +479,6 @@ export default function (pi: ExtensionAPI) {
 		const chat = await resolveWatchChat(chatId, name);
 		if (generation !== watchGeneration) throw stale();
 		if (watches.has(chat.id)) return `Already watching "${chat.label}" in this session (polled every ${watchPollSec}s).`;
-		const remote = chat.id === SELF_CHAT ? remoteHolder() : null;
-		if (remote) throw new Error(`the self-chat remote channel is on (pid ${remote.pid}, ${remote.cwd}) and already runs its pi: notes. Turn it off first.`);
 		const owner: WatchOwner = { chatId: chat.id, label: chat.label, ...watchIdentity(ctx), since: new Date().toISOString() };
 		const claimed = await claim(owner);
 		if ("owner" in claimed) {
@@ -726,7 +573,7 @@ export default function (pi: ExtensionAPI) {
 		pendingCards = [];
 		pendingCommands = [];
 		// A command's answer belongs to its session: the next session's turn must not be posted to Teams as it.
-		remotePending = false;
+		selfReplyPending = false;
 		replyDue = false;
 		lastAssistantText = "";
 	}
@@ -782,7 +629,7 @@ export default function (pi: ExtensionAPI) {
 			pi.sendUserMessage(`${SELF_COMMAND_MARK}\n${command}`, idle ? undefined : { deliverAs: "steer" });
 			idle = false;
 			// The user sent it from another device: the answer goes back to the self-chat, or they never see it.
-			remotePending = true;
+			selfReplyPending = true;
 			lastAssistantText = "";
 		}
 		// The user is not at the terminal: say at once that the instruction reached the agent.
@@ -790,7 +637,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function ackToSelf(ctx: ExtensionContext, commands: string[]): Promise<void> {
-		if (!cfg.remoteReply) return;
+		if (!cfg.selfReply) return;
 		const list = commands.map((c) => `- ${c.length > 80 ? `${c.slice(0, 80)}…` : c}`).join("\n");
 		try {
 			await send({ kind: "self" }, mdToHtml(`ACK\n\n${list}${AGENT_FOOTER}`), true);
@@ -1345,10 +1192,10 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Command ─────────────────────────────────────────────────────────────
 
-	const SUBCOMMANDS = ["compose", "unread", "refresh", "watch", "watch-interval", "unwatch", "watches", "remote on", "remote off", "status", "login", "init", "verify"];
+	const SUBCOMMANDS = ["compose", "unread", "refresh", "watch", "watch-interval", "unwatch", "watches", "status", "login", "init", "verify"];
 
 	pi.registerCommand("teams", {
-		description: "Teams: compose a message, check unread, arm the self-chat remote channel",
+		description: "Teams: compose a message, check unread, watch chats",
 		getArgumentCompletions: (prefix: string) => {
 			const items = SUBCOMMANDS.filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s }));
 			return items.length > 0 ? items : null;
@@ -1413,7 +1260,7 @@ export default function (pi: ExtensionAPI) {
 					`Teams · backend ${cfg.backend} · script ${cfg.script}\n` +
 						`auth ${authState}\n` +
 						`unread ${unreadCount ?? "?"}${unreadStale ? " (stale)" : ""} · poll ${cfg.unreadPollSec}s\n` +
-						`remote ${remoteArmed ? `ON (prefix "${cfg.remotePrefix}", ${cfg.remotePollSec}s)` : "off"}\n` +
+						`self-chat replies ${cfg.selfReply ? "ON" : "OFF"}\n` +
 						`watch ${watches.size > 0 ? [...watches.values()].map((w) => w.owner.label).join(", ") : "none"} (${watchPollSec}s)`,
 					"info",
 				);
@@ -1463,24 +1310,6 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			if (arg === "remote on") {
-				if (remoteArmed) {
-					ctx.ui.notify("Teams remote is already on in this session.", "warning");
-					return;
-				}
-				try {
-					await armRemote(ctx as unknown as ExtensionContext);
-				} catch (e) {
-					ctx.ui.notify(`Cannot arm Teams remote: ${e}`, "error");
-				}
-				return;
-			}
-
-			if (arg === "remote off") {
-				disarmRemote(ctx as unknown as ExtensionContext);
-				return;
-			}
-
 			ctx.ui.notify(`Unknown: /teams ${arg}\nTry: ${SUBCOMMANDS.join(", ")}`, "warning");
 		},
 	});
@@ -1513,10 +1342,10 @@ export default function (pi: ExtensionAPI) {
 	 * The footer marks it as the agent's, so the self-chat watch skips it instead of reading it as a new note.
 	 */
 	async function replyToSelf(ctx: ExtensionContext): Promise<void> {
-		if (!remotePending || !replyDue || !ctx.isIdle()) return;
-		remotePending = false;
+		if (!selfReplyPending || !replyDue || !ctx.isIdle()) return;
+		selfReplyPending = false;
 		replyDue = false;
-		if (!cfg.remoteReply || !lastAssistantText.trim()) return;
+		if (!cfg.selfReply || !lastAssistantText.trim()) return;
 		try {
 			const html = `<b>🤖 pi · ${escapeHtml(path.basename(ctx.cwd))}</b><br><br>${mdToHtml(truncate(lastAssistantText.trim()) + AGENT_FOOTER)}`;
 			await send({ kind: "self" }, html, true);
@@ -1528,14 +1357,14 @@ export default function (pi: ExtensionAPI) {
 
 	// pi says when the agent is done; omp has no agent_settled, so agent_end checks too (idle on the next tick).
 	pi.on("agent_settled", async (_event, ctx) => {
-		replyDue = remotePending;
+		replyDue = selfReplyPending;
 		await replyToSelf(ctx);
 	});
 
 	// A card held back during a turn goes in once the agent is idle. omp is not idle yet inside agent_end
 	// (the prompt is still settling), so look again on the next tick; the poll timer is the backstop.
 	pi.on("agent_end", async (_event, ctx) => {
-		replyDue = remotePending;
+		replyDue = selfReplyPending;
 		setTimeout(() => {
 			void replyToSelf(ctx);
 			flushCards();
@@ -1550,7 +1379,6 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		if (unreadTimer) clearInterval(unreadTimer);
 		unreadTimer = undefined;
-		disarmRemote();
 		stopAllWatches();
 	});
 }

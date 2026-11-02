@@ -56,7 +56,7 @@ tokens independently and the loser re-authenticates every morning.
 |---|---|
 | `/teams login` (alias `init`) | Device-code sign-in, then **proves it**: `GET /me` must return 200, and the verified name, UPN and audience are reported |
 | `/teams verify` | Same proof against the cached token, without signing in again |
-| `/teams status` | Which backend, whether a token cache exists, unread count, remote state |
+| `/teams status` | Which backend, whether a token cache exists, unread count, watches |
 
 Device code, not a stored password: the Python path keeps a decryptable copy of
 a domain password because it predates this, and copying that to save one browser
@@ -74,10 +74,9 @@ click per refresh-token lifetime is a bad trade. Nothing here ever reads it.
 | `teams_unread` tool | The agent reads the unread list |
 | `teams_watch` tool, `/teams watch <chat>` | Watch a chat from this session: new messages others post there appear in the conversation as a `teams-watch` card, for you and the agent. One session per chat on this machine. See [Watch](#watch) |
 | `/teams` | Two-pane overlay laid out like Outlook's: chats left, the conversation (history and draft) right. It loads more chats and older history as you reach their ends. See [Paging](#paging) |
-| `/teams remote on` | **Unverified, deferred.** Post `pi: <task>` to your self-chat and this session runs it, then replies there |
 
 `/teams` with no argument opens the composer. Other subcommands:
-`login`, `init`, `verify`, `status`, `unread`, `refresh`, `watch <chat>`, `watch-interval <sec>`, `unwatch <chat>`, `watches`, `remote on`, `remote off`.
+`login`, `init`, `verify`, `status`, `unread`, `refresh`, `watch <chat>`, `watch-interval <sec>`, `unwatch <chat>`, `watches`.
 
 ## The composer
 
@@ -172,9 +171,7 @@ Optional. `~/.pi/agent/teams.json` overrides these defaults:
   "backend": "graph",
   "script": "/path/to/fetch_teams.py",
   "unreadPollSec": 600,
-  "remotePollSec": 60,
-  "remotePrefix": "pi:",
-  "remoteReply": true,
+  "selfReply": true,
   "execTimeoutMs": 150000,
   "watchPollSec": 60
 }
@@ -290,9 +287,7 @@ shared files, and the `chat_id`, so the agent can follow up with `teams_read` or
   not as a card, headed by `[Teams self-chat instruction]` so the agent knows
   where it came from. The self-chat gets an `ACK` listing the instructions at
   once, and when the turn ends, the agent's last answer is posted back
-  (`remoteReply`), both footed so the watch skips them. The remote
-  channel also runs `pi:` notes, so the self-chat watch and
-  `/teams remote on` refuse each other.
+  (`selfReply`), both footed so the watch skips them.
 - Status bar: `◉watch N`, with `⚠` while a watched chat's poll is failing (the
   failure is also reported once, when it first happens).
 
@@ -303,28 +298,6 @@ it exits. That leaves no stale lock to reclaim and no reclaim race. The owner
 answers a connection with its record, which is how a refused session can name
 it. Linux only; abstract sockets are per network namespace, so sessions in
 separate containers do not see each other's watches.
-
-## Remote channel
-
-> **Status: written but not runtime-verified, and deliberately parked.** The
-> code below is off by default. Do not rely on it until it has been driven
-> end to end in a live session.
-
-Off by default. `/teams remote on`:
-
-1. Takes a cross-session lock at `~/.cache/pi/teams-remote.lock`. A second pi
-   session refuses to arm rather than running your command twice.
-2. Baselines the cursor to the newest self-chat message, so arming does not
-   replay your note history.
-3. Polls the self-chat every 60s. A message starting with `pi:` is stripped of
-   the prefix and injected as if you typed it.
-4. On settle, posts the answer back to the self-chat as HTML.
-
-The cursor is the chatsvc message id (a monotonic ms timestamp) at
-`~/.cache/pi/teams-remote-cursor.json`, so each command runs exactly once.
-
-This is remote code execution over a chat channel. It is opt-in per session and
-released on `/teams remote off` or session shutdown for that reason.
 
 ## Markdown
 
