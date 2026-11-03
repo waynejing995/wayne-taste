@@ -69,6 +69,8 @@ export interface HistoryMessage {
 	/** Same message as Markdown: bold, code, quotes, links, replies, forwards. */
 	md?: string;
 	mine: boolean;
+	/** The sender's Entra object id, when the backend knows it (Graph does). The only proof of who wrote a message: display names collide. */
+	sender_id?: string;
 	mentions_me?: boolean;
 	/** My own display name, for telling my mentions from other people's. */
 	me?: string;

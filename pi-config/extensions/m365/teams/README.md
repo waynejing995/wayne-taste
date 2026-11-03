@@ -299,6 +299,15 @@ notes are prompts, not cards, and stay instructions exactly as written.
   where it came from. The self-chat gets an `ACK` listing the instructions at
   once, and when the turn ends, the agent's last answer is posted back
   (`selfReply`), both footed so the watch skips them.
+- **Your commands in other chats.** In any other watched chat, your own message
+  starting with `omp:` or `pi:` is your instruction too: it reaches the agent as
+  a prompt headed `[Teams instruction from the user in "<chat>"  chat_id: …]`
+  plus that chat's policy. Nothing is posted for it automatically (no ACK, no
+  answer in the self-chat): the policy decides whether to reply, in that chat. "Your
+  own" means the sender's Graph object id equals the signed-in account's `oid`,
+  never a display-name match, so someone whose name contains yours cannot issue
+  one; the script backend carries no ids and so never yields a command. Your
+  other messages there stay silent, and anyone else's `omp:`/`pi:` is only a card.
 - Status bar: `◉watch N`, with `⚠` while a watched chat's poll is failing (the
   failure is also reported once, when it first happens).
 
