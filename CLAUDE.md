@@ -11,7 +11,7 @@ Chat with user in Chinese (简体中文). Output files (code, docs, configs, com
 - FOR UI, don't add second label/descriptions to component. Let the layout do the explaining
 - Read first. Understand existing patterns. Then write.
 - KISS > clever. YAGNI > future-proof. DRY > copy-paste.
-- No git commit/branch unless explicitly asked.
+- No git commit/branch unless explicitly asked. Running `wayne-work` is that ask for its one-commit-per-unit; it never branches or pushes.
 - `uv run python` for all Python. Never `.venv/bin/python`.
 - Tables: markdown only (`| col | col |`). Never ASCII box-drawing.
 
