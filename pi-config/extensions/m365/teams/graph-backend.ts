@@ -66,7 +66,7 @@ interface RawMessage {
 	id?: string;
 	createdDateTime?: string;
 	messageType?: string;
-	from?: { user?: { displayName?: string }; application?: { displayName?: string } } | null;
+	from?: { user?: { id?: string; displayName?: string }; application?: { displayName?: string } } | null;
 	body?: { contentType?: string; content?: string };
 	mentions?: { mentioned?: { user?: { displayName?: string } }; mentionText?: string }[];
 	attachments?: { id?: string | number; contentType?: string; name?: string; contentUrl?: string; content?: string }[];
@@ -478,6 +478,7 @@ export class GraphBackend implements Backend {
 					sender,
 					at: m.createdDateTime ?? "",
 					mine: Boolean(me) && sender.toLowerCase().includes(me),
+					...(m.from?.user?.id ? { sender_id: m.from.user.id } : {}),
 					text: msgText(m),
 					// Structure kept for the chat pane; `text` stays flat for tools.
 					md: body.contentType === "html" ? htmlToMarkdown(body.content ?? "", m.attachments ?? []) : msgText(m),
