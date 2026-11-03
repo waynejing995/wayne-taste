@@ -178,8 +178,8 @@ Any change the unit does not cover fails the unit and returns to Plan/user inste
 
 Then commit the unit, one commit per unit, in wave order:
 
-- Stage only that unit's repository paths by name (`git add -- <paths>`), never `git add -A` or `.`. Include main-owned shared integration edits with the unit whose contract requires them; when two units are atomically coupled through one edit, commit them together and say why in the message. `<state>` artifacts are never committed.
-- Message and identity follow the global Commit Format: plan's Jira ticket or `feat:/`/`fix:/` prefix, the unit ID in the title, `[why]` from the unit goal, `[how]` from the approach, `git commit -s`.
+- Name that unit's repository paths explicitly: `git add -- <paths>`, then `git commit -s -- <paths>`, never `git add -A`, `.`, or a bare `git commit`. The pathspec commits only those paths, so anything the user staged before the run stays staged and out of the unit commit. Include main-owned shared integration edits with the unit whose contract requires them; when two units are atomically coupled through one edit, commit them together and say why in the message. `<state>` artifacts are never committed.
+- Message and identity follow the global Commit Format: plan's Jira ticket or `feat:/`/`fix:/` prefix, the unit ID in the title, `[why]` from the unit goal, `[how]` from the approach.
 - Record the SHA against the unit in Work state. The first unit commit's parent is the range base L hands to review.
 - A J reopen adds a new commit for that unit. Never amend, squash, or rewrite an earlier unit commit.
 
