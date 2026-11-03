@@ -1,17 +1,17 @@
 ---
 name: wayne-work
-description: "Executes an approved Wayne plan unit by unit: validates inputs and scope, establishes requested RED evidence, implements and verifies each unit, simplifies each finished wave with wayne-simplify before auditing it, checks owned U rows while preserving E rows, proves the full diff, and hands off to wayne-code-review. Use for ‘build this’, ‘implement/execute the plan’, ‘start working’, ‘let's build’, or equivalent Chinese implementation requests with a durable plan."
+description: "Executes an approved Wayne plan unit by unit: validates inputs and scope, establishes requested RED evidence, implements and verifies each unit, simplifies each finished wave with wayne-simplify before auditing it, commits each audited unit, checks owned U rows while preserving E rows, proves the full diff, and hands off to wayne-code-review. Use for ‘build this’, ‘implement/execute the plan’, ‘start working’, ‘let's build’, or equivalent Chinese implementation requests with a durable plan."
 ---
 
 # Wayne Work
 
-Execute one approved implementation plan to a verified, review-ready diff.
+Execute one approved implementation plan to verified, review-ready commits, one per plan unit.
 
 **A wave is one batch of plan units.** Finish, verify, simplify, and audit that batch before starting the next. A wave may contain one unit. The main agent groups units into waves in C; the plan does not need to supply waves.
 
 ## Boundary
 
-Own implementation, plan-unit tracking, test-as-you-go, integration, the per-wave refinement pass, U status updates, and the final work handoff. Own three distinct scopes and never merge them: the per-unit conformance audit inside the implementation loop, the per-wave refinement over one wave's combined diff, and the single workflow-level compliance gate over the full diff. Do not redesign approved behavior, author a new plan/test matrix, change E status, commit, branch, push, open a PR, verify, ship, or perform code-quality review — that stays with `wayne-code-review`.
+Own implementation, plan-unit tracking, test-as-you-go, integration, the per-wave refinement pass, U status updates, one commit per audited unit, and the final work handoff. Own three distinct scopes and never merge them: the per-unit conformance audit inside the implementation loop, the per-wave refinement over one wave's combined diff, and the single workflow-level compliance gate over the full diff. Do not redesign approved behavior, author a new plan/test matrix, change E status, branch, push, open a PR, verify, ship, or perform code-quality review — that stays with `wayne-code-review`.
 
 The plan, decision log, test matrix, repository instructions, and dirty baseline are source contracts. Read `../_shared/pipeline-id-contract.md`; consume IDs only from their defining structures and never renumber upstream artifacts.
 
@@ -34,14 +34,14 @@ flowchart TB
         T["Fix observed failure"]
         W{"All units in this wave finished and verified?"}
         S["Simplify wave diff"]
-        H["Audit each wave unit; tick its U rows"]
+        H["Audit each wave unit; tick its U rows; commit it"]
         I{"More recorded waves?"}
     end
 
     J["Run integrated compliance gate on full diff"]
     K{"All gates pass?"}
     M["Reopen affected unit"]
-    L(["Checkpoint for code review"])
+    L(["Checkpoint commit range for code review"])
 
     A --> B
     B -->|"no"| X
@@ -83,7 +83,7 @@ Every step is labeled with its scope, and the whole-workflow gate is never colla
 | `[per-unit]` loop | R, F, G | per unit or retry | that unit's contract, worker handle, diff, and verification command | no |
 | `[per-wave]` completion barrier | W | after each unit passes G | completion and verification results for all wave members | no |
 | `[per-wave]` refinement | S | once per completed wave | the combined wave diff and Simplify's Work-integration contract | no |
-| `[per-unit]` audit | H | once per unit, after its wave's S record | that unit's contract and its part of the simplified wave diff | no |
+| `[per-unit]` audit and commit | H | once per unit, after its wave's S record | that unit's contract and its part of the simplified wave diff | no |
 | `[whole-workflow]` gate | J, L | once per full diff | complete spec, decision log, plan, all units, full diff | yes — one fresh read-only agent |
 
 ### A. [whole-workflow] Check the plan before starting
@@ -104,7 +104,7 @@ If a missing answer changes behavior, scope, ownership, failure handling, compat
 
 When blocked, return the task's blocker contract with the reason, affected artifacts, owner, and user-facing explanation. Shared layouts are communication examples, not a required grammar; exact bytes or line counts matter only when the caller explicitly requires them.
 
-Once these checks pass, capture starting HEAD, branch, status, existing dirty paths, and source artifacts. Keep this run baseline unchanged. Do not create a branch or commit.
+Once these checks pass, capture starting HEAD, branch, status, existing dirty paths, and source artifacts. Keep this run baseline unchanged. Do not create a branch. If a baseline dirty path lies in any unit's write set, stop and ask the user: a unit commit cannot separate their edits from the unit's.
 
 ### C. [whole-workflow] Group units into waves
 
@@ -154,7 +154,7 @@ Change only plan-owned files and implement the named interfaces exactly. Preserv
 
 Do not add adjacent cleanup, defensive behavior, fallback paths, generalized abstractions, or compatibility work merely because they seem useful. When such a change is necessary for correctness, the Plan is incomplete: stop and follow the boundary process instead of expanding the unit.
 
-Inline execution is a fallback, not a choice: use it only after an observable native-dispatch failure whose exact tool error is recorded and quoted. Every implementer reports actual paths changed and commands run; no implementer commits or updates matrix/E ownership independently.
+Inline execution is a fallback, not a choice: use it only after an observable native-dispatch failure whose exact tool error is recorded and quoted. Every implementer reports actual paths changed and commands run; no worker commits or updates matrix/E ownership — H commits each unit in the main agent.
 
 ### G. [per-unit] Verify and repair from evidence
 
@@ -170,30 +170,37 @@ After W opens, run [wayne-simplify](../wayne-simplify/SKILL.md) once over the wh
 
 No U row for a unit in this wave may be ticked until S has finished or recorded the permitted skip. H must audit the simplified diff, not the pre-simplification one.
 
-### H. [per-unit] Audit the diff against its plan unit and update U status
+### H. [per-unit] Audit the diff against its plan unit, update U status, and commit it
 
 For each completed unit, the main agent inspects the actual diff rather than trusting worker summaries, against only the corresponding approved plan unit. Confirm the diff implements that unit's goal, named interfaces, consumes/produces, allowed write set, test scenarios, and verification command, and that it changes nothing the unit does not own. Judge by reading the diff against the unit text; CLI output, regex, keywords, or validator status cannot substitute. Do not dispatch any agent here and do not broaden this audit past the unit: not the complete spec, not the decision log, not other units. A decision is audited here only when the unit contract already carries it; everything else is J's.
 
 Any change the unit does not cover fails the unit and returns to Plan/user instead of being normalized into the diff. Separately from that audit, run the plan-defined wave/integration checks and reject cross-owner writes or overlapping edits; the main agent performs shared integration only after all producing workers finish, and does not start a dependent wave while this barrier fails. Only after each real unit test passes, change its plan-owned U rows from `☐` to `☑`. Never edit U scenario text, the plan's E snapshot, or any authoritative E row/status `⬜`.
 
+Then commit the unit, one commit per unit, in wave order:
+
+- Stage only that unit's repository paths by name (`git add -- <paths>`), never `git add -A` or `.`. Include main-owned shared integration edits with the unit whose contract requires them; when two units are atomically coupled through one edit, commit them together and say why in the message. `<state>` artifacts are never committed.
+- Message and identity follow the global Commit Format: plan's Jira ticket or `feat:/`/`fix:/` prefix, the unit ID in the title, `[why]` from the unit goal, `[how]` from the approach, `git commit -s`.
+- Record the SHA against the unit in Work state. The first unit commit's parent is the range base L hands to review.
+- A J reopen adds a new commit for that unit. Never amend, squash, or rewrite an earlier unit commit.
+
 ### J. [whole-workflow] Run the integrated compliance gate
 
 After dependency waves finish, run the plan's full verification and lint commands. Then dispatch one fresh read-only spec-compliance agent with the complete decision log, spec, plan, all units, and the full diff. It must flag missing, changed, and extra behavior or files by contextual reading; CLI output, regex, keywords, headings, or validator status cannot substitute. This gate judges spec, decision, plan, scope, and cross-unit conformance — not general code quality, which stays with `wayne-code-review`.
 
-The receipt covers only the diff the gate was given. An implementation finding reopens the affected unit under the same unit boundary and returns to C for a new recorded wave; D dispatches its fresh worker. A plan or spec gap returns to Plan/user. Any correction invalidates the receipt: rerun the gate on the corrected full diff before continuing. Then audit:
+The receipt covers only the diff the gate was given — the base recorded in A through the last unit commit. An implementation finding reopens the affected unit under the same unit boundary and returns to C for a new recorded wave; D dispatches its fresh worker. A plan or spec gap returns to Plan/user. Any correction invalidates the receipt: rerun the gate on the corrected full diff before continuing. Then audit:
 
 - every unit is DONE with its produces consumed where planned;
 - all requirements and decisions have implementation evidence;
 - the diff contains only plan-owned source, authorized U status changes, and work state; starting Git status, agent write history, and final diff show no unrelated or locked-input mutation;
 - every U row is `☑`, every E row remains `⬜`;
 - every recorded wave has an S record — the refinement outcome with before/after verification, or the permitted skip reason — and each of the wave's current U ticks came after that record. If not, record the ordering violation in Work state and the handoff, reset that wave's U rows to `☐`, run S on its current diff, re-audit its units in H, then rerun this gate on the corrected full diff. The re-run satisfies this check; it does not erase the violation;
-- no incomplete implementation, staged file, commit, branch, or downstream action was introduced; judge completeness from code, tests, and plan obligations rather than a substring scan.
+- every unit has its own commit (or a recorded coupled commit) containing exactly its audited paths; nothing is left staged or uncommitted except baseline dirty paths; no branch, push, amend, or downstream action was introduced; judge completeness from code, tests, and plan obligations rather than a substring scan.
 
 Do not claim completion while any command, unit, U row, decision, or scope gate is unresolved.
 
 ### L. [whole-workflow] Handoff to wayne-code-review
 
-Run this once per run, after J passes; it is never a per-unit step. Write one packet under `$STATE/checkpoints/` through `wayne-checkpoint` return-only mode or a supplied canonical contract (`STATE` already resolved in A; do not skip A because checkpoint will write the packet). Verify the file exists and surface its path; without either mechanism, return the shared blocker information. Include plan/matrix paths, units, passing commands, changed paths, preserved scope, residual risks, and `next_agent: wayne-code-review`; final output repeats that literal but never invokes it.
+Run this once per run, after J passes; it is never a per-unit step. Write one packet under `$STATE/checkpoints/` through `wayne-checkpoint` return-only mode or a supplied canonical contract (`STATE` already resolved in A; do not skip A because checkpoint will write the packet). Verify the file exists and surface its path; without either mechanism, return the shared blocker information. Include plan/matrix paths, units with their commit SHAs, the review range `<base>..<last unit commit>`, passing commands, changed paths, preserved scope, residual risks, and `next_agent: wayne-code-review`; final output repeats that literal but never invokes it.
 
 ## Red lines
 
@@ -203,4 +210,4 @@ Run this once per run, after J passes; it is never a per-unit step. Write one pa
 - No compliance agent inside the per-unit loop, no per-unit audit substituted for the whole-workflow gate, and no gate receipt carried over a corrected diff.
 - No test weakening, hidden substitute command, unchecked U row, or changed E row.
 - No completion claim without full verification and actual scope-diff proof.
-- No commit, branch, stage, push, code-quality review, verify, ship, or auto-advance.
+- No branch, push, amend of a unit commit, `git add -A`, code-quality review, verify, ship, or auto-advance.
