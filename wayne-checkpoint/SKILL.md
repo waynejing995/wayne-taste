@@ -236,11 +236,17 @@ Handoff mode is the skill's **second role**: it is the handoff conductor between
 
 Handoff = checkpoint + routing on top. It reuses Save Flow Steps 1-2 (Gather State, Gather Pipeline State) verbatim, then adds routing.
 
-### Mode A: return-only, no nesting (non-negotiable)
+### Mode A: return-only, no nesting (default)
 
-The handoff agent ONLY RETURNS a handoff packet. It NEVER calls the next agent/skill itself, and it NEVER nests another agent. The real next step is ALWAYS triggered manually by the user.
+The handoff agent ONLY RETURNS a handoff packet. It NEVER calls the next agent/skill itself, and it NEVER nests another agent. The real next step is triggered manually by the user.
 
-This is locked by design — it keeps control with the user and avoids nested-agent context blowup. Handoff mode therefore differs from Resume Flow Step 4 (Auto-Resume), which DOES auto-invoke: Resume is a deliberate user-driven "pick up where I left off", Handoff is an end-of-stage emit that must not advance anything.
+This keeps control with the user and avoids nested-agent context blowup. Handoff mode therefore differs from Resume Flow Step 4 (Auto-Resume), which DOES auto-invoke: Resume is a deliberate user-driven "pick up where I left off", Handoff is an end-of-stage emit.
+
+### Mode L: launch in a fresh session (`trigger: launch`)
+
+Only `wayne-plan` → `wayne-work` uses it, and only when the plan is `approved`. The packet is identical to Mode A; after Step 4 persists it, Step 5 opens the next stage as a new `omp --goal` session in a new terminal and returns. It still never runs the next skill in this session and never nests an agent: the launched session is a separate top-level agent whose only task source is the packet.
+
+`scripts/launch-stage.sh <next-agent> <packet-path> <repo-cwd>` owns the backend choice — tern (a reachable daemon) first, then herdr (inside a herdr pane, `HERDR_ENV=1`), then tmux — and prints `via=<backend> name=<session> target=<id>`. A backend that is reachable but fails to launch is logged to stderr, anything it created is removed, and the next backend is tried. When every backend fails it exits non-zero; report that error with the packet path, which leaves the packet as a Mode A handoff for the user to start.
 
 ```mermaid
 flowchart LR
@@ -250,11 +256,14 @@ flowchart LR
     route["route to<br/>next agent"]
     emit["emit packet<br/>(file + chat)"]
     user(["USER reads packet<br/>+ manually triggers<br/>next step"])
-    next["next pipeline skill"]
+    launch["launch-stage.sh<br/>tern → herdr → tmux"]
+    next["next pipeline skill<br/>(fresh omp session)"]
 
-    stage --> invoke --> gather --> route --> emit --> user
-    user -->|"manual: 下一步 / 继续 / go"| next
-    emit -->|"NEVER (no auto-advance)"| next
+    stage --> invoke --> gather --> route --> emit
+    emit -->|"Mode A: manual"| user
+    emit -->|"Mode L: approved plan → work"| launch
+    user -->|"下一步 / 继续 / go"| next
+    launch --> next
 ```
 
 ### When it is called
@@ -289,7 +298,7 @@ Assemble the four required parts plus the optional goal:
 2. **next agent** — from the routing table above.
 3. **next prompt** — a SELF-CONTAINED routing prompt for the next step. Name the branch, snapshot and authoritative plan/spec/matrix paths, scope, acceptance criteria, and out-of-scope. Preserve meaning through AI reading of the complete owners; do not rebuild it from headings, keywords, ID scans, or checkpoint summaries. Do not write "continue from before".
 4. **goal (OPTIONAL)** — a success-criteria / Goal-Driven block (per CLAUDE.md "Goal-Driven Execution"). Include ONLY when concrete success criteria are extractable. When present, the next step may loop autonomously toward the goal; when absent, the next step follows its prompt/plan steps strictly.
-5. **trigger: manual** — ALWAYS. The packet states the user must manually fire the next step (e.g. say "下一步" / "继续" / "go").
+5. **trigger** — `manual` by default: the packet states the user must fire the next step (e.g. say "下一步" / "继续" / "go"). `launch` only for an approved plan → `wayne-work` (Mode L).
 
 **Optional-goal toggle.** When generating a packet, offer the user the choice to include or drop the goal block. Default: include it if concrete success criteria are extractable; otherwise omit it. (Use `AskUserQuestion`, Chinese, only when the goal is borderline — do not interrogate when the default is obvious.)
 
@@ -309,22 +318,23 @@ Write the packet to `$STATE/checkpoints/{TIMESTAMP}-handoff-{stage}-to-{next}.md
 
 The template is a readable starting layout. It shares familiar field names with `checkpoint-template.md` so agents can compare packets easily; neither template is a machine grammar.
 
-**Surface in chat** so the user sees the next agent and can trigger it (in Chinese):
+**Surface in chat** so the user sees the next agent and how it starts (in Chinese):
 
 ```
 交接包已生成
 ════════════════════════════
 当前阶段: {current stage}
 下一步:   {next agent}
-触发方式: 手动 — 说"下一步" / "继续" / "go"
+触发方式: {手动 — 说"下一步" / "继续" / "go" | 已启动 — {via} {name} ({target})}
 目标块:   {已包含 / 已省略}
 文件:     $STATE/checkpoints/{filename}
 ════════════════════════════
 ```
 
-### Step 5: Return — do NOT advance
+### Step 5: Launch or return — never advance in this session
 
-Return the packet and STOP. Do not invoke the next skill. Wait for the user to manually trigger the next step.
+- `trigger: manual`: return the packet and STOP. Do not invoke the next skill. Wait for the user to manually trigger the next step.
+- `trigger: launch`: run `bash <skill-dir>/scripts/launch-stage.sh <next_agent> <packet path> <repo root>`, put its output line in the chat block above, and STOP. Do not wait for, poll, or read the launched session.
 
 ---
 
@@ -344,7 +354,7 @@ Proactively suggest saving a checkpoint when:
 Checkpoint has two relationships with the pipeline:
 
 1. **Orthogonal (save/resume):** it can save/resume at any stage.
-2. **Handoff conductor:** each pipeline skill that advances into another one auto-calls it as its final step to emit a handoff packet that standardizes the transition — without advancing it (Mode A, return-only). `wayne-code-review` is the exception and ends at its report.
+2. **Handoff conductor:** each pipeline skill that advances into another one auto-calls it as its final step to emit a handoff packet that standardizes the transition — without advancing it in the calling session (Mode A, or Mode L for an approved plan). `wayne-code-review` is the exception and ends at its report.
 
 The `pipeline_stage` field tells **resume** which skill to suggest. The next agent for a handoff comes from the Step 2 routing table above and is deliberately not restated here — two tables answering "what comes next" drift, and the weaker one is what a later reader believes. `wayne-verify` is a deliberate runtime pass invoked when runtime proof is wanted, not an automatic stage between review and ship.
 
@@ -358,7 +368,7 @@ The `pipeline_stage` field tells **resume** which skill to suggest. The next age
 | `ship` | Invoke `wayne-ship` |
 | `compound` | Invoke `wayne-compound` |
 
-**Resume vs Handoff:** Resume auto-invokes the next skill (user-driven "pick up"); Handoff only emits a packet and waits for a manual trigger (end-of-stage emit).
+**Resume vs Handoff:** Resume auto-invokes the next skill (user-driven "pick up"); Handoff emits a packet and either waits for a manual trigger (Mode A) or launches the next stage in a fresh session (Mode L).
 
 ---
 
@@ -369,5 +379,5 @@ The `pipeline_stage` field tells **resume** which skill to suggest. The next age
 - **Read-only** — never modifies code, only reads state and writes checkpoint files
 - **Pipeline-aware** — captures which Wayne skill was active and what phase
 - **Infer, don't interrogate** — use git + pipeline artifacts + conversation to fill in context
-- **Handoff never advances** — handoff mode returns a packet only (Mode A, no nesting); the user always triggers the next step manually
+- **Handoff never advances in-session** — a packet is returned (Mode A) or the next stage is launched as a separate `omp --goal` session (Mode L, plan → work only); the calling session never runs the next skill
 - **Chinese for output, English for files**

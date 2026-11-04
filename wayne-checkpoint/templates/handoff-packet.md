@@ -8,7 +8,7 @@ pipeline_phase: {specific phase within the calling skill, e.g. "Wave 2 done"}
 route: {caller route verdict | none for a linear stage}
 snapshot: {primary artifact path}
 next_agent: {one available wayne-* Skill slug}
-trigger: manual
+trigger: {manual|launch}
 goal_included: {true|false}
 decision_log: <state>/runs/{topic}/decision-log.jsonl   # absolute
 plan: <state>/plans/{file}.md                           # absolute
@@ -21,7 +21,7 @@ files_modified:
 
 ## Handoff: {current stage} → {next agent}
 
-This is a return-only handoff packet (Mode A). It does NOT advance the pipeline. The user must manually trigger the next step (say "下一步" / "继续" / "go").
+This handoff packet does NOT advance the pipeline in the session that wrote it. `trigger: manual` (Mode A): the user starts the next step (say "下一步" / "继续" / "go"). `trigger: launch` (Mode L, approved plan → `wayne-work` only): the next step was opened as a fresh `omp --goal` session whose task is this packet.
 
 ### Snapshot
 
@@ -56,8 +56,8 @@ Summarize decisions and implementation progress briefly, always linked to the ro
 | Field        | Value                                       |
 | ------------ | ------------------------------------------- |
 | Next agent   | `{next_agent}`                              |
-| Trigger      | manual — user says "下一步" / "继续" / "go" |
-| Auto-advance | NO (never)                                  |
+| Trigger      | {manual — user says "下一步" / "继续" / "go" \| launch — {via} {name} ({target})} |
+| Auto-advance | {NO \| fresh session via launch-stage.sh}   |
 
 ### Next Prompt
 

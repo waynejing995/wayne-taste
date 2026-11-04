@@ -4,7 +4,7 @@ Loaded from SKILL.md node DP, on the `F -> G` edge. Standard path only; a lite p
 
 Review asks what is **wrong**. It is adversarial and finding-driven, so a plan that breaks no rule passes. Deepening asks what is **thin** — a decision stated without its rationale, a unit whose Approach restates its Goal, a test scenario that says "validates correctly", a pattern cited in Context that no unit ever follows. None of those is a finding. All of them cost a `wayne-work` agent real time.
 
-It runs before the voices deliberately: the reviews are then the quality gate on what deepening changed. Running it after G would invalidate all three passes.
+It runs before the voices deliberately: the one review round is then the quality gate on what deepening changed. Running it after G would ship bytes no voice read.
 
 ## 1. Score
 
@@ -18,7 +18,7 @@ The count of candidates decides what happens next, and there are three outcomes 
 | **1-5** | Deepen those sections. |
 | **more than 5**, or any single critical section hitting most of its checklist | **The plan is not deepenable. Return to F and redraft.** |
 
-That third row is the one that matters. A plan where everything is thin was not finished at F, and neither deepening nor review is the right instrument for it: strengthening five sections still leaves the rest thin, and spending three review dispatches on it buys a findings list that says what the author already knows. Say which sections failed and what they are missing, and redraft. A plan too thin to deepen is too thin to review.
+That third row is the one that matters. A plan where everything is thin was not finished at F, and neither deepening nor review is the right instrument for it: strengthening five sections still leaves the rest thin, and spending the one review round on it buys a findings list that says what the author already knows. Say which sections failed and what they are missing, and redraft. A plan too thin to deepen is too thin to review.
 
 When the plan is deepenable, take the top 2-5 and no more. If it already carries `deepened:`, prefer sections not yet strengthened when scores are close.
 

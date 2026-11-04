@@ -121,10 +121,10 @@ Compatibility is read-only. No downstream stage may rewrite an upstream decision
 | authoritative E table | `wayne-test-design` | lives in one run-scoped matrix under `<state>/runs/<topic>/` as `E<number>` rows |
 | authoritative E Status | `wayne-verify` | test design initializes `⬜`; Verify alone changes the authoritative matrix to `✅/❌` |
 | plan E snapshot | `wayne-plan` | byte-for-byte design-time derived view; remains `⬜` and is never a status owner |
-| plan structure, `I<number>`, `U<number>` definitions | `wayne-plan` | `active` while drafting → `approved` only after both independent AI reviews |
+| plan structure, `I<number>`, `U<number>` definitions | `wayne-plan` | `active` while drafting → `approved` after one valid independent review round is adjudicated and its revisions applied |
 | U Status | `wayne-work` | Plan initializes `☐`; Work alone changes it to `☑` after owned verification |
 | checkpoint/handoff snapshot | `wayne-checkpoint` | derived copy only; never changes source IDs or statuses |
 
-`wayne-work` accepts only an `approved` plan. A handoff carries the exact matrix path; `wayne-verify` mutates E Status only there, never in the plan snapshot. A milestone or status change permits the next manual stage; it never authorizes a skill to invoke that stage implicitly.
+`wayne-work` accepts only an `approved` plan. A handoff carries the exact matrix path; `wayne-verify` mutates E Status only there, never in the plan snapshot. A milestone or status change permits the next stage; it never authorizes a skill to run that stage in its own session. The one exception is `wayne-plan` → `wayne-work`: an approved plan's handoff launches `wayne-work` in a fresh session (`wayne-checkpoint` `trigger: launch`), never inline.
 
 A converged direct request may enter `wayne-plan` without Mind Explode, a decision log, or a spec. Plan may nest `wayne-test-design` solely to obtain the owned matrix; the nested call returns to Plan and does not count as pipeline auto-advance.
