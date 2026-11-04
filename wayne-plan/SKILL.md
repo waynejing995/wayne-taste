@@ -37,11 +37,11 @@ flowchart TB
     ADJ["Adjudicate findings"]
     N{"Ask about the challenged decision"}
     H["Revise from findings"]
-    J["Present plan"]
+    J["Approve and present plan"]
     K{"Return-only requested?"}
     R(["Return plan"])
-    L["Checkpoint handoff"]
-    W(["Ready for wayne-work"])
+    L["Checkpoint handoff + launch"]
+    W(["wayne-work running in a new omp session"])
 
     S -->|"yes"| A
     S -->|"no"| LT
@@ -70,7 +70,7 @@ flowchart TB
     ADJ -->|"all remaining non-blocking"| J
     N -->|"decision stands"| ADJ
     N -->|"reopened"| X
-    H --> F
+    H --> J
     J --> K
     K -->|"yes"| R
     K -->|"no"| L
@@ -130,9 +130,9 @@ flowchart TB
 
 - Standard path only; a lite plan skips this and goes straight to G. Read [deepening](references/deepening.md), which owns the scoring, the section checklists, and the post-strengthening check.
 - Review asks what is wrong and only fires on a finding. This asks what is **thin** — a decision with no rationale, an Approach that restates its Goal, a test scenario that names no input. None of those breaks a rule, so no voice reports them.
-- Score every section, then take one of three exits: no weak section goes straight to G; two to five go to DS; **more than five, or one critical section failing most of its checklist, returns to F.** A plan too thin to deepen is too thin to review — do not spend three review dispatches confirming what the author already knows.
+- Score every section, then take one of three exits: no weak section goes straight to G; two to five go to DS; **more than five, or one critical section failing most of its checklist, returns to F.** A plan too thin to deepen is too thin to review — do not spend the one review round confirming what the author already knows.
 - Strengthening dispatches read-only subagents per selected section, and may cut as well as add. Its output is **not** a finding: it never enters ADJ or `## Review Adjudication`, because nothing here came from a reviewer.
-- It runs on this edge and nowhere else. After G, any edit invalidates all three passes.
+- It runs on this edge and nowhere else. G is the only review round, so deepening after it would ship unreviewed bytes.
 
 ### G. Run independent reviews
 
@@ -152,7 +152,7 @@ flowchart TB
 - Read [the adjudication contract](../_shared/finding-adjudication.md) completely; it owns the dispositions, the challenge route, and the gate. A reviewer judges the plan's bytes and has no standing over the decisions behind them, so classifying findings against the decision log is this node's job and no reviewer's. Any non-empty findings set arrives here whatever verdict the voices returned; only two valid executions reporting zero findings skip this node.
 - Classify every finding before any plan byte changes. `CARRIER_LOSS` and `REAL_DEFECT` go to H; an undecided product question goes to C; absent E ownership goes to D; a finding contradicting a decision still in force goes to N.
 - Record each finding's disposition, its owning `D<number>`, the evidence, the action, and the user outcome in the plan's review record. Create no separate artifact.
-- Proceed to J once every finding is resolved by a revision or non-blocking. A finding the user already rejected never re-blocks, however many rounds raise it.
+- Proceed to J once every finding is resolved by a revision or non-blocking. A finding the user already rejected never re-blocks.
 
 ### N. Ask about the challenged decision
 
@@ -165,17 +165,18 @@ flowchart TB
 - Only findings ADJ classified `CARRIER_LOSS` or `REAL_DEFECT` reach this node.
 - Fix the smallest owning surface: upstream gap, plan content, template guidance, or coverage-map transcription. Never change an upstream source inside this procedure.
 - Preserve the intended owner/member and semantic obligation; do not weaken a requirement or rename a surface merely to make text look consistent.
-- Repeat every review after every plan revision. If a finding exposes an unresolved product decision or absent E ownership, follow C or D instead of inventing a default. Ask the user when repository evidence cannot close a required choice.
-- **Three valid rounds is the cap.** A round is one dispatch of every applicable voice, and it counts only if it was valid: every applicable voice actually executed, on its own routed model, and returned a report. Anything that returns `REVIEW_UNAVAILABLE` — a missing mechanism, a failed or empty voice, a voice that fell back to the session default, or A and B resolving to one model family — is not a round. It produced no judgement, so rerun it and count nothing. The three voices inside one round are also not three rounds.
-- Round three is the last. Classify its findings as usual, then go to J. Anything still open is recorded in the plan's review record as non-blocking with the round cap named as its reason, and it does not trigger a fourth dispatch. What survives three valid rounds is detail, and another full dispatch costs more than the plan gains.
+- **One valid round, no re-review.** A round is one dispatch of every applicable voice, and it counts only if it was valid: every applicable voice actually executed, on its own routed model, and returned a report. Anything that returns `REVIEW_UNAVAILABLE` — a missing mechanism, a failed or empty voice, a voice that fell back to the session default, or A and B resolving to one model family — is not a round: rerun it and count nothing.
+- After the one valid round, apply every H revision, then the main agent checks each revision against the finding it answers: the finding is closed, and no unit, U row, E row, or trace outside that finding changed. Record that check in the finding's adjudication row and go to J. Do not dispatch the voices again.
+- If a finding exposes an unresolved product decision or absent E ownership, follow C or D instead of inventing a default. Ask the user only when repository evidence cannot close a required choice.
 
-### J. Present the plan
+### J. Approve and present the plan
 
-- Present only after all three reviews pass adjudication. Then set plan status from `active` to `approved` and confirm the repository still has no planning-time mutation before handoff. Unless the caller supplied an exact response contract, summarize the approved plan and evidence concisely in Chinese while the plan file remains English. Report its absolute path; discard temporary working notes after the review record no longer needs them.
+- Approve without waiting for the user: once the one valid round is adjudicated and its revisions are applied, set plan status from `active` to `approved` and confirm the repository still has no planning-time mutation. The user's checkpoints in this stage are only N (a challenged decision) and a required choice that H could not close; nothing else pauses for approval.
+- Unless the caller supplied an exact response contract, summarize the approved plan and evidence concisely in Chinese while the plan file remains English. Report its absolute path; discard temporary working notes after the review record no longer needs them.
 
-### L. Checkpoint handoff
+### L. Checkpoint handoff and launch
 
-- Unless the caller explicitly requested return-only or no-checkpoint evaluation, invoke `wayne-checkpoint` in handoff mode with the plan and Test Matrix; set the next agent to `wayne-work`.
+- Unless the caller explicitly requested return-only or no-checkpoint evaluation, invoke `wayne-checkpoint` in handoff mode with the plan and Test Matrix, `next_agent: wayne-work`, and `trigger: launch`. Checkpoint writes the packet and opens `wayne-work` in a fresh `omp --goal` session (tern → herdr → tmux); it never runs `wayne-work` in this session.
 - Carry the exact authoritative run-scoped test-matrix path. The E block inside the plan is a read-only `⬜` snapshot; no downstream stage may use it as E Status SoT.
-- Plan approval and `Ready for wayne-work` are handoff states, not implementation authorization. Return the plan or checkpoint and stop; never invoke `wayne-work`.
-- Return-only ends after presentation and must not auto-advance implementation.
+- Report the packet path and the launched session (backend, name, target), then stop. If checkpoint reports that no terminal backend was available, report that blocker with the packet path; the user starts the stage from the packet.
+- Return-only ends after presentation and must not write a packet or launch anything.

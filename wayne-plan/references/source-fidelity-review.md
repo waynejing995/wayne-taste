@@ -17,7 +17,7 @@ Read the original matrix, approved decision log/spec, repository, working covera
 3. For a drop, require approved source and repository evidence that no U scenario is warranted, and identify where the behavior remains carried or why it no longer applies. Convenience, duplication, or low priority alone does not justify losing an obligation.
 4. Emit one report item with the seed ID, source row, disposition, preserved semantic obligations, evidence, and `PASS` or `FAIL`. Explain every failure as a specific narrowing, widening, normalization, omission, or qualifier change.
 
-Any seed failure fails the source-fidelity review. Return the plan to revision, then re-run both independent reviews. Do not infer semantic equivalence from seed identity, similar vocabulary, template agreement, or Markdown shape.
+Any seed failure fails the source-fidelity review. Report it as a finding; the main agent adjudicates and revises it after the single round. Do not infer semantic equivalence from seed identity, similar vocabulary, template agreement, or Markdown shape.
 
 ## Behavioral review fixtures
 

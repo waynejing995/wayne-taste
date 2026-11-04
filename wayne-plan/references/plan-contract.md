@@ -43,7 +43,7 @@ origin: <repo-relative spec path or none — converged direct request>
 decisions: <absolute <state>/runs/<topic>/decision-log.jsonl path or none — no decision log exists>
 ```
 
-The filename and metadata must agree in meaning. Spec paths stay repository-relative; decision-log and matrix paths are absolute `<state>` paths. Status remains `active` while drafting; only both independent review passes authorize `approved`. `wayne-work` accepts only an approved plan. Metadata order and YAML surface style are not correctness requirements.
+The filename and metadata must agree in meaning. Spec paths stay repository-relative; decision-log and matrix paths are absolute `<state>` paths. Status remains `active` while drafting; one valid independent review round, adjudicated with its revisions applied, authorizes `approved` without a further user approval. `wayne-work` accepts only an approved plan. Metadata order and YAML surface style are not correctness requirements.
 
 ## 3. Required plan information
 
@@ -152,4 +152,4 @@ One row per finding:
 | Action | the revision made, the route taken, or `none — non-blocking` |
 | User outcome | required for `CHALLENGES_DECISION`: `stands` or `reopened`; otherwise `n/a` |
 
-A finding recorded `stands` is permanently non-blocking for this plan; a later round raising it again adds no row and blocks nothing. `reopened` is terminal for the plan: the reversal is an upstream decision record, so the plan returns `PLAN_CONFLICT`.
+A finding recorded `stands` is permanently non-blocking for this plan. `reopened` is terminal for the plan: the reversal is an upstream decision record, so the plan returns `PLAN_CONFLICT`. A revision made after the single review round records, in its finding's row, the main agent's check that it closed the finding and changed nothing outside it.

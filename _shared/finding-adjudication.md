@@ -44,6 +44,8 @@ PASS ⟺ two valid executions on the final digest
                         or carrying a non-blocking adjudication
 ```
 
+`wayne-plan` runs this gate once: the valid executions are those of its single review round, and a revision made after that round counts as resolved when the main agent has checked that it closes the finding and changes nothing outside it. It does not re-dispatch the voices on the revised digest.
+
 A raw reviewer verdict is **input** to this node, never the gate itself: a non-empty findings list arrives here whatever the voice called it, and a `PASS` carrying findings is not a pass. A gate that instead requires an empty findings list cannot terminate without capitulating to a defended decision, which is the failure this file exists to prevent.
 
 ## The record
