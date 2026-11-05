@@ -2,7 +2,7 @@ import base64
 import importlib.util
 import json
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -100,13 +100,26 @@ def test_failure_selection_and_grouping():
     assert "×2" in findings[-1].title
 
 
+def silent_row(text, *, days=8, kind="personal", answered=False):
+    asked = datetime(2026, 11, 5, tzinfo=timezone.utc) - timedelta(days=days)
+    return {"conversation_id": "abc", "conversation_type": kind, "user_name": "Saye Sashank",
+            "asked_at": asked.isoformat(), "question": "What is my next step?", "answered": answered,
+            "captain_after": [{"at": asked.isoformat(), "text": text}]}
+
+
 def test_silent_services():
-    row = {"conversation_id": "abc", "user_name": "Vukasin", "asked_at": "2026-10-28T07:00:00+00:00",
-           "question": "What is my next step?"}
-    findings = monitor.silent_services([row])
-    assert len(findings) == 1 and "Vukasin" in findings[0].title and row["question"] in findings[0].reason
-    assert findings[0].key == "silent_service:abc:2026-10-28T07:00:00+00:00"
-    assert monitor.silent_services([]) == []
+    now = datetime(2026, 11, 5, tzinfo=timezone.utc)
+    ping = "\u23f3 Working on that \u2014 I'll post the answer here in a moment."
+    notice = "\u26a0\ufe0f SWDEV-598610 is blocked / needs attention."
+    for text in (ping, notice):
+        findings = monitor.silent_services([silent_row(text)], now)
+        assert len(findings) == 1
+        assert findings[0].title == "Saye Sashank" and "What is my next step?" in findings[0].reason
+    rejected = "\u274c NABU rejected that key. Check it and try again."
+    assert monitor.silent_services([silent_row(rejected)], now) == []
+    assert monitor.silent_services([silent_row(ping, answered=True)], now) == []
+    assert monitor.silent_services([silent_row(ping, kind="groupChat")], now) == []
+    assert monitor.silent_services([silent_row(ping, days=6)], now) == []
 
 
 def test_attention_positive_and_negative():
