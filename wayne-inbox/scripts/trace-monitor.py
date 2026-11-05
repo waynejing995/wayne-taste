@@ -314,16 +314,52 @@ def render_digest(findings: list[Finding], now: datetime, replies: int, failures
     return "\n".join(lines)
 
 
-def post_digest(target: str, digest: str) -> None:
+def receipt_text(event: dict) -> str:
+    content = (event.get("result") or {}).get("content") or []
+    return "".join(item.get("text", "") for item in content if isinstance(item, dict))
+
+
+def verify_send(stdout: str, target: str, digest: str) -> str:
+    events = []
+    for line in stdout.splitlines():
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    ends = [event for event in events if event.get("type") == "tool_execution_end" and event.get("toolName") == "teams_send"]
+    if len(ends) != 1:
+        raise click.ClickException(f"teams_send calls: {len(ends)}; expected exactly one")
+    end = ends[0]
+    text = receipt_text(end)
+    if end.get("isError") is True:
+        raise click.ClickException(f"teams_send tool error: {text or 'unknown'}")
+    expected = ("Sent to self-chat (48:notes)." if target == "self" else f"Sent to chat {GROUP}.")
+    if not text.startswith(expected):
+        raise click.ClickException(f"teams_send receipt does not match {target}: {text or '(empty)'}")
+    starts = [event for event in events if event.get("type") == "tool_execution_start"
+              and event.get("toolCallId") == end.get("toolCallId")]
+    args = starts[0].get("args") if starts and isinstance(starts[0].get("args"), dict) else {}
+    if str(args.get("message", "")).strip() != digest.strip():
+        raise click.ClickException("teams_send message differs from the digest")
+    if target == "self" and args.get("target") != "self":
+        raise click.ClickException(f"teams_send target is {args.get('target')!r}, expected self")
+    if target == "group" and (args.get("target") != "chat" or args.get("chat_id") != GROUP):
+        raise click.ClickException(f"teams_send target is {args.get('target')!r} {args.get('chat_id')!r}, expected group")
+    return text
+
+
+def post_digest(target: str, digest: str) -> str:
     destination = (f"`target: chat` with `chat_id` `{GROUP}`" if target == "group" else "`target: self`")
     prompt = (HERE / "trace-monitor.prompt.md").read_text().replace("{{DESTINATION}}", destination)
     prompt = prompt.replace("{{DIGEST}}", digest)
+    command = ["omp", "-p", "--mode", "json", "--no-session", "--no-title", "--max-time", "10m",
+               "--tools", "teams_send", prompt]
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            subprocess.run(["omp", "-p", "--no-session", "--no-title", "--max-time", "10m", "--tools", "teams_send", prompt],
-                           check=True, stdout=subprocess.DEVNULL, cwd=tmp)
+            result = subprocess.run(command, check=True, capture_output=True, text=True, cwd=tmp)
     except (OSError, subprocess.CalledProcessError) as exc:
         raise click.ClickException(f"omp post failed: {type(exc).__name__}") from exc
+    return verify_send(result.stdout, target, digest)
 
 
 @click.command()
@@ -372,7 +408,7 @@ def main(days: int, post: bool, target: str, model: str, judge_url: str, calibra
         return
     digest = render_digest(new, now, judged, len(failures), kept, len(attention), len(silent_findings))
     if post:
-        post_digest(target, digest)
+        logger.info("teams_send receipt: {}", post_digest(target, digest))
         write_json(POSTED, sorted(posted))
     else:
         click.echo(digest)

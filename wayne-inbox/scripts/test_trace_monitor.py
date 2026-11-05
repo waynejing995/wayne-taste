@@ -154,16 +154,45 @@ def test_dedup_and_no_post(monkeypatch, tmp_path):
     run.assert_not_called()
 
 
+def send_jsonl(message, *, error=None, receipt=None):
+    start = {"type": "tool_execution_start", "toolCallId": "call-1", "toolName": "teams_send",
+             "args": {"target": "self", "message": message}}
+    end = {"type": "tool_execution_end", "toolCallId": "call-1", "toolName": "teams_send",
+           "result": {"content": [{"type": "text", "text": receipt or "Sent to self-chat (48:notes)."}]}}
+    if error:
+        end["isError"] = True
+        end["result"]["content"][0]["text"] = error
+    return subprocess.CompletedProcess([], 0, stdout="noise\n" + "\n".join(json.dumps(event) for event in (start, end)))
+
+
 def test_post_once_and_persist_after_success(monkeypatch, tmp_path):
     row = monitor.calibration_cases()[0]
     run = configure_main(monkeypatch, tmp_path, {monitor.REPLY_SQL: [row]})
+    run.side_effect = lambda command, **kwargs: send_jsonl(command[-1].split("\n\n", 1)[1].strip())
     result = CliRunner().invoke(monitor.main, ["--post", "--target", "self"])
     assert result.exit_code == 0, result.output
     run.assert_called_once()
     command = run.call_args.args[0]
-    assert command[:8] == ["omp", "-p", "--no-session", "--no-title", "--max-time", "10m", "--tools", "teams_send"]
-    assert "`target: self`" in command[8] and "TRACE monitor" in command[8]
+    assert command[:9] == ["omp", "-p", "--mode", "json", "--no-session", "--no-title", "--max-time", "10m", "--tools"]
+    assert command[9] == "teams_send" and "`target: self`" in command[10]
     assert json.loads(monitor.POSTED.read_text()) == ["confusing_reply:" + row["id"]]
+
+
+def test_unconfirmed_send_does_not_advance(monkeypatch, tmp_path):
+    row = monitor.calibration_cases()[0]
+    outputs = [
+        subprocess.CompletedProcess([], 0, stdout='{"type":"tool_execution_end","toolName":"read"}\n'),
+        send_jsonl("digest", error="Graph 403"),
+        send_jsonl("not the digest"),
+    ]
+    for output in outputs:
+        posted = tmp_path / f"posted-{id(output)}.json"
+        monkeypatch.setattr(monitor, "POSTED", posted)
+        run = configure_main(monkeypatch, tmp_path, {monitor.REPLY_SQL: [row]})
+        run.return_value = output
+        result = CliRunner().invoke(monitor.main, ["--post", "--target", "self"])
+        assert result.exit_code != 0, output.stdout
+        assert not posted.exists()
 
 
 def test_dry_run_never_posts_or_writes_posted(monkeypatch, tmp_path):
