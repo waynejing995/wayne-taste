@@ -9,4 +9,4 @@ Capability inventory only; it is not a verdict map.
 - `wayne-code-review`
 - `wayne-verify`
 - `wayne-ship`
-- `wayne-compound`
+- `wayne-compress`

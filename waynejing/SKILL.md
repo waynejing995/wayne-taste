@@ -85,7 +85,7 @@ description: |
 | "怎么做 / 排顺序"   | wayne-plan            |
 | "做完了 / 验一下"   | wayne-code-review     |
 | "提交 / 上线"       | wayne-ship            |
-| "记下来 / 归档"     | wayne-compound        |
+| "记下来 / 归档 / 复盘"     | wayne-compress        |
 | "切换上下文"        | wayne-checkpoint      |
 | "做 UI"             | wayne-frontend-design |
 
@@ -332,7 +332,7 @@ description: |
 | 1 | 任何 commit 前 | 必须过 wayne-code-review，没过就不许提 | wayne-ship HARD-GATE |
 | 2 | 任何代码动作前 | 设计必须 approved 且 plan 已写 | wayne-mind-explode HARD-GATE |
 | 3 | 任务 ≤10 行能解 | 直接做，不调 skill | CLAUDE.md proportional effort |
-| 4 | 解了非平凡问题后 | 跑 wayne-compound 沉淀洞察 | wayne-compound 触发 |
+| 4 | 解了非平凡问题后 | 跑 wayne-compress，把卡点变成检查、指针或权限 | wayne-compress 触发 |
 | 5 | 设计任何状态系统 / 看到同一状态 ≥2 处可写 | 找 SSoT —— 谁是 owner？派生视图能从 owner 重建吗？ | CLAUDE.md "Single Source of Truth" |
 | 6 | 想加 `try/except` / 默认值 / fallback | 先问"我吞掉的是什么信号"。沉默降级是最贵 bug。fallback 必须 log + comment + test | CLAUDE.md "Fail Loud" |
 | 7 | 想用 `while True: check; sleep` / 状态机模拟 reactive | 找 owner 的 emit 点 / 用框架自带 reactive | CLAUDE.md "Push, Don't Poll" |

@@ -13,7 +13,7 @@ Produce an English implementation plan that a fresh `wayne-work` agent can execu
 - An approved decision log is upstream read-only. Do not restore the retired `plan-complete` writeback or add a plan link there; the plan and checkpoint carry that relationship without creating a second state writer.
 - Stop on unresolved product behavior or compatibility policy; do not silently choose it. Do not brainstorm, design the test matrix, implement code, run the feature, commit, or ship.
 - Never invoke or depend on `gstack` or a `gstack`-named skill. Review criteria and reviewer templates stay provider-agnostic and independent of the authoring context; only the dispatch mechanism may be host-specific.
-- Before the final checkpoint handoff, planning may change only the new plan file under `<state>/plans/`. The repository must not change. `wayne-checkpoint` separately owns its checkpoint artifacts under `<state>/checkpoints/`. If source artifacts or unrelated files need edits, stop and ask the user to fix or expand scope first.
+- Before the final checkpoint handoff, planning may change only the new plan file under `<state>/plans/`. The repository must not change. `wayne-checkpoint` separately owns its checkpoint artifacts under `<state>/checkpoints/`. `wayne-context-init` is a separate stage that runs before planning starts and owns its task file and its checks; planning reads that file and never writes it. If source artifacts or unrelated files need edits, stop and ask the user to fix or expand scope first.
 
 ## Flow
 
@@ -87,6 +87,7 @@ flowchart TB
 - This is a fact about the run's inputs, not a size judgment, so it cannot be argued either way. A living spec with no decision log is still the lite path: read the spec as context, cite it, amend nothing.
 - Either way, if the WHAT is unsettled, neither path applies — stop and route to `wayne-mind-explode`.
 - On both paths, if the repository has a `GLOSSARY.md`, read it and use its terms in the plan, so units, names, and the spec share one vocabulary.
+- On both paths, before reading anything else: if `$STATE/runs/<topic>/context.md` does not exist, run `wayne-context-init` for this topic as its own stage, wait for it to return, then start planning. Read that file and `$STATE/context.md`; do not edit either. Every unit's verification command comes from the task file's `## Run` section; a command the plan needs that is not there goes in the unit as a planned output, not into the file. A unit whose proof needs an `## Unknown` line closed depends on the unit that closes it ([context model](../_shared/context-model.md)).
 
 ### A. Discover sources
 

@@ -90,7 +90,7 @@ Every step is labeled with its scope, and the whole-workflow gate is never colla
 
 Resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` (`STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh)`) before reading or writing the plan or any other `<state>` artifact. If the resolver fails, report that and stop; never fall back to a repo-local `.wayne/` or `/tmp`. The plan lives under `<state>/plans/` (absolute path); H writes U status there.
 
-Read the repository instructions, approved plan, decision log, test matrix, and referenced spec completely. Do not start implementation until all of these are true:
+Read the repository instructions, approved plan, decision log, test matrix, and referenced spec completely. Also read `$STATE/runs/<topic>/context.md` and `$STATE/context.md` ([context model](../_shared/context-model.md)); if the task file is missing, run `wayne-context-init` for the topic as its own stage first. Do not start implementation until all of these are true:
 
 - the plan is approved and no other active plan conflicts;
 - every unit specifies its goal, dependencies, consumes/produces, files, approach/design, patterns, test scenarios, U/E ownership, and verification;
@@ -141,6 +141,8 @@ Handle each worker's result as follows:
 - `DONE_WITH_CONCERNS` enters verification only when the concern is observational; correctness, scope, or ownership concerns block the unit.
 - `NEEDS_CONTEXT` may receive existing repository/plan context and retry the same unit; it never receives a new decision invented by the main agent.
 - `BLOCKED` is never retried unchanged. A source or Plan gap follows A and asks the user. A mechanical obstacle may be decomposed within the same plan unit: record the revised steps and their dependencies in the current wave before dispatching a fresh worker agent. Keep the unit ID, behavior, write boundary, and original wave diff baseline. New plan units or changed unit dependencies require Plan revision, not an unrecorded dispatch.
+
+After handling any result, take its `## Context gaps` lines and append each one to `$STATE/runs/<topic>/context.md` under its layer, or under `## Unknown`, with the unit ID as source. The main agent is the only writer of that file in this run; workers report, they do not write it. This is a context write, not a unit edit: it never enters a unit commit.
 
 ### R. [per-unit] Dispatch or await a worker agent
 
