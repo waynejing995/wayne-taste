@@ -158,7 +158,7 @@ If user asks "save this", resolve `WAYNE_KB_DIR` from `~/.wayne/config.env`; if 
 - **wayne-mind-explode**: during Phase 3 (Grill the User), if topic involves systems/control/state/process, the grill questions should be informed by this lens. mind-explode will Read this lens directly.
 - **wayne-code-review**: during architectural review, optionally apply this lens. code-review may Read this lens.
 - **wayne-plan**: planning a system-level refactor? this lens informs the spec's architecture section.
-- **wayne-compound**: capturing a lesson about a control-plane failure? cite the principle that was violated.
+- **wayne-compress**: a retro moment that traces to a control-plane failure? cite the principle that was violated.
 
 ## Key Principles (Meta)
 

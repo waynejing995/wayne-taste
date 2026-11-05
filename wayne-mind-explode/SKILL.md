@@ -13,7 +13,7 @@ Own discovery, decision convergence, design approval, test-design delegation, co
 
 `decision locked`, `design approved`, or an equivalent milestone freezes design state; it never authorizes execution. Continue only this Flow, hand off to `wayne-plan`, and stop. Never execute the plan or invoke `wayne-work`.
 
-Create only design artifacts, and only two kinds.
+Create only design artifacts, and only two kinds. The run's `context.md` is not one of them: `wayne-context-init` owns it as a separate stage that runs before this Flow starts.
 
 Resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` (`STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh)`). If the resolver fails, report that and stop; never fall back to a repo-local `.wayne/` or `/tmp`. Cross-stage references to `<state>` artifacts are absolute paths.
 
@@ -97,6 +97,8 @@ flowchart TB
 ### A. Open or resume the decision log
 
 Read `../_shared/pipeline-id-contract.md` completely. Resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` before writing; if the resolver fails, report that and stop. Write the log at `$STATE/runs/<topic>/decision-log.jsonl`. Before anything else, resolve whether this topic already has a living spec at `docs/specs/<topic>.md`.
+
+Before node A's log write: if `$STATE/runs/<topic>/context.md` does not exist, run `wayne-context-init` for this topic as its own stage and wait for it to return. Read that file and `$STATE/context.md` before research; their `## Unknown` lines are fact nodes to seed. A fact that research settles is persisted in the log only; the file is never edited inside this Flow, and `wayne-compress` reconciles the two at the end ([context model](../_shared/context-model.md)).
 
 - **No spec.** New topic. Create the log with `meta.status` `in-progress` and start decision IDs at `D1`.
 - **Spec exists.** This run amends that spec; it never opens a second one. Read the whole file — every entry of its `## Decisions` section, and every spec named in a `Depends on` line. Create the log with `meta.status` `in-progress`, and **continue that spec's decision numbering**. Restarting at `D1` puts two `D1`s in one spec and destroys the uniqueness its namespaced IDs depend on. An already-recorded decision is reversed only by a new record naming it in `supersedes`; never edit or delete the existing entry, and never silently re-decide it because it was absent from this run's context.

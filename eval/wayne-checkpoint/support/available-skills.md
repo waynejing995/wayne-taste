@@ -10,6 +10,6 @@ cross-agent Skill slugs available to a handoff packet:
 - `wayne-code-review`
 - `wayne-verify`
 - `wayne-ship`
-- `wayne-compound`
+- `wayne-compress`
 
 A verdict, arrow-separated chain, external team, or unlisted slug is not a Skill.

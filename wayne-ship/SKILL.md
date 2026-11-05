@@ -261,7 +261,7 @@ Rebase onto the remote base (not a local copy) so the PR is against the current 
 
 ## Phase 8: Handoff
 
-As the final step, after the commit (and push/PR, if requested) succeeds, retire the run-scoped artifacts, then call **`wayne-checkpoint` in handoff mode** to emit a handoff packet pointing to `wayne-compound` as the next agent (the pipeline's lessons-capture stage). The handoff-packet mechanism is defined in `wayne-checkpoint` — this skill only invokes it; it does not implement or advance it.
+As the final step, after the commit (and push/PR, if requested) succeeds, retire the run-scoped artifacts, then call **`wayne-checkpoint` in handoff mode** to emit a handoff packet pointing to `wayne-compress` as the next agent (the retro that turns the run into environment changes and prunes its context file). The handoff-packet mechanism is defined in `wayne-checkpoint` — this skill only invokes it; it does not implement or advance it.
 
 **Retiring the run directory.** `<state>/runs/<topic>/` is working state for one run and this skill owns clearing it. Resolve `<state>` with `../_shared/scripts/wayne-state-dir.sh` (`STATE=$(bash <skill-dir>/../_shared/scripts/wayne-state-dir.sh)`); if the resolver fails, report that and stop, never falling back to a repo-local `.wayne/` or `/tmp`. The tree lives outside the repository, so this is hygiene rather than a correctness gate: a run abandoned before ship leaves nothing tracked either way, which is why the working set lives there instead of in `docs/`. Plans under `<state>/plans/` stay as history; do not delete them.
 
@@ -273,15 +273,17 @@ Before clearing it, confirm the run's content actually reached the spec:
 
 If any one fails, keep the directory and report which condition blocked it. The matrix is still the authoritative live state, and clearing it would destroy evidence the spec does not yet hold — but never block the commit on this: the code shipping and the working set being tidy are separate concerns.
 
-**Mode A — return-only.** The packet is returned/surfaced only; it does NOT auto-invoke `wayne-compound`. The user manually triggers the next step (say "下一步" / "继续" / "go").
+When clearing, keep `<state>/runs/<topic>/context.md` and delete everything else in the directory. `wayne-compress` reads it and owns its removal ([context model](../_shared/context-model.md)); deleting it here would erase the retro's input. List its absolute path among the packet's artifact references, next to the spec and the commit range; it does not replace them.
+
+**Mode A — return-only.** The packet is returned/surfaced only; it does NOT auto-invoke `wayne-compress`. The user manually triggers the next step (say "下一步" / "继续" / "go").
 
 ---
 
 ## Integration with Wayne Workflow
 
 ```
-wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-ship → wayne-compound
-     (WHAT)            (HOW)       (BUILD +        (REVIEW)         (PUSH + PR)   (LESSONS)
+wayne-mind-explode → wayne-plan → wayne-work → wayne-code-review → wayne-ship → wayne-compress
+     (WHAT)            (HOW)       (BUILD +        (REVIEW)         (PUSH + PR)   (RETRO)
                                 commit per unit)
 
 wayne-verify — deliberate runtime pass, run when the change has a runtime path worth proving
@@ -294,7 +296,7 @@ This is the push-and-PR step. `wayne-work` already committed each unit, so it ru
 
 Runtime verification is not a precondition. Run `wayne-verify` when the change has a runtime path worth proving, and say so when it was not run.
 
-Its own final step hands off to `wayne-compound` (see Phase 8).
+Its own final step hands off to `wayne-compress` (see Phase 8).
 
 ---
 

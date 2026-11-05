@@ -70,6 +70,11 @@ DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 ## Concerns / what I could not do
 <empty for a clean DONE; otherwise the exact path, decision, or obstacle,
  and what you would need to proceed>
+
+## Context gaps
+<facts you needed that no file or command in your packet gave you,
+ each as: <Run | Reach | Know | Lines>: <the fact or the gap>;
+ or: "none">
 ```
 
 ## What each status means

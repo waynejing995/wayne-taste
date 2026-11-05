@@ -3,7 +3,7 @@ title: {title}
 status: in-progress
 branch: {branch}
 timestamp: {ISO-8601}
-pipeline_stage: {brainstorm|plan|work|review|verify|ship|compound}
+pipeline_stage: {brainstorm|plan|work|review|verify|ship|compress}
 pipeline_phase: {specific phase within skill, e.g. "Phase 3: Grill" or "Wave 2"}
 decision_log: <state>/runs/{topic}/decision-log.jsonl   # absolute
 plan: <state>/plans/{file}.md                           # absolute
@@ -22,7 +22,7 @@ files_modified:
 
 ### Pipeline State
 
-- **Stage:** {wayne-mind-explode / wayne-plan / wayne-work / wayne-code-review / wayne-verify / wayne-ship / wayne-compound}
+- **Stage:** {wayne-mind-explode / wayne-plan / wayne-work / wayne-code-review / wayne-verify / wayne-ship / wayne-compress}
 - **Phase:** {specific phase, e.g. "Phase 3: Grill — Q7 asked, 4 branches remaining"}
 - **Last action:** {what was the last thing completed}
 - **Next action:** {what should happen next when resumed}

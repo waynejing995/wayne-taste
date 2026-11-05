@@ -8,11 +8,11 @@ description: |
   中文/English, then an LLM analyst fans over the communities to induce patterns:
   both reusable procedures you re-run by hand AND recurring agent mistakes you
   keep correcting. Each surviving pattern gets a fate — a new skill, an
-  anti-pattern attached to an existing skill, or a redirect to compound/memory.
+  anti-pattern attached to an existing skill, or a redirect to compress/memory.
   Writing the actual SKILL.md is wayne-skill-forge's job — distill writes the
   pattern, forge writes the skill.
-  Distinct from wayne-compound (which distills lessons/KB from ONE solved
-  problem); wayne-distill mines the WHOLE history for missing patterns.
+  Distinct from wayne-compress (which retros ONE finished task into environment
+  changes); wayne-distill mines the WHOLE history for missing patterns.
   Triggers: "/wayne-distill", "蒸馏一个新 skill", "从历史里找 skill",
   "distill a skill from my sessions", "what should be a skill",
   "agent 老犯的错做成 skill", "distill agent failure patterns".
@@ -30,10 +30,10 @@ Mines recurring patterns from session history — reusable workflows AND recurri
 | --- | --- | --- |
 | **wayne-distill** | the WHOLE session history | **pattern** files (evidence + verdict) |
 | wayne-skill-forge | one pattern file | the actual `SKILL.md` (house style) |
-| wayne-compound | ONE just-solved problem | lessons / KB entries / solution docs |
+| wayne-compress | ONE finished task | environment changes (checks, pointers, access, deleted rules) |
 | waynejing | Wayne's instructions corpus | a persona |
 
-distill mines two pattern kinds — reusable _procedures_ (things you re-run by hand) and recurring _agent mistakes_ (things you keep correcting). Both are patterns; their FATE is decided per-pattern AFTER induction, not pre-sorted: a new skill, an anti-pattern grafted onto an existing skill, or — for a pure one-off _lesson_ — a redirect to wayne-compound. distill **discovers + writes the pattern**; it does NOT write the SKILL.md — that's `wayne-skill-forge`, the single owner of how a skill is written.
+distill mines two pattern kinds — reusable _procedures_ (things you re-run by hand) and recurring _agent mistakes_ (things you keep correcting). Both are patterns; their FATE is decided per-pattern AFTER induction, not pre-sorted: a new skill, an anti-pattern grafted onto an existing skill, or — for a pure one-off _lesson_ — a redirect to wayne-compress. distill **discovers + writes the pattern**; it does NOT write the SKILL.md — that's `wayne-skill-forge`, the single owner of how a skill is written.
 
 Before collection, stop when history is thin (< ~10 sessions) or the last run found no new threshold-crossing evidence. Do not lower thresholds to manufacture candidates.
 
@@ -50,7 +50,7 @@ flowchart TB
     F{"Per pattern: decide fate"}
     G["New skill<br/>(write pattern → forge)"]
     H["Extend a skill<br/>(add section / anti-pattern)"]
-    I["Drop / →wayne-compound"]
+    I["Drop / →wayne-compress"]
     J["Present candidate table<br/>(gate, Chinese)"]
     K{"User approves?"}
     L["Write pattern file(s)<br/>→ /wayne-skill-forge"]
@@ -132,7 +132,7 @@ If you find yourself about to write the candidate table directly from clusters y
 | Extend `<skill>` | covered-ish → propose a section/edit, OR graft an **anti-pattern** onto an existing skill | mistake that guards an existing skill's territory |
 | Already covered | an existing skill handles it; drop | either |
 | Too thin | < 3 sessions or one-off; drop | either |
-| → wayne-compound | a pure lesson, not a repeatable pattern; redirect | mistake with no procedure to attach |
+| → wayne-compress | a pure lesson, not a repeatable pattern; redirect | mistake with no procedure to attach |
 
 A recurring **mistake** is not automatically an anti-pattern appendix — if preventing it needs its own do-X-before-Y checklist, that's a _New_ preventive skill. Judge fate per pattern; don't downgrade by reflex.
 
@@ -143,7 +143,7 @@ A recurring **mistake** is not automatically an anti-pattern appendix — if pre
 Present a candidate table to the user and STOP for approval:
 
 ```
-| # | Pattern | Kind (procedure / mistake) | Closest existing skill (overlap) | Fate (New / Extend / →compound) | Sessions | Evidence (sample prompts) | Why |
+| # | Pattern | Kind (procedure / mistake) | Closest existing skill (overlap) | Fate (New / Extend / →compress) | Sessions | Evidence (sample prompts) | Why |
 ```
 
 The **Closest existing skill** column is mandatory — every row names what it was checked against, so the upgrade-vs-create call is visible, not implicit. The **Kind** and **Fate** columns make the per-pattern fate decision explicit.

@@ -169,7 +169,7 @@ Based on `pipeline_stage` from the checkpoint, **automatically invoke** the corr
 | `review` | `wayne-code-review` | Auto-run dual-voice review |
 | `verify` | `wayne-verify` | Exact authoritative test-matrix path and current E statuses |
 | `ship` | `wayne-ship` | Auto-run commit flow |
-| `compound` | `wayne-compound` | Auto-run lessons capture |
+| `compress` | `wayne-compress` | Retro on the task's sessions; prune its context file |
 
 **For `work` stage (most common resume):**
 
@@ -224,7 +224,7 @@ Read frontmatter of each file. Present as table (in Chinese):
 ─  ──────────  ───────────────────  ────────  ──────────
 1  2026-04-14  auth-middleware      work      in-progress
 2  2026-04-13  email-notifications  review    in-progress
-3  2026-04-12  dashboard-redesign   compound  completed
+3  2026-04-12  dashboard-redesign   compress  completed
 ════════════════════════════════════════════
 ```
 
@@ -286,7 +286,7 @@ Determine the current pipeline stage from the calling skill or an explicit resum
 | `work`         | `wayne-code-review` |
 | `code-review`  | `wayne-ship`        |
 | `verify`       | `wayne-ship`        |
-| `ship`         | `wayne-compound`    |
+| `ship`         | `wayne-compress`    |
 
 For a non-linear caller such as `wayne-triage`, do not reinterpret its verdict. Require the caller to supply `pipeline_stage`, `route`, one `snapshot` path (repository-relative for repo files, absolute for `<state>` artifacts), and exactly one `next_agent`. The target must be one available `wayne-*` Skill slug, never a verdict, chain, or external owner. If no internal target applies or validation fails, write no packet and return `NO_WAYNE_HANDOFF: <route> — <reason>`.
 
@@ -366,7 +366,7 @@ The `pipeline_stage` field tells **resume** which skill to suggest. The next age
 | `review` / `code-review` | Invoke `wayne-code-review` |
 | `verify` | Invoke `wayne-verify` |
 | `ship` | Invoke `wayne-ship` |
-| `compound` | Invoke `wayne-compound` |
+| `compress` | Invoke `wayne-compress` |
 
 **Resume vs Handoff:** Resume auto-invokes the next skill (user-driven "pick up"); Handoff emits a packet and either waits for a manual trigger (Mode A) or launches the next stage in a fresh session (Mode L).
 
