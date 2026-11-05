@@ -69,6 +69,8 @@ class Finding(NamedTuple):
     title: str
     link: str | None
     reason: str
+    task_id: str | None = None
+    ticket: str | None = None
 
 
 class Judge(Protocol):
@@ -196,7 +198,8 @@ def confusing_replies(rows: list[dict], judge: Judge, cache: dict[str, Verdict])
             truths = row.get("truths") or []
             ticket = truths[0].get("ticket_id") if truths else None
             task = next((truth.get("task_id") for truth in truths if truth.get("task_id")), None)
-            findings.append(Finding(key, "Captain 回复", ticket or "(no ticket)", link(task, ticket), verdict.reason))
+            findings.append(Finding(key, "Captain \u56de\u590d", ticket or "(no ticket)", link(task, ticket),
+                                    verdict.reason, task, ticket))
     return findings, len(rows)
 
 
@@ -224,13 +227,13 @@ def trace_failures(rows: list[dict], judge: Judge, cache: dict[str, Verdict]) ->
             case = json.dumps(row, ensure_ascii=False, indent=2)
             verdict = cached(judge, cache, FAILURE_RUBRIC, case, key)
             title = f"{row.get('ticket_id') or '(no ticket)'} #{row['run_number']}"
-            findings.append(Finding(key, "TRACE 失败", title, link(row.get("task_id"), row.get("ticket_id")),
-                                    verdict.reason))
+            findings.append(Finding(key, "TRACE \u5931\u8d25", title, link(row.get("task_id"), row.get("ticket_id")),
+                                    verdict.reason, row.get("task_id"), row.get("ticket_id")))
     for first_line, grouped in groups.items():
         key = f"trace_failure:review_error:{sha(first_line)}"
         case = f"reviewer error, occurrences: {len(grouped)}\nerror:\n{grouped[0].get('review_error') or first_line}"
         verdict = cached(judge, cache, FAILURE_RUBRIC, case, key)
-        findings.append(Finding(key, "TRACE 失败", f"reviewer error ×{len(grouped)}", None, verdict.reason))
+        findings.append(Finding(key, "TRACE \u5931\u8d25", f"reviewer error \u00d7{len(grouped)}", None, verdict.reason))
     return findings, kept
 
 
@@ -249,7 +252,7 @@ def silent_services(rows: list[dict], now: datetime) -> list[Finding]:
         name = row.get("user_name") or "(unknown)"
         question = " ".join(row["question"].split())[:60]
         key = f"silent_service:{row['conversation_id']}:{row['asked_at']}"
-        findings.append(Finding(key, "7 天未回复", name, None, f"{name} 提问 7 天无 Captain 回答：{question}"))
+        findings.append(Finding(key, "7 \u5929\u672a\u56de\u590d", name, None, f"{name} \u63d0\u95ee 7 \u5929\u65e0 Captain \u56de\u7b54\uff1a{question}"))
     return findings
 
 
@@ -261,7 +264,8 @@ def confusing_attention(rows: list[dict], judge: Judge, cache: dict[str, Verdict
         verdict = cached(judge, cache, ATTENTION_RUBRIC, case, key)
         if verdict.flag:
             findings.append(Finding(key, "needs_attention", row.get("ticket_id") or "(no ticket)",
-                                    link(row["task_id"], row.get("ticket_id")), verdict.reason))
+                                    link(row["task_id"], row.get("ticket_id")), verdict.reason,
+                                    row["task_id"], row.get("ticket_id")))
     return findings
 
 
@@ -303,14 +307,41 @@ def write_json(path: Path, data) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
+def finding_line(finding: Finding) -> str:
+    target = f"{finding.title} {finding.link}" if finding.link else finding.title
+    return f"- [{finding.tag}] {target} \u2014 {finding.reason}"
+
+
+def merged_line(group: list[Finding]) -> str:
+    if len(group) == 1:
+        return finding_line(group[0])
+    segments = []
+    for finding in group:
+        if finding.tag not in {item.tag for item in segments}:
+            segments.append(finding)
+    parts = []
+    for segment in segments:
+        same = [item for item in group if item.tag == segment.tag]
+        if segment.tag == "TRACE \u5931\u8d25" and len(same) > 1:
+            numbers = " ".join(f"#{item.title.rsplit('#', 1)[-1]}" for item in same if "#" in item.title)
+            label = f"{segment.tag} {numbers}".rstrip()
+        else:
+            label = f"{segment.tag} \u00d7{len(same)}" if len(same) > 1 else segment.tag
+        parts.append(f"[{label}] {segment.reason}")
+    ticket = next((item.ticket for item in group if item.ticket), "(no ticket)")
+    task_link = next(item.link for item in group if item.task_id and item.link)
+    return f"- {ticket} {task_link} \u2014 {' \uff5c '.join(parts)}"
+
+
 def render_digest(findings: list[Finding], now: datetime, replies: int, failures: int, kept: int,
                   attention: int, silent: int) -> str:
-    lines = [f"TRACE monitor {now.astimezone(TZ):%m-%d %H:%M} · {len(findings)} new"]
+    lines = [f"TRACE monitor {now.astimezone(TZ):%m-%d %H:%M} \u00b7 {len(findings)} new"]
+    groups: dict[str | None, list[Finding]] = {}
     for finding in findings:
-        target = f"{finding.title} {finding.link}" if finding.link else finding.title
-        lines.append(f"- [{finding.tag}] {target} — {finding.reason}")
-    lines.append(f"judged: {replies} Captain answers · {failures} failed/blocked runs ({kept} kept) · "
-                 f"{attention} needs_attention · {silent} silent")
+        groups.setdefault(finding.task_id or f"key:{finding.key}", []).append(finding)
+    lines.extend(merged_line(group) for group in groups.values())
+    lines.append(f"judged: {replies} Captain answers \u00b7 {failures} failed/blocked runs ({kept} kept) \u00b7 "
+                 f"{attention} needs_attention \u00b7 {silent} silent")
     return "\n".join(lines)
 
 

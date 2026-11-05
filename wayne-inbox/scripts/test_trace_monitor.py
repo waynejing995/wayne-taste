@@ -167,7 +167,8 @@ def send_jsonl(message, *, error=None, receipt=None):
 
 def test_post_once_and_persist_after_success(monkeypatch, tmp_path):
     row = monitor.calibration_cases()[0]
-    run = configure_main(monkeypatch, tmp_path, {monitor.REPLY_SQL: [row]})
+    rows = [{**row, "id": f"answer-{i}"} for i in range(2)]
+    run = configure_main(monkeypatch, tmp_path, {monitor.REPLY_SQL: rows})
     run.side_effect = lambda command, **kwargs: send_jsonl(command[-1].split("\n\n", 1)[1].strip())
     result = CliRunner().invoke(monitor.main, ["--post", "--target", "self"])
     assert result.exit_code == 0, result.output
@@ -175,7 +176,26 @@ def test_post_once_and_persist_after_success(monkeypatch, tmp_path):
     command = run.call_args.args[0]
     assert command[:9] == ["omp", "-p", "--mode", "json", "--no-session", "--no-title", "--max-time", "10m", "--tools"]
     assert command[9] == "teams_send" and "`target: self`" in command[10]
-    assert json.loads(monitor.POSTED.read_text()) == ["confusing_reply:" + row["id"]]
+    assert "[Captain \u56de\u590d \u00d72]" in command[10]
+    assert json.loads(monitor.POSTED.read_text()) == ["confusing_reply:answer-0", "confusing_reply:answer-1"]
+
+
+def test_digest_merges_findings_for_one_task():
+    now = datetime(2026, 11, 5, 17, 24, tzinfo=monitor.TZ)
+    task = "00000000-0000-4000-8000-000000000001"
+    url = f"https://trace.example.com/tasks/{task}"
+    replies = [monitor.Finding(f"confusing_reply:{i}", "Captain \u56de\u590d", "PROJ-1001", url, f"reason {i}", task, "PROJ-1001") for i in range(3)]
+    attention = monitor.Finding("confusing_attention:1", "needs_attention", "PROJ-1001", url, "attention reason", task, "PROJ-1001")
+    runs = [monitor.Finding(f"trace_failure:run:{n}", "TRACE \u5931\u8d25", f"PROJ-1002 #{n}", "https://trace.example.com/tasks/00000000-0000-4000-8000-000000000002", f"run {n}", "00000000-0000-4000-8000-000000000002", "PROJ-1002") for n in (16, 17)]
+    lone = monitor.Finding("silent_service:abc", "7 \u5929\u672a\u56de\u590d", "Saye Sashank", None, "asked", None, None)
+    digest = monitor.render_digest([*replies, attention, *runs, lone], now, 3, 2, 2, 1, 1)
+    lines = digest.splitlines()
+    assert lines[0] == "TRACE monitor 11-05 17:24 \u00b7 7 new"
+    assert lines[1] == f"- PROJ-1001 {url} \u2014 [Captain \u56de\u590d \u00d73] reason 0 \uff5c [needs_attention] attention reason"
+    assert lines[2] == "- PROJ-1002 https://trace.example.com/tasks/00000000-0000-4000-8000-000000000002 \u2014 [TRACE \u5931\u8d25 #16 #17] run 16"
+    assert lines[3] == "- [7 \u5929\u672a\u56de\u590d] Saye Sashank \u2014 asked"
+    single = monitor.render_digest([replies[0]], now, 1, 0, 0, 0, 0)
+    assert single.splitlines()[1] == f"- [Captain \u56de\u590d] PROJ-1001 {url} \u2014 reason 0"
 
 
 def test_unconfirmed_send_does_not_advance(monkeypatch, tmp_path):
@@ -186,13 +206,11 @@ def test_unconfirmed_send_does_not_advance(monkeypatch, tmp_path):
         send_jsonl("not the digest"),
     ]
     for output in outputs:
-        posted = tmp_path / f"posted-{id(output)}.json"
-        monkeypatch.setattr(monitor, "POSTED", posted)
         run = configure_main(monkeypatch, tmp_path, {monitor.REPLY_SQL: [row]})
         run.return_value = output
         result = CliRunner().invoke(monitor.main, ["--post", "--target", "self"])
         assert result.exit_code != 0, output.stdout
-        assert not posted.exists()
+        assert not monitor.POSTED.exists()
 
 
 def test_dry_run_never_posts_or_writes_posted(monkeypatch, tmp_path):
