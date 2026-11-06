@@ -1,0 +1,1 @@
+直接干：把 scripts/cleanup.sh 的保留期从 30 天改成 7 天。

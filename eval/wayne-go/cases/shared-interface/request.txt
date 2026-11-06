@@ -1,0 +1,1 @@
+直接干：给 tasks.api.add 加一个 priority 参数，默认 normal。
