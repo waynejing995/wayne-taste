@@ -17,7 +17,7 @@ mkdir -p "$state/cache" "$state/claude-home" "$state/codex-home" "$workspace/way
 if [[ -f /root/.claude/settings.json ]]; then
     jq '{env}' /root/.claude/settings.json > "$state/claude-home/settings.json"
 fi
-for file in config.toml model-catalog-1m.json installation_id version.json auth.json; do
+for file in config.toml magpie-models.json model-catalog-1m.json installation_id version.json auth.json; do
     [[ -f "/root/.codex/$file" ]] && cp "/root/.codex/$file" "$state/codex-home/"
 done
 
