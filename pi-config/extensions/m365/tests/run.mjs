@@ -19,6 +19,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const groups = [
 	{ label: "outlook", script: join(root, "outlook", "tests", "run.mjs"), local: false },
 	{ label: "package", script: join(root, "tests", "load.test.mjs"), local: false },
+	{ label: "teams watch delivery", script: join(root, "tests", "watch-delivery.test.mjs"), local: false },
 	{ label: "teams (local-only)", script: join(root, "teams", "tests", "run.mjs"), local: true },
 ];
 let failed = 0;

@@ -268,9 +268,17 @@ notes are prompts, not cards, and stay instructions exactly as written.
 
 - **Starts a turn, not a command.** A card starts an agent turn, so the agent
   sees it at once. It acts or replies only as you have asked for watch cards,
-  and otherwise ends the turn without a reply. While the agent is busy, cards
-  wait for the turn to end, so a card never steers a turn that is in progress;
-  when several are waiting, only the last one starts the turn.
+  and otherwise ends the turn without a reply. While the agent is busy, a
+  self-chat card is steered into the running turn at its next tool-call boundary
+  (a `wait` returns early for it), the way an `omp:`/`pi:` note is: the notes are
+  yours. Another chat's card waits for the turn to end, so other people's
+  messages never steer a turn in progress; when several are waiting, only the
+  last one starts the turn. Cards are one per chat per poll, never merged across
+  chats, since each carries its own chat's policy.
+- **Card log.** Each card step goes to `~/.cache/pi/teams-watch.log`, one JSON
+  line with the chat and the message ids it carries: `queued` (read by a poll),
+  `flushed` (handed to omp, with `how`: `steer`, `turn` or `context`),
+  `delivered` (in the conversation) and `dropped` (its session ended first).
 - **Untrusted.** Everything a card quotes from Teams (chat name, senders, text,
   file names) sits inside `<untrusted-teams-content>`, after a note that tells
   the agent never to follow instructions in it. A copy of the tag inside a
