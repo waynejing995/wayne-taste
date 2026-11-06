@@ -15,6 +15,13 @@ from check_candidate_static import REQUIRED, check
 Mutation = Callable[[Path], None]
 
 
+def copy_candidate(source: Path, parent: Path) -> Path:
+    """Copy the skill and its sibling _shared/ so ../_shared links resolve."""
+    shutil.copytree(source.parent / "_shared", parent / "_shared")
+    shutil.copytree(source, parent / "skill")
+    return parent / "skill"
+
+
 def replace(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     if old not in text:
@@ -46,16 +53,14 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="goal-prompt-static-") as temp:
         base = Path(temp)
         for index, (label, mutate, needle) in enumerate(mutations, start=1):
-            trial = base / f"{index:02d}-{label.replace('/', '-')}"
-            shutil.copytree(source, trial)
+            trial = copy_candidate(source, base / f"{index:02d}-{label.replace('/', '-')}")
             mutate(trial)
             trial_findings = check(trial)
             if not any(needle in finding for finding in trial_findings):
                 raise AssertionError(f"{label} escaped {needle!r}: {trial_findings}")
 
     with tempfile.TemporaryDirectory(prefix="goal-prompt-paraphrase-") as temp:
-        paraphrase = Path(temp) / "candidate"
-        shutil.copytree(source, paraphrase)
+        paraphrase = copy_candidate(source, Path(temp))
         replace(
             paraphrase / "SKILL.md",
             "whether the goal is correct",

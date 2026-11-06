@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 REQUIRED = (
-    "references/goal-prompt-template.md",
+    "../_shared/task-prompt.md",
     "references/example-alfred-tui.md",
     "references/dispatch-runtime.md",
     "scripts/codex-dispatch.sh",

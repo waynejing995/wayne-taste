@@ -11,22 +11,11 @@ Produce the smallest self-contained steering goal that lets an autonomous worker
 
 Own intent grounding, goal composition, confirmation, and the bundled headless dispatch lifecycle. `wayne-plan` owns durable implementation planning and `wayne-work` owns implementation. Never perform the goal's product work here.
 
-Before composition, read the canonical [goal-prompt template](references/goal-prompt-template.md). Read the [Alfred exemplar](references/example-alfred-tui.md) only when real terminal/UI, provider configuration, or secret-forwarding proof needs a contrasting example. For confirmed dispatch, failure, injection, monitoring, or resume, read [dispatch runtime](references/dispatch-runtime.md) completely and use the bundled `scripts/codex-dispatch.sh` and `scripts/codex_goal_driver.py`; do not recreate their protocol manually.
+Before composition, read the [task prompt contract](../_shared/task-prompt.md). It owns the goal's sections, the plan-SSoT rule, and the secret rule. Read the [Alfred exemplar](references/example-alfred-tui.md) only when real terminal/UI, provider configuration, or secret-forwarding proof needs a contrasting example. For confirmed dispatch, failure, injection, monitoring, or resume, read [dispatch runtime](references/dispatch-runtime.md) completely and use the bundled `scripts/codex-dispatch.sh` and `scripts/codex_goal_driver.py`; do not recreate their protocol manually.
 
 ## Goal contract
 
-Keep the copy-paste goal under roughly 4,000 characters when possible. The table is a reliable organization guide, not a Markdown grammar. Sections 1, 2, 4, 5, and 6 carry required information; section 3 appears only for an in-flight correction.
-
-| § | Heading | Contract |
-| --- | --- | --- |
-| 1 | `Goal:` | one outcome sentence, not a task list |
-| 2 | `Context:` | framing, definitions, and `Do not` boundaries |
-| 3 | `Current correction:` | only the delta from an actual prior attempt |
-| 4 | `Tasks:` | numbered work with each constraint at its owning step |
-| 5 | `Verification required before completion:` | exact commands plus the real user entrypoint and forbidden substitute |
-| 6 | `Completion criteria:` | independently checkable outcomes mapped to §5 |
-
-Never include plaintext secrets; name the environment variable that owns them. Cut reconstructible narrative before cutting §5 or §6.
+The goal is a task prompt per the shared contract, with no `Report:` section: the bundled driver monitors the run through its JSONL stream, not a RESULT file. Goal, Context, Tasks, Verification, and Completion criteria carry required information. Current correction appears only for an in-flight correction.
 
 ## Flow
 
@@ -71,7 +60,7 @@ flowchart TB
 
 Preserve the raw intent. Inspect the target repository for real paths, entrypoints, commands, tests, and approved plan/spec/decision artifacts before asking. Separate known evidence from choices only the user owns. Never invent success criteria, scope, secret values, or a fake verification path.
 
-When an approved plan already owns the work, name its path as the SSoT. In §4 carry only `<unit ID> — <unit heading or outcome> — implement per <plan path>`. Do not add sub-bullets that restate the unit. Never copy its step bodies, tables, rationale, or reconstructible implementation detail. After drafting, compare §4 with the plan and delete every term sourced only from a unit body, even in “follow the plan's X”; say `per the plan` instead. Keep §5 and §6 self-contained.
+When an approved plan already owns the work, apply the shared plan rule. After drafting, compare Tasks with the plan and delete every term sourced only from a unit body, even in “follow the plan's X”; say `per the plan` instead.
 
 ### Q. Ask one recommended question
 
@@ -79,11 +68,11 @@ If a required choice or proof is still missing, ask exactly one Chinese question
 
 ### C. Compose the bounded goal
 
-Follow the table and template. Inline every boundary at the task it governs. §5 names exact commands and one real entrypoint; state the tempting fake substitute that is forbidden. Each §6 bullet maps to a §5 observation. Omit Current correction on a first issue. Keep the goal at most 4,000 characters.
+Follow the shared task prompt contract. Inline every boundary at the task it governs. Verification names the unit-level proof the contract's test bar requires, then a smoke check through one real entrypoint, and states the tempting fake substitute that is forbidden. Each Completion criterion maps to a Verification observation. Omit Current correction on a first issue. Keep the goal at most 4,000 characters.
 
 ### D. Review the goal
 
-Read the complete grounded sources and goal in context. Confirm that it states one outcome, preserves task-local boundaries, names real verification commands and the actual user entrypoint, protects secrets, and maps every completion claim to observable proof. Headings and the template help navigation; order, wording, backticks, phrase bans, regex, and section counts do not decide correctness. Repair one real semantic gap without weakening the evidence contract.
+Read the complete grounded sources and goal in context. Confirm that it states one outcome, preserves task-local boundaries, names real verification commands and the actual user entrypoint, protects secrets, and maps every completion claim to observable proof. Then check Verification against the contract's [test bar](../_shared/task-prompt.md#test-bar), behavior by behavior from the change the Tasks make: the hard-bar layers are each named with a runnable command or test, or ruled out with a reason a reviewer could challenge; a bug fix carries its fails-before/passes-after run; the smoke stays light or says why it cannot run; nothing in the goal accepts a substitute the bar forbids. A bare "tests pass", a global coverage percentage, or an end-to-end run standing in for unit tests is a gap. Headings and the template help navigation; order, wording, backticks, phrase bans, regex, and section counts do not decide correctness. Repair one real semantic gap without weakening the evidence contract.
 
 ### E. Present and confirm
 
