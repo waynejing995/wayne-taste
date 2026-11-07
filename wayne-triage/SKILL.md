@@ -97,11 +97,11 @@ Compare symptom layer with confirmed cause layer. When they agree, name the owne
 
 | Verdict | Predicate | First next action |
 | --- | --- | --- |
-| `fix-now` | cause certain; failing repro exists; ≤10 lines; one file; internal | `wayne-plan` (lite path; test design is nested there) |
-| `test-then-fix` | small certain bug but failing test is still missing | `wayne-plan` (lite path; add the regression test to its test contract) |
-| `iterate-in-a-loop` | internal; ≤100 lines; pass/fail eval exists | `wayne-plan` (lite path; carry the eval and regression coverage) |
-| `needs-plan` | >100 lines or shared blast radius | `wayne-plan` |
-| `escalate-architecture` | 3+ failed fixes or each fix creates another break | `wayne-mind-explode` |
+| `fix-now` | cause certain; failing repro exists; internal; not a breaking change | `wayne-plan` (lite path; test design is nested there) |
+| `test-then-fix` | certain bug but the failing test is still missing; not a breaking change | `wayne-plan` (lite path; add the regression test to its test contract) |
+| `iterate-in-a-loop` | internal; a pass/fail eval exists; not a breaking change | `wayne-plan` (lite path; carry the eval and regression coverage) |
+| `needs-plan` | several modules or a shared contract, but not a breaking change. Line count and file count do not force this route | `wayne-plan` |
+| `escalate-architecture` | a clear major logic change or an architecture-breaking change: rewriting a core state machine or flow; a data-model or migration change that breaks compatibility; removing or redesigning a service, process, or public API/contract; or changing the deploy topology. Failed-fix history alone is not a breaking change | `wayne-mind-explode` |
 | `escalate-incident` | customer-visible, cross-team, or unsolved about one hour | external report; no Wayne handoff |
 | `route-to-owner` | confirmed cause belongs to another owner | external report; no Wayne handoff |
 | `uncertain` | symptom and cause candidates remain unresolved | ask for discriminating evidence; no handoff |
