@@ -588,16 +588,27 @@ export class GraphBackend implements Backend {
 		if (images.length > 0 && target.kind !== "self")
 			throw new Error("images can only be sent to the self-chat for now (target='self')");
 		// Read before anything is uploaded or posted: one bad file refuses the whole message. The paths come from the
-		// model, so only a regular PNG/JPEG/GIF file under IMAGE_MAX_BYTES is read; never a device, a secret, a huge file.
+		// model, so only regular PNG/JPEG/GIF files totalling at most IMAGE_MAX_BYTES are read; never a device, a
+		// secret, a huge file. Each file is opened once and checked through that descriptor, so a path swapped after
+		// the check cannot be read in its place.
+		let total = 0;
 		const files = images.map((p) => {
-			const st = fs.statSync(p);
-			if (!st.isFile()) throw new Error(`image ${p} is not a regular file`);
-			if (st.size > IMAGE_MAX_BYTES) throw new Error(`image ${p} is ${st.size} bytes; the limit is ${IMAGE_MAX_BYTES}`);
-			const bytes = fs.readFileSync(p);
-			const head = bytes.subarray(0, 8).toString("latin1");
-			if (!(head.startsWith("\x89PNG\r\n\x1a\n") || head.startsWith("\xff\xd8\xff") || head.startsWith("GIF8")))
-				throw new Error(`image ${p} is not a PNG, JPEG or GIF file`);
-			return { name: path.basename(p), bytes };
+			// O_NONBLOCK: opening a FIFO with no writer would otherwise hang here before the regular-file check.
+			const fd = fs.openSync(p, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+			try {
+				const st = fs.fstatSync(fd);
+				if (!st.isFile()) throw new Error(`image ${p} is not a regular file`);
+				total += st.size;
+				if (total > IMAGE_MAX_BYTES) throw new Error(`images total more than ${IMAGE_MAX_BYTES} bytes`);
+				const bytes = Buffer.alloc(st.size);
+				const read = fs.readSync(fd, bytes, 0, st.size, 0);
+				const head = bytes.subarray(0, 8).toString("latin1");
+				if (!(head.startsWith("\x89PNG\r\n\x1a\n") || head.startsWith("\xff\xd8\xff") || head.startsWith("GIF8")))
+					throw new Error(`image ${p} is not a PNG, JPEG or GIF file`);
+				return { name: path.basename(p), bytes: bytes.subarray(0, read) };
+			} finally {
+				fs.closeSync(fd);
+			}
 		});
 		// Resolved before anything is posted: one address the directory does not
 		// know refuses the whole message.
