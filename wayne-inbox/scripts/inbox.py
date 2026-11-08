@@ -69,9 +69,10 @@ def load_rules() -> dict[str, dict[str, list[dict]]]:
                 if not isinstance(when, dict):
                     raise click.ClickException(f"{where}: rule {i}: `when` must map field -> value")
                 for field, want in when.items():
-                    # YAML reads bare yes/no/true/false as booleans; events carry strings, so such a rule never matches.
-                    if any(isinstance(w, bool) for w in (want if isinstance(want, list) else [want])):
-                        raise click.ClickException(f"{where}: rule {i}: `{field}` is a YAML boolean; quote it, e.g. \"yes\"")
+                    # Events carry strings. YAML reads bare yes/no/true/false as booleans and an empty value as null;
+                    # str() of either never equals an event value, so such a rule would silently never match.
+                    if any(isinstance(w, bool) or not isinstance(w, (str, int)) for w in (want if isinstance(want, list) else [want])):
+                        raise click.ClickException(f"{where}: rule {i}: `{field}` must be a string or number (quote yes/no, fill empty values)")
     return data
 
 

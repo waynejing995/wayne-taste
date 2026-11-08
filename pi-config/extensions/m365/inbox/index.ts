@@ -169,17 +169,17 @@ export default function inbox(pi: ExtensionAPI) {
 			dirWatch = fs.watch(DIR, () => scan());
 			// Mail before this watch is not news.
 			if (!fs.existsSync(MAIL_CURSOR)) fs.writeFileSync(MAIL_CURSOR, `${new Date().toISOString().replace(/\.\d+Z$/, "Z")}\n`);
+			timer = setInterval(() => {
+				scan();
+				void pollMail();
+			}, BACKSTOP_MS);
+			timer.unref?.();
+			scan();
 		} catch (e) {
 			// A half-started delivery must not keep the lease: `/inbox watch` would then answer "already delivered" forever.
 			stop();
 			throw e;
 		}
-		timer = setInterval(() => {
-			scan();
-			void pollMail();
-		}, BACKSTOP_MS);
-		timer.unref?.();
-		scan();
 		void pollMail();
 		return `Inbox: new notify/do rows in ${LEDGER} are delivered to this session.`;
 	}
