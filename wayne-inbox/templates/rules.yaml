@@ -22,7 +22,7 @@ github: # fields: number (PR number), event (review | check | merged), state, ac
 
 outlook: # fields: from, flagged (yes | no)
   Inbox:
-    - when: { flagged: yes }
+    - when: { flagged: "yes" } # quoted: a bare yes is a YAML boolean, and inbox.py refuses it
       tag: mail-flagged
       action: notify
     - action: ignore

@@ -65,8 +65,13 @@ def load_rules() -> dict[str, dict[str, list[dict]]]:
             for i, rule in enumerate(rules, 1):
                 if not isinstance(rule, dict) or rule.get("action") not in ACTIONS:
                     raise click.ClickException(f"{where}: rule {i}: `action` must be one of {sorted(ACTIONS)}")
-                if not isinstance(rule.get("when") or {}, dict):
+                when = rule.get("when") or {}
+                if not isinstance(when, dict):
                     raise click.ClickException(f"{where}: rule {i}: `when` must map field -> value")
+                for field, want in when.items():
+                    # YAML reads bare yes/no/true/false as booleans; events carry strings, so such a rule never matches.
+                    if any(isinstance(w, bool) for w in (want if isinstance(want, list) else [want])):
+                        raise click.ClickException(f"{where}: rule {i}: `{field}` is a YAML boolean; quote it, e.g. \"yes\"")
     return data
 
 
@@ -336,7 +341,11 @@ class RulesLock:
                 os.close(os.open(RULES_LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
                 return self
             except FileExistsError:
-                if time.time() - RULES_LOCK.stat().st_mtime > 10:
+                try:
+                    age = time.time() - RULES_LOCK.stat().st_mtime
+                except FileNotFoundError:  # released between our create and this stat: try the create again
+                    continue
+                if age > 10:
                     RULES_LOCK.unlink(missing_ok=True)
                 elif time.monotonic() > deadline:
                     raise click.ClickException(f"{RULES_LOCK} is held by another writer") from None

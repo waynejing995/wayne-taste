@@ -68,7 +68,8 @@ def main(since: str | None, verbose: bool) -> None:
         kind = KINDS.get(f.get("kind"))
         if kind is None or not f.get("key") or not f.get("text"):
             raise click.ClickException(f"bad finding, cursor stays at {since}: {f}")
-        result = inbox(kind, f["text"], "--key", f["key"], "--source", "teams-digest", "--note", f.get("note", ""))
+        # Options first, then `--`: the text is model-written and may start with `-`, which click would read as an option.
+        result = inbox(kind, "--key", f["key"], "--source", "teams-digest", "--note", f.get("note", ""), "--", f["text"])
         logger.info("{} {}: {}", f["kind"], f["key"], result)
     CURSOR.parent.mkdir(parents=True, exist_ok=True)
     CURSOR.write_text(now + "\n")
