@@ -589,23 +589,28 @@ export class GraphBackend implements Backend {
 			throw new Error("images can only be sent to the self-chat for now (target='self')");
 		// Read before anything is uploaded or posted: one bad file refuses the whole message. The paths come from the
 		// model, so only regular PNG/JPEG/GIF files totalling at most IMAGE_MAX_BYTES are read; never a device, a
-		// secret, a huge file. Each file is opened once and checked through that descriptor, so a path swapped after
-		// the check cannot be read in its place.
+		// secret, a huge file. A non-regular path is refused before it is opened (opening a device can act); the
+		// opened descriptor must be the same inode, so a path swapped in between is refused too.
 		let total = 0;
 		const files = images.map((p) => {
-			// O_NONBLOCK: opening a FIFO with no writer would otherwise hang here before the regular-file check.
-			const fd = fs.openSync(p, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+			const named = fs.statSync(p);
+			if (!named.isFile()) throw new Error(`image ${p} is not a regular file`);
+			const fd = fs.openSync(p, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOCTTY);
 			try {
 				const st = fs.fstatSync(fd);
-				if (!st.isFile()) throw new Error(`image ${p} is not a regular file`);
+				if (!st.isFile() || st.dev !== named.dev || st.ino !== named.ino) throw new Error(`image ${p} changed while being read`);
 				total += st.size;
 				if (total > IMAGE_MAX_BYTES) throw new Error(`images total more than ${IMAGE_MAX_BYTES} bytes`);
 				const bytes = Buffer.alloc(st.size);
-				const read = fs.readSync(fd, bytes, 0, st.size, 0);
+				for (let off = 0; off < st.size; ) {
+					const n = fs.readSync(fd, bytes, off, st.size - off, off);
+					if (n === 0) throw new Error(`image ${p} shrank while being read`);
+					off += n;
+				}
 				const head = bytes.subarray(0, 8).toString("latin1");
 				if (!(head.startsWith("\x89PNG\r\n\x1a\n") || head.startsWith("\xff\xd8\xff") || head.startsWith("GIF8")))
 					throw new Error(`image ${p} is not a PNG, JPEG or GIF file`);
-				return { name: path.basename(p), bytes: bytes.subarray(0, read) };
+				return { name: path.basename(p), bytes };
 			} finally {
 				fs.closeSync(fd);
 			}
