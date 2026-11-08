@@ -1,6 +1,6 @@
 d759aa6baae5cc2be43eb7f2a598eeeb880cecb22b1d7a6ab9d81adc0ec57d26  ./approved-intent.md
 d831a09fffb1798865b610c54b16116f694860feb9d886ec5322fe0cb8110632  ./blind_pack.py
-28a16641009234ce6be3207f02face2a7ac6f846d8c1a1f107170c8eb75a3a33  ./calibrate.py
+b0caf3700483e7c8a8efa5bb2ef4079e788a9d554129d38292d3ccb033ba6ca7  ./calibrate.py
 47274e89d9c5d6f972a6d6502a0b268db5991f1a17c987fd9c03612553d13e57  ./cases/bugfix-stale-reset/ground-truth.md
 457879698964ac3603e13b10a8dee76f14db962567b70811f07bff7bc9888fc4  ./cases/bugfix-stale-reset/task.md
 62e754725a2a442f139a99352565d9e5b3a08d3640e1f5c61211d6e666ee05c8  ./cases/feature-review-parallel/ground-truth.md
@@ -9,7 +9,7 @@ f25fd8e58f98176797c4650434628a22e70d07db40d8dfe2e4cc1eb2dec5eff6  ./cases/featur
 1d0f6285883d5941069b6d32b435af7ff2aaba6e6ba4a324515b86fd9a3722c5  ./cases/heldout-teams-markdown/task.md
 5e1d1650a8f575ca4cd91eafdd6ee15f314074bf0dc3646689b8d386bf32bb4a  ./cases/monitor-preprocess/ground-truth.md
 64d691fe7a99cc71fc35422ee7a54f4f4e9435da3e936b61bb479983afe4be37  ./cases/monitor-preprocess/task.md
-7debc197ede8f885a4c4cc9e9faec03ed4790cb10cb61370f48ec7bd337dd317  ./check_trial.py
+8ec68632f61df608e3b6e243925e472f73b3ff33ff98a5c38a68084d0221f023  ./check_trial.py
 3c75d8c06110a7f7f1c9e3701508d33f7974320ec4223a89116c18318cb59135  ./downstream.sh
 519f6cae2ba2164f5609d7bb1c767f1d740c4823b6c455cca0b3ebc10d71db3c  ./judge.sh
 a438ed5034610847bbf33823006f30a195c64115d4abcebdf1aac16e1f4c8ee1  ./prepare_trial.sh

@@ -60,10 +60,13 @@ def main() -> int:
         committed = trial(base, "git-commit", VALID_FENCED)
         subprocess.run(["git", "-C", str(committed / "fs/tasks"), "commit", "-q", "--allow-empty", "-m", "x"], check=True)
         expect(committed, False, "mutated the fixture")
+        flagged = trial(base, "git-assume-unchanged", VALID_FENCED)
+        subprocess.run(["git", "-C", str(flagged / "fs/tasks"), "update-index", "--assume-unchanged", "groups/tasks/scripts/db.py"], check=True)
+        expect(flagged, False, "mutated the fixture")
         status = trial(base, "git-status", VALID_FENCED)
         subprocess.run(["git", "-C", str(status / "fs/tasks"), "status", "--porcelain"], check=True, capture_output=True)
         expect(status, True)
-    print("PASS: 3 valid shapes (incl. read-only git status), 6 mutations (no response, no goal, >4000, edit, new file, git commit)")
+    print("PASS: 3 valid shapes (incl. read-only git status), 7 mutations (no response, no goal, >4000, edit, new file, git commit, index flag)")
     return 0
 
 
