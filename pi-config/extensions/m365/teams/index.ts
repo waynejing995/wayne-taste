@@ -56,6 +56,7 @@ import { escapeHtml } from "./html.ts";
 import { type Mention, renderWithMentions } from "./mentions.ts";
 import { cursorPages } from "./paging.ts";
 import { claim, describeOwner, listOwners, type WatchLease, type WatchOwner } from "./watch.ts";
+import { forgetWatch, rememberInterval, rememberWatch } from "./watch-list.ts";
 import { SKYPE_SCOPES, SkypeClient } from "./skype.ts";
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -490,7 +491,8 @@ export default function (pi: ExtensionAPI) {
 		if (held) {
 			if (policy === undefined) return `Already watching "${chat.label}" in this session (polled every ${watchPollSec}s).`;
 			held.policy = policy.trim();
-			return `Watching "${chat.label}": policy ${held.policy ? `set to: ${held.policy}` : "cleared"}.`;
+			const warn = rememberWatch({ chat: chat.label, chat_id: chat.id, policy: held.policy });
+			return `Watching "${chat.label}": policy ${held.policy ? `set to: ${held.policy}` : "cleared"}.${warn}`;
 		}
 		const owner: WatchOwner = { chatId: chat.id, label: chat.label, ...watchIdentity(ctx), since: new Date().toISOString() };
 		const claimed = await claim(owner);
@@ -514,9 +516,11 @@ export default function (pi: ExtensionAPI) {
 		watchCtx = ctx;
 		if (!watchTimer) armWatchTimer();
 		renderStatus(ctx);
+		// After the watch runs: saving the resume list never decides whether it runs.
+		const warn = rememberWatch({ chat: chat.label, chat_id: chat.id, policy: policy?.trim() ?? "" });
 		const commands = ` Your own messages starting with "omp:" or "pi:" are sent to the agent as your instructions.`;
 		const rule = policy?.trim() ? ` Policy: ${policy.trim()}.` : chat.id === SELF_CHAT ? "" : ` Policy: (none): cards are shown, not acted on.`;
-		return `Watching "${chat.label}" in this session: new messages are added to the conversation (polled every ${watchPollSec}s).${commands}${rule}`;
+		return `Watching "${chat.label}" in this session: new messages are added to the conversation (polled every ${watchPollSec}s).${commands}${rule}${warn}`;
 	}
 
 	function armWatchTimer(): void {
@@ -526,10 +530,11 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/** Change how often this session polls its watched chats. One timer serves them all, so it applies to every watch. */
-	function setWatchInterval(sec: number): void {
+	function setWatchInterval(sec: number): string {
 		if (!Number.isInteger(sec) || sec < MIN_WATCH_POLL_SEC) throw new Error(`interval_sec must be a whole number ≥ ${MIN_WATCH_POLL_SEC}, got ${sec}`);
 		watchPollSec = sec;
 		if (watchTimer) armWatchTimer();
+		return rememberInterval(sec);
 	}
 
 	/** The newest message already in a chat, as a poll cursor. */
@@ -624,7 +629,7 @@ export default function (pi: ExtensionAPI) {
 		if (hits.length !== 1)
 			throw new Error(hits.length === 0 ? `This session does not watch "${key}".` : `"${key}" matches ${hits.length} watched chats; use the chat id.`);
 		stopWatch(hits[0].owner.chatId);
-		return `Stopped watching "${hits[0].owner.label}".`;
+		return `Stopped watching "${hits[0].owner.label}".${forgetWatch(hits[0].owner.chatId)}`;
 	}
 
 	async function watchList(): Promise<string> {
@@ -1243,7 +1248,9 @@ export default function (pi: ExtensionAPI) {
 			"Watch a Microsoft Teams chat from this session: new messages other people post there are added to " +
 			"this conversation as a 'teams-watch' card, so the user sees them and can ask you to handle them. Only " +
 			"start or stop a watch when the user asks. A chat is watched by at most one session on this machine; " +
-			"starting a watch another session holds fails and names that session. A watch ends with this session. " +
+			"starting a watch another session holds fails and names that session. A watch ends with this session, but every start, " +
+			"stop and interval change is saved to the teams_watch section of ~/.wayne/inbox/rules.yaml; when the user asks to resume their watches, " +
+			"read that file and start each chat with its chat_id, policy and interval_sec. " +
 			"action='start' needs `chat_id` (from teams_chats, preferred) or `chat`; action='stop' takes the " +
 			"chat id or name; action='list' shows every watch on this machine and which session holds it. " +
 			"The user's own self-chat is chat_id '48:notes': its new notes arrive as cards, and notes starting with " +
@@ -1270,8 +1277,8 @@ export default function (pi: ExtensionAPI) {
 			let text: string;
 			if (params.action === "list") text = await watchList();
 			else if (params.action === "start") {
-				if (params.interval_sec !== undefined) setWatchInterval(params.interval_sec);
-				text = await startWatch(ctx as ExtensionContext, params.chat_id, params.chat, params.policy);
+				const warn = params.interval_sec !== undefined ? setWatchInterval(params.interval_sec) : "";
+				text = (await startWatch(ctx as ExtensionContext, params.chat_id, params.chat, params.policy)) + warn;
 			} else {
 				const key = params.chat_id ?? params.chat;
 				if (!key) throw new Error("action='stop' needs 'chat_id' or 'chat'");
@@ -1369,8 +1376,8 @@ export default function (pi: ExtensionAPI) {
 
 			if (/^watch-interval\b/.test(arg)) {
 				try {
-					setWatchInterval(Number(arg.split(/\s+/)[1]));
-					ctx.ui.notify(`Teams watches now poll every ${watchPollSec}s in this session.`, "info");
+					const warn = setWatchInterval(Number(arg.split(/\s+/)[1]));
+					ctx.ui.notify(`Teams watches now poll every ${watchPollSec}s in this session.${warn}`, warn ? "warning" : "info");
 				} catch (e) {
 					ctx.ui.notify(`Teams watch-interval failed: ${e instanceof Error ? e.message : e}`, "error");
 				}

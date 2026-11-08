@@ -295,8 +295,16 @@ notes are prompts, not cards, and stay instructions exactly as written.
   that session's pid, session id, directory and start time. `/teams watches`
   (`action: "list"`) shows every watch and which session holds it.
 - **Ends with the session.** `/teams unwatch <chat>`, quitting, `/new`, `/resume`
-  and `/fork` all end it. Nothing persists; a crashed session frees its chats at
-  once.
+  and `/fork` all end it; a crashed session frees its chats at once.
+- **Resume list.** Every explicit start (or policy change), stop and interval
+  change rewrites the `teams_watch` section of `~/.wayne/inbox/rules.yaml`
+  (`chat`, `chat_id`, `policy`, `interval_sec`); a session ending does not, so the
+  list survives restarts. Nothing restarts a watch on its own: ask the agent to
+  resume your watches and it starts each chat from that list (the `wayne-inbox`
+  skill). Only that section is rewritten, kept last in the file; the hand-written
+  rules above it stay as written. Edits take a lock, so two sessions changing
+  different chats both land. A failed save is a warning on the result and the
+  watch runs anyway.
 - **Self-chat.** `/teams watch self` (or `chat_id: "48:notes"`) watches your own
   notes, read through chatsvc with its message ids as the cursor, for the
   baseline as for every poll. Every new note is news, since all of them are
