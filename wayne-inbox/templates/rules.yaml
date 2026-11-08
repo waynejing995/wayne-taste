@@ -1,0 +1,42 @@
+# Example only. Your rules live in ~/.wayne/inbox/rules.yaml (copy this there and edit; it is never overwritten).
+# source -> place -> rules, top to bottom, first match wins.
+# place = one chat / one repo / one mail folder / one named JQL. A place not listed is not recorded.
+# when:   exact field values (a list = any of them; "!x" = anything but x). Empty `when` matches everything.
+# action: do (an agent acts) | notify (tell you) | log (record only) | ignore (not recorded)
+# owner:  optional default handler written into the ledger row.
+
+github: # fields: number (PR number), event (review | check | merged), state, actor (reviewer login; review only)
+  example-org/example-repo:
+    - when: { event: review, actor: your-github-login }
+      action: ignore
+    - when: { number: ["101", "102"], event: review }
+      tag: pr-review
+      action: notify
+    - when: { number: ["101", "102"], event: check, state: [FAILURE, TIMED_OUT, CANCELLED] }
+      tag: ci-failed
+      action: notify
+    - when: { number: ["101", "102"], event: merged }
+      tag: pr-merged
+      action: log
+    - action: ignore
+
+outlook: # fields: from, flagged (yes | no)
+  Inbox:
+    - when: { flagged: yes }
+      tag: mail-flagged
+      action: notify
+    - action: ignore
+
+agents: # fields: event (result | gone | stalled | blocked | idle), state, mux, host. Place = session name; "*" = any session
+  "*": # results start a coordinator turn: verify, then report where --goal says
+    - when: { event: result }
+      tag: agent-result
+      action: do
+      owner: coordinator
+    - when: { event: idle }
+      tag: agent-no-result
+      action: do
+      owner: coordinator
+    - when: { event: [gone, stalled, blocked] }
+      tag: agent-trouble
+      action: notify
