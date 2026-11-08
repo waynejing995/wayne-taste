@@ -88,6 +88,8 @@ const MESSAGE_PAGE = 50;
 /** The first chat page orders by activity. Some tenants refuse that ordering, and get the plain query instead. */
 const CHATS_ORDERED = `/me/chats?$top=${CHAT_PAGE}&$expand=members,lastMessagePreview&$orderby=lastMessagePreview/createdDateTime desc`;
 const CHATS_PLAIN = `/me/chats?$top=${CHAT_PAGE}&$expand=members,lastMessagePreview`;
+/** The largest image teams_send reads: a screenshot is a few MB; anything past this is not one. */
+const IMAGE_MAX_BYTES = 20 * 1024 * 1024;
 
 /** One page of `/me/chats`. */
 interface ChatsResponse {
@@ -585,8 +587,18 @@ export class GraphBackend implements Backend {
 		if (mentions.length > 0 && !html) throw new Error("an @mention can only be sent as html");
 		if (images.length > 0 && target.kind !== "self")
 			throw new Error("images can only be sent to the self-chat for now (target='self')");
-		// Read before anything is uploaded or posted: one missing file refuses the whole message.
-		const files = images.map((p) => ({ name: path.basename(p), bytes: fs.readFileSync(p) }));
+		// Read before anything is uploaded or posted: one bad file refuses the whole message. The paths come from the
+		// model, so only a regular PNG/JPEG/GIF file under IMAGE_MAX_BYTES is read; never a device, a secret, a huge file.
+		const files = images.map((p) => {
+			const st = fs.statSync(p);
+			if (!st.isFile()) throw new Error(`image ${p} is not a regular file`);
+			if (st.size > IMAGE_MAX_BYTES) throw new Error(`image ${p} is ${st.size} bytes; the limit is ${IMAGE_MAX_BYTES}`);
+			const bytes = fs.readFileSync(p);
+			const head = bytes.subarray(0, 8).toString("latin1");
+			if (!(head.startsWith("\x89PNG\r\n\x1a\n") || head.startsWith("\xff\xd8\xff") || head.startsWith("GIF8")))
+				throw new Error(`image ${p} is not a PNG, JPEG or GIF file`);
+			return { name: path.basename(p), bytes };
+		});
 		// Resolved before anything is posted: one address the directory does not
 		// know refuses the whole message.
 		const resolved = await resolveMentions(this.graph, mentions);
