@@ -547,7 +547,9 @@ export default function (pi: ExtensionAPI) {
 	async function watchBaseline(chatId: string): Promise<string> {
 		// chatsvc ids are monotonic; "0" is before any of them, so an empty self-chat delivers its first note.
 		if (chatId === SELF_CHAT) return (await readSelfChat("", WATCH_FETCH)).at(-1)?.id ?? "0";
-		const { messages } = await backend.messages({ id: chatId }, 1);
+		// Read as many as a poll does: the newest raw message can be a system event that projection drops, and a
+		// one-message read then returned no baseline, so the first poll replayed the last WATCH_FETCH messages.
+		const { messages } = await backend.messages({ id: chatId }, WATCH_FETCH);
 		return messages.at(-1)?.at ?? "";
 	}
 
