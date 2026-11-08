@@ -588,13 +588,13 @@ export class GraphBackend implements Backend {
 		if (images.length > 0 && target.kind !== "self")
 			throw new Error("images can only be sent to the self-chat for now (target='self')");
 		// Read before anything is uploaded or posted: one bad file refuses the whole message. The paths come from the
-		// model, so only regular PNG/JPEG/GIF files totalling at most IMAGE_MAX_BYTES are read; never a device, a
-		// secret, a huge file. A non-regular path is refused before it is opened (opening a device can act); the
-		// opened descriptor must be the same inode, so a path swapped in between is refused too.
+		// model, so only regular PNG/JPEG/GIF files totalling at most IMAGE_MAX_BYTES are read and sent: never a
+		// device, a secret, a huge file. A non-regular path is refused before it is opened, and the opened descriptor
+		// must be the same inode. Not defended: a concurrent rename of a parent directory between the stat and the
+		// open; only a process of this same user could race it, and that process can open the device itself.
 		let total = 0;
 		const files = images.map((p) => {
-			// The real path, so the open below can refuse any symlink: one swapped in after this stat fails to open
-			// (O_NOFOLLOW) instead of opening the device it points at.
+			// The real path, so the open below can refuse a symlinked final component (O_NOFOLLOW).
 			const real = fs.realpathSync(p);
 			const named = fs.statSync(real);
 			if (!named.isFile()) throw new Error(`image ${p} is not a regular file`);
