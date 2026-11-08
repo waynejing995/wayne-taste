@@ -113,7 +113,8 @@ fi
 rmtime=0 rstatus=
 if [ -n "$result" ] && [ -f "$result" ]; then
   rmtime=$(stat -c %Y "$result")
-  rstatus=$(sed -n 's/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) *\([a-z_][a-z_]*\).*/\4/p' "$result" | tail -1)
+  # A line holding `|` is the contract's own template (`status: done | partial | blocked`), never a status.
+  rstatus=$(sed -n '/|/!s/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) *\([a-z_][a-z_]*\).*/\4/p' "$result" | tail -1)
 fi
 extra=
 if [ "$want" = 1 ]; then

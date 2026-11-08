@@ -443,7 +443,8 @@ def test_probe_want_tails_the_pane_when_no_session_is_held(monkeypatch, tmp_path
     ("`status:` done\n", "done"),
     ("- **status:** in_progress\n", "in_progress"),
     ("  * `status`: partial\n", "partial"),
-    ("RESULT\nstatus: done | partial | blocked\ncommits: none\n", "done"),
+    ("RESULT\nstatus: done | partial | blocked\ncommits: none\n", ""),
+    ("RESULT\nstatus: done | partial | blocked\n\nRESULT\nstatus: partial\n", "partial"),
     ("RESULT\ncommits: none\n", ""),
     ("the status: done today\n", ""),
 ])
