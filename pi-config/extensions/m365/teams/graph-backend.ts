@@ -581,8 +581,12 @@ export class GraphBackend implements Backend {
 		});
 	}
 
-	async send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = []): Promise<void> {
+	async send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = [], images: string[] = []): Promise<void> {
 		if (mentions.length > 0 && !html) throw new Error("an @mention can only be sent as html");
+		if (images.length > 0 && target.kind !== "self")
+			throw new Error("images can only be sent to the self-chat for now (target='self')");
+		// Read before anything is uploaded or posted: one missing file refuses the whole message.
+		const files = images.map((p) => ({ name: path.basename(p), bytes: fs.readFileSync(p) }));
 		// Resolved before anything is posted: one address the directory does not
 		// know refuses the whole message.
 		const resolved = await resolveMentions(this.graph, mentions);
@@ -590,7 +594,10 @@ export class GraphBackend implements Backend {
 		if (target.kind === "self") {
 			// 48:notes is chatsvc with a Skype token, not Graph. Its mention markup
 			// is chatsvc's own, so the resolved list goes to skype.ts unchanged.
-			await this.requireSkype().send(message, html, resolved);
+			const skype = this.requireSkype();
+			const uploaded = [];
+			for (const f of files) uploaded.push(await skype.uploadImage(f.bytes, f.name));
+			await skype.send(message, html, resolved, uploaded);
 			return;
 		}
 

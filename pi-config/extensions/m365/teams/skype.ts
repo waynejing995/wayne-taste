@@ -35,8 +35,20 @@ const WALK_PAGE = 50;
 
 type Transport = (
 	url: string,
-	init: { method?: string; headers: Record<string, string>; body?: string },
+	init: { method?: string; headers: Record<string, string>; body?: string | Uint8Array },
 ) => Promise<{ status: number; text(): Promise<string> }>;
+
+/** AMS derives a platform id from the User-Agent and rejects one it cannot parse (Bun's own included). */
+const AMS_USER_AGENT =
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Teams/24295.605.3225.8804/49";
+
+/** An image already stored in AMS, ready to be referenced from a message. */
+export interface AmsImage {
+	id: string;
+	name: string;
+	/** The AMS host that stored it; the `<img>` points there. */
+	host: string;
+}
 
 export interface RawSkypeMessage {
 	id?: string;
@@ -48,7 +60,7 @@ export interface RawSkypeMessage {
 export class SkypeClient {
 	/** The swap is cached: the self-chat watch polls on a timer, and paying for
 	  * an authsvc round trip per poll would triple its cost. */
-	private auth?: { skypeToken: string; messaging: string };
+	private auth?: { skypeToken: string; messaging: string; ams?: string };
 
 	constructor(
 		/** Supplies an AAD token for the Skype scope (a FOCI swap of ours). */
@@ -56,7 +68,7 @@ export class SkypeClient {
 		private readonly doFetch: Transport = fetch as unknown as Transport,
 	) {}
 
-	private async authorize(): Promise<{ skypeToken: string; messaging: string }> {
+	private async authorize(): Promise<{ skypeToken: string; messaging: string; ams?: string }> {
 		if (this.auth) return this.auth;
 		const r = await this.doFetch(AUTHZ_URL, {
 			method: "POST",
@@ -73,13 +85,17 @@ export class SkypeClient {
 		const body = JSON.parse(text) as {
 			tokens?: { skypeToken?: string };
 			skypeToken?: string;
-			regionGtms?: { messagingService?: string };
+			regionGtms?: { messagingService?: string; ams?: string };
 		};
 		const skypeToken = body.tokens?.skypeToken ?? body.skypeToken;
 		// Returning "" here would send an unauthenticated request that fails
 		// later with a message about the conversation, not about the token.
 		if (!skypeToken) throw new Error("Teams authsvc returned no skypeToken");
-		this.auth = { skypeToken, messaging: body.regionGtms?.messagingService ?? DEFAULT_MESSAGING };
+		this.auth = {
+			skypeToken,
+			messaging: body.regionGtms?.messagingService ?? DEFAULT_MESSAGING,
+			ams: body.regionGtms?.ams,
+		};
 		return this.auth;
 	}
 
@@ -89,9 +105,9 @@ export class SkypeClient {
 	 * Without this a long-lived session (a self-chat watch) went 401 forever until restarted.
 	 */
 	private async skypeFetch(
-		build: (auth: { skypeToken: string; messaging: string }) => {
+		build: (auth: { skypeToken: string; messaging: string; ams?: string }) => {
 			url: string;
-			init: { method?: string; headers: Record<string, string>; body?: string };
+			init: { method?: string; headers: Record<string, string>; body?: string | Uint8Array };
 		},
 	): Promise<{ status: number; text(): Promise<string> }> {
 		const once = async () => {
@@ -241,11 +257,21 @@ export class SkypeClient {
 	 *
 	 * A mention is chatsvc's own markup: a Mention span in the content, and
 	 * `properties.mentions`, a JSON string that names each person by `8:orgid:<oid>`.
+	 *
+	 * An image is an AMS object (see uploadImage), shown by an AMSImage `<img>` appended
+	 * after the text and listed in `amsreferences`, the same shape Teams itself posts.
 	 */
-	async send(content: string, html: boolean, mentions: readonly ResolvedMention[] = []): Promise<void> {
+	async send(
+		content: string,
+		html: boolean,
+		mentions: readonly ResolvedMention[] = [],
+		images: readonly AmsImage[] = [],
+	): Promise<void> {
+		if (images.length > 0 && !html) throw new Error("an image can only be sent as html");
+		if (images.length > 0) content += images.map((img) => amsImageTag(img)).join("");
 		const payload =
 			mentions.length === 0
-				? { content, messagetype: html ? "RichText/Html" : "Text" }
+				? { content, messagetype: html ? "RichText/Html" : "Text", ...(images.length > 0 ? { amsreferences: images.map((i) => i.id) } : {}) }
 				: {
 						content: fillMentions(
 							content,
@@ -253,6 +279,7 @@ export class SkypeClient {
 							(m, i) => `<span itemtype="http://schema.skype.com/Mention" itemscope itemid="${i}">${escapeHtml(m.name)}</span>`,
 						),
 						messagetype: "RichText/Html",
+						...(images.length > 0 ? { amsreferences: images.map((i) => i.id) } : {}),
 						properties: {
 							mentions: JSON.stringify(
 								mentions.map((m, i) => ({
@@ -280,4 +307,45 @@ export class SkypeClient {
 		}));
 		if (r.status < 200 || r.status >= 300) throw new Error(`chatsvc send ${r.status}: ${(await r.text()).slice(0, 200)}`);
 	}
+
+	/**
+	 * Store an image in AMS so a self-chat message can show it: create the object
+	 * (readable by the self-chat only), then upload the bytes. Nothing is posted.
+	 */
+	async uploadImage(bytes: Uint8Array, name: string): Promise<AmsImage> {
+		const ams = async () => {
+			const a = await this.authorize();
+			if (!a.ams) throw new Error("Teams authsvc named no AMS host; images cannot be uploaded");
+			return a.ams.replace(/\/$/, "");
+		};
+		const headers = (skypeToken: string, type: string) => ({
+			Authorization: `skype_token ${skypeToken}`,
+			"Content-Type": type,
+			"User-Agent": AMS_USER_AGENT,
+		});
+		const host = await ams();
+		const created = await this.skypeFetch(({ skypeToken }) => ({
+			url: `${host}/v1/objects`,
+			init: {
+				method: "POST",
+				headers: headers(skypeToken, "application/json"),
+				body: JSON.stringify({ type: "pish/image", permissions: { [SELF_CONVERSATION]: ["read"] }, filename: name }),
+			},
+		}));
+		const text = await created.text();
+		if (created.status < 200 || created.status >= 300) throw new Error(`AMS create ${created.status}: ${text.slice(0, 200)}`);
+		const id = (JSON.parse(text) as { id?: string }).id;
+		if (!id) throw new Error(`AMS create returned no id: ${text.slice(0, 200)}`);
+		const put = await this.skypeFetch(({ skypeToken }) => ({
+			url: `${host}/v1/objects/${encodeURIComponent(id)}/content/imgpsh`,
+			init: { method: "PUT", headers: headers(skypeToken, "application/octet-stream"), body: bytes },
+		}));
+		if (put.status < 200 || put.status >= 300) throw new Error(`AMS upload ${put.status}: ${(await put.text()).slice(0, 200)}`);
+		return { id, name, host };
+	}
+}
+
+function amsImageTag(img: AmsImage): string {
+	const id = escapeHtml(img.id);
+	return `<p><img src="${escapeHtml(img.host)}/v1/objects/${id}/views/imgo" itemtype="http://schema.skype.com/AMSImage" itemscope="png" alt="${escapeHtml(img.name)}" id="x_${id}" itemid="${id}"></p>`;
 }

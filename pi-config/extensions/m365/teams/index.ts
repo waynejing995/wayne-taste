@@ -428,8 +428,14 @@ export default function (pi: ExtensionAPI) {
 		return `#${t.channel} in "${t.team}"`;
 	}
 
-	async function send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = []): Promise<string> {
-		await backend.send(target, message, html, mentions);
+	async function send(
+		target: SendTarget,
+		message: string,
+		html: boolean,
+		mentions: Mention[] = [],
+		images: string[] = [],
+	): Promise<string> {
+		await backend.send(target, message, html, mentions, images);
 		return `Sent to ${describeTarget(target)}.`;
 	}
 
@@ -561,7 +567,8 @@ export default function (pi: ExtensionAPI) {
 			for (const m of fresh) {
 				const text = m.text.trim();
 				// The agent's own sends (teams_send footer) are not news: a reply to a card would come back as a card, forever.
-				if (text.replace(/\*+$/, "").endsWith(AGENT_FOOTER_TEXT)) continue;
+				// Images a send carries come after the footer and read back as "[name]", so they are cut before the check.
+				if (text.replace(/(\s*\[[^\]\n]*\])+$/, "").replace(/\*+$/, "").endsWith(AGENT_FOOTER_TEXT)) continue;
 				const body = COMMAND.test(text) ? text.replace(COMMAND, "").trim() : "";
 				if (body) commands.push(body);
 				else {
@@ -873,7 +880,9 @@ export default function (pi: ExtensionAPI) {
 			"To notify someone, @mention them by writing @[Display Name](their.email@domain). The mention " +
 			"becomes a real Teams mention, so the person is notified. Get the address from teams_people " +
 			"first and never guess it: an address the directory does not know fails the whole send, and " +
-			"nothing is posted.",
+			"nothing is posted. " +
+			"To show the user a picture (a screenshot, a rendered UI), pass local image paths in `images`; " +
+			"they appear under the text. Images go to the self-chat only (target='self').",
 		parameters: Type.Object({
 			target: StringEnum(["self", "chat", "channel"], { description: "Where to send" }),
 			message: Type.String({
@@ -891,6 +900,11 @@ export default function (pi: ExtensionAPI) {
 			),
 			team: Type.Optional(Type.String({ description: "Team name, required when target='channel'" })),
 			channel: Type.Optional(Type.String({ description: "Channel name, required when target='channel'" })),
+			images: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Local image file paths (png/jpg) shown under the text. target='self' only.",
+				}),
+			),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			let target: SendTarget;
@@ -917,7 +931,7 @@ export default function (pi: ExtensionAPI) {
 				// Rendered with the mention extension, so only what the Markdown reads as a
 				// mention notifies anyone: an example in code or an escaped one does not.
 				const { html: payload, mentions } = renderWithMentions(params.message + AGENT_FOOTER);
-				const msg = await send(target, payload, true, mentions);
+				const msg = await send(target, payload, true, mentions, params.images ?? []);
 				flash(ctx as ExtensionContext, "sent ✓");
 				return { content: [{ type: "text", text: msg }], details: {} };
 			} catch (e) {

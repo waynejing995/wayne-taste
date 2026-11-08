@@ -67,7 +67,7 @@ click per refresh-token lifetime is a bad trade. Nothing here ever reads it.
 | Surface | What it does |
 |---|---|
 | Status bar | `Teams: 3 unread` — chats holding unread activity, polled every 10 min |
-| `teams_send` tool | The agent sends a Teams message when you tell it to. self / chat / channel. **It says what you asked, worded naturally, at the size you asked for** — rephrasing is fine; padding it with summaries and background you never mentioned is not. To notify someone it writes `@[Name](email)`; see [@mentions](#mentions) |
+| `teams_send` tool | The agent sends a Teams message when you tell it to. self / chat / channel. **It says what you asked, worded naturally, at the size you asked for** — rephrasing is fine; padding it with summaries and background you never mentioned is not. To notify someone it writes `@[Name](email)`; see [@mentions](#mentions). `images` (local paths) shows pictures under the text — self-chat only: each is uploaded to Teams' AMS store, readable by the self-chat, and referenced the way Teams itself posts an image |
 | `teams_read` tool | The agent reads the last 20 messages of a chat or the self-chat (`limit` up to 200). A shared file becomes two lines: the name, and the url `teams_download` needs |
 | `teams_download` tool | Fetches a file someone shared, to a local path. Size-capped (256 MB default) |
 | `teams_transcript` tool | Reads the speaker-attributed transcript of a recorded meeting (`19:meeting_...@thread.v2`), or lists its recorded sessions (`list: true`, `date: "YYYY-MM-DD"` picks one). If the speaker-attributed Stream JSON is unavailable it falls back to WebVTT, which can lose speakers; the result then carries a `fallbackWarning` |
