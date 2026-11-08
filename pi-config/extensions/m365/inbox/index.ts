@@ -25,7 +25,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as auth from "../core/auth.ts";
-import { CHIEF_NOTE } from "../core/chief.ts";
+import { card, parseLedger, type Row } from "./card.ts";
 import { GraphClient } from "../core/graph.ts";
 import { setStatusPart } from "../core/status-row.ts";
 import { Mailbox } from "../outlook/mailbox.ts";
@@ -43,16 +43,8 @@ const BACKSTOP_MS = 60_000;
 const MAIL_PAGE = 50;
 const PUSHED = new Set(["notify", "do"]);
 
-type Row = Record<string, string>;
-
 function readRows(): Row[] {
-	if (!fs.existsSync(LEDGER)) return [];
-	const [header, ...lines] = fs.readFileSync(LEDGER, "utf8").split("\n").filter(Boolean);
-	const cols = header.split("\t");
-	return lines.map((l) => {
-		const cells = l.split("\t");
-		return Object.fromEntries(cols.map((c, i) => [c, cells[i] ?? ""]));
-	});
+	return fs.existsSync(LEDGER) ? parseLedger(fs.readFileSync(LEDGER, "utf8")) : [];
 }
 
 function maxId(rows: Row[]): number {
@@ -71,15 +63,6 @@ function writeCursor(id: number): void {
 	const tmp = `${CURSOR}.tmp`;
 	fs.writeFileSync(tmp, `${id}\n`);
 	fs.renameSync(tmp, CURSOR);
-}
-
-function card(rows: Row[]): string {
-	const lines = rows.map((r) => {
-		const head = `#${r.id} [${r.action}] ${r.tag} · ${r.subject}`;
-		const owner = r.owner ? ` · owner ${r.owner}` : "";
-		return `- ${head}${owner}${r.note ? `\n  ${r.note}` : ""}${r.link ? `\n  ${r.link}` : ""}`;
-	});
-	return `Inbox: ${rows.length} new\n${lines.join("\n")}\n\n${CHIEF_NOTE}\n\nHandle a row: inbox.py set <id> --state claimed --owner <who> while working, inbox.py done <id> --note <outcome> when finished (removes it from the ledger). inbox.py is ${INBOX_PY}.`;
 }
 
 /** One `inbox.py add`; rejects with its stderr, so a bad rules.yaml stops the mail cursor where it is. */
@@ -123,11 +106,17 @@ export default function inbox(pi: ExtensionAPI) {
 		flush();
 	}
 
-	/** Inbox mail since the cursor, oldest first, into the ledger; the cursor follows each one recorded. */
+	/**
+	 * Inbox mail since the cursor, oldest first, into the ledger; the cursor follows each one recorded.
+	 * Never rejects: it runs from a timer, so every failure lands on the status row and in /inbox status.
+	 */
 	async function pollMail(): Promise<void> {
-		if (!lease || mailInFlight || !/^outlook:/m.test(fs.readFileSync(path.join(DIR, "rules.yaml"), "utf8"))) return;
+		if (!lease || mailInFlight) return;
 		mailInFlight = true;
 		try {
+			// No rules.yaml, or no top-level `outlook:` in it, means mail is not watched: no Graph call.
+			const rules = path.join(DIR, "rules.yaml");
+			if (!fs.existsSync(rules) || !/^outlook:/m.test(fs.readFileSync(rules, "utf8"))) return;
 			const since = fs.readFileSync(MAIL_CURSOR, "utf8").trim();
 			const fresh = await mailSince((skip) => mailbox.list("inbox", { top: MAIL_PAGE, skip }), since, MAIL_PAGE);
 			for (const m of fresh) {
@@ -153,7 +142,7 @@ export default function inbox(pi: ExtensionAPI) {
 		const rows = held;
 		held = [];
 		pi.sendMessage(
-			{ customType: "inbox", content: card(rows), display: true, details: { ids: rows.map((r) => r.id) } },
+			{ customType: "inbox", content: card(rows, INBOX_PY), display: true, details: { ids: rows.map((r) => r.id) } },
 			{ triggerTurn: rows.some((r) => r.action === "do") },
 		);
 		writeCursor(Math.max(...rows.map((r) => Number(r.id))));
@@ -172,13 +161,19 @@ export default function inbox(pi: ExtensionAPI) {
 		if ("owner" in claimed) throw new Error(`Inbox is already delivered to another session (${describeOwner(claimed.owner)}). Stop it there first.`);
 		lease = claimed.lease;
 		ctx = c;
-		// First delivery ever: what is already in the ledger is not news.
-		if (readCursor() === null) writeCursor(maxId(readRows()));
-		fs.mkdirSync(DIR, { recursive: true });
-		// Any event in the directory rescans: Bun reports a rename by the temp file's name, not ledger.tsv.
-		dirWatch = fs.watch(DIR, () => scan());
-		// Mail before this watch is not news.
-		if (!fs.existsSync(MAIL_CURSOR)) fs.writeFileSync(MAIL_CURSOR, `${new Date().toISOString().replace(/\.\d+Z$/, "Z")}\n`);
+		try {
+			// First delivery ever: what is already in the ledger is not news.
+			if (readCursor() === null) writeCursor(maxId(readRows()));
+			fs.mkdirSync(DIR, { recursive: true });
+			// Any event in the directory rescans: Bun reports a rename by the temp file's name, not ledger.tsv.
+			dirWatch = fs.watch(DIR, () => scan());
+			// Mail before this watch is not news.
+			if (!fs.existsSync(MAIL_CURSOR)) fs.writeFileSync(MAIL_CURSOR, `${new Date().toISOString().replace(/\.\d+Z$/, "Z")}\n`);
+		} catch (e) {
+			// A half-started delivery must not keep the lease: `/inbox watch` would then answer "already delivered" forever.
+			stop();
+			throw e;
+		}
 		timer = setInterval(() => {
 			scan();
 			void pollMail();
