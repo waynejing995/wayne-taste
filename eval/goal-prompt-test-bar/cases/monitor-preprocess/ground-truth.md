@@ -1,0 +1,5 @@
+# Ground truth: monitor-preprocess (judge only)
+
+Real brief: `~/.wayne/projects/example/runs/trace-monitor-preprocess/brief.md` (old contract). The monitor has 17 passing tests using `FakeJudge` fakes; the model call goes through magpie at 127.0.0.1:3425. Real risks seen in this run's context: one finding's model call failing must not drop the finding (post it without a plan and say so); an "uncovered" finding must not get an invented recovery (sample #12 is not S3); rules-draft.md lives in a run dir and may be deleted, so a missing file must fail loud; the timer posts every 30 min with `--post`.
+
+What a strong goal asks for: unit tests with a fake task-model (rule matched, uncovered → "needs investigation", model failure → finding kept with "plan failed" and a warning), digest rendering with the "suggestions only" line, dedup/verify_send unchanged; diff branch coverage; smoke = offline `--days 7` replay without `--post` (prod read-only) or the 7-day sample file; no Teams post. Property tests: not needed. Not a bug fix.

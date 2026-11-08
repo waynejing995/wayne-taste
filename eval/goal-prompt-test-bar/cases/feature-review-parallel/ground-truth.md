@@ -1,0 +1,5 @@
+# Ground truth: feature-review-parallel (judge only)
+
+Real brief: `~/.wayne/projects/example/runs/review-service-parallel/brief.md` (written 2026-11-05 under the old contract). Facts in the snapshot: `MAX_CONCURRENT_REVIEWS = 1`; `_worker_main` passes `exclude_repos=busy_repos` because two reviews of one repo collided on `/work/<repo>`; `_build_standard_prompt` uses `/tmp/pr{N}-review`, which collides across repos with the same PR number; `_build_self_explained_prompt` has no worktree step; the working tree has ~220 lines of uncommitted changes. Historic bug in this area: `ef04e00` (live review requeued → duplicate reviewer).
+
+What a strong goal asks for: unit tests on fabricated rows/prompts — two repos with the same PR number get different worktree paths; slot filling never claims the same repo+PR twice and respects the cap; a leftover worktree does not block the next run; diff branch coverage with a pre-edit baseline (the WIP is already uncovered); smoke = restart the service and see `started (max 5 concurrent)`. Property tests: not needed. Not a bug fix, so no fail-before/pass-after requirement.
