@@ -34,7 +34,19 @@ flowchart LR
   S -->|inbox.py done| A[(archive.tsv)]
 ```
 
-`wayne-inbox-trace-monitor` (systemd user timer, 30 min) runs `scripts/trace-monitor.py --post` outside the ledger: it reads TRACE prod Postgres read-only over the jumpbox (window: the last `--days`, default 2), has a small magpie model (`--model`, `TRACE_MONITOR_MODEL`) judge Captain replies and needs_attention texts, adds TRACE-side failures from `run_reviews` and personal Captain chats silent for 7 days, and posts one digest of findings not posted before (one line per TRACE task) to the TRACE group through headless omp `teams_send`. A run counts as sent only on a `teams_send` receipt in omp's `--mode json` output; only then are the keys added to `trace-monitor.posted.json`. Without `--post` it is a dry run that prints the digest; `--target self` sends to the self-chat; `--calibrate` checks the judge on the three calibration cases. To stop posting, drop `--post` from the unit's ExecStart and `systemctl --user daemon-reload`. Tests: `cd scripts && uv run --with pytest --with click --with loguru --with httpx pytest -q test_trace_monitor.py`.
+`wayne-inbox-trace-monitor` (systemd user timer, 30 min) runs `scripts/trace-monitor.py --post` outside the ledger: it reads TRACE prod Postgres read-only through `TRACE_MONITOR_PROD_CMD` (window: the last `--days`, default 2), has a small magpie model (`--model`, `TRACE_MONITOR_MODEL`) judge Captain replies and needs_attention texts, adds TRACE-side failures from `run_reviews` and personal Captain chats silent for 7 days, and posts one digest of findings not posted before (one line per TRACE task) to the TRACE group (`TRACE_MONITOR_GROUP_CHAT`) through headless omp `teams_send`. A run counts as sent only on a `teams_send` receipt in omp's `--mode json` output; only then are the keys added to `trace-monitor.posted.json`. Without `--post` it is a dry run that prints the digest; `--target self` sends to the self-chat; `--calibrate` checks the judge on the three calibration cases. To stop posting, drop `--post` from the unit's ExecStart and `systemctl --user daemon-reload`. Tests: `cd scripts && uv run --with pytest --with click --with loguru --with httpx pytest -q test_trace_monitor.py`.
+
+Site values are not in the repo; the unit sets them as environment variables (a drop-in under `~/.config/systemd/user/wayne-inbox-trace-monitor.service.d/`). A missing one stops the run before any prod query:
+
+| Variable | Flag | Value |
+| --- | --- | --- |
+| `TRACE_MONITOR_PROD_CMD` | `--prod-cmd` | a local command that runs its stdin as bash on the TRACE prod host and prints the output; how it reaches the host and authenticates lives only in that local script |
+| `TRACE_MONITOR_TRACE_URL` | `--trace-url` | TRACE dashboard base URL (`<url>/tasks/<id>` links) |
+| `TRACE_MONITOR_JIRA_URL` | `--jira-url` | Jira base URL (`<url>/browse/<ticket>` links) |
+| `TRACE_MONITOR_GROUP_CHAT` | `--group-chat` | Teams chat id of the TRACE group; needed for `--post --target group` |
+| `TRACE_MONITOR_RULES` | `--rules-file` | handling-rules markdown; needed for `--preprocess` (`TRACE_MONITOR_PREPROCESS=1`) |
+
+`watch-prs.sh` with no arguments watches the repos listed under `github:` in `rules.yaml` (`inbox.py places github`); none listed is an error.
 
 - `rules.yaml`: `source -> place -> [rules]`, first match wins. `when` is exact match (list = any, `"!x"` = not x). `action`: `do` (card starts a turn), `notify` (card shown, waits for Wayne), `log` (ledger only, not pushed), `ignore` (not recorded). A place with no rules is not recorded.
 - GitHub fields: `number`, `event` (`review | check | merged`), `state`. To watch a PR, add its number to the `number` lists of that repo; to stop, remove it.

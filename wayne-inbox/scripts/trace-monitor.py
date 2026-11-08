@@ -12,10 +12,12 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import NamedTuple, Protocol
@@ -30,7 +32,6 @@ HOME = Path(os.environ.get("WAYNE_INBOX_DIR", Path.home() / ".wayne" / "inbox"))
 POSTED = HOME / "cursors" / "trace-monitor.posted.json"
 VERDICTS = HOME / "cursors" / "trace-monitor.verdicts.json"
 TZ = ZoneInfo("Asia/Shanghai")
-GROUP = "<group-chat-id>"
 
 # SQL validated read-only against prod on 2026-11-05 by the coordinator session (v2 after replay spot-check).
 REPLY_SQL = "select json_agg(x order by x.created_at) from (\n select ca.id, ca.conversation_id, ca.created_at, ca.sender, ca.route, ca.outcome, ca.question, ca.rendered_answer as answer,\n        ref.conversation_type, ref.locale,\n  (select coalesce(json_agg(tr), '[]'::json) from (\n     select k.ticket as ticket_id, t.id as task_id,\n            coalesce(ev.st->>'status', '(not recorded at reply time)') as task_status,\n            ev.st->>'detail' as status_detail, lr.run as latest_run_before_reply,\n            j.status as jira_status_now, j.observed_at as jira_observed_at,\n            v.output->>'is_valid' as is_valid, v.output->>'invalid_reason' as invalid_reason,\n            coalesce(v.output->'missing_fields', '[]'::jsonb) as missing_fields,\n            (select coalesce(json_object_agg(key, value), '{}'::json) from jsonb_each_text(coalesce(v.output->'other_information', '{}'::jsonb)) where right(key, 5) = '_note') as field_notes,\n            ri.comment as request_info_comment, jc.comments as trace_jira_comment_excerpts,\n            t.result->>'block_message' as block_message\n     from (select distinct upper(m[1]) as ticket from regexp_matches(ca.question || ' ' || ca.rendered_answer, '\\m([A-Za-z][A-Za-z0-9]+-[0-9]+)\\M', 'g') m) k\n     left join lateral (select * from tasks t where t.ticket_id = k.ticket and t.deleted_at is null order by t.created_at desc limit 1) t on true\n     left join lateral (select coalesce(\n              (select json_build_object('status', e.data->>'status', 'detail', e.data->>'detail') from trace_events e where e.task_id = t.id::text and e.type = 'task_status_changed' and e.created_at <= ca.created_at order by e.created_at desc limit 1),\n              case when t.status_entered_at <= ca.created_at then json_build_object('status', t.status, 'detail', t.status_detail) end) as st) ev on true\n     left join lateral (select json_build_object('run_number', r.run_number, 'status_now', r.status, 'started_at', r.started_at, 'finished_at', r.finished_at, 'running_at_reply_time', r.finished_at is null or r.finished_at > ca.created_at) as run from pipeline_runs r where r.task_id = t.id and r.started_at <= ca.created_at order by r.run_number desc limit 1) lr on true\n     left join lateral (select coalesce(json_agg(c.x order by c.at), '[]'::json) as comments from (select e.created_at as at, e.data->>'excerpt' as x from trace_events e where e.task_id = t.id::text and e.type = 'jira_comment_posted' and e.created_at <= ca.created_at order by e.created_at desc limit 3) c) jc on true\n     left join lateral (select s.output from pipeline_steps s join pipeline_runs r on r.id = s.run_id where r.task_id = t.id and s.step_id = 'validate' and s.status = 'completed' and s.finished_at <= ca.created_at order by s.finished_at desc limit 1) v on true\n     left join lateral (select s.input->>'comment' as comment from pipeline_steps s join pipeline_runs r on r.id = s.run_id where r.task_id = t.id and s.step_id = 'request_info' and s.finished_at <= ca.created_at order by s.finished_at desc limit 1) ri on true\n     left join jira_ticket_observations j on j.ticket_id = k.ticket\n     where t.id is not null or j.ticket_id is not null\n  ) tr) as truths\n from captain_answers ca left join teams_conversation_refs ref using (conversation_id)\n where ca.created_at >= :S and ca.created_at < :U\n) x"
@@ -57,10 +58,28 @@ Output exactly one JSON object: {"flag": bool, "reason": str}."""
 FAILURE_RUBRIC = """Write the one-line reason for an already classified TRACE-side failure using the signal, review reason and error in the case. Do not reclassify it. The reason is one line in Simplified Chinese naming what failed. Keep flag=true; the caller ignores the flag.
 Output exactly one JSON object: {"flag": bool, "reason": str}."""
 
+PLAN_RUBRIC = """You propose how to pre-process one TRACE monitor finding, using only the handling rules below
+(R1–R5 main table; S1–S13 single-evidence items; C1–C4 conflicts). This is a proposal; nothing will be executed.
+Pick the one rule whose category and signal match the finding's evidence. Use an R rule only when the finding matches
+its signal; use an S item when only an S item describes it; use "uncovered" when nothing matches. Do not stretch a
+rule to a different record kind: for example, S3's requeue covers exhausted post-Jira ticket_reviews only, never
+failed run_reviews.
+For an R rule, give at most 3 short steps in Simplified Chinese drawn from that rule's recorded actions or suggested
+automation, applied to this finding. Mark approval=true for any step that reruns, retries, requeues, edits or comments
+in Jira, changes code, deploys, or sends a message to anyone. Never invent an action the rule does not record.
+For an S item or "uncovered", return "steps": [].
+Output exactly one JSON object: {"rule": "R1".."R5" | "S1".."S13" | "uncovered", "steps": [{"step": str, "approval": bool}]}.
+"""
+
 
 class Verdict(NamedTuple):
     flag: bool
     reason: str
+
+
+class Plan(NamedTuple):
+    rule: str
+    steps: tuple[tuple[str, bool], ...]
 
 
 class Finding(NamedTuple):
@@ -71,6 +90,7 @@ class Finding(NamedTuple):
     reason: str
     task_id: str | None = None
     ticket: str | None = None
+    evidence: str | None = None
 
 
 class Judge(Protocol):
@@ -90,12 +110,59 @@ def parse_verdict(raw: str) -> Verdict:
     return Verdict(data["flag"], reason)
 
 
+def parse_plan(raw: str) -> Plan:
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        raise ValueError("no JSON object")
+    data = json.loads(match.group())
+    if not isinstance(data, dict):
+        raise ValueError("invalid plan fields")
+    rule = data.get("rule")
+    if not isinstance(rule, str) or not re.fullmatch(r"R[1-5]|S(?:[1-9]|1[0-3])|uncovered", rule):
+        raise ValueError(f"rule {rule!r} not allowed")
+    if not rule.startswith("R"):
+        return Plan(rule, ())
+    steps = data.get("steps")
+    if not isinstance(steps, list) or not 1 <= len(steps) <= 3:
+        raise ValueError("R rule requires 1–3 steps")
+    result = []
+    for item in steps:
+        if (not isinstance(item, dict) or not isinstance(item.get("step"), str)
+                or type(item.get("approval")) is not bool):
+            raise ValueError("invalid step fields")
+        step = " ".join(item["step"].split())
+        if not step:
+            raise ValueError("empty plan step")
+        approval = item["approval"] or bool(re.search(
+            r"rerun|re-run|retry|requeue|jira|comment|message|notify|deploy|(?<![a-z])pr(?![a-z])|重跑|重试|入队|评论|消息|通知|部署|@",
+            step, re.IGNORECASE))
+        result.append((step if len(step) <= 80 else step[:79].rstrip() + "\u2026", approval))
+    return Plan(rule, tuple(result))
+
+
+def task_model() -> tuple[str, str | None]:
+    try:
+        result = subprocess.run(["omp", "config", "get", "modelRoles", "--json"],
+                                check=True, capture_output=True, text=True, timeout=30)
+        model = json.loads(result.stdout)["value"]["task"]
+        if not isinstance(model, str) or not model.startswith("magpie/"):
+            raise ValueError(f"task model {model!r} is not a magpie model")
+        model = model.removeprefix("magpie/")
+        effort_match = re.search(r":(minimal|low|medium|high|xhigh)$", model)
+        if effort_match:
+            return model[:effort_match.start()], effort_match.group(1)
+        return model, None
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as exc:
+        raise click.ClickException(f"task model failed: {type(exc).__name__}: {exc}") from exc
+
+
 class MagpieJudge:
-    def __init__(self, base_url: str, model: str):
+    def __init__(self, base_url: str, model: str, effort: str | None = None):
         self.url = base_url.rstrip("/")
         if not self.url.endswith("/chat/completions"):
             self.url += "/chat/completions"
         self.model = model
+        self.effort = effort
 
     def judge(self, rubric: str, case: str) -> Verdict:
         request = {
@@ -119,26 +186,60 @@ class MagpieJudge:
                 logger.warning("judge returned invalid output on attempt {} ({})", attempt + 1, type(exc).__name__)
         raise click.ClickException("judge returned invalid output after retry")
 
+    def plan(self, system: str, case: str) -> Plan:
+        request = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": case}],
+            "temperature": 0,
+            "max_tokens": 8000,
+        }
+        if self.effort is not None:
+            request["reasoning_effort"] = self.effort
+        try:
+            response = httpx.post(self.url, json=request, timeout=300)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise click.ClickException(f"plan transport failed: {type(exc).__name__}: {exc}") from exc
+        try:
+            content = response.json()["choices"][0]["message"]["content"]
+            if not isinstance(content, str):
+                raise ValueError("completion is not text")
+            return parse_plan(content)
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise click.ClickException(f"plan output invalid: {type(exc).__name__}: {exc}") from exc
 
-def prod(cmd: str, timeout=180) -> str:
-    b = base64.b64encode(cmd.encode()).decode()
-    inner = ("PW=$(grep -o \"<password-ssh> -p '[^']*' ssh <prod-user>@<prod-ip>\" ~/.<credential-file> | tail -1 | sed \"s/^<password-ssh> -p '//; s/' ssh.*//\"); "
-             f"<password-ssh> -p \"$PW\" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 <prod-user>@<prod-ip> \"echo {b} | base64 -d | bash\"")
+
+def plan_findings(findings: list[Finding], planner: MagpieJudge, system: str) -> list[Plan | str]:
+    def plan_one(finding: Finding) -> Plan | str:
+        case = (f"tag: {finding.tag}\ntitle: {finding.title}\nlink: {finding.link}\n"
+                f"judge reason: {finding.reason}\nevidence:\n{finding.evidence or ''}")
+        try:
+            return planner.plan(system, case)
+        except click.ClickException as exc:
+            logger.warning("preprocess plan failed for {}: {}", finding.key, exc)
+            return exc.message
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        return list(executor.map(plan_one, findings))
+
+
+def prod(runner: str, cmd: str, timeout=180) -> str:
+    """Run a bash script on the TRACE prod host: `runner` (TRACE_MONITOR_PROD_CMD) is a local command that runs
+    its stdin as bash there and prints the output. How it reaches the host and authenticates stays out of the repo."""
     try:
-        r = subprocess.run(["ssh", "-o", "BatchMode=yes", "<jump-host>", inner], capture_output=True, text=True,
-                           timeout=timeout)
+        r = subprocess.run(shlex.split(runner), input=cmd, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise click.ClickException(f"prod ssh failed: {type(exc).__name__}") from exc
+        raise click.ClickException(f"prod runner failed: {type(exc).__name__}") from exc
     if r.returncode:
-        raise click.ClickException(f"prod ssh exited {r.returncode}: {r.stderr[-1000:]}")
+        raise click.ClickException(f"prod runner exited {r.returncode}: {r.stderr[-1000:]}")
     return r.stdout
 
 
-def query_json(select_sql: str, since: datetime, until: datetime) -> list[dict]:
+def query_json(select_sql: str, since: datetime, until: datetime, runner: str) -> list[dict]:
     body = select_sql.replace(':S', f"'{since.isoformat()}'::timestamptz").replace(':U', f"'{until.isoformat()}'::timestamptz")
     sql = "BEGIN READ ONLY;\n" + f"select translate(encode(convert_to(coalesce(({body})::text,'[]'),'UTF8'),'base64'), E'\\n', '');" + "\nROLLBACK;"
     b = base64.b64encode(sql.encode()).decode()
-    out = prod(f"echo {b} | base64 -d | docker exec -i trace-db-1 psql -U trace -d trace -At")
+    out = prod(runner, f"echo {b} | base64 -d | docker exec -i trace-db-1 psql -U trace -d trace -At")
     lines = [line.strip() for line in out.splitlines() if line.strip()]
     if len(lines) != 3 or lines[0] != "BEGIN" or lines[2] != "ROLLBACK":
         raise click.ClickException(f"unexpected prod query output: {out[-1000:]}")
@@ -162,10 +263,15 @@ def cached(judge: Judge, cache: dict[str, Verdict], rubric: str, case: str, key:
     return cache[cache_key]
 
 
-def link(task_id: str | None, ticket: str | None = None) -> str | None:
-    if task_id:
-        return f"https://trace.example.com/tasks/{task_id}"
-    return f"https://example.atlassian.net/browse/{ticket}" if ticket else None
+class Links(NamedTuple):
+    """Base URLs of the TRACE dashboard and Jira (TRACE_MONITOR_TRACE_URL, TRACE_MONITOR_JIRA_URL)."""
+    trace: str
+    jira: str
+
+    def to(self, task_id: str | None, ticket: str | None = None) -> str | None:
+        if task_id:
+            return f"{self.trace.rstrip('/')}/tasks/{task_id}"
+        return f"{self.jira.rstrip('/')}/browse/{ticket}" if ticket else None
 
 
 def strip_quote(answer: str) -> str:
@@ -189,17 +295,19 @@ def reply_case(row: dict) -> str:
     ])
 
 
-def confusing_replies(rows: list[dict], judge: Judge, cache: dict[str, Verdict]) -> tuple[list[Finding], int]:
+def confusing_replies(rows: list[dict], judge: Judge, cache: dict[str, Verdict],
+                      links: Links) -> tuple[list[Finding], int]:
     findings = []
     for row in sorted(rows, key=lambda item: len(strip_quote(item["answer"])), reverse=True):
         key = f"confusing_reply:{row['id']}"
-        verdict = cached(judge, cache, REPLY_RUBRIC, reply_case(row), key)
+        case = reply_case(row)
+        verdict = cached(judge, cache, REPLY_RUBRIC, case, key)
         if verdict.flag:
             truths = row.get("truths") or []
             ticket = truths[0].get("ticket_id") if truths else None
             task = next((truth.get("task_id") for truth in truths if truth.get("task_id")), None)
-            findings.append(Finding(key, "Captain \u56de\u590d", ticket or "(no ticket)", link(task, ticket),
-                                    verdict.reason, task, ticket))
+            findings.append(Finding(key, "Captain \u56de\u590d", ticket or "(no ticket)", links.to(task, ticket),
+                                    verdict.reason, task, ticket, case))
     return findings, len(rows)
 
 
@@ -213,7 +321,8 @@ def keep_failure(row: dict) -> bool:
     return False
 
 
-def trace_failures(rows: list[dict], judge: Judge, cache: dict[str, Verdict]) -> tuple[list[Finding], int]:
+def trace_failures(rows: list[dict], judge: Judge, cache: dict[str, Verdict],
+                   links: Links) -> tuple[list[Finding], int]:
     findings = []
     groups = defaultdict(list)
     kept = 0
@@ -227,13 +336,17 @@ def trace_failures(rows: list[dict], judge: Judge, cache: dict[str, Verdict]) ->
             case = json.dumps(row, ensure_ascii=False, indent=2)
             verdict = cached(judge, cache, FAILURE_RUBRIC, case, key)
             title = f"{row.get('ticket_id') or '(no ticket)'} #{row['run_number']}"
-            findings.append(Finding(key, "TRACE \u5931\u8d25", title, link(row.get("task_id"), row.get("ticket_id")),
-                                    verdict.reason, row.get("task_id"), row.get("ticket_id")))
+            findings.append(Finding(key, "TRACE \u5931\u8d25", title, links.to(row.get("task_id"), row.get("ticket_id")),
+                                    verdict.reason, row.get("task_id"), row.get("ticket_id"), case))
     for first_line, grouped in groups.items():
         key = f"trace_failure:review_error:{sha(first_line)}"
         case = f"reviewer error, occurrences: {len(grouped)}\nerror:\n{grouped[0].get('review_error') or first_line}"
         verdict = cached(judge, cache, FAILURE_RUBRIC, case, key)
-        findings.append(Finding(key, "TRACE \u5931\u8d25", f"reviewer error \u00d7{len(grouped)}", None, verdict.reason))
+        evidence = "\n".join([case, *(
+            f"{item.get('ticket_id')} #{item.get('run_number')} {item.get('run_status')} {item.get('failure_kind')}"
+            for item in grouped)])
+        findings.append(Finding(key, "TRACE \u5931\u8d25", f"reviewer error \u00d7{len(grouped)}", None,
+                                verdict.reason, evidence=evidence))
     return findings, kept
 
 
@@ -252,11 +365,13 @@ def silent_services(rows: list[dict], now: datetime) -> list[Finding]:
         name = row.get("user_name") or "(unknown)"
         question = " ".join(row["question"].split())[:60]
         key = f"silent_service:{row['conversation_id']}:{row['asked_at']}"
-        findings.append(Finding(key, "7 \u5929\u672a\u56de\u590d", name, None, f"{name} \u63d0\u95ee 7 \u5929\u65e0 Captain \u56de\u7b54\uff1a{question}"))
+        evidence = f"user: {name}\nasked_at: {row['asked_at']}\nquestion: {row['question']}"
+        findings.append(Finding(key, "7 \u5929\u672a\u56de\u590d", name, None,
+                                f"{name} \u63d0\u95ee 7 \u5929\u65e0 Captain \u56de\u7b54\uff1a{question}", evidence=evidence))
     return findings
 
 
-def confusing_attention(rows: list[dict], judge: Judge, cache: dict[str, Verdict]) -> list[Finding]:
+def confusing_attention(rows: list[dict], judge: Judge, cache: dict[str, Verdict], links: Links) -> list[Finding]:
     findings = []
     for row in rows:
         key = f"confusing_attention:{row['task_id']}:{row.get('status_detail')}"
@@ -264,8 +379,8 @@ def confusing_attention(rows: list[dict], judge: Judge, cache: dict[str, Verdict
         verdict = cached(judge, cache, ATTENTION_RUBRIC, case, key)
         if verdict.flag:
             findings.append(Finding(key, "needs_attention", row.get("ticket_id") or "(no ticket)",
-                                    link(row["task_id"], row.get("ticket_id")), verdict.reason,
-                                    row["task_id"], row.get("ticket_id")))
+                                    links.to(row["task_id"], row.get("ticket_id")), verdict.reason,
+                                    row["task_id"], row.get("ticket_id"), case))
     return findings
 
 
@@ -288,7 +403,7 @@ def calibration_cases() -> list[dict]:
         "id": "00000000-0000-4000-8000-000000000004", "created_at": "2026-11-05T05:25:37.285079+00:00",
         "sender": "Petrovic, Marko", "route": "agentkit", "outcome": "answer", "conversation_type": "personal",
         "locale": "en-US", "truths": [truth],
-        "question": "pitanje je za ovaj task: https://example.atlassian.net/browse/PROJ-1001\nTRACE kaze missing_fields: host_os, vf_num, failed_log. If fields are missing, edit the ticket description and click Retry.\na meni u opisu tiketa stoji: Windows host unclean reboot. Host OS: Windows. VF Num: N/A (reproduced with all / any VF count). Failed Log: N/A (host unclean reboot / no failure log generated). znaci postoje te informacije",
+        "question": "pitanje je za ovaj task: https://jira.example.com/browse/PROJ-1001\nTRACE kaze missing_fields: host_os, vf_num, failed_log. If fields are missing, edit the ticket description and click Retry.\na meni u opisu tiketa stoji: Windows host unclean reboot. Host OS: Windows. VF Num: N/A (reproduced with all / any VF count). Failed Log: N/A (host unclean reboot / no failure log generated). znaci postoje te informacije",
         "answer": "> **Petrovic, Marko asked:**\n> pitanje je za ovaj task PROJ-1001\n\nMarko, u pravu si. Proverio sam trenutni opis **PROJ-1001**: u njemu već stoje **Host OS: Windows**, **VF Num: N/A** uz objašnjenje da se problem reprodukuje sa bilo kojim brojem VF-ova, i **Failed Log: N/A** uz objašnjenje da log nije generisan. Tip tiketa je **Defect**, tako da ni to nije problem koji treba da ispraviš.\n\nTRACE ipak vodi task kao **needs_attention / ticket_invalid**, bez PR-a. Ne mogu iz dostupnog statusa da utvrdim zašto je provera prijavila sva tri polja kao nedostajuća. Moguće je da ne prepoznaje format ili vrednosti `N/A`, ali to ne bih tvrdio bez uvida u samu proveru. Takođe, poruka u komentaru kaže da tiket ostaje *Opened*, dok je njegov trenutni JIRA status **Assessed** — taj deo poruke više ne odražava trenutno stanje.\n\n**Ne bih menjao opis samo da ponoviš informacije koje već postoje.** Ako želiš, mogu da pokrenem ponovni pokušaj TRACE taska; ako ponovo prijavi ista polja, to bi bio jasan signal da treba ispraviti validaciju, a ne sadržaj tiketa.",
     }
     correct = {**row, "id": "calibration-correct", "question": "Koja polja nedostaju i šta da radim?",
@@ -334,12 +449,40 @@ def merged_line(group: list[Finding]) -> str:
 
 
 def render_digest(findings: list[Finding], now: datetime, replies: int, failures: int, kept: int,
-                  attention: int, silent: int) -> str:
+                  attention: int, silent: int, plans: list[Plan | str] | None = None) -> str:
     lines = [f"TRACE monitor {now.astimezone(TZ):%m-%d %H:%M} \u00b7 {len(findings)} new"]
-    groups: dict[str | None, list[Finding]] = {}
-    for finding in findings:
-        groups.setdefault(finding.task_id or f"key:{finding.key}", []).append(finding)
-    lines.extend(merged_line(group) for group in groups.values())
+    groups: dict[str, list[tuple[Finding, Plan | str | None]]] = {}
+    for finding, plan in zip(findings, plans or [None] * len(findings)):
+        groups.setdefault(finding.task_id or f"key:{finding.key}", []).append((finding, plan))
+    if plans is not None:
+        lines.insert(0, "以下「建议」是模型按处理规则草稿生成的预处理方案，仅供参考，没有执行任何操作。")
+    for group in groups.values():
+        lines.append(merged_line([finding for finding, _ in group]))
+        if plans is None:
+            continue
+        names: dict[str, str] = {}
+        for finding, _ in group:
+            same = [item for item, _ in group if item.tag == finding.tag]
+            if "#" in finding.title:
+                names[finding.key] = f"{finding.tag} #{finding.title.rsplit('#', 1)[-1]}"
+            else:
+                names[finding.key] = f"{finding.tag} {same.index(finding) + 1}" if len(same) > 1 else finding.tag
+        proposals: dict[Plan | str, list[Finding]] = {}
+        for finding, plan in group:
+            proposals.setdefault(plan, []).append(finding)
+        for plan, items in proposals.items():
+            prefix = f"[{', '.join(names[finding.key] for finding in items)}] " if len(proposals) > 1 else ""
+            label = "建议" if isinstance(plan, str) else f"建议 [{plan.rule}]"
+            if len(items) > 1:
+                label += f" ×{len(items)}"
+            if isinstance(plan, str):
+                detail = f"方案生成失败（{' '.join(plan.split())[:100]}）"
+            elif plan.rule.startswith("R"):
+                detail = "；".join(f"{i}) {step}{'（需批准）' if approval else ''}"
+                                  for i, (step, approval) in enumerate(plan.steps, 1))
+            else:
+                detail = "no handling record; needs investigation（无处理记录，需调查）"
+            lines.append(f"  - {prefix}{label}: {detail}")
     lines.append(f"judged: {replies} Captain answers \u00b7 {failures} failed/blocked runs ({kept} kept) \u00b7 "
                  f"{attention} needs_attention \u00b7 {silent} silent")
     return "\n".join(lines)
@@ -350,7 +493,7 @@ def receipt_text(event: dict) -> str:
     return "".join(item.get("text", "") for item in content if isinstance(item, dict))
 
 
-def verify_send(stdout: str, target: str, digest: str) -> str:
+def verify_send(stdout: str, target: str, digest: str, group: str | None) -> str:
     events = []
     for line in stdout.splitlines():
         try:
@@ -364,7 +507,7 @@ def verify_send(stdout: str, target: str, digest: str) -> str:
     text = receipt_text(end)
     if end.get("isError") is True:
         raise click.ClickException(f"teams_send tool error: {text or 'unknown'}")
-    expected = ("Sent to self-chat (48:notes)." if target == "self" else f"Sent to chat {GROUP}.")
+    expected = ("Sent to self-chat (48:notes)." if target == "self" else f"Sent to chat {group}.")
     if not text.startswith(expected):
         raise click.ClickException(f"teams_send receipt does not match {target}: {text or '(empty)'}")
     starts = [event for event in events if event.get("type") == "tool_execution_start"
@@ -374,13 +517,13 @@ def verify_send(stdout: str, target: str, digest: str) -> str:
         raise click.ClickException("teams_send message differs from the digest")
     if target == "self" and args.get("target") != "self":
         raise click.ClickException(f"teams_send target is {args.get('target')!r}, expected self")
-    if target == "group" and (args.get("target") != "chat" or args.get("chat_id") != GROUP):
+    if target == "group" and (args.get("target") != "chat" or args.get("chat_id") != group):
         raise click.ClickException(f"teams_send target is {args.get('target')!r} {args.get('chat_id')!r}, expected group")
     return text
 
 
-def post_digest(target: str, digest: str) -> str:
-    destination = (f"`target: chat` with `chat_id` `{GROUP}`" if target == "group" else "`target: self`")
+def post_digest(target: str, digest: str, group: str | None) -> str:
+    destination = (f"`target: chat` with `chat_id` `{group}`" if target == "group" else "`target: self`")
     prompt = (HERE / "trace-monitor.prompt.md").read_text().replace("{{DESTINATION}}", destination)
     prompt = prompt.replace("{{DIGEST}}", digest)
     command = ["omp", "-p", "--mode", "json", "--no-session", "--no-title", "--max-time", "10m",
@@ -390,21 +533,45 @@ def post_digest(target: str, digest: str) -> str:
             result = subprocess.run(command, check=True, capture_output=True, text=True, cwd=tmp)
     except (OSError, subprocess.CalledProcessError) as exc:
         raise click.ClickException(f"omp post failed: {type(exc).__name__}") from exc
-    return verify_send(result.stdout, target, digest)
+    return verify_send(result.stdout, target, digest, group)
 
 
 @click.command()
 @click.option("--days", default=2, type=click.IntRange(min=1), show_default=True)
 @click.option("--post", is_flag=True)
 @click.option("--target", type=click.Choice(["group", "self"]), default="group", show_default=True)
+@click.option("--group-chat", envvar="TRACE_MONITOR_GROUP_CHAT",
+              help="Teams chat id of the TRACE group; required for --post --target group")
 @click.option("--model", envvar="TRACE_MONITOR_MODEL", default="group/small-model", show_default=True)
 @click.option("--judge-url", envvar="TRACE_MONITOR_JUDGE_URL", default="http://127.0.0.1:3425/v1", show_default=True)
+@click.option("--prod-cmd", envvar="TRACE_MONITOR_PROD_CMD", required=True,
+              help="local command that runs its stdin as bash on the TRACE prod host and prints the output")
+@click.option("--trace-url", envvar="TRACE_MONITOR_TRACE_URL", required=True, help="TRACE dashboard base URL")
+@click.option("--jira-url", envvar="TRACE_MONITOR_JIRA_URL", required=True, help="Jira base URL")
+@click.option("--rules-file", envvar="TRACE_MONITOR_RULES", type=click.Path(dir_okay=False, path_type=Path),
+              help="TRACE handling rules (markdown); required for --preprocess")
 @click.option("--calibrate", is_flag=True)
+@click.option("--preprocess", is_flag=True, envvar="TRACE_MONITOR_PREPROCESS")
 @click.option("-v", "--verbose", is_flag=True)
-def main(days: int, post: bool, target: str, model: str, judge_url: str, calibrate: bool, verbose: bool) -> None:
+def main(days: int, post: bool, target: str, group_chat: str | None, model: str, judge_url: str, prod_cmd: str,
+         trace_url: str, jira_url: str, rules_file: Path | None, calibrate: bool, preprocess: bool,
+         verbose: bool) -> None:
     logger.remove()
     logger.add(sys.stderr, level="DEBUG" if verbose else "INFO")
+    if post and target == "group" and not group_chat:
+        raise click.UsageError("--post --target group needs --group-chat / TRACE_MONITOR_GROUP_CHAT")
+    if preprocess and rules_file is None:
+        raise click.UsageError("--preprocess needs --rules-file / TRACE_MONITOR_RULES")
+    links = Links(trace_url, jira_url)
     judge = MagpieJudge(judge_url, model)
+    if preprocess:
+        try:
+            rules = rules_file.read_text().split("\n## 回放", 1)[0]
+        except OSError as exc:
+            raise click.ClickException(f"cannot read rules {rules_file}: {type(exc).__name__}: {exc}") from exc
+        planner_model, effort = task_model()
+        planner = MagpieJudge(judge_url, planner_model, effort)
+        system = f"{PLAN_RUBRIC}\n{rules}"
     if calibrate:
         matches = True
         for name, row, expected in zip(("PROJ-1001", "Serbian correct", "short misleading"),
@@ -418,14 +585,14 @@ def main(days: int, post: bool, target: str, model: str, judge_url: str, calibra
     now = datetime.now(TZ)
     since = now - timedelta(days=days)
     logger.info("reading TRACE production window {} to {}", since.isoformat(), now.isoformat())
-    replies = query_json(REPLY_SQL, since, now)
-    failures = query_json(FAIL_SQL, since, now)
-    silent = query_json(SILENT_SQL, since, now)
-    attention = query_json(ATT_SQL, since, now)
+    replies = query_json(REPLY_SQL, since, now, prod_cmd)
+    failures = query_json(FAIL_SQL, since, now, prod_cmd)
+    silent = query_json(SILENT_SQL, since, now, prod_cmd)
+    attention = query_json(ATT_SQL, since, now, prod_cmd)
     cache = {key: Verdict(**value) for key, value in read_json(VERDICTS, {}).items()}
-    reply_findings, judged = confusing_replies(replies, judge, cache)
-    failure_findings, kept = trace_failures(failures, judge, cache)
-    attention_findings = confusing_attention(attention, judge, cache)
+    reply_findings, judged = confusing_replies(replies, judge, cache, links)
+    failure_findings, kept = trace_failures(failures, judge, cache, links)
+    attention_findings = confusing_attention(attention, judge, cache, links)
     write_json(VERDICTS, {key: verdict._asdict() for key, verdict in cache.items()})
     silent_findings = silent_services(silent, now)
     posted = set(read_json(POSTED, []))
@@ -437,9 +604,10 @@ def main(days: int, post: bool, target: str, model: str, judge_url: str, calibra
     if not new:
         click.echo("no new findings")
         return
-    digest = render_digest(new, now, judged, len(failures), kept, len(attention), len(silent_findings))
+    plans = plan_findings(new, planner, system) if preprocess else None
+    digest = render_digest(new, now, judged, len(failures), kept, len(attention), len(silent_findings), plans)
     if post:
-        logger.info("teams_send receipt: {}", post_digest(target, digest))
+        logger.info("teams_send receipt: {}", post_digest(target, digest, group_chat))
         write_json(POSTED, sorted(posted))
     else:
         click.echo(digest)
