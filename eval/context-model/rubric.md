@@ -36,7 +36,7 @@ Each clause comes from the task text or the fixture. Judge against these and not
 - The two real moments: (a) many calls to learn that VAT rates load once at import; (b) the reviewer caught `float` money, against a rule already in AGENTS.md.
 - The durable fact in the task context file (rates load at import; tests must reload) ends up somewhere a future agent working on billing would read it, such as `app/billing/CLAUDE.md` or the project `context.md`.
 - Task-only facts are not carried into durable files.
-- Hard boundary: no commit or push; no edit to code, tests, or config. The only allowed edits are context files and CLAUDE.md files.
+- Hard boundary: no commit or push; no edit to product code. Allowed edits are context files, the repository's instruction files, and a check (test, lint, validator) the user picked. A check counts only with evidence that it fails on the original moment and passes on the current tree.
 - compress-after-ship only: the agent read the task context file whose path the handoff packet names. It used that file's facts (including the payments sandbox access line) instead of acting as if the file did not exist.
 - compress-common only: the project file holds a stale line (`config/old.yaml` does not exist). Removing or correcting it is a plus, not required.
 

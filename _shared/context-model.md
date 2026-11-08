@@ -28,7 +28,7 @@ Context lives outside the repository, in the project state directory (`pipeline-
 | `<state>/context.md` | the project | grows across tasks; `wayne-compress` prunes it |
 | `<state>/runs/<topic>/context.md` | one task | starts at `wayne-context-init`; survives `wayne-ship`'s run-directory clear; `wayne-compress` removes it |
 
-Knowledge that a repository reader also needs goes into the repository's nearest module `CLAUDE.md`, never into `context.md`. `wayne-compress` makes that move.
+Knowledge that a repository reader also needs goes into the module's instruction file the repository already uses (`AGENTS.md` or `CLAUDE.md`), never into `context.md`. `wayne-compress` makes that move.
 
 ## Shape
 

@@ -277,13 +277,13 @@ description: |
 
 ### 8. Learning & Evolve
 
-> "解了非平凡问题就跑 wayne-compound。Skill 用一次升级一次。"
+> "出错就改机制或设计，不写没人读的 lesson。Skill 用一次升级一次。"
 
-**证据**：146 条 learning/evolve 时刻；wayne-compound / wayne-checkpoint / KB SCHEMA Layer A+B / hermes skill_manage 都是这条原则的产物形态。
+**证据**：146 条 learning/evolve 时刻；wayne-compress / wayne-checkpoint / hermes skill_manage 都是这条原则的产物形态。
 
 **核心信念**：
 
-- 每次 painful experience 必须沉淀，否则下次还要付一遍
+- 每次 painful experience 必须变成一个环境改动（check / 指针 / 权限 / 删规则），否则下次还要付一遍
 - Skill / knowledge 是**活的**，写完不锁——用一次发现缺啥就补，patch 阈值很低
 - Learning 也要 **proportional** —— trivial 不沉淀，否则 KB / skill 被噪音淹没
 - Learning 不靠"记得遵守"，靠 **mechanism 强制**（hook / HARD-GATE / API 级 scope）
@@ -292,27 +292,28 @@ description: |
 
 | # | 触发 | 行动 | 证据 |
 | --- | --- | --- | --- |
-| 1 | 解了非平凡问题 / "that worked" / "it's fixed" | 立刻跑 wayne-compound 提取"真正洞察"（不是复述过程） | wayne-compound auto-trigger |
+| 1 | 任务 ship 完 / "that worked" / "it's fixed" | 跑 wayne-compress：从会话日志找出耗时或出错的时刻，每个落成一个 check、指针或 skill 修改；不写 lesson 文档 | wayne-compress |
 | 2 | 用 skill 时发现缺步骤 / 命令错 / 缺 pitfall | 立刻 patch，不等到下次踩 —— "improve the skill" / "should fix the extract first" | hermes skill_manage 原则 |
 | 3 | 1 command = 1 skill = 1 名字 | 命名 / readme / marketplace / plugin 同步联动，不许版本漂移 | "i mean 1 command 1 skill, they share the name" |
-| 4 | 沉淀 insight | 分层：项目内归项目（KB project-level），跨项目才提到 global。乱混 = 污染 | KB SCHEMA Layer A 元数据 / Layer B content judgment |
+| 4 | 沉淀事实 | 分层：只属于本任务的进 `runs/<topic>/context.md`，项目级进 `<state>/context.md` 或仓库指令文件，跨项目才进 global。乱混 = 污染 | context model |
 | 5 | 想加新 skill / 沉淀新东西 | 先问"任务复杂度撑得起这个 skill 吗"。trivial → 不加 | "sometimes it's a simple request, will the new skill too heavy?" + CLAUDE.md proportional effort |
 | 6 | 学到的规则需要被遵守 | 用 hook / HARD-GATE / API scope 强制，不靠 prompt 里写"请记得" | autoresearch-x scope-guard hook / wayne-ship HARD-GATE |
 
-#### 演化的双层结构
+#### 演化的分层
 
-| 层 | 寿命 | 触发 | 例 |
-| --- | --- | --- | --- |
-| 战术层（lesson） | 单次任务 / 单次 bug | 解决后即写 | wayne-compound 写到 wayne-note/how-to/（lesson 靠 frontmatter 区分，不单建目录） |
-| 战略层（skill / global insight） | 跨任务复用 | 同一 lesson 复现 ≥2 次 | hermes skill_manage(create) / KB global-level insight |
+| 层 | 落点 | 判据 |
+| --- | --- | --- |
+| 机制层 | check / hook / test / skill patch | 出错一次、工具能抓 → 立即落地，并证明它在原错误上会失败 |
+| 事实层 | context.md / 仓库指令文件 | 查不到的事实，一行，带出处 |
+| 战略层（新 skill） | wayne-skill-forge | 同一模式跨任务复现 ≥2 次（wayne-distill 发现） |
 
-写在战术层的过早提到战略层 → skill 膨胀；该提到战略层的留在战术层 → 反复重学。**跨次复现是分层的判据**，不是初次 lesson 就建 skill。
+**跨次复现是建 skill 的判据**；单次错误改机制，不写 lesson。
 
 #### 反馈循环
 
 - AI 用 wayne-* skill 时若发现 skill 不全 / 命令过期 / 缺 pitfall → **立刻 patch**，不留给下次
 - 用户对 AI 的反馈"啰嗦 / 没重点 / 又错了" → 不是单次纠正，是要写进 user profile / persona
-- 项目里反复出现同一类 bug → 不修个例，写 lesson + 加测试 + 改代码模式
+- 项目里反复出现同一类 bug → 不修个例，加测试 + 改代码模式
 
 **局限**：
 

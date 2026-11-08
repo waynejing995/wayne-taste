@@ -20,8 +20,8 @@ flowchart TB
     N(["Report: nothing to change"])
     E["Present candidates, worst first"]
     F{"User picks?"}
-    G["Apply context and doc moves"]
-    H["Route code changes to wayne-plan"]
+    G["Apply context and instruction-file moves"]
+    H["Land checks and skill edits; route product code"]
     P["Prune task context.md"]
     Z(["Report changes"])
     A --> B
@@ -55,7 +55,7 @@ A moment is a place in a log where the agent spent many tool calls to find somet
 | Made a mistake a tool could catch | a check: lint rule, test, validator, hook |
 | Made a judgment error the reviewer missed | a rule in the reviewer's standards |
 | Guessed because it could not see | Run or Reach: a log, a command, an access grant |
-| Needed a fact no lookup returns | a Know line in the project file or the module `CLAUDE.md` |
+| Needed a fact no lookup returns | a Know line in the project file or the module's instruction file |
 | Followed a rule into the wrong result | delete or fix that rule |
 | A tool call cost much for what it returned | a cheaper tool or a narrower command |
 
@@ -67,19 +67,23 @@ Prefer a check to a sentence: a check fails, and an agent can skip a sentence.
 
 Show the candidates in Chinese, worst first, one table row each: the moment as session line numbers plus a short quote, the change, the file it lands in. Keep the whole report to one screen; the log is the evidence, so point at it instead of pasting it. Do not rank across a quiet expensive moment and a loud cheap one by noise alone; weigh the cost each one caused.
 
-### G. Apply context and doc moves
+### G. Apply context and instruction-file moves
 
-On the user's pick, make the context-file and `CLAUDE.md` edits this skill owns. Edit only the lines the change needs.
+On the user's pick, make the context-file and instruction-file edits this skill owns. The instruction file is whichever the repository already uses for that module (`AGENTS.md` or `CLAUDE.md`); do not create the other one. Edit only the lines the change needs.
 
-### H. Route code changes
+### H. Land mechanism changes
 
-A check, a tool change, or a skill edit is code. Hand it to `wayne-plan` as a converged direct request through `wayne-checkpoint` handoff (`trigger: manual`). Do not write it here.
+On the user's pick, make a skill edit, hook, test, lint rule, or validator here. Edit only the lines the change needs.
+
+Prove each check before calling it landed: run it against the state that produced the moment (the original diff, command, or input) and show it fails, then run it on the current tree and show it passes. A check you cannot show failing on the original is not landed; report it as such.
+
+A product-code change across several files goes to `wayne-plan` as a converged direct request through `wayne-checkpoint` handoff (`trigger: manual`). Do not commit unless the user asks.
 
 ### P. Prune the task file
 
 For each line in `<state>/runs/<topic>/context.md`:
 
-- true beyond this task and needed by a repository reader → the module `CLAUDE.md`
+- true beyond this task and needed by a repository reader → the module's instruction file (see G)
 - true beyond this task, Wayne-only → `<state>/context.md`
 - true only for this task → delete
 
