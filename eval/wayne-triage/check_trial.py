@@ -316,13 +316,6 @@ def validate_complete(repo: Path, case: str, output: str) -> list[str]:
     if case in {"tracker", "multiple-signal"}:
         if markdown_section(output, "Proposed tracker comment") is None:
             findings.append("tracker output requires one non-empty Proposed tracker comment section")
-    if case == "architecture":
-        try:
-            count = int(frontmatter.get("repro_count", "0"))
-        except ValueError:
-            count = 0
-        if count < 3:
-            findings.append("architecture route requires repro_count >= 3")
 
     if case in INTERNAL:
         route, agent = INTERNAL[case]

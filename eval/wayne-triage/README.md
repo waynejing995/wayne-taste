@@ -11,7 +11,8 @@ This harness freezes all front-door routes claimed by `wayne-triage`:
   tracker, crash, and config paths; shared blast radius → `needs-plan`.
 - `no-match`: a vague artifact with no supported symptom signal → `needs-info`.
 - `approval-denied`: route is established but no checkpoint may be written.
-- `architecture`: three failed fixes → `wayne-mind-explode`.
+- `architecture`: the retry-state ownership model must be redesigned (an evidenced
+  breaking change; the failed fixes are evidence, not the predicate) → `wayne-mind-explode`.
 - `external-owner`: render a report and create no Wayne checkpoint.
 
 Tracker cases require one complete proposed comment. `check_trial.py` emits
