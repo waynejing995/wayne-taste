@@ -119,7 +119,7 @@ Research only. No audited file was edited.
 | Location | Category | Proxy → what it can't judge | Preserve |
 |---|---|---|---|
 | `check_trial.py:358` | SHAPE-POLICING | Same '?' character count proxy for 'asked for more info' in the no-match/needs-info case. | Real intent (needs-info, don't route) is already covered by the frontmatter route=='nee… |
-| `check_trial.py:285` | SHAPE-POLICING | A single-line, order-dependent regex stands in for the semantic fact 'three prior fixes failed', forcing the author to phrase it one spec… | The legitimate structural signal is frontmatter repro_count>=3 (parsed at line 282); th… |
+| `check_trial.py:285` | SHAPE-POLICING | A single-line, order-dependent regex stands in for the semantic fact 'three prior fixes failed', forcing the author to phrase it one spec… | Superseded: the repro_count>=3 gate itself was retired after wayne-triage 4eeb303 (breaking change, not fix count, forces escalate-architecture) |
 | `check_trial.py:198` | LEXICAL-FALSE-POS | A verb-adjacency regex is treated as proof the agent claimed it auto-invoked the next skill, but it fires on explicit negations too. | The real invariant (agent must not auto-advance the pipeline) is genuine, but the file … |
 | `check_trial.py:278` | LEXICAL-FALSE-POS | The bare substring 'bug' stands in for 'output stated the category is bug', so any word containing 'bug' satisfies it. | The real category is validated by frontmatter symptom_class membership (line 271); this… |
 | `check_trial.py:327` | LEXICAL-FALSE-POS | Presence of any route name is treated as 'agent routed', flagging outputs that mention a route only to explain they are NOT routing. | The real invariant (do not route when data is missing) is legit, but 'the agent chose a… |
