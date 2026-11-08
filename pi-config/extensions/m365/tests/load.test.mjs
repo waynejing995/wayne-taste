@@ -54,7 +54,7 @@ check("Teams' tools are registered", teams.includes("teams_send") && teams.inclu
 check("Outlook's tools are registered", outlook.length === 10 && outlook.includes("outlook_download"), outlook.join(","));
 check("nothing else is registered", tools.length === teams.length + outlook.length, tools.join(","));
 check("every tool name once", new Set(tools).size === tools.length, tools.join(","));
-check("both commands, once each", JSON.stringify([...commands].sort()) === JSON.stringify(["outlook", "teams"]), commands.join(","));
+check("every command, once each", JSON.stringify([...commands].sort()) === JSON.stringify(["inbox", "outlook", "teams"]), commands.join(","));
 check("no network call at load", netCalls.length === 0, netCalls.join(","));
 check("no process started at load", execCalls === 0, String(execCalls));
 console.log(failed === 0 ? "\nall ok" : `\nFAIL ${failed}`);

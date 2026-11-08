@@ -9,6 +9,7 @@ both; each half keeps its own tools (`teams_*`, `outlook_*`), its own command
 | `core/` | What both halves use: sign-in, Graph, people, SharePoint files, saving, picture descriptions, @mention syntax, status row, time | below |
 | `teams/` | Chats: unread count, the `/teams` overlay, send/read/people/download/transcript tools, chat watches (the self-chat takes `omp:`/`pi:` instructions) | `teams/README.md` — read its sign-in note first |
 | `outlook/` | Mail: the `/outlook` three-pane reader and composer, ten mail tools, signature | `outlook/README.md` |
+| `inbox/` | `/inbox watch`: new `notify`/`do` rows of the wayne-inbox ledger (`~/.wayne/inbox/ledger.tsv`) pushed into this session as `inbox` cards; Inbox mail into that ledger when `rules.yaml` has an `outlook:` section | `wayne-inbox/SKILL.md` in this repo |
 
 ## core/
 

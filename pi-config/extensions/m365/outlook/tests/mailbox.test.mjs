@@ -51,7 +51,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => readFileSync(join(here, "fixtures", name));
 
 /** The fields Mailbox selects for a summary, in the order it sends them. */
-const SELECT = "id,subject,from,receivedDateTime,isRead,hasAttachments,bodyPreview";
+const SELECT = "id,subject,from,receivedDateTime,isRead,hasAttachments,flag,bodyPreview";
 const UNREAD = "receivedDateTime ge 1900-01-01T00:00:00Z and isRead eq false";
 const REFUSED = "not authenticated — run /teams init";
 const EML = Buffer.from("From: me@example.com\r\nSubject: Plain\r\n\r\nHello, 世界.\r\n", "utf8");
@@ -64,6 +64,7 @@ const ORIG = {
 	receivedDateTime: "2026-10-14T01:30:00Z",
 	isRead: true,
 	hasAttachments: false,
+	flag: { flagStatus: "notFlagged" },
 	bodyPreview: "Status is green.",
 };
 const SUMMARY_ORIG = {
@@ -73,6 +74,7 @@ const SUMMARY_ORIG = {
 	received: "2026-10-14T01:30:00Z",
 	isRead: true,
 	hasAttachments: false,
+	flagged: false,
 	preview: "Status is green.",
 };
 const ME = { displayName: "Me Example", mail: "me@example.com", userPrincipalName: "me@contoso.example" };

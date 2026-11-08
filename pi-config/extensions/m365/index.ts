@@ -6,10 +6,12 @@
  * file saving, picture descriptions, the @mention syntax -- lives in core/.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import inbox from "./inbox/index.ts";
 import outlook from "./outlook/index.ts";
 import teams from "./teams/index.ts";
 
 export default function (pi: ExtensionAPI) {
 	teams(pi);
 	outlook(pi);
+	inbox(pi);
 }

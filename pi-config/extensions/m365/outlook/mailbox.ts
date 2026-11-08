@@ -43,13 +43,14 @@ export type Summary = {
 	received: string;
 	isRead: boolean;
 	hasAttachments: boolean;
+	flagged: boolean;
 	preview: string;
 };
 
 /** The signed-in user: every address that counts as self, and the display name. */
 type Me = { addresses: string[]; name: string };
 
-const SELECT = "id,subject,from,receivedDateTime,isRead,hasAttachments,bodyPreview";
+const SELECT = "id,subject,from,receivedDateTime,isRead,hasAttachments,flag,bodyPreview";
 /** Graph needs the property $orderby names (receivedDateTime) to lead the filter; the 1900 floor admits every real date. */
 const UNREAD = "receivedDateTime ge 1900-01-01T00:00:00Z and isRead eq false";
 
@@ -61,6 +62,7 @@ type RawMessage = {
 	receivedDateTime: string;
 	isRead: boolean;
 	hasAttachments: boolean;
+	flag: { flagStatus: "notFlagged" | "flagged" | "complete" } | null;
 	bodyPreview: string | null;
 };
 
@@ -74,6 +76,7 @@ const summary = (m: RawMessage): Summary => ({
 	received: m.receivedDateTime,
 	isRead: m.isRead,
 	hasAttachments: m.hasAttachments,
+	flagged: m.flag?.flagStatus === "flagged",
 	preview: m.bodyPreview ?? "",
 });
 
