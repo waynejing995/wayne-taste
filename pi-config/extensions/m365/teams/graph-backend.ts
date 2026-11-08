@@ -593,9 +593,12 @@ export class GraphBackend implements Backend {
 		// opened descriptor must be the same inode, so a path swapped in between is refused too.
 		let total = 0;
 		const files = images.map((p) => {
-			const named = fs.statSync(p);
+			// The real path, so the open below can refuse any symlink: one swapped in after this stat fails to open
+			// (O_NOFOLLOW) instead of opening the device it points at.
+			const real = fs.realpathSync(p);
+			const named = fs.statSync(real);
 			if (!named.isFile()) throw new Error(`image ${p} is not a regular file`);
-			const fd = fs.openSync(p, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOCTTY);
+			const fd = fs.openSync(real, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOCTTY | fs.constants.O_NOFOLLOW);
 			try {
 				const st = fs.fstatSync(fd);
 				if (!st.isFile() || st.dev !== named.dev || st.ino !== named.ino) throw new Error(`image ${p} changed while being read`);
