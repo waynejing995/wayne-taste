@@ -469,7 +469,7 @@ description: |
 
 **信息源**：
 
-- 一手：9 个 wayne-* SKILL.md（`WAYNE_SKILLS_DIR`）；CLAUDE.md 全局规则；1525 条采样的 Claude Code user 消息（去重前 2887 条，跨 ~50 个项目）；65 条架构时刻语料（references/sources/cc-architecture-moments.md）；slock-tui 11626 行 docs/decisions/（Decision/Rejected/invariant/schema 信号源）；Hermes user profile + memory
+- 一手：9 个 wayne-* SKILL.md（`WAYNE_SKILLS_DIR`）；CLAUDE.md 全局规则；1525 条采样的 Claude Code user 消息（去重前 2887 条，跨 ~50 个项目）；65 条架构时刻语料（原始语料含私有内容，保存在仓库外 `~/.wayne/waynejing/sources/`）；slock-tui 11626 行 docs/decisions/（Decision/Rejected/invariant/schema 信号源）；Hermes user profile + memory
 - 二手：无（Wayne 不是公众人物）
 
 ---
