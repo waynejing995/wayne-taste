@@ -15,6 +15,7 @@ You are reviewing the exact frozen bytes, checked against the real repository. A
 - Trace each boundary end to end: producer, transport, consumer, and the schema at each hop. An unnamed schema or an unstated encoding is an open interface.
 - Check that no component re-derives a fact an upstream component already established. Re-extraction is a duplicate writer.
 - Every declared variant must be dispatched somewhere, or rejected loudly at startup. A type wider than its dispatch is a silent-degradation path.
+- Every boundary a component in `## Architecture` introduces or changes has a signature in `## Interfaces` — a typed declaration in the repository's language, or native notation for a wire format such as HTTP or CLI — and a changed one shows before and after. Check against the repository: a new or changed caller-visible surface the spec leaves out, or a code-level interface written as untyped pseudo-text where the codebase has a type system, is an open interface — two implementers would build different ones.
 
 ## Failure, concurrency, and recovery
 

@@ -99,11 +99,27 @@ Stop descending at a stable external interface, and stop when the next level dow
 
 ## Interfaces
 
-<The boundary a reviewer argues with. Signatures, then one illustrative call — no bodies, no algorithms.>
+<Every boundary this feature introduces, changes, or removes, grouped by the component that owns it. Real typed declarations in the repository's language; no bodies, no algorithms.>
+
+### <Component that owns these interfaces>
+
+<New:>
 
 ```<language>
 <signature>
 ```
+
+<Changed — before and after:>
+
+```<language>
+<signature before>
+```
+
+```<language>
+<signature after>
+```
+
+<Removed: the old signature and what replaces it.>
 
 <How it is used, as a call site, request/response, or event payload:>
 

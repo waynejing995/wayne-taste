@@ -136,13 +136,18 @@ Select the next reachable open `choice` from the durable DAG. Before asking, hav
 
 For that decision:
 
-1. **Explain.** Use plain, explanatory text without assuming topic-specific background. Add Mermaid diagrams for relevant structure or data flow, including changes introduced by the options.
+1. **Explain.** Use plain, explanatory text without assuming topic-specific background. Add Mermaid diagrams for relevant structure or data flow, including changes introduced by the options. When the choice is the shape of an interface, also show each option as a signature sketch in the repository's language; a reader judges an API by its prototype, not by a box on a diagram.
 2. **Compare.** Present two or three options grounded in current evidence and decisions. Explain how each works and its impact. Recommend one with reasons, its key assumption, and its reversal condition; give each alternative's distinct advantage or trade-off.
 3. **Ask.** Use the question tool to request the user's choice neutrally, then wait. Ask about exactly one decision node, regardless of sentence count or punctuation; do not repeat the question in a heading or closing.
 
 The recommendation is advice, not a default or a disguised approval request. Silence, agreement with the framing, or acceptance of a parent node does not approve this node or its children. Treat `whatever`, `I don't care`, and other non-decisions as unresolved: explain the consequence, restate one recommendation, and wait. Route the answer immediately to Q before moving on.
 
 Include software-stack selection as a required choice, using B's research to identify reusable solutions rather than reinventing them. Route UI design choices through `wayne-frontend-design` when the global Frontend rule applies.
+
+Include interface review depth as a required choice, asked once scope is known. Recommend from the scope; never decide it silently.
+
+- **Per interface** — the run redesigns architecture or reshapes existing interfaces. E walks every new or changed interface with the user, one boundary at a time, before the spec is written.
+- **In spec** — the run adds a feature on the existing architecture. E skips the walk; the spec still carries every interface completely, and the user reads them whole at V.
 
 ### Q. Persist one user decision
 
@@ -157,6 +162,8 @@ If the answer settles what a domain term means, or that two words name one conce
 **Compare approaches.** After the user confirms shared understanding, compare three genuinely distinct viable approaches against the decision log, lead with a recommendation, and record the choice. If approved constraints leave only two viable approaches, name the eliminated third direction and explain why it is not viable; do not pad the comparison.
 
 **Approve the design.** Present architecture, components, state/data ownership, flows, failure behavior, boundaries, and verification in reviewable sections. Wait for explicit approval of each material section and log every revision. Keep units single-purpose with explicit interfaces and dependencies, follow existing patterns, and exclude unrelated refactors.
+
+**Walk the interfaces when the depth choice is per interface.** Group them by owning component. For each new or changed boundary, show its signatures in the repository's language under the spec contract's interface rules — a changed one as before and after — plus one illustrative call, and wait for explicit approval of that boundary before showing the next. Log each approval or revision as a decision. I transcribes the approved signatures into the spec; it does not redesign them.
 
 **Record the frontier lock.** Only when the user freezes the frontier, set `frontier_locked` to `true` in the log's `meta` line. Convergence alone does not lock it; resumed runs use this flag to distinguish the two states.
 

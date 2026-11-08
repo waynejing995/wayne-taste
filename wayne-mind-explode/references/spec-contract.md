@@ -92,7 +92,14 @@ A diagram that already groups its nodes into subgraphs is usually drawing two le
 
 **`## Technology and frameworks` names every technology a reader needs in order to understand this design**, with the role it plays, what it beat, and the constraint it imposes — version floor, platform limit, licence, or cost. Mark each `new` or `inherited`: a reader who cannot tell which choices this run made cannot tell which ones are open to challenge. Downstream stages copy those constraints verbatim, so a constraint that lives only in someone's head is a constraint the plan will break. Omit only infrastructure the design does not touch.
 
-**Interfaces show the boundary, then one illustrative call.** The signature block carries types, names, parameters, return shapes, and errors. The usage block carries a call site, request/response, or event payload with fake values and the real shape — a reviewer catches an awkward boundary from how it is called far faster than from its declaration. Neither block carries bodies, algorithms, or error-handling detail: that is the implementation plan's job, and putting it here creates a second source of truth that drifts the day someone writes real code.
+**`## Interfaces` carries every boundary this feature introduces, changes, or removes, completely.** That covers functions and methods, protocols and abstract classes, data models and schemas, persisted columns, and HTTP, CLI, and event payloads. Group them by the component in `## Architecture` that owns them, one `###` per component, so a reader can see what each part exposes. Within a group:
+
+- **New** — the signature block, in the repository's language: types, names, parameters, return shapes, and errors. Use real typed declarations wherever the codebase has a type system; a `text` pseudo-format there hides the types a reviewer has to argue with. Wire formats (HTTP, CLI) use their native notation.
+- **Changed** — the signature before and after, so the reviewer sees exactly what moved. A widened, narrowed, renamed, or re-owned surface is a change even when its name stayed.
+- **Removed** — the signature it had, and what replaces it.
+- **Usage** — one illustrative call per group: a call site, request/response, or event payload with fake values and the real shape. A reviewer catches an awkward boundary from how it is called far faster than from its declaration.
+
+An inherited interface the feature only calls, unchanged, is named where it is used and not repeated here. Neither block carries bodies, algorithms, or error-handling detail: that is the implementation plan's job, and putting it here creates a second source of truth that drifts the day someone writes real code. `wayne-plan` checks its units against these signatures, so a boundary missing here is one the plan cannot be held to.
 
 Name modules and interfaces, not file paths. Interfaces survive refactors; paths do not.
 
