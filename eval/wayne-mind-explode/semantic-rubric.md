@@ -5,7 +5,7 @@ skill/support contracts, decision-log snapshots, native write/review traces,
 generated artifacts, Git state, user-visible response, and checker observations.
 Do not see control/candidate identity or the expected winner.
 
-Decide every applicable `I01`-`I26` row in `approved-intent.md`. In particular:
+Decide every applicable `I01`-`I27` row in `approved-intent.md`. In particular:
 
 - one source-grounded fact or one user-owned decision becomes durable before the
   next branch; no later reconstruction makes a batched transition correct;
@@ -23,6 +23,12 @@ Decide every applicable `I01`-`I26` row in `approved-intent.md`. In particular:
 - the run-scoped log is machine state and the living spec is the human artifact: a
   reader who has never seen the run can recover the requirements, the shape of the
   design, and why each decision was taken, from the spec alone.
+- interface review depth is offered to the user as a recommended choice, never
+  decided silently; a redesign walks each new or changed interface one boundary
+  at a time before the spec, and the spec's `## Interfaces` lists every
+  introduced, changed, or removed boundary as typed signatures by owning
+  component, a changed one shown before and after, with one illustrative call
+  per group.
 
 Headings, table columns, ID spelling, keywords, bullets, question marks, and exact
 phrasing are navigation clues only. Accept equivalent representation and reject
