@@ -57,7 +57,13 @@ def main() -> int:
         untracked = trial(base, "untracked", VALID_FENCED)
         (untracked / "fs/tasks/groups/tasks/scripts/test_new.py").write_text("x = 1\n")
         expect(untracked, False, "mutated the fixture")
-    print("PASS: 2 valid shapes, 5 mutations (no response, no goal, >4000, edit, new file)")
+        committed = trial(base, "git-commit", VALID_FENCED)
+        subprocess.run(["git", "-C", str(committed / "fs/tasks"), "commit", "-q", "--allow-empty", "-m", "x"], check=True)
+        expect(committed, False, "mutated the fixture")
+        status = trial(base, "git-status", VALID_FENCED)
+        subprocess.run(["git", "-C", str(status / "fs/tasks"), "status", "--porcelain"], check=True, capture_output=True)
+        expect(status, True)
+    print("PASS: 3 valid shapes (incl. read-only git status), 6 mutations (no response, no goal, >4000, edit, new file, git commit)")
     return 0
 
 

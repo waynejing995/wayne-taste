@@ -63,5 +63,6 @@ case $case_name in
         ;;
 esac
 
-# Mutation baseline: every fixture file, including untracked and ignored ones.
-(cd "$workspace/fs" && find . -path '*/.git' -prune -o -type f -print0 | sort -z | xargs -0 sha256sum) > "$workspace/fs-before.sha256"
+# Mutation baseline: every fixture file, including untracked and ignored ones, and Git state. One definition,
+# check_trial.fs_hashes, writes it here and compares it after the trial.
+(cd "$harness" && uv run --quiet --no-project python -c 'import sys; from pathlib import Path; from check_trial import fs_hashes; sys.stdout.write(fs_hashes(Path(sys.argv[1])))' "$workspace/fs") > "$workspace/fs-before.sha256"

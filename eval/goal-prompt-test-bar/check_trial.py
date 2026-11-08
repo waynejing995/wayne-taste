@@ -33,7 +33,10 @@ def goal_block(text: str) -> str:
 
 def fs_hashes(fs: Path) -> str:
     out = subprocess.run(
-        "find . -path '*/.git' -prune -o -type f -print0 | sort -z | xargs -0 sha256sum",
+        # .git counts (a commit, ref or config edit is a mutation); its index is compared by content, not bytes,
+        # because a read-only `git status` rewrites the file's stat cache.
+        "find . -path '*/.git/index' -prune -o -type f -print0 | sort -z | xargs -0 sha256sum;"
+        " find . -name .git -type d -prune -print | sort | while read -r g; do echo \"$g\"; git -C \"$g/..\" ls-files -s; done",
         shell=True, cwd=fs, check=True, capture_output=True, text=True,
     )
     return out.stdout
