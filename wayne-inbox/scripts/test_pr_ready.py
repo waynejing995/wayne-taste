@@ -83,9 +83,14 @@ def verdict(body):
     (NO_NEW + "\n### Raised as CRITICAL, downgraded after checking\n- x\n", "clean"),
     (NO_NEW + "\n### CRITICAL\nNone. Voice 2 marked six items CRITICAL.\n", "critical"),
     (NO_NEW + "\nAll earlier criticals (`_do_resync` race) are still fixed at this head.\n", "clean"),
+    (NO_NEW + "\nNo remaining critical issues.\n", "clean"),
+    (NO_NEW + "\nNo critical issues remain open.\n", "clean"),
+    (NO_NEW + "\nNo new criticals; 6 prior CRITICALs are still present.\n", "critical"),
+    (NO_NEW + "\nNo new critical issue, but the earlier critical threads remain open.\n", "critical"),
     ("Multi-source auto-review @ abc1234: two findings, see inline.", "critical"),
 ], ids=["no-new", "849-still-open", "833-prior-present", "new-criticals", "critical-still-open",
-        "candidate-downgraded", "raised-as-downgraded", "critical-heading", "earlier-still-fixed", "silent"])
+        "candidate-downgraded", "raised-as-downgraded", "critical-heading", "earlier-still-fixed",
+        "no-remaining", "none-remain-open", "no-new-then-prior-present", "no-new-but-remain-open", "silent"])
 def test_verdict_rule(body, want):
     assert verdict(body) == f"verdict={want}"
 
