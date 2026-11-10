@@ -31,19 +31,7 @@ emit() { # key subject note link field...  (place = the repo, global $repo)
   echo "$key -> $result"
 }
 
-# Auto-review fields as `key=value` lines. verdict: clean = the body says "no critical issue" and has no line
-# starting with a CRITICAL heading or item; a "CRITICAL candidates downgraded" heading lists non-critical items.
-# commit: the reviewed sha, first of `@ sha`, `head sha`, the end of a `base..sha` range, `of|at sha`, searched
-# from the phrase on; cut to 9 characters.
-AUTO='Multi-source auto-review'
-AUTO_JQ='
-  (.body | split($auto)[1:] | join($auto))[0:600] as $s
-  | "verdict=" + (if (.body | test("no critical issue"; "i")) and (.body | test("(^|\n)[#*>\\s-]*CRITICAL\\b(?! candidates)") | not)
-                  then "clean" else "critical" end),
-    ([$s | capture("@\\s*`?(?<c>[0-9a-f]{7,40})\\b"),
-           capture("\\bhead\\s+`?(?<c>[0-9a-f]{7,40})\\b"; "i"),
-           capture("[0-9a-f]{7,40}\\.{2,3}`?(?<c>[0-9a-f]{7,40})\\b"),
-           capture("\\b(?:of|at)\\s+`?(?<c>[0-9a-f]{7,40})\\b")] | first | select(.) | "commit=" + .c[0:9])'
+source "$HERE/auto-review.sh" # AUTO, AUTO_JQ: verdict=clean|critical and commit=<sha> of an auto-review body
 
 emit_auto() { # key kind(review|comment) link state item-json  (globals: repo, n, subj, title)
   local key=$1 kind=$2 link=$3 state=$4 item=$5 out fields
