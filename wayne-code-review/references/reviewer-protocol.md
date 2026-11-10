@@ -35,6 +35,8 @@ Exactly two levels, chosen by consequence and never by category:
 - **CRITICAL** — a real consumer gets a wrong value, an exploit is reachable, data is corrupted, a contract breaks, or a failure path is reachable in production.
 - **INFORMATIONAL** — dead surface, maintainability, or an unproven risk. A claim that can only be settled by running the code is INFORMATIONAL and marked `runtime:UNVERIFIED`; this review never executes the application.
 
+Every finding states its **hit rate / impact**: how often the trigger path is hit in practice (every run, every deploy, a rare race, operator-only) and how large the observable consequence is (data loss, a machine stuck for 30 days, a wrong status, cosmetic). CRITICAL needs both a reachable trigger and a significant impact; a rare trigger with a non-significant impact is INFORMATIONAL, whatever its category. Rare is not hypothetical: a rare trigger whose impact is data loss or corruption, a security or authz hole, or a resource held for days stays CRITICAL.
+
 ## Confidence
 
 - **9-10** — verified by reading the specific code; a concrete bug demonstrated.

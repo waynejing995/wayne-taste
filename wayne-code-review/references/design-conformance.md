@@ -29,6 +29,8 @@ Exactly two levels, chosen by consequence and never by category:
 - **CRITICAL** — a surviving consumer, stored datum, or documented contract now disagrees with the change at runtime; or a doc describing a design this change replaced was left stale, or updated inside the range without a reason.
 - **INFORMATIONAL** — drift with no wrong-result path today, a convention violation, or a stale doc that misleads nobody yet.
 
+Every finding states its **hit rate / impact**: how often the conflicting path is hit in practice (every run, every deploy, a rare race, operator-only) and how large the observable consequence is (data loss, a machine stuck for 30 days, a wrong status, cosmetic). CRITICAL needs both a reachable trigger and a significant impact; a rare trigger with a non-significant impact is INFORMATIONAL. Rare is not hypothetical: a rare trigger whose impact is data loss or corruption, a security or authz hole, or a resource held for days stays CRITICAL.
+
 ## Confidence
 
 - **9-10** — verified by reading the specific code; the conflicting site is named and quoted.

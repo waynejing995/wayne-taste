@@ -238,6 +238,7 @@ CONFIDENCE: 1-10
 FILE: path
 LINE: number (if applicable)
 PROBLEM: one-line description
+HIT RATE / IMPACT: how often the trigger path is hit in practice; observable consequence
 FIX: recommended action (or INVESTIGATE if needs human judgment)
 If no issues found, output exactly: NO FINDINGS
 ```
@@ -295,10 +296,11 @@ Concrete shape (TRACE example): moving a team-specific value out of shared core 
 
 ```
 [SEVERITY] (confidence: N/10) file:line — description
+  Hit rate / impact: how often the trigger path is hit in practice; observable consequence
   Fix: recommended action
 ```
 
-Severity and confidence use [the reviewer protocol](references/reviewer-protocol.md) definitions — the same ladder the dispatched voices are given, so a 9 means the same thing in every source you merge in Phase 5.
+Severity, confidence, and the hit rate / impact gate use [the reviewer protocol](references/reviewer-protocol.md) definitions — the same ladder the dispatched voices are given, so a 9 means the same thing in every source you merge in Phase 5.
 
 ---
 
@@ -326,6 +328,7 @@ CONFIDENCE: 1-10
 FILE: path
 LINE: number (if applicable)
 PROBLEM: one-line description
+HIT RATE / IMPACT: how often the trigger path is hit in practice; observable consequence
 FIX: recommended action (or INVESTIGATE if needs human judgment)
 
 One block per finding, nothing before or after them.
@@ -393,6 +396,10 @@ Suppressing silently is how the identical false positive returns at every review
 
 When the project keeps a decision log — a `wayne-mind-explode` or `wayne-plan` run — [finding adjudication](../_shared/finding-adjudication.md) is the fuller taxonomy for this same job, with that log as the frozen source. Most repositories keep none, and then the three verdicts above are the whole story.
 
+### Gate CRITICAL on hit rate / impact
+
+Then re-rule every CRITICAL on its hit rate / impact, the voices' and your own — a voice tends to rate by category, and a category in Phase 3's critical table is a place to look, not a verdict. CRITICAL stays only with a reachable trigger and a significant impact. A rare trigger with a non-significant impact drops to INFORMATIONAL and is listed under `CRITICAL candidates downgraded` with the reason, so the drop is visible and arguable. Rare is not hypothetical: a rare trigger whose impact is data loss or corruption, a security or authz hole, or a resource held for days stays CRITICAL. A missing hit rate / impact is filled in by you from the evidence, never assumed rare.
+
 ### Synthesis Output (in Chinese)
 
 ```
@@ -420,8 +427,17 @@ DUAL-VOICE CODE REVIEW SYNTHESIS
 
 ## 被项目规则否决的发现
 {findings suppressed by a documented rule — each naming the rule file:line}
+
+## CRITICAL candidates downgraded
+{raised as CRITICAL, rare trigger + non-significant impact — each with its hit rate / impact and the reason}
 ==================================================
 ```
+
+Every finding section above is a table with one column for hit rate / impact:
+
+| Severity | File:line | Problem | Hit rate / impact | Fix | Source |
+| --- | --- | --- | --- | --- | --- |
+| CRITICAL (9/10) | `app/models/user.rb:42` | state transition races | every concurrent submit; order status overwritten | `WHERE status = 'draft'` on the UPDATE | subagent + Codex |
 
 ### User Sovereignty Rule
 
@@ -455,10 +471,12 @@ Batch remaining findings into ONE AskUserQuestion (in Chinese):
 我自动修了 N 个机械问题。还有 M 个需要你做决定:
 
 1. [CRITICAL] (confidence: 9/10) app/models/user.rb:42 — 状态转换有竞争条件
+   命中率/影响: 每次并发提交都会触发; 订单状态被覆盖
    推荐修复: 加 WHERE status = 'draft' 到 UPDATE
    → A) 修  B) 跳过
 
 2. [INFORMATIONAL] (confidence: 7/10) app/services/gen.rb:88 — LLM 输出写入 DB 前没有类型校验
+   命中率/影响: 仅模型返回畸形 JSON 时; 单行记录字段错误
    推荐修复: 加 JSON schema 验证
    → A) 修  B) 跳过
 
@@ -495,6 +513,7 @@ Sources:  structured ✓ | subagent adversarial ✓ | Codex ✓/✗ | design-con
 Rules read: {N — paths, or "none found"}
 Conformance: {CONFORM / VIOLATION×N / DESIGN-CHANGE justified|unjustified}
 Suppressed by rule: {N — each naming the rule file:line}
+CRITICAL downgraded: {N — each with its hit rate / impact}
 
 Scope check: {CLEAN / DRIFT / MISSING}
 Remaining concerns: {list or "none"}
