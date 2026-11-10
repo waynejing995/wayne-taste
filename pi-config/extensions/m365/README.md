@@ -64,5 +64,10 @@ npm test               # node tests/run.mjs
 All offline: no sign-in, no network. Runs Outlook's suite and the package load
 check. Teams' suite is local-only (`teams/.gitignore`: it was written against a
 real mailbox and holds real names and messages); it runs where it exists and is
-reported as skipped in a clone. The tests load the code through pi's own jiti,
+reported as skipped in a clone. It runs as `unshare -rn node teams/tests/run.mjs`
+(needs util-linux and unprivileged user namespaces): a Teams watch is claimed with
+an abstract socket, which belongs to a network namespace, so in a namespace of its
+own the watch tests never meet a live session's watch on the same chat. Run a
+single Teams suite the same way: `unshare -rn node teams/tests/watch-tool.test.mjs`.
+The tests load the code through pi's own jiti,
 found by `tests/host.mjs` under `npm root -g`, or at `PI_CODING_AGENT_DIR`.

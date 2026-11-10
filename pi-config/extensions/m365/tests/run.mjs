@@ -24,15 +24,20 @@ const groups = [
 	{ label: "inbox agents", script: join(root, "inbox", "tests", "agents.test.mjs"), local: false },
 	{ label: "teams watch list", script: join(root, "tests", "watch-list.test.mjs"), local: false },
 	{ label: "teams watch delivery", script: join(root, "tests", "watch-delivery.test.mjs"), local: false },
-	{ label: "teams (local-only)", script: join(root, "teams", "tests", "run.mjs"), local: true },
+	{ label: "teams (local-only)", script: join(root, "teams", "tests", "run.mjs"), local: true, isolated: true },
 ];
 let failed = 0;
-for (const { label, script, local } of groups) {
+for (const { label, script, local, isolated } of groups) {
 	if (local && !existsSync(script)) {
 		console.log(`SKIP  ${label}: not in this checkout`);
 		continue;
 	}
-	const r = spawnSync(process.execPath, [script], { encoding: "utf8", cwd: dirname(dirname(script)) });
+	// A Teams watch is claimed with an abstract socket, which is per network namespace: in the
+	// host's namespace the suite collides with a live session's watch (the self-chat). `unshare
+	// -rn` gives it a namespace of its own, no root needed.
+	const [cmd, args] = isolated ? ["unshare", ["-rn", process.execPath, script]] : [process.execPath, [script]];
+	const r = spawnSync(cmd, args, { encoding: "utf8", cwd: dirname(dirname(script)) });
+	if (r.error) throw r.error;
 	const ok = r.status === 0;
 	if (!ok) failed++;
 	console.log(`${ok ? "PASS" : "FAIL"}  ${label}`);
