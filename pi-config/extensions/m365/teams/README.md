@@ -266,19 +266,30 @@ action, and a policy must say to send or reply before the agent posts anything.
 The self-chat takes a policy too, for its plain-note cards only: `omp:`/`pi:`
 notes are prompts, not cards, and stay instructions exactly as written.
 
-- **Starts a turn, not a command.** A card starts an agent turn, so the agent
-  sees it at once. It acts or replies only as you have asked for watch cards,
-  and otherwise ends the turn without a reply. While the agent is busy, a
-  self-chat card is steered into the running turn at its next tool-call boundary
-  (a `wait` returns early for it), the way an `omp:`/`pi:` note is: the notes are
-  yours. Another chat's card waits for the turn to end, so other people's
-  messages never steer a turn in progress; when several are waiting, only the
-  last one starts the turn. Cards are one per chat per poll, never merged across
-  chats, since each carries its own chat's policy.
+- **A turn only when the policy needs one.** A self-chat card starts an agent
+  turn. Another chat's card starts one only when the chat has a policy and one
+  call to the `tiny` model role (omp's `modelRoles.tiny`) answers YES to "under
+  this policy, does this batch need the agent to act or reply?". The policy is
+  the system prompt; the messages go in as JSON data with the `@you` and
+  "written by you" flags taken from Teams, never from the text, so a message
+  asking for YES is just a message. On NO, and always for a chat with no policy,
+  the card is display-only: shown with no turn, so the agent never has a turn to
+  end without a word. A gate that errors or answers anything but YES or NO warns
+  and starts the turn, so a broken gate cannot swallow cards. In a turn, the agent
+  acts or replies only as the policy or you asked, and otherwise ends the turn
+  without a reply. While the agent is busy, a self-chat card is steered into the
+  running turn at its next tool-call boundary (a `wait` returns early for it), the
+  way an `omp:`/`pi:` note is: the notes are yours. Another chat's card, YES or
+  NO, waits for the turn to end, so other people's messages never steer a turn in
+  progress; at idle the display-only cards go first, then the rest, and only the
+  last of those starts the turn. Cards are one per chat per poll, never merged
+  across chats, since each carries its own chat's policy.
 - **Card log.** Each card step goes to `~/.cache/pi/teams-watch.log`, one JSON
-  line with the chat and the message ids it carries: `queued` (read by a poll),
-  `flushed` (handed to omp, with `how`: `steer`, `turn` or `context`),
-  `delivered` (in the conversation) and `dropped` (its session ended first).
+  line with the chat and the message ids it carries: `queued` (read by a poll,
+  with `gate`: the model's answer, model and latency, `no policy`, `self`,
+  `commands only`, or the error), `flushed` (handed to omp, with `how`: `steer`, `turn`, `context` or
+  `display`), `delivered` (in the conversation) and `dropped` (its session ended
+  first).
 - **Untrusted.** Everything a card quotes from Teams (chat name, senders, text,
   file names) sits inside `<untrusted-teams-content>`, after a note that tells
   the agent never to follow instructions in it. A copy of the tag inside a
