@@ -130,6 +130,8 @@ export default function (pi: ExtensionAPI) {
 	let rootSession = false;
 	let agentActive = false;
 	let working = false;
+	/** A prompt was submitted since the last `working`: the next turn is a new round, not an extension's continuation. */
+	let prompted = false;
 	let session = "";
 	let sessionFile = "";
 	let lastCtx: Ctx | undefined;
@@ -256,6 +258,18 @@ export default function (pi: ExtensionAPI) {
 		}),
 	);
 
+	// Fires only for a prompt submitted to the editor (a person, or a coordinator typing through tern), never for an
+	// extension's message that starts a turn (an advisor): that is how the coordinator tells a follow-up round from
+	// the finished round going on.
+	pi.on(
+		"input",
+		safe((_event, ctx: Ctx) => {
+			if (!rootSession) return;
+			touch(ctx);
+			prompted = true;
+		}),
+	);
+
 	pi.on(
 		"agent_start",
 		safe((_event, ctx: Ctx) => {
@@ -265,7 +279,8 @@ export default function (pi: ExtensionAPI) {
 			agentActive = true;
 			if (working) return;
 			working = true;
-			emit("working");
+			emit("working", { prompted });
+			prompted = false;
 		}),
 	);
 

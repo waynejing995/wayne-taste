@@ -294,4 +294,18 @@ await check("13. a missing WAYNE_AGENT_RESULT shows on the status row", async ()
 	ok(statuses.some(([key, text]) => key === "wayne-agent-report" && text.includes("WAYNE_AGENT_RESULT not set")), JSON.stringify(statuses));
 });
 
+await check("14. working says whether a prompt started the turn", async () => {
+	const { handlers, file } = await load({ watch: "w" });
+	handlers.session_start({}, ui);
+	handlers.input({ text: "follow-up", source: "interactive" }, ui);
+	handlers.agent_start({}, ui);
+	handlers.agent_end({ messages: [] }, ui);
+	// An extension's message (an advisor) starts the next turn: no input event.
+	handlers.agent_start({}, ui);
+	deepStrictEqual(
+		events(file).filter((e) => e.type === "working").map((e) => e.prompted),
+		[true, false],
+	);
+});
+
 process.exit(failed === 0 ? 0 : 1);

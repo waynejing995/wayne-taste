@@ -26,6 +26,8 @@ export interface Deps {
 interface Entry { name: string; host: string; mux: string; since?: string; goal?: string; result?: string; push?: boolean }
 interface Event {
 	v: number; ts: string; name: string; pid: number; session: string; seq: number; type: string; text?: string;
+	/** On `working`: false when no prompt started the turn (an extension's message did). Absent from older reporters. */
+	prompted?: boolean;
 	ask?: { kind: string; question: string; options?: string[] };
 	result?: { path?: string; status: string; open?: string };
 }
@@ -42,9 +44,11 @@ interface NameState {
 	/** Retired by `result done` → `agent rm`: later events for this name make no rows until it is registered again. */
 	removed?: boolean;
 	/**
-	 * The `result done` that retired the name. That session's later events are its run exiting, never rows, unless it starts
-	 * a new turn (`working`, `resumed`): a follow-up sent to it, delivered once the name is registered again. A new
-	 * session reporting under the name (`superseded`) makes the old session a finished run for good.
+	 * The `result done` that retired the name. That session's later events are its finished round settling and exiting,
+	 * never rows, unless a prompt starts a new round (`working` not marked `prompted: false`, `resumed`): a follow-up
+	 * sent to it, delivered once the name is registered again. A turn an extension started (an advisor message) is the
+	 * same round going on, so its `result done` repeats the one that retired the name. A new session reporting under
+	 * the name (`superseded`) makes the old session a finished run for good.
 	 */
 	retiredAt?: { session: string; seq: number; resumed?: boolean; superseded?: boolean };
 	/** What the last card added for this name said (rowSays with type and state); an identical next card is skipped. */
@@ -436,9 +440,12 @@ export class AgentTailer {
 		const row = rowFor(ev);
 		const retiredAt = current.retiredAt;
 		if (retiredAt && ev.session !== retiredAt.session) retiredAt.superseded = true;
-		if (retiredAt && ev.session === retiredAt.session && ev.seq > retiredAt.seq && ev.type === "working") retiredAt.resumed = true;
+		const newRound = ev.type === "working" && ev.prompted !== false;
+		if (retiredAt && ev.session === retiredAt.session && ev.seq > retiredAt.seq && newRound) retiredAt.resumed = true;
 		const finished = retiredAt !== undefined && ev.session === retiredAt.session
 			&& (retiredAt.superseded === true || ev.seq <= retiredAt.seq || retiredAt.resumed !== true);
+		// Its exit (`ended`) is expected; anything else it says is dropped, and said so.
+		if (finished && row && ev.type !== "ended") this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} belongs to the round that retired the name at seq ${retiredAt.seq}; not added`);
 		// `entries` is re-read only between batches: a `result done` earlier in this batch already retired the name.
 		const live = entry !== undefined && !current.removed ? entry : undefined;
 		let retire = false;
