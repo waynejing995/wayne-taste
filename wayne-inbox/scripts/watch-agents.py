@@ -120,11 +120,13 @@ if [ -n "$session" ]; then
       esac ;;
   esac
 fi
-rmtime=0 rstatus=
+rmtime=0 rstatus= ropen=
 if [ -n "$result" ] && [ -f "$result" ]; then
   rmtime=$(stat -c %Y "$result")
   # A line holding `|` is the contract's own template (`status: done | partial | blocked`), never a status.
   rstatus=$(sed -n '/|/!s/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) *\([a-z_][a-z_]*\).*/\4/p' "$result" | tail -1)
+  # The open items, hashed: the same status and open line rewritten is not news.
+  ropen=$(sed -n '/|/!s/^ *\([-*] \)\?\(\*\*open\(\*\*:\?\|:\*\*\)\|`open`:\|`open:`\|open:\) *\(.*\)/\4/p' "$result" | tail -1 | md5sum | cut -c1-16)
 fi
 extra=
 if [ "$want" = 1 ]; then
@@ -136,8 +138,8 @@ if [ "$want" = 1 ]; then
   else kind=pane; tail64=$(printf '%s' "$cap" | gzip -c | base64 -w0); fi
   extra=",\"kind\":\"$kind\",\"tail\":\"$tail64\""
 fi
-printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rstatus":"%s","now":%s%s}\n' \
-  "$alive" "$agent" "$state" "$session" "$smtime" "$waiting" "$text" "$rmtime" "$rstatus" "$(date +%s)" "$extra"
+printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rstatus":"%s","ropen":"%s","now":%s%s}\n' \
+  "$alive" "$agent" "$state" "$session" "$smtime" "$waiting" "$text" "$rmtime" "$rstatus" "$ropen" "$(date +%s)" "$extra"
 """
 
 
@@ -287,7 +289,12 @@ def check(a: dict, st: dict, stall_s: int, want: bool) -> tuple[list[tuple[str, 
     st["last_active"] = max(st.get("last_active", now), active)
     # The end.
     if p["rmtime"] and p["rstatus"]:
-        events.append((f"result:{p['rmtime']}", "result", p["rstatus"], f"RESULT status: {p['rstatus']}"))
+        # A RESULT rewritten with the same status and open items is not news; mtime alone never makes a card.
+        p["said"] = f"{p['rstatus']}:{p.get('ropen', '')}"
+        if p["said"] != st.get("result_said"):
+            events.append((f"result:{p['rmtime']}", "result", p["rstatus"], f"RESULT status: {p['rstatus']}"))
+        else:
+            logger.info("{}: RESULT rewritten with the same status and open items; no card", a["name"])
     # The start.
     elif not p["alive"]:
         events.append(("gone", "gone", "exited", "the pane ended with no RESULT"))
@@ -362,6 +369,8 @@ def main(stall_min: int, digest_min: int, verbose: bool) -> None:
             for key, event, s, note in events:
                 out = add(a, key, event, s, note)
                 click.echo(f"{a['name']}: {event} {s} -> {out}")
+                if event == "result":
+                    st["result_said"] = p["said"]
                 if event == "result" and s == "done":
                     finished.append(a["name"])
         except Exception as e:  # one session's failure must not hide the others'

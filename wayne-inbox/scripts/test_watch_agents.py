@@ -359,6 +359,28 @@ def test_finished_session_is_left_out_of_the_digest(env):
     assert digest.splitlines()[1].startswith("- beta \u00b7 local \u00b7 last activity ")
 
 
+def partial_result(ropen):
+    def behaviour(now, want):
+        p = omp_live(now, want)
+        p.update(rmtime=now, rstatus="partial", ropen=ropen)
+        return p
+    return behaviour
+
+
+def test_rewritten_result_with_same_status_and_open_makes_no_second_card(env):
+    def results():
+        return [c for c in env.calls if "--field" in c and "event=result" in c]
+    env.watch("alpha", partial_result("h-url"))
+    env.main()
+    env.now = T0 + 120
+    env.main()
+    assert len(results()) == 1, "same status and open items, new mtime: no card"
+    env.watch("alpha", partial_result("h-rollout"))
+    env.now = T0 + 240
+    env.main()
+    assert len(results()) == 2, "changed open items make a card"
+    assert results()[1][results()[1].index("--key") + 1] == f"agents:alpha:result:{T0 + 240}"
+
 def test_digest_never_calls_inbox(env):
     env.watch("alpha", omp_live)
     env.main()
