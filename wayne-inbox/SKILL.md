@@ -46,12 +46,12 @@ $I fact "<decision or rule>" --key <k> --note <chat, who, time>
 ## Watching
 
 - PR: add its number to the repo's rules in `~/.wayne/inbox/rules.yaml`.
-- Agent session: `delegate-agent-session` registers it (`$I agent add …`); `$I agent rm <name>` stops.
+- Agent session: `delegate-agent-session` launches it with `WAYNE_AGENT_WATCH`/`WAYNE_AGENT_RESULT` and registers it (`$I agent add <name> --push …`), so the session pushes its own `ask`, result, idle, exit and death as `do` cards; `$I agent rm <name>` stops.
 - In omp: `/inbox watch` (cards come here), `/inbox stop`, `/inbox status`.
 
 ## After a restart
 
-1. `/inbox watch`.
+1. `/inbox watch`. Pushed agent sessions resume from their cursor: events missed while no session delivered arrive once.
 2. For each chat in `teams_watch` of `~/.wayne/inbox/rules.yaml`: `teams_watch` with `action: start`, its `chat_id` and `policy` (`interval_sec` on the first call).
 3. Report what is watched. Never invent chats or policies.
 

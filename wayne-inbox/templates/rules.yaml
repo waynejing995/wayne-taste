@@ -27,8 +27,8 @@ outlook: # fields: from, flagged (yes | no)
       action: notify
     - action: ignore
 
-agents: # fields: event (result | gone | stalled | blocked | idle), state, mux, host. Place = session name; "*" = any session
-  "*": # results start a coordinator turn: verify, then report where --goal says
+agents: # fields: event (result | idle | ask | ended | dead | gone | stalled | blocked), state, mux, host. Place = session name; "*" = any session
+  "*": # results, questions and deaths start a coordinator turn: verify or relay, then report where --goal says
     - when: { event: result }
       tag: agent-result
       action: do
@@ -37,6 +37,14 @@ agents: # fields: event (result | gone | stalled | blocked | idle), state, mux, 
       tag: agent-no-result
       action: do
       owner: coordinator
-    - when: { event: [gone, stalled, blocked] }
+    - when: { event: ask } # pushed: the session waits on an `ask` or a tool approval; relay the question
+      tag: agent-ask
+      action: do
+      owner: coordinator
+    - when: { event: [ended, dead] } # pushed: omp exited, or no heartbeat (dead process)
+      tag: agent-ended
+      action: do
+      owner: coordinator
+    - when: { event: [gone, stalled, blocked] } # probed (sessions without push)
       tag: agent-trouble
       action: notify

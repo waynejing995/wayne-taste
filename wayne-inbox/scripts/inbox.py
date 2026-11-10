@@ -38,7 +38,7 @@ LOCK = HOME / ".ledger.lock"
 RULES_LOCK = HOME / "rules.yaml.lock"
 # Sections of rules.yaml that are lists kept by programs, not classification rules.
 LISTS = {"teams_watch", "agent_watch"}
-AGENT_HEADER = "# Agent sessions to watch (tern / herdr / hc / tmux). Written by `inbox.py agent add|rm`; read by watch-agents.py.\n"
+AGENT_HEADER = "# Agent sessions to watch (tern / herdr / hc / tmux). Written by `inbox.py agent add|rm`; read by watch-agents.py (probe) and the m365 inbox extension (push: true).\n"
 AGENT_BLOCK = re.compile(r"(?:^# Agent sessions to watch.*\n)?^agent_watch:.*(?:\n|$)(?:(?:[ \t#].*|)(?:\n|$))*", re.M)
 COLUMNS = ["id", "key", "subject", "first_seen", "source", "tag", "action", "state", "owner", "note", "link"]
 ACTIONS = {"do", "notify", "log", "ignore"}
@@ -382,7 +382,7 @@ def write_agents(agents: list[dict]) -> None:
 
 @cli.group()
 def agent() -> None:
-    """The agent sessions watch-agents.py watches (the agent_watch section of rules.yaml)."""
+    """The agent sessions watched through the agent_watch section of rules.yaml."""
 
 
 @agent.command("add")
@@ -392,14 +392,18 @@ def agent() -> None:
 @click.option("--host", default="local", help="local, or an ssh host the pane lives on")
 @click.option("--result", default="", help="the deliverable file the session writes its RESULT block to")
 @click.option("--goal", default="", help="one line: what it was asked to do")
-def agent_add(name: str, mux: str, pane: str, host: str, result: str, goal: str) -> None:
+@click.option("--push", is_flag=True, help="the session runs omp with the wayne-agent-report extension (launched with WAYNE_AGENT_WATCH=<name>); the m365 inbox extension tails its events instead of watch-agents.py probing it")
+def agent_add(name: str, mux: str, pane: str, host: str, result: str, goal: str, push: bool) -> None:
     """Watch one agent session. A second add of the same name replaces it."""
     entry = {"name": name, "mux": mux, "host": host, "pane": pane}
     if result:
         entry["result"] = result
     if goal:
         entry["goal"] = clean(goal)
-    entry["since"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M")
+    if push:
+        entry["push"] = True
+    # Seconds, not minutes: the m365 agents tailer tells a re-registration of the same name by a changed `since`.
+    entry["since"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
     with RulesLock():
         write_agents([a for a in read_agents() if a.get("name") != name] + [entry])
     click.echo(f"watching {name}")
@@ -422,7 +426,8 @@ def agent_rm(names: tuple[str, ...]) -> None:
 def agent_ls() -> None:
     """The watched agent sessions, one per line."""
     for a in read_agents():
-        click.echo("\t".join(str(a.get(k, "")) for k in ("name", "mux", "host", "pane", "result", "since", "goal")))
+        click.echo("\t".join(str(a.get(k, "")) if k != "push" else "push" if a.get(k) else ""
+                             for k in ("name", "mux", "host", "pane", "result", "since", "goal", "push")))
 
 
 if __name__ == "__main__":

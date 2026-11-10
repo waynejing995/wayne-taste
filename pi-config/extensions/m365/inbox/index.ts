@@ -18,6 +18,10 @@
  * since cursors/outlook-inbox.since goes through `inbox.py add --source outlook --place Inbox`, so rules.yaml
  * decides it like any other event. One poller, because only the lease holder polls. No top-level `outlook:` in
  * rules.yaml means mail is not watched at all: no Graph call.
+ *
+ * The lease holder also tails push-watched agent sessions, locally or over one SSH stream per host.
+ * Agent events become inbox.py rows; their byte cursors and heartbeat state survive restarts.
+ * The directory watch and existing backstop drive retries, rule reloads, and dead checks.
  */
 import { execFile } from "node:child_process";
 import * as fs from "node:fs";
@@ -26,6 +30,7 @@ import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as auth from "../core/auth.ts";
 import { card, parseLedger, type Row } from "./card.ts";
+import { AgentTailer } from "./agents.ts";
 import { GraphClient } from "../core/graph.ts";
 import { setStatusPart } from "../core/status-row.ts";
 import { Mailbox } from "../outlook/mailbox.ts";
@@ -65,13 +70,13 @@ function writeCursor(id: number): void {
 	fs.renameSync(tmp, CURSOR);
 }
 
-/** One `inbox.py add`; rejects with its stderr, so a bad rules.yaml stops the mail cursor where it is. */
-function inboxAdd(args: string[]): Promise<string> {
-	return new Promise((resolve, reject) =>
-		execFile("uv", ["run", "--quiet", INBOX_PY, "add", ...args], (err, stdout, stderr) =>
-			err ? reject(new Error(stderr.trim() || err.message)) : resolve(stdout.trim()),
-		),
+/** One inbox.py command; rejects with its stderr so failed events retain their cursor. */
+function inboxPy(args: string[]): Promise<string> {
+	const { promise, resolve, reject } = Promise.withResolvers<string>();
+	execFile("uv", ["run", "--quiet", INBOX_PY, ...args], (err, stdout, stderr) =>
+		err ? reject(new Error(stderr.trim() || err.message)) : resolve(stdout.trim()),
 	);
+	return promise;
 }
 
 export default function inbox(pi: ExtensionAPI) {
@@ -81,13 +86,16 @@ export default function inbox(pi: ExtensionAPI) {
 	let ctx: ExtensionContext | undefined;
 	let dirWatch: fs.FSWatcher | undefined;
 	let timer: NodeJS.Timeout | undefined;
+	let agents: AgentTailer | undefined;
 	let held: Row[] = [];
 	let error = "";
 
 	function renderStatus(): void {
 		if (!ctx?.hasUI) return;
 		const t = ctx.ui.theme;
-		setStatusPart(ctx.ui, "inbox", lease ? (error ? t.fg("error", `◉inbox ⚠ ${error}`) : t.fg("dim", "◉inbox")) : undefined);
+		const agentStatus = agents?.status() ?? "";
+		const status = `◉inbox${error ? ` ⚠ ${error}` : ""}${agentStatus ? ` · ${agentStatus}` : ""}`;
+		setStatusPart(ctx.ui, "inbox", lease ? t.fg(error || agentStatus.includes("⚠") ? "error" : "dim", status) : undefined);
 	}
 
 	/** New pushed rows past the cursor go into the held queue; the cursor moves only once they are sent. */
@@ -120,8 +128,8 @@ export default function inbox(pi: ExtensionAPI) {
 			const since = fs.readFileSync(MAIL_CURSOR, "utf8").trim();
 			const fresh = await mailSince((skip) => mailbox.list("inbox", { top: MAIL_PAGE, skip }), since, MAIL_PAGE);
 			for (const m of fresh) {
-				await inboxAdd([
-					"--source", "outlook", "--place", "Inbox", "--key", `outlook:${m.id}`,
+				await inboxPy([
+					"add", "--source", "outlook", "--place", "Inbox", "--key", `outlook:${m.id}`,
 					"--subject", m.subject || "(no subject)", "--note", `${m.from?.name ?? m.from?.address ?? "?"}: ${m.preview.slice(0, 160)}`,
 					"--field", `from=${m.from?.address?.toLowerCase() ?? ""}`, "--field", `flagged=${m.flagged ? "yes" : "no"}`,
 				]);
@@ -166,11 +174,15 @@ export default function inbox(pi: ExtensionAPI) {
 			if (readCursor() === null) writeCursor(maxId(readRows()));
 			fs.mkdirSync(DIR, { recursive: true });
 			// Any event in the directory rescans: Bun reports a rename by the temp file's name, not ledger.tsv.
-			dirWatch = fs.watch(DIR, () => scan());
+			dirWatch = fs.watch(DIR, () => { scan(); void agents?.poke(); });
+			agents = new AgentTailer({ dir: DIR, inboxPy, onChange: renderStatus });
+			agents.start();
 			// Mail before this watch is not news.
 			if (!fs.existsSync(MAIL_CURSOR)) fs.writeFileSync(MAIL_CURSOR, `${new Date().toISOString().replace(/\.\d+Z$/, "Z")}\n`);
 			timer = setInterval(() => {
 				scan();
+				void agents?.poke();
+				void agents?.tick();
 				void pollMail();
 			}, BACKSTOP_MS);
 			timer.unref?.();
@@ -186,6 +198,8 @@ export default function inbox(pi: ExtensionAPI) {
 
 	function stop(): void {
 		dirWatch?.close();
+		agents?.stop();
+		agents = undefined;
 		clearInterval(timer);
 		lease?.close();
 		dirWatch = timer = lease = undefined;
@@ -211,7 +225,7 @@ export default function inbox(pi: ExtensionAPI) {
 					c.ui.notify(had ? "Inbox delivery stopped." : "This session does not deliver the inbox.", "info");
 				} else if (arg === "status") {
 					const open = readRows().filter((r) => r.state === "open" || r.state === "claimed");
-					c.ui.notify(`${lease ? "Delivering here" : "Not delivering here"}; cursor ${readCursor() ?? "unset"}; ${open.length} open/claimed rows.${error ? ` ⚠ ${error}` : ""}`, "info");
+					c.ui.notify(`${lease ? "Delivering here" : "Not delivering here"}; cursor ${readCursor() ?? "unset"}; ${open.length} open/claimed rows.${error ? ` ⚠ ${error}` : ""}${agents ? `\n${agents.describe()}` : ""}`, "info");
 				} else c.ui.notify(`Unknown: /inbox ${arg}. Use watch | stop | status.`, "error");
 			} catch (e) {
 				c.ui.notify(`Inbox: ${e instanceof Error ? e.message : e}`, "error");
