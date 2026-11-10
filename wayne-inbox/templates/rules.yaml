@@ -5,9 +5,13 @@
 # action: do (an agent acts) | notify (tell you) | log (record only) | ignore (not recorded)
 # owner:  optional default handler written into the ledger row.
 
-github: # fields: number (PR number), event (review | check | merged), state, actor (reviewer login; review only)
+github: # fields: number (PR number), event (review | check | merged), state, actor (reviewer login, or auto-review; review only), verdict (clean | critical) and commit (auto-review only)
   example-org/example-repo:
-    - when: { event: review, actor: your-github-login }
+    - when: { number: ["101", "102"], event: review, actor: auto-review } # multi-source auto-review: start a turn
+      tag: auto-review
+      action: do
+      owner: example-owner
+    - when: { event: review, actor: [your-github-login, auto-review] }
       action: ignore
     - when: { number: ["101", "102"], event: review }
       tag: pr-review
