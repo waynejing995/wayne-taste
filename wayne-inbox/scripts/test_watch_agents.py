@@ -177,6 +177,7 @@ class Env:
     def __init__(self, monkeypatch, tmp_path):
         self.now = T0
         self.behaviour = {}
+        self.push = set()
         self.probes = []
         self.calls = []
         self.omp = teams_stdout
@@ -188,9 +189,14 @@ class Env:
         monkeypatch.setattr(wa, "probe", self._probe)
         monkeypatch.setattr(wa.subprocess, "run", self._run)
 
-    def watch(self, name, behaviour):
+    def watch(self, name, behaviour, push=False):
         self.behaviour[name] = behaviour
-        rows = [{"name": n, "mux": "tern", "pane": "1", "host": "local", "result": ""} for n in self.behaviour]
+        if push:
+            self.push.add(name)
+        else:
+            self.push.discard(name)
+        rows = [{"name": n, "mux": "tern", "pane": "1", "host": "local", "result": "",
+                 **({"push": True} if n in self.push else {})} for n in self.behaviour]
         self.rules.write_text(json.dumps({"agent_watch": rows}))
 
     def _probe(self, a, want=False):
@@ -224,7 +230,7 @@ def test_first_run_sends_one_digest_and_records_its_time(env):
     assert result.exit_code == 0, result.output
     [digest] = env.sent()
     lines = digest.splitlines()
-    assert lines[0] == f"agent progress {HHMM} \u00b7 1 running"
+    assert lines[0] == f"agent progress {HHMM} \u00b7 1 changed"
     assert lines[1] == f"- alpha \u00b7 local \u00b7 last activity {HHMM} \u00b7 tail latest answer"
     assert env.state()["_digest"]["at"] == T0
 
@@ -239,22 +245,32 @@ def test_run_two_minutes_later_sends_nothing(env):
     assert env.state()["_digest"]["at"] == T0
 
 
-def test_next_digest_is_due_after_thirty_minutes(env):
+def test_unchanged_session_is_not_resent_and_a_changed_one_is(env):
     env.watch("alpha", omp_live)
     env.main()
     env.now = T0 + 30 * 60
+    result = env.main()
+    assert result.exit_code == 0, result.output
+    assert len(env.sent()) == 1, "same line as the last digest: nothing new, nothing sent"
+    assert env.state()["_digest"]["at"] == T0 + 30 * 60
+    env.watch("alpha", pane_live)
+    env.now = T0 + 60 * 60
     env.main()
     assert len(env.sent()) == 2
-    assert env.state()["_digest"]["at"] == T0 + 30 * 60
+    assert env.sent()[1].splitlines()[1].endswith("\u00b7 last pane line")
 
 
-def test_digest_min_zero_sends_right_after_a_digest(env):
+def test_only_changed_sessions_are_in_the_digest(env):
     env.watch("alpha", omp_live)
+    env.watch("beta", omp_live)
     env.main()
+    env.watch("beta", pane_live)
     env.now = T0 + 120
     result = env.main("--digest-min", "0")
     assert result.exit_code == 0, result.output
-    assert len(env.sent()) == 2
+    lines = env.sent()[1].splitlines()
+    assert lines[0].endswith("\u00b7 1 changed")
+    assert [line.split(" \u00b7 ")[0] for line in lines[1:]] == ["- beta"]
 
 
 def test_one_probe_per_session_and_tail_asked_only_when_due(env):
@@ -263,6 +279,52 @@ def test_one_probe_per_session_and_tail_asked_only_when_due(env):
     env.now = T0 + 120
     env.main()
     assert env.probes == [("alpha", True), ("alpha", False)]
+
+
+def test_push_finished_session_only_gets_a_digest_and_is_not_removed(env):
+    env.watch("alpha", finished, push=True)
+    result = env.main()
+    assert result.exit_code == 0, result.output
+    [digest] = env.sent()
+    assert digest.splitlines()[1] == f"- alpha \u00b7 local \u00b7 last activity {HHMM} \u00b7 tail latest answer"
+    assert env.probes == [("alpha", True)]
+    assert [c[0] for c in env.calls] == ["omp"]
+    assert env.state()["alpha"] == {"last_active": T0, "last_seen": T0,
+                                    "digested": "- alpha \u00b7 local \u00b7 tail latest answer"}
+    assert json.loads(env.rules.read_text())["agent_watch"][0]["name"] == "alpha"
+
+    env.now = T0 + 120
+    result = env.main()
+    assert result.exit_code == 0, result.output
+    assert env.probes == [("alpha", True)]
+    assert [c[0] for c in env.calls] == ["omp"]
+    assert "alpha" in env.state()
+
+
+@pytest.mark.parametrize("behaviour", [broken, lambda now, want: {**omp_live(now, want), "tail": "bad"}],
+                         ids=["probe", "line"])
+def test_push_digest_failure_reports_probe_failure(env, behaviour):
+    env.watch("alpha", behaviour, push=True)
+    result = env.main()
+    assert result.exit_code == 1, result.output
+    [digest] = env.sent()
+    assert "- alpha \u00b7 local \u00b7 probe failed:" in digest
+    assert [c[0] for c in env.calls] == ["omp"]
+
+
+@pytest.mark.parametrize("waiting", [False, True])
+def test_blocked_session_never_emits_stalled_or_idle(monkeypatch, waiting):
+    def blocked(a, want=False):
+        p = omp_live(T0, want)
+        p.update(state="blocked", smtime=T0 - 3600, text="", waiting=waiting)
+        return p
+
+    monkeypatch.setattr(wa, "probe", blocked)
+    a = {"name": "alpha", "mux": "tern"}
+    events, _ = wa.check(a, {}, 1800, want=False)
+    assert [(event, state) for _, event, state, _ in events] == [("blocked", "waiting")]
+    events, _ = wa.check(a, {"last_active": T0 - 3600}, 1800, want=False)
+    assert events == [(f"blocked:{T0 - 3600}", "blocked", "waiting", "tern: waiting on an approval or a question")]
 
 
 def test_pane_session_line_uses_the_last_non_empty_pane_line(env):
@@ -324,6 +386,7 @@ def test_failed_send_exits_1_keeps_the_last_digest_time_and_session_state(env, o
     env.watch("alpha", omp_live)
     assert env.main().exit_code == 0
     env.omp = omp
+    env.watch("alpha", pane_live)
     env.now = T0 + 30 * 60
     result = env.main()
     assert result.exit_code == 1, result.output
@@ -332,6 +395,7 @@ def test_failed_send_exits_1_keeps_the_last_digest_time_and_session_state(env, o
     state = env.state()
     assert state["_digest"] == {"at": T0}
     assert state["alpha"]["last_seen"] == T0 + 30 * 60
+    assert state["alpha"]["digested"].endswith("tail latest answer"), "the unsent line is not recorded as sent"
 
 
 def test_probe_failure_for_one_session_still_sends_the_digest(env):
@@ -341,7 +405,7 @@ def test_probe_failure_for_one_session_still_sends_the_digest(env):
     assert result.exit_code == 1, result.output
     [digest] = env.sent()
     lines = digest.splitlines()
-    assert lines[0] == f"agent progress {HHMM} \u00b7 2 running"
+    assert lines[0] == f"agent progress {HHMM} \u00b7 2 changed"
     assert "- beta \u00b7 local \u00b7 probe failed: ssh: connect refused" in lines
     assert f"- alpha \u00b7 local \u00b7 last activity {HHMM} \u00b7 tail latest answer" in lines
     assert env.state()["_digest"]["at"] == T0
@@ -402,6 +466,23 @@ def test_probe_default_run_has_no_tail_and_hashes_the_pane_as_before(monkeypatch
     assert result["alive"] is True
     assert "tail" not in result and "kind" not in result
     assert result["text"] == hashlib.md5(pane.read_bytes()).hexdigest()[:16]
+
+
+@pytest.mark.parametrize("message, state", [
+    ({"type": "message", "message": {"role": "assistant", "stopReason": "toolUse", "content": [
+        {"type": "toolCall", "id": "toolu_1", "name": "ask", "arguments": {
+            "questions": [{"id": "q", "question": "yes or no?", "options": [{"label": "yes"}]}]}}]}}, "blocked"),
+    (tool_turn(), ""),
+], ids=["ask", "bash"])
+def test_probe_recognizes_pending_ask_tool_call(monkeypatch, tmp_path, pane_process, message, state):
+    session = tmp_path / "sessions" / "proj" / "s.jsonl"
+    session.parent.mkdir(parents=True)
+    session.write_text(jsonl(message))
+    pane = tmp_path / "pane.txt"
+    pane.write_text("pane\n")
+    result = probe_tern(monkeypatch, tmp_path, pane_process(session), pane)
+    assert result["state"] == state
+    assert result["waiting"] is False
 
 
 def test_probe_want_keeps_text_and_todo_behind_more_than_1mb_of_tool_output(monkeypatch, tmp_path, pane_process):

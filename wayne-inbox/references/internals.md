@@ -14,6 +14,8 @@ How the watchers, files and timers work. Read this only to change or debug the i
 | `cursors/session-push.id` | m365 extension | highest ledger id already pushed to the session |
 | `cursors/outlook-inbox.since` | m365 extension | last mail recorded (only when `outlook:` exists in rules.yaml) |
 | `cursors/agent-watch.json` | `scripts/watch-agents.py` | per watched session: last activity, pane text hash (run state, not config); `_digest.at`: when the last progress digest was sent |
+| `agent-events.jsonl` | `wayne-agent-report` extension in each pushed omp session (on the host it runs on) | one JSON line per state change: `started`, `working`, `ask`, `ask-resolved`, `idle`, `result`, `ended`, `hb` (heartbeat, 60 s); append-only, the durable queue |
+| `cursors/agent-events.json` | m365 extension | per host: byte offset and inode already read from `agent-events.jsonl`; per pushed session: last event, last seen, pid |
 | `cursors/trace-monitor.posted.json` | `scripts/trace-monitor.py` | finding keys already posted to Teams; written only after a successful `--post` |
 | `cursors/trace-monitor.verdicts.json` | `scripts/trace-monitor.py` | magpie verdict cache (finding key + hash of the judged text), so reruns do not call the model again |
 
@@ -25,8 +27,11 @@ How the watchers, files and timers work. Read this only to change or debug the i
 flowchart LR
   T[systemd user timer wayne-inbox-prs, 5 min] --> W[scripts/watch-prs.sh]
   W -->|inbox.py add| L[(ledger.tsv)]
-  T2[systemd user timer wayne-inbox-agents, 2 min] --> G[scripts/watch-agents.py]
+  T2[systemd user timer wayne-inbox-agents, 2 min] --> G[scripts/watch-agents.py: sessions without push]
   G -->|inbox.py add| L
+  R[wayne-agent-report in each pushed omp] -->|append| E[(agent-events.jsonl, per host)]
+  E -->|local dir watch / ssh tail -F| X[m365 extension: agents tailer]
+  X -->|inbox.py add| L
   O[m365 extension: Outlook poll, only with outlook: in rules.yaml] -->|inbox.py add| L
   T3[systemd user timer wayne-inbox-teams, 2 h] --> D[scripts/teams-digest.py: headless omp reads teams_watch chats + self-chat]
   D -->|inbox.py ask / fact| L
@@ -46,10 +51,10 @@ Site values are not in the repo; the unit sets them as environment variables (a 
 | `TRACE_MONITOR_GROUP_CHAT` | `--group-chat` | Teams chat id of the TRACE group; needed for `--post --target group` |
 | `TRACE_MONITOR_RULES` | `--rules-file` | handling-rules markdown; needed for `--preprocess` (`TRACE_MONITOR_PREPROCESS=1`) |
 
-`watch-prs.sh` with no arguments watches the repos listed under `github:` in `rules.yaml` (`inbox.py places github`); none listed is an error.
+`watch-prs.sh` with no arguments watches the repos listed under `github:` in `rules.yaml` (`inbox.py places github`); none listed is an error. It records new reviews, completed checks and merges of your PRs. A review or PR comment whose body contains `Multi-source auto-review` (the TRACE auto-review, posted from your own login) is recorded as `event=review actor=auto-review`, keyed `…:review:<id>` or `…:comment:<id>`; other PR comments are not read.
 
 - `rules.yaml`: `source -> place -> [rules]`, first match wins. `when` is exact match (list = any, `"!x"` = not x). `action`: `do` (card starts a turn), `notify` (card shown, waits for Wayne), `log` (ledger only, not pushed), `ignore` (not recorded). A place with no rules is not recorded.
-- GitHub fields: `number`, `event` (`review | check | merged`), `state`. To watch a PR, add its number to the `number` lists of that repo; to stop, remove it.
+- GitHub fields: `number`, `event` (`review | check | merged`), `state`, `actor` (reviewer login, or `auto-review`; review only), `verdict` (`clean` when the body says "no critical issue" and has no CRITICAL heading or item, else `critical`) and `commit` (the reviewed sha, up to 9 characters, when the body names one) on auto-reviews. Put the `actor: auto-review` rule above an `actor: <your login>` ignore rule. To watch a PR, add its number to the `number` lists of that repo; to stop, remove it.
 - A place may be `"*"`: the source's rules for any place with none of its own (agent sessions are named at run time).
 - One session delivers at a time (abstract-socket lease per inbox directory). It ends with the session.
 
@@ -72,11 +77,34 @@ In omp: `/inbox watch` (deliver here), `/inbox stop`, `/inbox status`.
 To start one, use the `delegate-agent-session` skill: it writes the brief, launches omp in tern, herdr or tmux (local or an ssh host), and registers the session here. Every agent session Wayne or an agent wants followed goes on the `agent_watch` list:
 
 ```bash
-$I agent add <name> --mux tern|herdr|tmux --pane <tern block id | herdr agent | tmux target> \
+$I agent add <name> [--push] --mux tern|herdr|tmux --pane <tern block id | herdr agent | tmux target> \
   [--host <ssh host>] --result <deliverable file with the RESULT block> --goal "<one line>"
-$I agent ls
+$I agent ls                              # last column: push
 $I agent rm <name>...
 ```
+
+An entry is watched one of two ways, decided only by its registration.
+
+### Pushed (`--push`): the session reports itself
+
+The omp session was launched with `WAYNE_AGENT_WATCH=<name>` and `WAYNE_AGENT_RESULT=<deliverable>` (`delegate-agent-session` step 3). Its `wayne-agent-report` extension (`omp-config/extensions/wayne-agent-report.ts`, linked into `~/.omp/agent/extensions/`) deletes both variables at load, so nested `omp -p` runs and subagents do not report, and appends one line per state change of its root session to `agent-events.jsonl` on its own host.
+
+The session running `/inbox watch` tails that file: the local one on every inbox-directory change; for each remote `--host` one long-lived `ssh -o ServerAliveInterval=30 <host> tail -c +<offset+1> -F agent-events.jsonl`, reconnected after it exits (5 s doubling to 60 s) from the stored offset. No timer is involved in delivery.
+
+| Pushed event | Row (source `agents`, place = name) | Default rule |
+| --- | --- | --- |
+| `ask` (the `ask` tool or a tool approval is pending) | `event=ask state=ask\|approval`, note = question and options | `do` |
+| `result` (turn ended, RESULT has a status line) | `event=result state=<status>`, note = last output; `done` also runs `agent rm` | `do` |
+| `idle` (turn ended, no RESULT status) | `event=idle state=no-result`, note = last output | `do` |
+| `ended` (omp exited) | `event=ended state=exited` | `do` |
+| `dead` (made up by the tailer) | `event=dead state=no-heartbeat\|never-started` | `do` |
+| `started`, `working`, `ask-resolved`, `hb` | none: run state and the status row only | |
+
+`dead` exists only to catch a dead process: no event (the heartbeat is every 60 s) for `WAYNE_AGENT_DEAD_SEC` (300 s) while the host's stream has been up for longer than that window, so a network outage never reads as a death; `never-started` means the name was registered but its reporter never wrote (env not set at launch, or the extension not linked on that host). One row per silence (key `agents:<name>:dead:<lastSeen>`). Events that arrive before the name is registered (the pane id is known only after launch) are held and recorded once `agent add --push` runs. After `result done` retires a name, its session's later events are its finished run settling and exiting and make no rows, unless that session starts a new turn (a follow-up): those are held like any unregistered events and delivered when the name is registered again. A new session under the name ends the old one's claim for good. The status row shows `◉inbox · <n> agents` and a link that is down; `/inbox status` lists each host's offset and each session's last event.
+
+`watch-agents.py` does not probe pushed entries for events; it still gives them a line in the progress digest.
+
+### Probed (no `--push`): the timer looks
 
 `tern new session …` prints the block id; `delegate-agent-session` lists the pane id for each multiplexer. `watch-agents.py` checks each one every 2 minutes, where it lives (one ssh call for a remote host), and looks at only three things:
 
@@ -84,18 +112,20 @@ $I agent rm <name>...
 | --- | --- | --- |
 | start: still there | `tern process` / `herdr agent get` / `tmux display -p` | `gone exited`: pane ended with no RESULT |
 | end: RESULT written | `status:` line in the `--result` file | `result done/partial/blocked`, once per write |
-| middle: still producing | omp: session jsonl mtime (open in `/proc/<pid>/fd`); herdr: its agent state; else pane text changed | `stalled quiet` after 30 min without output, once per quiet spell; herdr `blocked waiting` |
+| middle: still producing | omp: session jsonl mtime (open in `/proc/<pid>/fd`); herdr: its agent state; else pane text changed | `stalled quiet` after 30 min without output, once per quiet spell; `blocked waiting` when herdr/hc say blocked or the omp jsonl's last message is a pending `ask` tool call (never `stalled` then) |
 | idle without RESULT | omp: last jsonl message a finished assistant turn; herdr: `idle`/`done` | `idle no-result`, once per idle spell: the agent stopped without writing its RESULT (forgot, or asked a question in prose) |
 
 `tern capture` gives nothing for omp panes, which is why the jsonl is the activity signal. A session whose RESULT says `done` is dropped from the list after its event; the others stay until `agent rm`.
 
-Every `--digest-min` minutes (default 30) the same run also sends one progress digest to Wayne's self-chat: one line per watched session still running, `name · host · last activity HH:MM · <newest assistant text [todo done/total, now: …]>` (non-omp panes: the last pane line). A failed probe shows as `probe failed: <cause>` on its own line. Nothing running → no message. The digest never writes inbox rows. A failed send is logged at ERROR, exits 1, and is retried on the next due run.
+Every `--digest-min` minutes (default 30) the same run also sends one progress digest to Wayne's self-chat: one line per watched session still running whose line changed since the last digest sent, pushed or probed, `name · host · last activity HH:MM · <newest assistant text [todo done/total, now: …]>` (non-omp panes: the last pane line). The last-activity time does not count as a change; the last line sent is `digested` in the session's state. A failed probe shows as `probe failed: <cause>` on its own line. Nothing running or nothing changed → no message. The digest never writes inbox rows. A failed send is logged at ERROR, exits 1, and is retried on the next due run.
 
-The default rules make `result` and `idle` rows `do`: the card starts a turn in the coordinator session. On `result`, verify the claims at the source, report in the channel `--goal` names (Teams, self-chat), then `done`. On `idle`, read the session's last message: if the job is finished, send it one line asking for the RESULT block in the deliverable file; if it asked a question, relay the question to Wayne.
+Pushed sessions get the same rule as cards: the tailer skips a row whose question and options, RESULT status and `open:` line, or idle output match the last row added for that name (logged as `repeats the last card; not added`). `ended` and `dead` always go out.
+
+The default rules make `result`, `idle`, `ask`, `ended` and `dead` rows `do`: the card starts a turn in the coordinator session. On `result`, verify the claims at the source, report in the channel `--goal` names (Teams, self-chat), then `done`. On `idle`, read the card's last output: if the job is finished, send the session one line asking for the RESULT block in the deliverable file. A question or blocker (on `ask`, in RESULT `open:`, or at the end of an idle turn) is the coordinator's first: answer it with tools when they can (read-only prod config check, repo fact, a decision Wayne already made) and send the answer into the session; ask Wayne only what needs his decision, as one concrete question in plain Chinese with what is blocked and why, 2–3 options with a recommendation, and what happens after each. `gone`, `stalled` and `blocked` (probed only) are `notify`.
 
 ## Resume after a restart
 
-1. `/inbox watch` in the new session. Agent sessions need nothing: the timer watches them whatever session runs.
+1. `/inbox watch` in the new session. Agent sessions need nothing more: probed ones are watched by the timer whatever session runs; pushed ones resume from `cursors/agent-events.json`, and every event written while no session delivered arrives once in the first batch.
 2. Read the `teams_watch` section of `~/.wayne/inbox/rules.yaml`. For each chat call `teams_watch` with `action: start`, its `chat_id` and `policy`; pass `interval_sec` on the first call.
 3. Report what is watched. Do not invent chats or policies that are not in the file.
 

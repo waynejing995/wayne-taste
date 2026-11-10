@@ -17,18 +17,21 @@ Events (source `agents`, place = the session name; rules.yaml usually covers the
   event=result  state=done|partial|blocked   once per RESULT (keyed by the file's mtime)
   event=gone    state=exited                 the pane or agent ended with no RESULT
   event=stalled state=quiet                  no output for --stall-min minutes; once per quiet spell
-  event=blocked state=waiting                herdr or hc says the agent waits on an approval or a question
+  event=blocked state=waiting                herdr or hc says the agent waits, or an omp session's last message is a pending ask tool call
   event=idle    state=no-result              the agent ended its turn but the RESULT file has no status line;
                                              once per idle spell
 
 A session whose RESULT says `done` is taken off the list once its event is recorded; others stay until
 `inbox.py agent rm`. Run state (last activity, open quiet spell, pane text hash) is in
 cursors/agent-watch.json, never in rules.yaml.
+Entries with push: true are not probed for events (the m365 inbox extension receives their pushed events); they only get a digest line.
 
 Progress digest (every `--digest-min` minutes, default 30): one message to Wayne's self-chat lists each running
 session with its newest assistant text (omp: from its session jsonl; other panes: the last pane line) and, for omp,
-its todo progress. It is not an inbox row and never calls inbox.py. The last digest time is `_digest` in
-cursors/agent-watch.json; a failed send is logged, exits 1, and leaves that time as it was.
+its todo progress. It is not an inbox row and never calls inbox.py. A session whose line (without its `last activity`
+time) is the one it had in the last digest sent is left out; nothing new anywhere sends nothing. The last digest time
+is `_digest` and each session's last sent line is its `digested` in cursors/agent-watch.json; a failed send is logged,
+exits 1, and leaves both as they were.
 
 Usage: watch-agents.py [--stall-min 30] [--digest-min 30]   (a systemd user timer runs it every 2 minutes)
 """
@@ -40,6 +43,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -108,7 +112,13 @@ if [ -n "$session" ]; then
   smtime=$(stat -c %Y "$session" 2>/dev/null || echo 0)
   # omp waits for input when its last message is an assistant turn that ended (not a tool call).
   last=$(tail -c 200000 "$session" | grep '"message":{"role":"' | tail -1)
-  case $last in *'"role":"assistant"'*) case $last in *'"stopReason":"toolUse"'*) ;; *'"stopReason":"'*) waiting=true ;; esac ;; esac
+  case $last in
+    *'"role":"assistant"'*)
+      case $last in
+        *'"stopReason":"toolUse"'*) case $last in *'"name":"ask","arguments":'*) [ -z "$state" ] && state=blocked ;; esac ;;
+        *'"stopReason":"'*) waiting=true ;;
+      esac ;;
+  esac
 fi
 rmtime=0 rstatus=
 if [ -n "$result" ] && [ -f "$result" ]; then
@@ -287,15 +297,28 @@ def check(a: dict, st: dict, stall_s: int, want: bool) -> tuple[list[tuple[str, 
     # An agent waiting for its next prompt is idle, not stalled.
     if p["state"] in ("idle", "done"):
         p["waiting"] = True
-    if p["alive"] and not p["rstatus"] and not p["waiting"] and quiet >= stall_s:
+    if p["alive"] and not p["rstatus"] and p["state"] != "blocked" and not p["waiting"] and quiet >= stall_s:
         # One event per quiet spell: the spell is named by when it began.
         events.append((f"stalled:{st['last_active']}", "stalled", "quiet", f"no output for {quiet // 60} min"))
-    if p["alive"] and not p["rstatus"] and p["waiting"]:
+    if p["alive"] and not p["rstatus"] and p["state"] != "blocked" and p["waiting"]:
         # Named by the last activity, so a session nudged into working again can go idle (and be reported) again.
         events.append((f"idle:{st['last_active']}", "idle", "no-result", "turn ended with no RESULT block"))
     st["last_seen"] = now
     st["alive"] = p["alive"]
     return events, p
+
+
+def digest_probe(a: dict, st: dict) -> str | None:
+    """Probe a push session only for its digest line, without producing events."""
+    p = probe(a, want=True)
+    st["last_active"] = max(st.get("last_active", 0), p["smtime"] or 0) or p["now"]
+    st["last_seen"] = p["now"]
+    return session_entry(a, st, p) if p["alive"] else None
+
+
+def unchanged(line: str) -> str:
+    """What a digest line says, minus its `last activity` time: the part compared with the last digest sent."""
+    return re.sub(r" \u00b7 last activity \d\d:\d\d", "", line)
 
 
 @click.command()
@@ -316,16 +339,22 @@ def main(stall_min: int, digest_min: int, verbose: bool) -> None:
     for a in agents:
         st = state.setdefault(a["name"], {})
         try:
+            if a.get("push"):
+                if digest_due:
+                    line = digest_probe(a, st)
+                    if line:
+                        lines.append((a["name"], line))
+                continue
             events, p = check(a, st, stall_min * 60, want=digest_due)
         except Exception as e:  # one session's failure must not hide the others'
             failed += 1
             logger.error("{}: {}", a["name"], e)
             if digest_due:
-                lines.append(f"- {a['name']} \u00b7 {a.get('host', 'local')} \u00b7 probe failed: {str(e)[:200]}")
+                lines.append((a["name"], f"- {a['name']} \u00b7 {a.get('host', 'local')} \u00b7 probe failed: {str(e)[:200]}"))
             continue
         if digest_due and p["alive"] and not any(event == "result" and s == "done" for _, event, s, _ in events):
             try:
-                lines.append(session_entry(a, st, p))
+                lines.append((a["name"], session_entry(a, st, p)))
             except Exception as e:  # a bad tail costs this session its digest line, not the others
                 failed += 1
                 logger.error("{}: digest line: {}", a["name"], e)
@@ -338,11 +367,21 @@ def main(stall_min: int, digest_min: int, verbose: bool) -> None:
         except Exception as e:  # one session's failure must not hide the others'
             failed += 1
             logger.error("{}: {}", a["name"], e)
-    if digest_due and lines:
-        digest = f"agent progress {datetime.fromtimestamp(now).strftime('%H:%M')} \u00b7 {len(lines)} running\n" + "\n".join(lines)
+    # Only new information goes out: a line equal to the one last sent for that session is dropped.
+    fresh = [(name, line, unchanged(line)) for name, line in lines
+             if unchanged(line) != state.get(name, {}).get("digested")]
+    if digest_due and lines and not fresh:
+        # Checked and nothing to say: the next look is a full interval away, like after a sent digest.
+        logger.info("progress digest due, nothing changed since the last one; not sent")
+        state[DIGEST] = {"at": now}
+    elif digest_due and fresh:
+        digest = (f"agent progress {datetime.fromtimestamp(now).strftime('%H:%M')} \u00b7 {len(fresh)} changed\n"
+                  + "\n".join(line for _, line, _ in fresh))
         try:
             logger.info("progress digest: {}", post_digest(digest))
             state[DIGEST] = {"at": now}
+            for name, _, key in fresh:
+                state[name]["digested"] = key
         except Exception as e:  # any failure is a missed digest: logged, not retried here, state still written
             failed += 1
             logger.error("progress digest not sent: {}", e)
