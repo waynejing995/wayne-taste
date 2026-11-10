@@ -50,7 +50,7 @@ interface NameState {
 	 * same round going on, so its `result done` repeats the one that retired the name. A new session reporting under
 	 * the name (`superseded`) makes the old session a finished run for good.
 	 */
-	retiredAt?: { session: string; seq: number; resumed?: boolean; superseded?: boolean };
+	retiredAt?: { session: string; seq: number; said?: string; unmarked?: boolean; checked?: boolean; resumed?: boolean; superseded?: boolean };
 	/** What the last card added for this name said (rowSays with type and state); an identical next card is skipped. */
 	lastCard?: string;
 }
@@ -338,7 +338,7 @@ export class AgentTailer {
 			delete state.pending;
 			for (let i = 0; i < due.length; i++) {
 				try {
-					await this.apply(due[i].event, due[i].host);
+					await this.apply(due[i].event, due[i].host, true);
 				} catch (e) {
 					// apply() changes nothing when inbox.py add fails, so this event and the rest wait, in order.
 					state.pending = due.slice(i);
@@ -431,27 +431,40 @@ export class AgentTailer {
 	/**
 	 * One event: its row if it makes one, then the name's state. Throws, changing nothing, when the row is not recorded.
 	 * A name registered on another host is that host's business: this stream's events for it are ignored.
+	 * `held`: the event arrived while the name was not registered and is replayed now that it is.
 	 */
-	private async apply(ev: Event, host: string): Promise<void> {
+	private async apply(ev: Event, host: string, held = false): Promise<void> {
 		const entry = this.entries.find((item) => item.name === ev.name);
 		if (entry && entry.host !== host) return;
 		const seen = Date.parse(ev.ts) || this.now();
 		const current: NameState = this.names[ev.name] ?? { state: "registered", lastSeen: seen, host };
 		const row = rowFor(ev);
+		// No repeats: a card saying what the last card for this name said (same question, same RESULT status and open items,
+		// same idle output) carries no new information. `ended` always goes out.
+		const said = row && ev.type !== "ended" ? `${ev.type}\n${row.state}\n${rowSays(ev)}` : undefined;
 		const retiredAt = current.retiredAt;
 		if (retiredAt && ev.session !== retiredAt.session) retiredAt.superseded = true;
 		const newRound = ev.type === "working" && ev.prompted !== false;
-		if (retiredAt && ev.session === retiredAt.session && ev.seq > retiredAt.seq && newRound) retiredAt.resumed = true;
+		if (retiredAt && ev.session === retiredAt.session && ev.seq > retiredAt.seq && newRound) {
+			retiredAt.resumed = true;
+			if (ev.prompted === undefined) retiredAt.unmarked = true;
+		}
+		// A reporter older than `prompted` cannot tell a follow-up from an advisor's continuation. The continuation comes
+		// first, held until the next registration, and shows itself by repeating the `result done` that retired the name
+		// with nothing said in between. Only the first held result is checked, and an ask or idle before it marks a real
+		// round, so the follow-up's own result, saying the same, still counts.
+		const after = retiredAt !== undefined && ev.session === retiredAt.session && ev.seq > retiredAt.seq;
+		if (after && row && ev.type !== "result" && ev.type !== "ended") retiredAt.checked = true;
+		const firstHeldResult = held && after && ev.type === "result" && retiredAt.unmarked === true && retiredAt.checked !== true;
+		if (firstHeldResult) retiredAt.checked = true;
+		const repeatsRetired = firstHeldResult && said === retiredAt.said;
 		const finished = retiredAt !== undefined && ev.session === retiredAt.session
-			&& (retiredAt.superseded === true || ev.seq <= retiredAt.seq || retiredAt.resumed !== true);
+			&& (retiredAt.superseded === true || ev.seq <= retiredAt.seq || retiredAt.resumed !== true || repeatsRetired);
 		// Its exit (`ended`) is expected; anything else it says is dropped, and said so.
 		if (finished && row && ev.type !== "ended") this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} belongs to the round that retired the name at seq ${retiredAt.seq}; not added`);
 		// `entries` is re-read only between batches: a `result done` earlier in this batch already retired the name.
 		const live = entry !== undefined && !current.removed ? entry : undefined;
 		let retire = false;
-		// No repeats: a card saying what the last card for this name said (same question, same RESULT status and open items,
-		// same idle output) carries no new information. `ended` always goes out.
-		const said = row && ev.type !== "ended" ? `${ev.type}\n${row.state}\n${rowSays(ev)}` : undefined;
 		const repeat = said !== undefined && said === current.lastCard;
 		if (repeat && live && !finished) this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} repeats the last card; not added`);
 		if (live && row && !finished && !repeat) {
@@ -483,7 +496,7 @@ export class AgentTailer {
 		this.names[ev.name] = current;
 		if (retire) {
 			current.removed = true;
-			current.retiredAt = { session: ev.session, seq: ev.seq };
+			current.retiredAt = { session: ev.session, seq: ev.seq, said };
 			delete current.pending;
 		} else if (!live && ev.type !== "hb" && !finished) {
 			// Not registered (yet, or again after retiring): kept until the name is registered, then recorded in order.
@@ -616,6 +629,8 @@ export class AgentTailer {
 		let pruned = false;
 		for (const [name, state] of Object.entries(this.names)) {
 			if (state.lastSeen >= cutoff || this.entries.some((entry) => entry.name === name)) continue;
+			const held = state.pending ?? [];
+			if (held.length > 0) this.warn(`${name}: dropped ${held.length} events held for a registration that never came (seq ${held.map((item) => item.event.seq).join(", ")})`);
 			delete this.names[name];
 			pruned = true;
 		}

@@ -385,10 +385,9 @@ await check("a retired name registered again while the coordinator is down: the 
 	deepStrictEqual([...f.rows.values()].map((row) => fields(row)[0]), ["event=result", "event=ask", "event=result"]);
 }));
 
-await check("agent-push-smart 2026-11-10: an agent-started continuation after done is not a round; the follow-up's result is", () => withFixture(async (f) => {
-	// The real event sequence of session 01a1c313. 073 was started by an advisor message, not a prompt; 245 by the
-	// coordinator's follow-up, typed into the session. Before the fix, 075 became card #394 on re-registration and
-	// retired the name, and 247 was held forever with no card and no warning.
+await check("agent-push-smart, reporters with `prompted`: an agent-started continuation after done is not a round; the follow-up's result is", () => withFixture(async (f) => {
+	// The sequence of session 01a1c313 as a reporter that marks `working` writes it: 073 was started by an advisor
+	// message, not a prompt; 245 by the coordinator's follow-up, typed into the session.
 	const name = "agent-push-smart";
 	const session = "01a1c313-0982-718e-b686-6bf23cddede2";
 	const ev = (type, seq, ts, extra = {}) => f.event(type, 1794274167959000 + seq, { name, session, ts, pid: 4059262, ...extra });
@@ -411,6 +410,74 @@ await check("agent-push-smart 2026-11-10: an agent-started continuation after do
 	equal(f.calls.filter((call) => call[0] === "agent").length, 2, "247 retires the name");
 	equal(f.saved().names[name].pending, undefined);
 	for (const seq of [1794274167959075, 1794274167959249]) ok(f.warnings.some((w) => w.includes(`seq ${seq}`)), `the dropped ${seq} is logged`);
+}));
+
+await check("agent-push-smart 2026-11-10, the stream as written (no `prompted`): 075 is dropped loudly and 247 makes its card", () => withFixture(async (f) => {
+	// The non-heartbeat events of session 01a1c313 from ~/.wayne/inbox/agent-events.jsonl, unchanged but for `text` and
+	// `sessionFile` (left out: no rule reads them). Before the fix, 075 became card #394 on re-registration and retired
+	// the name, and 247 was held forever with no card and no warning.
+	const name = "agent-push-smart";
+	const session = "01a1c313-0982-718e-b686-6bf23cddede2";
+	const result = { path: "/root/.wayne/projects/wayne-skills/runs/agent-push-smart/RESULT.md", status: "done" };
+	const real = (seq, type, ts) => ({ v: 1, ts, name, host: "wayne-amd-Super-Server", pid: 4059262, session, seq: 1794274167959000 + seq, type, ...(type === "result" ? { result } : {}) });
+	const key = (seq) => `agents:${name}:${session}:${1794274167959000 + seq}`;
+	await f.start([f.watched(name, "local", "2026-11-10 09:29:20")]);
+	f.append(real(62, "working", "2026-11-10T02:26:58.181Z"));
+	f.append(real(72, "result", "2026-11-10T02:35:33.557Z"));
+	await f.tailer.poke();
+	f.append(real(73, "working", "2026-11-10T02:35:51.384Z"));
+	f.append(real(75, "result", "2026-11-10T02:37:18.461Z"));
+	await f.tailer.poke();
+	deepStrictEqual([...f.rows.keys()], [key(72)]);
+	// The coordinator registers the name again for its follow-up (05:26:19Z), before the follow-up's first event.
+	f.writeRules([f.watched(name, "local", "2026-11-10 13:26:19")]);
+	await f.tailer.poke();
+	deepStrictEqual([...f.rows.keys()], [key(72)], "075 makes no card");
+	equal(f.calls.filter((call) => call[0] === "agent").length, 1, "075 does not retire the name again");
+	ok(f.warnings.some((w) => w.includes(`seq ${1794274167959075}`)), "the dropped 075 is logged");
+	f.append(real(245, "working", "2026-11-10T05:26:22.799Z"));
+	f.append(real(247, "result", "2026-11-10T05:26:52.523Z"));
+	await f.tailer.poke();
+	deepStrictEqual([...f.rows.keys()], [key(72), key(247)], "247 makes its card");
+	equal(f.calls.filter((call) => call[0] === "agent").length, 2, "247 retires the name");
+	f.append(real(248, "working", "2026-11-10T05:27:11.014Z"));
+	f.append(real(249, "result", "2026-11-10T05:27:26.268Z"));
+	await f.tailer.poke();
+	// 249 is held like 075 was: a registration would drop it with a warning, as above.
+	deepStrictEqual([...f.rows.keys()], [key(72), key(247)]);
+	f.advance(1000);
+	f.writeRules([f.watched(name, "local", f.since())]);
+	await f.tailer.poke();
+	deepStrictEqual([...f.rows.keys()], [key(72), key(247)], "249 makes no card");
+	ok(f.warnings.some((w) => w.includes(`seq ${1794274167959249}`)), "the dropped 249 is logged");
+	equal(f.saved().names[name].pending, undefined);
+}));
+
+await check("no `prompted`: a follow-up whose result repeats the retiring one still makes its card when it asked first", () => withFixture(async (f) => {
+	await f.start();
+	f.append(f.event("result", 1, { text: "done", result: { status: "done", path: "/answer" } }));
+	await f.tailer.poke();
+	f.append(f.event("working", 2));
+	f.append(f.event("ask", 3, { ask: { kind: "ask", question: "Which branch?" } }));
+	f.append(f.event("result", 4, { text: "again", result: { status: "done", path: "/answer" } }));
+	await f.tailer.poke();
+	f.advance(1000);
+	f.writeRules([f.watched("one", "local", f.since())]);
+	await f.tailer.poke();
+	deepStrictEqual([...f.rows.keys()], ["agents:one:session:1", "agents:one:session:3", "agents:one:session:4"]);
+	equal(f.warnings.length, 0);
+}));
+
+await check("events held for a registration that never comes are dropped with a warning", () => withFixture(async (f) => {
+	await f.start([f.watched("other")]);
+	f.append(f.event("ask", 1, { ask: { kind: "ask", question: "Anyone?" } }));
+	await f.tailer.poke();
+	equal(f.saved().names.one.pending.length, 1);
+	f.advance(25 * 3600_000);
+	f.append(f.event("hb", 2, { name: "other" }));
+	await f.tailer.poke();
+	await f.tailer.tick();
+	ok(f.warnings.some((w) => w.includes("one: dropped 1 events held") && w.includes("seq 1")), JSON.stringify(f.warnings));
 }));
 
 await check("a prompted follow-up that finishes before re-registration still makes its cards", () => withFixture(async (f) => {
