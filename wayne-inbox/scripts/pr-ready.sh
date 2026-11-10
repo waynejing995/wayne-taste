@@ -2,7 +2,8 @@
 # One-shot merge readiness of a PR: prints the four merge gates, then READY or NOT READY: <first blocking gate>.
 #   review-head  the latest TRACE auto-review (review or PR comment, see auto-review.sh) names the current head sha
 #   review-clean that review's verdict is clean
-#   ci           every check on the head completed with success, skipped or neutral (status contexts: success)
+#   ci           at least one check on the head, every one completed with success, skipped or neutral
+#                (status contexts: success)
 #   mergeable    GitHub reports MERGEABLE
 # Each gate line is `<gate> ok|FAIL|pending <evidence>`. Exit 0 only when READY; 1 when not; 2 on bad usage.
 # Usage: pr-ready.sh <owner/repo> <pr>
@@ -44,7 +45,8 @@ else
   fi
 fi
 
-# A check is ok, pending or failed; a failure blocks even while others still run.
+# A check is ok, pending or failed; a failure blocks even while others still run. No check at all fails: a PR stacked
+# on a branch other than main gets no CI, and an empty rollup must not read as green.
 ci=$(jq -r '
   [.statusCheckRollup[]? | if .__typename == "CheckRun"
      then {name, s: (if .status != "COMPLETED" then "pending"
@@ -53,7 +55,8 @@ ci=$(jq -r '
      else {name: .context, s: (if .state == "SUCCESS" then "ok" elif (.state | IN("PENDING", "EXPECTED")) then "pending"
                                 else "failed" end), why: .state} end] as $c
   | ($c | map(select(.s == "failed"))) as $f | ($c | map(select(.s == "pending"))) as $p
-  | if ($f | length) > 0 then "FAIL \($f | length)/\($c | length) failed: " + ($f | map("\(.name) \(.why)") | join(", "))
+  | if ($c | length) == 0 then "FAIL no checks on head"
+    elif ($f | length) > 0 then "FAIL \($f | length)/\($c | length) failed: " + ($f | map("\(.name) \(.why)") | join(", "))
     elif ($p | length) > 0 then "pending \($p | length)/\($c | length) not done: " + ($p | map("\(.name) \(.why)") | join(", "))
     else "ok \($c | length) checks passed" end' <<<"$data")
 gates+=("ci $ci")

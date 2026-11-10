@@ -76,3 +76,11 @@ def test_failed_check_fails_ci_while_others_still_run(tmp_path, check):
 def test_conflicting_pr_is_not_ready(tmp_path):
     result = run(tmp_path, pr([("2026-11-10T09:00:00Z", CLEAN)], mergeable="CONFLICTING"))
     assert result.returncode == 1 and result.stdout.splitlines()[-1] == "NOT READY: mergeable"
+
+
+
+def test_head_without_any_check_fails_ci(tmp_path):
+    result = run(tmp_path, pr([("2026-11-10T09:00:00Z", CLEAN)], checks=[]))
+    assert result.returncode == 1
+    assert "ci            FAIL     no checks on head" in result.stdout.splitlines()
+    assert result.stdout.splitlines()[-1] == "NOT READY: ci"
