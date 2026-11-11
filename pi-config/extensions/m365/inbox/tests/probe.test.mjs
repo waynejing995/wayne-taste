@@ -1,0 +1,604 @@
+/**
+ * The agent probe (inbox/cli/probe.ts): what a run reads from a session, the progress digest it sends, and the
+ * events it records. Ported from wayne-inbox/scripts/test_watch_agents.py.
+ *
+ * Digests go through the real `omp` call path with a fake `omp` on PATH; probes are injected, except the
+ * `runProbe` tests, which run probe.sh against a fake `tern` and a real pane process.
+ *
+ *   node inbox/tests/probe.test.mjs
+ */
+import { deepStrictEqual, ok, strictEqual } from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
+import YAML from "yaml";
+import { latestLine, paneLine, probeAgents, runProbe } from "../cli/probe.ts";
+
+let failed = 0;
+async function check(label, fn) {
+	try {
+		await fn();
+		console.log(`PASS ${label}`);
+	} catch (e) {
+		failed++;
+		console.log(`FAIL ${label}\n${e.stack ?? e.message}`);
+	}
+}
+
+const DOT = " \u00b7 ";
+const SELF_RECEIPT = "Sent to self-chat (48:notes).";
+const T0 = Date.UTC(2026, 10, 6, 14, 0) / 1000;
+const pad = (n) => String(n).padStart(2, "0");
+const hhmm = (s) => {
+	const d = new Date(s * 1000);
+	return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+const HHMM = hhmm(T0);
+const md5 = (buf) => createHash("md5").update(buf).digest("hex").slice(0, 16);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function jsonl(...objs) {
+	return objs.map((o) => JSON.stringify(o)).join("\n");
+}
+const assistant = (...items) => ({ type: "message", message: { role: "assistant", content: items, stopReason: "stop" } });
+const toolTurn = () => ({
+	type: "message",
+	message: { role: "assistant", content: [{ type: "toolCall", name: "bash", arguments: { command: "ls" } }], stopReason: "toolUse" },
+});
+const textItem = (value) => ({ type: "text", text: value });
+function todoResult(...tasks) {
+	const phase = { name: "Wave 1", tasks: tasks.map(([content, status]) => ({ content, status })) };
+	return { type: "message", message: { role: "toolResult", toolName: "todo", details: { op: "update", phases: [phase] } } };
+}
+const tailOf = (value, kind) => ({ kind, tail: gzipSync(Buffer.from(value)).toString("base64") });
+const decodeTail = (r) => gunzipSync(Buffer.from(r.tail, "base64")).toString("utf8");
+
+const OMP_TAIL = jsonl(assistant(textItem("older")), toolTurn(), assistant(textItem("tail latest answer")));
+/** A live omp session: its tail only when asked, as probe.sh does. */
+const live = (tail, kind) => (now, want) => {
+	const p = { alive: true, agent: "omp", state: "", session: "/s.jsonl", smtime: now, waiting: false, text: "pane-hash", rmtime: 0, rstatus: "", now };
+	if (want) Object.assign(p, tailOf(tail, kind));
+	return p;
+};
+const ompLive = live(OMP_TAIL, "jsonl");
+const paneLive = live("older\nlast pane line\n\n", "pane");
+const finished = (now, want) => ({ ...ompLive(now, want), rmtime: now, rstatus: "done" });
+const dead = (now) => ({ alive: false, agent: "", state: "", session: "", smtime: 0, waiting: false, text: "", rmtime: 0, rstatus: "", now });
+const broken = () => {
+	throw new Error("ssh: connect refused");
+};
+const partialResult = (ropen) => (now, want) => ({ ...ompLive(now, want), rmtime: now, rstatus: "partial", ropen });
+const blocked = (waiting) => (now, want) => ({ ...ompLive(now, want), state: "blocked", smtime: T0 - 3600, text: "", waiting });
+
+/**
+ * Stands in for `omp --mode json` running one teams_send. Its mode comes from FAKE_OMP_MODE at call time: ok,
+ * exit, error (teams error), receipt (wrong chat), message (other text). Every call's argv is appended to FAKE_OMP_LOG.
+ */
+const OMP = `#!/usr/bin/env node
+const fs = require("node:fs");
+const argv = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_OMP_LOG, JSON.stringify(argv) + "\\n");
+const mode = process.env.FAKE_OMP_MODE ?? "ok";
+if (mode === "exit") {
+	process.stderr.write("boom: no teams token");
+	process.exit(1);
+}
+const digest = argv.at(-1).split("\\n\\n").slice(1).join("\\n\\n").trim();
+const start = { type: "tool_execution_start", toolCallId: "call-1", toolName: "teams_send", args: { target: "self", message: mode === "message" ? "some other text" : digest } };
+const text = { ok: "${SELF_RECEIPT}", message: "${SELF_RECEIPT}", error: "Graph 403 Forbidden", receipt: "Sent to chat 19:group@thread" }[mode];
+const end = { type: "tool_execution_end", toolCallId: "call-1", toolName: "teams_send", result: { content: [{ type: "text", text }] } };
+if (mode === "error") end.isError = true;
+console.log("noise");
+console.log(JSON.stringify(start));
+console.log(JSON.stringify(end));
+`;
+
+const ENV_KEYS = ["PATH", "HOME", "WAYNE_INBOX_DIR", "FAKE_OMP_LOG", "FAKE_OMP_MODE"];
+
+function makeFixture(dir) {
+	const rulesFile = path.join(dir, "rules.yaml");
+	const stateFile = path.join(dir, "cursors", "agent-watch.json");
+	const ledgerFile = path.join(dir, "ledger.tsv");
+	const f = {
+		dir,
+		now: T0,
+		behaviour: {},
+		push: new Set(),
+		probes: [],
+		logs: [],
+		children: [],
+		/** Watch `name` with a fake probe; rewrites rules.yaml's agent_watch from every session watched so far. */
+		watch(name, behaviour, push = false) {
+			f.behaviour[name] = behaviour;
+			if (push) f.push.add(name);
+			else f.push.delete(name);
+			const rows = Object.keys(f.behaviour).map((n) => ({
+				name: n, mux: "tern", pane: "1", host: "local", result: "", ...(f.push.has(n) ? { push: true } : {}),
+			}));
+			fs.writeFileSync(rulesFile, YAML.stringify({ agents: { "*": [{ action: "notify", tag: "agent" }] }, agent_watch: rows }));
+		},
+		/** One probe pass; `extra` overrides options (e.g. `agent`, `digestMin`). */
+		run(extra = {}) {
+			return probeAgents({
+				stallMin: 30,
+				digestMin: 30,
+				now: () => f.now * 1000,
+				log: (line) => f.logs.push(line),
+				probe: async (a, want) => {
+					f.probes.push([a.name, want]);
+					return f.behaviour[a.name](f.now, want);
+				},
+				...extra,
+			});
+		},
+		/** The argv of every fake omp call so far. */
+		calls() {
+			if (!fs.existsSync(process.env.FAKE_OMP_LOG)) return [];
+			return fs.readFileSync(process.env.FAKE_OMP_LOG, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+		},
+		/** The digest prompt of every fake omp call. */
+		sent() {
+			return f.calls().map((argv) => argv.at(-1).split("\n\n").slice(1).join("\n\n").trim());
+		},
+		state() {
+			return JSON.parse(fs.readFileSync(stateFile, "utf8"));
+		},
+		/** Ledger keys (the second column), optionally those starting with `prefix`. */
+		ledgerKeys(prefix = "") {
+			if (!fs.existsSync(ledgerFile)) return [];
+			return fs.readFileSync(ledgerFile, "utf8").split("\n").slice(1).filter(Boolean).map((l) => l.split("\t")[1]).filter((k) => k.startsWith(prefix));
+		},
+		watchedNames() {
+			return YAML.parse(fs.readFileSync(rulesFile, "utf8")).agent_watch.map((a) => a.name);
+		},
+		mode(m) {
+			process.env.FAKE_OMP_MODE = m;
+		},
+		/** A pane's foreground process: holds the session jsonl open as tern's child does, or holds nothing. */
+		async holdPane(session) {
+			const child = session
+				? spawn("bash", ["-c", `exec 9<'${session}'; exec sleep 30`], { stdio: "ignore" })
+				: spawn("sleep", ["30"], { stdio: "ignore" });
+			f.children.push(child);
+			if (session) for (let i = 0; i < 250 && !fs.existsSync(`/proc/${child.pid}/fd/9`); i++) await sleep(20);
+			return child.pid;
+		},
+		/** A fake `tern` under HOME, which probe.sh finds first on PATH. */
+		writeTern(pid, pane) {
+			const tern = path.join(process.env.HOME, ".local", "bin", "tern");
+			fs.mkdirSync(path.dirname(tern), { recursive: true });
+			fs.writeFileSync(
+				tern,
+				`#!/bin/sh\ncase "$1" in\nprocess) echo '{"foreground": {"pid": ${pid}}}' ;;\ncapture) cat '${pane}' ;;\nesac\n`,
+				{ mode: 0o755 },
+			);
+		},
+		/** Writes a session jsonl at a `sessions/<proj>/<file>.jsonl` path, the layout probe.sh looks for. */
+		writeSession(body) {
+			const session = path.join(dir, "sessions", "proj", "s.jsonl");
+			fs.mkdirSync(path.dirname(session), { recursive: true });
+			fs.writeFileSync(session, body);
+			return session;
+		},
+		/** Runs the real probe.sh (runProbe) against a fake tern and a held pane. */
+		async probeTern(session, paneText, { want = false, result = "" } = {}) {
+			const pane = path.join(dir, "pane.txt");
+			fs.writeFileSync(pane, paneText);
+			f.writeTern(await f.holdPane(session), pane);
+			return runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result }, want);
+		},
+	};
+	return f;
+}
+
+/** A fresh temp inbox with a fake omp on PATH; env restored and the directory removed afterwards. */
+async function withFixture(body) {
+	const saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-probe-"));
+	const bin = path.join(dir, "bin");
+	fs.mkdirSync(bin);
+	fs.writeFileSync(path.join(bin, "omp"), OMP, { mode: 0o755 });
+	process.env.PATH = `${bin}${path.delimiter}${saved.PATH ?? ""}`;
+	process.env.HOME = path.join(dir, "home");
+	process.env.WAYNE_INBOX_DIR = dir;
+	process.env.FAKE_OMP_LOG = path.join(dir, "omp-calls.log");
+	process.env.FAKE_OMP_MODE = "ok";
+	const f = makeFixture(dir);
+	try {
+		await body(f);
+	} finally {
+		for (const child of f.children) child.kill();
+		for (const k of ENV_KEYS) {
+			if (saved[k] === undefined) delete process.env[k];
+			else process.env[k] = saved[k];
+		}
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+}
+
+async function failsWith(promise, text) {
+	try {
+		await promise;
+	} catch (e) {
+		ok(String(e.message).includes(text), `expected "${text}" in: ${e.message}`);
+		return;
+	}
+	throw new Error(`expected a failure containing "${text}"`);
+}
+
+// ---- latestLine / paneLine: the one line a session shows ----
+
+await check("latestLine takes the newest text turn and skips tool turns", () => {
+	const body = jsonl(
+		assistant(textItem("older answer")),
+		toolTurn(),
+		{ type: "message", message: { role: "toolResult", toolName: "bash", content: [] } },
+		assistant(textItem("newest  answer\n  across lines")),
+		toolTurn(),
+	);
+	strictEqual(latestLine(body), "newest answer across lines");
+});
+
+await check("latestLine falls back to the last text when the tail is tool calls only", () => {
+	strictEqual(latestLine(jsonl(assistant(textItem("the real status")), toolTurn(), toolTurn())), "the real status");
+});
+
+await check("latestLine ignores empty text items", () => {
+	strictEqual(latestLine(jsonl(assistant(textItem("real")), assistant(textItem("")))), "real");
+});
+
+await check("latestLine clips long text to 300 characters with a leading ellipsis", () => {
+	const result = latestLine(jsonl(assistant(textItem(`${"a".repeat(400)} tail-marker`))));
+	ok(result.length <= 300, result);
+	ok(result.startsWith("\u2026"));
+	ok(result.endsWith("tail-marker"));
+});
+
+await check("latestLine of an empty session is no text", () => {
+	strictEqual(latestLine(""), "no text");
+});
+
+await check("latestLine's todo suffix counts the latest todo result", () => {
+	const body = jsonl(
+		todoResult(["Plan", "completed"], ["Build", "in_progress"]),
+		assistant(textItem("working")),
+		todoResult(["Plan", "completed"], ["Build", "completed"], ["Wire probe", "in_progress"], ["Test", "pending"]),
+		assistant(textItem("wiring the probe")),
+	);
+	strictEqual(latestLine(body), "wiring the probe [todo 2/4, now: Wire probe]");
+});
+
+await check("latestLine with a todo but no in-progress task and no text", () => {
+	strictEqual(latestLine(jsonl(todoResult(["Plan", "completed"], ["Ship", "pending"]))), "no text [todo 1/2]");
+});
+
+await check("latestLine skips a partial first line left by a cut", () => {
+	strictEqual(latestLine(`"role":"assistant","content":[{"type":"text","te\n${jsonl(assistant(textItem("ok")))}`), "ok");
+});
+
+await check("paneLine is the last non-empty line, whitespace collapsed", () => {
+	strictEqual(paneLine("first\n  the   last   line  \n\n\n"), "the last line");
+});
+
+await check("paneLine of an empty or blank capture is no text", () => {
+	strictEqual(paneLine(""), "no text");
+	strictEqual(paneLine("  \n\n "), "no text");
+});
+
+await check("paneLine clips to 300 characters with a leading ellipsis", () => {
+	const result = paneLine("y".repeat(400));
+	ok(result.length <= 300 && result.startsWith("\u2026"), result);
+});
+
+// ---- the digest: what one run sends, through the real omp call ----
+
+await check("first run sends one digest and records its time", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		await f.run();
+		const [digest] = f.sent();
+		const lines = digest.split("\n");
+		strictEqual(lines[0], `agent progress ${HHMM}${DOT}1 changed`);
+		strictEqual(lines[1], `- alpha${DOT}local${DOT}last activity ${HHMM}${DOT}tail latest answer`);
+		strictEqual(f.state()._digest.at, T0);
+	}),
+);
+
+await check("a run two minutes later sends nothing", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		await f.run();
+		f.now = T0 + 120;
+		await f.run();
+		strictEqual(f.sent().length, 1);
+		strictEqual(f.state()._digest.at, T0);
+	}),
+);
+
+await check("an unchanged session is not resent and a changed one is", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		await f.run();
+		f.now = T0 + 30 * 60;
+		await f.run();
+		strictEqual(f.sent().length, 1, "same line as the last digest: nothing new, nothing sent");
+		strictEqual(f.state()._digest.at, T0 + 30 * 60);
+		f.watch("alpha", paneLive);
+		f.now = T0 + 60 * 60;
+		await f.run();
+		strictEqual(f.sent().length, 2);
+		ok(f.sent()[1].split("\n")[1].endsWith(`${DOT}last pane line`));
+	}),
+);
+
+await check("only changed sessions are in the digest", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		f.watch("beta", ompLive);
+		await f.run();
+		f.watch("beta", paneLive);
+		f.now = T0 + 120;
+		await f.run({ digestMin: 0 });
+		const lines = f.sent()[1].split("\n");
+		ok(lines[0].endsWith(`${DOT}1 changed`), lines[0]);
+		deepStrictEqual(lines.slice(1).map((line) => line.split(DOT)[0]), ["- beta"]);
+	}),
+);
+
+await check("one probe per session, and the session tail is asked only when a digest is due", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		await f.run();
+		f.now = T0 + 120;
+		await f.run();
+		deepStrictEqual(f.probes, [["alpha", true], ["alpha", false]]);
+	}),
+);
+
+await check("a finished push session gets only a digest line and is not removed", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", finished, true);
+		await f.run();
+		const [digest] = f.sent();
+		strictEqual(digest.split("\n")[1], `- alpha${DOT}local${DOT}last activity ${HHMM}${DOT}tail latest answer`);
+		deepStrictEqual(f.probes, [["alpha", true]]);
+		strictEqual(f.calls().length, 1);
+		deepStrictEqual(f.state().alpha, { last_active: T0, last_seen: T0, digested: `- alpha${DOT}local${DOT}tail latest answer` });
+		deepStrictEqual(f.watchedNames(), ["alpha"]);
+
+		f.now = T0 + 120;
+		await f.run();
+		deepStrictEqual(f.probes, [["alpha", true]]);
+		strictEqual(f.calls().length, 1);
+		ok("alpha" in f.state());
+	}),
+);
+
+for (const [label, behaviour] of [
+	["probe", broken],
+	["line", (now, want) => ({ ...ompLive(now, want), tail: "bad" })],
+]) {
+	await check(`a push session whose ${label} fails reports the probe failure in the digest`, () =>
+		withFixture(async (f) => {
+			f.watch("alpha", behaviour, true);
+			await failsWith(f.run(), "alpha:");
+			strictEqual(f.calls().length, 1);
+			ok(f.sent()[0].split("\n").some((line) => line.startsWith(`- alpha${DOT}local${DOT}probe failed:`)), f.sent()[0]);
+		}),
+	);
+}
+
+for (const waiting of [false, true]) {
+	await check(`a blocked session (waiting=${waiting}) never emits stalled or idle`, () =>
+		withFixture(async (f) => {
+			f.watch("alpha", blocked(waiting));
+			await f.run();
+			f.now = T0 + 3600;
+			await f.run();
+			// Event lines read `<name>: <event> <state> -> <ledger reply>`; digest lines are not events.
+			const events = f.logs.filter((l) => l.includes(" -> ")).map((l) => l.replace(/ -> .*/, ""));
+			// Keyed on last_active (first seen at T0), so the same key every run; the ledger keeps one row for it.
+			deepStrictEqual([...new Set(events)], ["alpha: blocked waiting"]);
+			deepStrictEqual(f.ledgerKeys("agents:alpha:"), [`agents:alpha:blocked:${T0}`]);
+		}),
+	);
+}
+
+await check("a pane session's digest line uses the last non-empty pane line", () =>
+	withFixture(async (f) => {
+		f.watch("beta", paneLive);
+		await f.run();
+		strictEqual(f.sent()[0].split("\n")[1], `- beta${DOT}local${DOT}last activity ${HHMM}${DOT}last pane line`);
+	}),
+);
+
+for (const [label, behaviour] of [
+	["all-dead", dead],
+	["finished-this-run", finished],
+]) {
+	await check(`nothing running (${label}) sends no digest`, () =>
+		withFixture(async (f) => {
+			f.watch("alpha", behaviour);
+			await f.run();
+			strictEqual(f.calls().length, 0);
+			ok(!("_digest" in f.state()));
+		}),
+	);
+}
+
+await check("no sessions watched sends nothing", () =>
+	withFixture(async (f) => {
+		await f.run();
+		strictEqual(f.calls().length, 0);
+		ok(!("_digest" in f.state()));
+	}),
+);
+
+await check("a finished session is left out of the digest", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", finished);
+		f.watch("beta", ompLive);
+		await f.run();
+		const [digest] = f.sent();
+		ok(!digest.includes("- alpha"), digest);
+		ok(digest.split("\n")[1].startsWith(`- beta${DOT}local${DOT}last activity `));
+	}),
+);
+
+await check("a rewritten result with the same status and open items makes no second card", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", partialResult("h-url"));
+		await f.run();
+		f.now = T0 + 120;
+		await f.run();
+		strictEqual(f.ledgerKeys("agents:alpha:result:").length, 1, "same status and open items, new mtime: no card");
+		f.watch("alpha", partialResult("h-rollout"));
+		f.now = T0 + 240;
+		await f.run();
+		deepStrictEqual(f.ledgerKeys("agents:alpha:result:"), [`agents:alpha:result:${T0}`, `agents:alpha:result:${T0 + 240}`]);
+	}),
+);
+
+await check("a digest-only run records no ledger row and makes exactly one agent call", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		await f.run();
+		deepStrictEqual(f.ledgerKeys(), []);
+		strictEqual(f.calls().length, 1);
+	}),
+);
+
+await check("a failed first send fails the run and records no digest time", () =>
+	withFixture(async (f) => {
+		f.mode("exit");
+		f.watch("alpha", ompLive);
+		await failsWith(f.run(), "boom: no teams token");
+		ok(!("_digest" in f.state()));
+	}),
+);
+
+// `ran`: whether the send reaches the fake omp (a missing binary never does, so it is not logged).
+const FAILED_SENDS = [
+	["omp-exit", "exit", undefined, "boom: no teams token", true],
+	["omp-missing", "ok", "/nonexistent/omp-missing", "ENOENT", false],
+	["teams-error", "error", undefined, "Graph 403 Forbidden", true],
+	["receipt-mismatch", "receipt", undefined, "Sent to chat 19:group@thread", true],
+	["message-mismatch", "message", undefined, "teams_send", true],
+];
+for (const [label, mode, agent, cause, ran] of FAILED_SENDS) {
+	await check(`a failed send (${label}) exits 1, keeps the last digest time and the session's state`, () =>
+		withFixture(async (f) => {
+			f.watch("alpha", ompLive);
+			await f.run();
+			f.mode(mode);
+			f.watch("alpha", paneLive);
+			f.now = T0 + 30 * 60;
+			await failsWith(f.run({ agent }), cause);
+			strictEqual(f.calls().length, ran ? 2 : 1, "a failed send is not retried inside the run");
+			const state = f.state();
+			deepStrictEqual(state._digest, { at: T0 });
+			strictEqual(state.alpha.last_seen, T0 + 30 * 60);
+			ok(state.alpha.digested.endsWith("tail latest answer"), "the unsent line is not recorded as sent");
+		}),
+	);
+}
+
+await check("a probe failure for one session still sends the digest", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		f.watch("beta", broken);
+		await failsWith(f.run(), "ssh: connect refused");
+		const [digest] = f.sent();
+		const lines = digest.split("\n");
+		strictEqual(lines[0], `agent progress ${HHMM}${DOT}2 changed`);
+		ok(lines.includes(`- beta${DOT}local${DOT}probe failed: ssh: connect refused`), digest);
+		ok(lines.includes(`- alpha${DOT}local${DOT}last activity ${HHMM}${DOT}tail latest answer`), digest);
+		strictEqual(f.state()._digest.at, T0);
+	}),
+);
+
+// ---- runProbe: probe.sh against a fake tern and a real pane process ----
+
+await check("a default probe has no tail and hashes the pane as before", () =>
+	withFixture(async (f) => {
+		const pane = "pane one\npane two\n";
+		const r = await f.probeTern(null, pane);
+		strictEqual(r.alive, true);
+		ok(!("tail" in r) && !("kind" in r));
+		strictEqual(r.text, md5(Buffer.from(pane)));
+	}),
+);
+
+for (const [label, message, state] of [
+	["ask", { type: "message", message: { role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall", id: "toolu_1", name: "ask", arguments: { questions: [{ id: "q", question: "yes or no?", options: [{ label: "yes" }] }] } }] } }, "blocked"],
+	["bash", toolTurn(), ""],
+]) {
+	await check(`a pending ${label} tool call gives state "${state}" and is not waiting`, () =>
+		withFixture(async (f) => {
+			const r = await f.probeTern(f.writeSession(jsonl(message)), "pane\n");
+			strictEqual(r.state, state);
+			strictEqual(r.waiting, false);
+		}),
+	);
+}
+
+await check("want keeps the text and todo behind more than 1 MB of tool output", () =>
+	withFixture(async (f) => {
+		const noise = { type: "message", message: { role: "toolResult", toolName: "bash", content: [{ type: "text", text: "x".repeat(100_000) }] } };
+		const cut = '{"type":"message","message":{"role":"assistant","content":[{"type":"te';
+		const body = `${jsonl(
+			assistant(textItem("old status")),
+			assistant(textItem("still working on U1")),
+			todoResult(["Plan", "completed"], ["U1", "in_progress"], ["Ship", "pending"]),
+			...Array.from({ length: 15 }, () => [toolTurn(), noise]).flat(),
+		)}\n${cut}`;
+		ok(body.length > 1_400_000, `body is ${body.length} bytes`);
+		const r = await f.probeTern(f.writeSession(body), "ignored capture\n", { want: true });
+		strictEqual(r.kind, "jsonl");
+		ok(decodeTail(r).length < 10_000);
+		strictEqual(latestLine(decodeTail(r)), "still working on U1 [todo 1/3, now: U1]");
+	}),
+);
+
+await check("want tails the pane when no session is held", () =>
+	withFixture(async (f) => {
+		const r = await f.probeTern(null, "pane one\npane two\n", { want: true });
+		strictEqual(r.kind, "pane");
+		strictEqual(decodeTail(r), "pane one\npane two\n");
+	}),
+);
+
+const RESULT_CASES = [
+	["status: done\n", "done"],
+	["## RESULT\n- status: done\n- commits: abc\n", "done"],
+	["status: in_progress\n", "in_progress"],
+	["- status: partial\n", "partial"],
+	["* status: blocked\n", "blocked"],
+	["**status:** done\n", "done"],
+	["**status**: done\n", "done"],
+	["`status`: done\n", "done"],
+	["`status:` done\n", "done"],
+	["- **status:** in_progress\n", "in_progress"],
+	["  * `status`: partial\n", "partial"],
+	["RESULT\nstatus: done | partial | blocked\ncommits: none\n", ""],
+	["RESULT\nstatus: done | partial | blocked\n\nRESULT\nstatus: partial\n", "partial"],
+	["RESULT\ncommits: none\n", ""],
+	["the status: done today\n", ""],
+];
+for (const [text, status] of RESULT_CASES) {
+	await check(`a RESULT ${JSON.stringify(text)} reads as status "${status}"`, () =>
+		withFixture(async (f) => {
+			const resultFile = path.join(f.dir, "RESULT.md");
+			fs.writeFileSync(resultFile, text);
+			const r = await f.probeTern(null, "pane\n", { result: resultFile });
+			strictEqual(r.rstatus, status);
+			strictEqual(r.rmtime, Math.floor(fs.statSync(resultFile).mtimeMs / 1000));
+		}),
+	);
+}
+
+console.log(failed === 0 ? "all green" : `${failed} failed`);
+process.exit(failed === 0 ? 0 : 1);

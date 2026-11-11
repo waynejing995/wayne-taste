@@ -6,7 +6,13 @@
 import { addAgent, listAgents, MUXES, removeAgents } from "./agents.ts";
 import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
 import { addEvent, doneRows, InboxError, listRows, places, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
+import { probeAgents } from "./probe.ts";
 
+function minutes(value: string, flag: string): number {
+	const n = Number(value);
+	if (!Number.isFinite(n) || n <= 0) throw new InboxError(`${flag} must be a positive number of minutes`);
+	return n;
+}
 
 type Opt = { flag?: boolean; many?: boolean; required?: boolean; choices?: string[]; default?: string; help?: string };
 type Parsed = { args: string[]; opts: Record<string, string | undefined>; many: Record<string, string[]>; flags: Record<string, boolean> };
@@ -89,6 +95,15 @@ const COMMANDS: Record<string, Command> = {
 	},
 	"agent rm": { help: "Stop watching agent sessions.", args: ["names..."], run: (p) => removeAgents(p.args) },
 	"agent ls": { help: "Watched sessions: name, mux, host, pane, result, since, goal, push.", run: () => listAgents() },
+	"agent probe": {
+		help: "Probe every watched session once: record result / gone / stalled / blocked / idle events, send the progress digest when due.",
+		opts: {
+			"stall-min": { default: "30", help: "minutes with no output before a session counts as stalled" },
+			"digest-min": { default: "30", help: "minutes between progress digests" },
+			"no-digest": { flag: true, help: "skip the progress digest this run" },
+		},
+		run: (p) => probeAgents({ stallMin: minutes(p.opts["stall-min"]!, "--stall-min"), digestMin: minutes(p.opts["digest-min"]!, "--digest-min"), noDigest: p.flags["no-digest"] }),
+	},
 	"schedule add": {
 		help: "Register a job. It first fires at its next cron minute or one interval from now.",
 		args: ["name"],

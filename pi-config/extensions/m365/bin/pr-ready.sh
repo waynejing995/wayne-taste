@@ -9,7 +9,7 @@
 # Usage: pr-ready.sh <owner/repo> <pr>
 set -euo pipefail
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 source "$HERE/auto-review.sh"
 
 [ $# -eq 2 ] || { echo "usage: pr-ready.sh <owner/repo> <pr>" >&2; exit 2; }

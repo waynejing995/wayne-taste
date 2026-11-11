@@ -9,8 +9,8 @@
 set -euo pipefail
 
 INBOX_DIR="${WAYNE_INBOX_DIR:-$HOME/.wayne/inbox}"
-HERE="$(cd "$(dirname "$0")" && pwd)"
-INBOX=(uv run --quiet "$HERE/inbox.py")
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+INBOX=("$HERE/inbox")
 CURSOR="$INBOX_DIR/cursors/github-prs.since"
 mkdir -p "$INBOX_DIR/cursors"
 
