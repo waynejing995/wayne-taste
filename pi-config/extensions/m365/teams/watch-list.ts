@@ -6,8 +6,8 @@
  * two sessions editing different chats at once both land. Nothing resumes from it on its own: an agent reads
  * it and calls teams_watch start for each chat.
  *
- * rules.yaml is hand-written, so only the text of this section is rewritten: it is kept as the last top-level
- * block, and every byte before it stays as the user wrote it. The inbox CLI, which classifies by the rest, skips it.
+ * rules.yaml is hand-written, so only the text of this section is rewritten, in place (core/rules-block.ts):
+ * every other byte stays as the user wrote it. The inbox CLI, which classifies by the rest, skips it.
  *
  * The list is a convenience, not the watch: a failed save is reported to the caller as a warning and the
  * watch runs anyway.
@@ -16,6 +16,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import YAML from "yaml";
+import { replaceBlock } from "../core/rules-block.ts";
 
 export type SavedWatch = { chat: string; chat_id: string; policy: string };
 export type WatchList = { interval_sec?: number; chats: SavedWatch[] };
@@ -25,16 +26,14 @@ const SECTION = "teams_watch";
 const LOCK = `${WATCH_LIST}.lock`;
 const LOCK_STALE_MS = 10_000;
 const HEADER = "# Teams watches to resume in a new session. Written by the m365 extension on every start / stop / interval change.\n";
-/** The section with its header comment, from its first line to the next top-level key or the end of the file (with or without a final newline). */
-const BLOCK = new RegExp(`(?:^# Teams watches to resume.*\\n)?^${SECTION}:.*(?:\\n|$)(?:(?:[ \\t#].*|)(?:\\n|$))*`, "m");
 
-/** The file's text with the section cut out, and the section's value. */
-function split(): { rest: string; list: WatchList } {
+/** The file's text and the section's value. */
+function split(): { text: string; list: WatchList } {
 	const text = fs.existsSync(WATCH_LIST) ? fs.readFileSync(WATCH_LIST, "utf8") : "";
 	const data = (YAML.parse(text) ?? {}) as Record<string, unknown>;
 	const list = (data[SECTION] ?? { chats: [] }) as WatchList;
 	if (!Array.isArray(list.chats)) throw new Error(`${WATCH_LIST}: \`${SECTION}.chats\` must be a list`);
-	return { rest: text.replace(BLOCK, "").replace(/\n*$/, ""), list };
+	return { text, list };
 }
 
 /** Hold the lock file for one read-modify-write. A lock older than LOCK_STALE_MS belonged to a process that died. */
@@ -54,10 +53,10 @@ function locked(edit: (list: WatchList) => WatchList): void {
 		}
 	}
 	try {
-		const { rest, list } = split();
+		const { text, list } = split();
 		const block = HEADER + YAML.stringify({ [SECTION]: edit(list) });
 		const tmp = `${WATCH_LIST}.${process.pid}.tmp`;
-		fs.writeFileSync(tmp, rest ? `${rest}\n\n${block}` : block);
+		fs.writeFileSync(tmp, replaceBlock(text, SECTION, "# Teams watches to resume", block));
 		fs.renameSync(tmp, WATCH_LIST);
 	} finally {
 		fs.rmSync(LOCK, { force: true });
