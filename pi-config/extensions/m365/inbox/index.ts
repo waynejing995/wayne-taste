@@ -1,35 +1,39 @@
 /**
- * Wayne's inbox, pushed into this session.
+ * The inbox, pushed into this session.
  *
- * The wayne-inbox skill's watchers (watch-prs.sh on a timer, the Teams watch, …) classify events by
- * rules.yaml and append the ones worth tracking to ~/.wayne/inbox/ledger.tsv. This file only delivers:
+ * Watchers (schedule jobs such as the PR watch and the agent probe, the Teams watch, …) classify events by
+ * rules.yaml and append the ones worth tracking to ~/.wayne/inbox/ledger.tsv. This file delivers:
  * every new ledger row whose action is `notify` or `do` becomes an `inbox` card in the session that ran
  * `/inbox watch`. A `do` card starts a turn; a `notify` card is shown and waits for the user.
  *
- * Delivery progress is not task state. The ledger's `state` column (open/claimed) and `inbox.py done`, which
+ * Delivery progress is not task state. The ledger's `state` column (open/claimed) and `inbox done`, which
  * moves a finished row out to archive.tsv, stay the handlers' business; how far delivery got is the highest row id in cursors/session-push.id.
  *
- * inbox.py rewrites the ledger by renaming a temp file over it, so the directory is watched, not the file:
+ * The CLI rewrites the ledger by renaming a temp file over it, so the directory is watched, not the file:
  * a watch on the file's inode would go deaf after the first rewrite. A slow poll is the backstop.
  *
  * One session delivers at a time: the claim is the same abstract-socket lease the Teams watch uses.
  *
  * The delivering session also watches Outlook: every BACKSTOP_MS it lists the Inbox, and each mail received
- * since cursors/outlook-inbox.since goes through `inbox.py add --source outlook --place Inbox`, so rules.yaml
+ * since cursors/outlook-inbox.since goes through `inbox add --source outlook --place Inbox`, so rules.yaml
  * decides it like any other event. One poller, because only the lease holder polls. No top-level `outlook:` in
  * rules.yaml means mail is not watched at all: no Graph call.
  *
  * The lease holder also tails push-watched agent sessions, locally or over one SSH stream per host.
- * Agent events become inbox.py rows; their byte cursors and heartbeat state survive restarts.
+ * Agent events become inbox rows; their byte cursors and heartbeat state survive restarts.
  * The directory watch and existing backstop drive retries, rule reloads, and dead checks.
+ *
+ * Every inbox command runs in this process through cli/main.ts, the same code the `bin/inbox` launcher runs.
  */
-import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as auth from "../core/auth.ts";
 import { card, parseLedger, statusCard, type Row } from "./card.ts";
+import { inbox as inboxCli } from "./cli/main.ts";
+import { BIN_DIR, widgetLines } from "./cli/jobs.ts";
+import { initInbox, isSetUp } from "./cli/setup.ts";
 import { AgentTailer } from "./agents.ts";
 import { GraphClient } from "../core/graph.ts";
 import { setStatusPart } from "../core/status-row.ts";
@@ -43,7 +47,10 @@ const LEDGER = path.join(DIR, "ledger.tsv");
 const CURSOR = path.join(DIR, "cursors", "session-push.id");
 /** The lease name: one deliverer per inbox directory, machine and user, whatever chat the Teams watch holds. */
 const LEASE_ID = `wayne-inbox:${DIR}`;
-const INBOX_PY = path.join(process.env.WAYNE_SKILLS_DIR ?? "/mnt/share/wayne-skills", "wayne-inbox", "scripts", "inbox.py");
+/** The scheduler's lease: one job runner per inbox directory, machine and user. */
+const SCHED_ID = `wayne-inbox-schedule:${DIR}`;
+/** The launcher the agent runs for `inbox set` / `inbox done`, named on every card. */
+const LAUNCHER = path.join(BIN_DIR, "inbox");
 const MAIL_CURSOR = path.join(DIR, "cursors", "outlook-inbox.since");
 const BACKSTOP_MS = 60_000;
 const MAIL_PAGE = 50;
@@ -51,10 +58,6 @@ const PUSHED = new Set(["notify", "do"]);
 
 function readRows(): Row[] {
 	return fs.existsSync(LEDGER) ? parseLedger(fs.readFileSync(LEDGER, "utf8")) : [];
-}
-
-function maxId(rows: Row[]): number {
-	return rows.reduce((m, r) => Math.max(m, Number(r.id) || 0), 0);
 }
 
 function readCursor(): number | null {
@@ -71,21 +74,10 @@ function writeCursor(id: number): void {
 	fs.renameSync(tmp, CURSOR);
 }
 
-/** One inbox.py command; rejects with its stderr so failed events retain their cursor. */
-function inboxPy(args: string[]): Promise<string> {
-	const { promise, resolve, reject } = Promise.withResolvers<string>();
-	execFile("uv", ["run", "--quiet", INBOX_PY, ...args], (err, stdout, stderr) =>
-		err ? reject(new Error(stderr.trim() || err.message)) : resolve(stdout.trim()),
-	);
-	return promise;
-}
-
-
 
 export default function inbox(pi: ExtensionAPI) {
 	const mailbox = new Mailbox(new GraphClient(() => auth.getToken({ scopes: auth.GRAPH_SCOPES })));
 	let mailInFlight = false;
-	let tickInFlight = false;
 	let lease: WatchLease | undefined;
 	let ctx: ExtensionContext | undefined;
 	let dirWatch: fs.FSWatcher | undefined;
@@ -93,13 +85,22 @@ export default function inbox(pi: ExtensionAPI) {
 	let agents: AgentTailer | undefined;
 	let held: Row[] = [];
 	let error = "";
+	// The scheduler: its own lease, so jobs run in exactly one session per inbox directory, delivering or not.
+	let sched: WatchLease | undefined;
+	let schedCtx: ExtensionContext | undefined;
+	let schedTimer: NodeJS.Timeout | undefined;
+	let schedOwner = "";
+	let schedError = "";
+	let tickInFlight = false;
 
 	function renderStatus(): void {
-		if (!ctx?.hasUI) return;
-		const t = ctx.ui.theme;
+		const c = ctx ?? schedCtx;
+		if (!c?.hasUI) return;
+		const t = c.ui.theme;
 		const agentStatus = agents?.status() ?? "";
-		const status = `◉inbox${error ? ` ⚠ ${error}` : ""}${agentStatus ? ` · ${agentStatus}` : ""}`;
-		setStatusPart(ctx.ui, "inbox", lease ? t.fg(error || agentStatus.includes("⚠") ? "error" : "dim", status) : undefined);
+		const problem = [error, schedError].filter(Boolean).join(" · ");
+		const status = `◉inbox${problem ? ` ⚠ ${problem}` : ""}${agentStatus ? ` · ${agentStatus}` : ""}`;
+		setStatusPart(c.ui, "inbox", lease || problem ? t.fg(problem || agentStatus.includes("⚠") ? "error" : "dim", status) : undefined);
 	}
 
 	/** New pushed rows past the cursor go into the held queue; the cursor moves only once they are sent. */
@@ -132,7 +133,7 @@ export default function inbox(pi: ExtensionAPI) {
 			const since = fs.readFileSync(MAIL_CURSOR, "utf8").trim();
 			const fresh = await mailSince((skip) => mailbox.list("inbox", { top: MAIL_PAGE, skip }), since, MAIL_PAGE);
 			for (const m of fresh) {
-				await inboxPy([
+				await inboxCli([
 					"add", "--source", "outlook", "--place", "Inbox", "--key", `outlook:${m.id}`,
 					"--subject", m.subject || "(no subject)", "--note", `${m.from?.name ?? m.from?.address ?? "?"}: ${m.preview.slice(0, 160)}`,
 					"--field", `from=${m.from?.address?.toLowerCase() ?? ""}`, "--field", `flagged=${m.flagged ? "yes" : "no"}`,
@@ -148,68 +149,96 @@ export default function inbox(pi: ExtensionAPI) {
 		}
 	}
 
-	/** Due tool and judged jobs. `teams_read` runs in this process; any other tool becomes a prompt card.
-	 * A tool call can only start while the agent is idle, so a busy agent is retried shortly instead of waiting a minute. */
-	async function pollSchedule(): Promise<void> {
-		if (!lease || !ctx || tickInFlight) return;
-		if (!ctx.isIdle()) {
-			setTimeout(() => void pollSchedule(), 2000);
-			return;
-		}
-		tickInFlight = true;
-		try {
-			// The prompt is already a ledger row (verdict DISPATCHED). flush() delivers that row, so sending it here too would run the tool twice.
-			await runSessionJobs(ctx);
-			await renderSchedule(ctx.hasUI ? ctx.ui : undefined);
-		} catch (e) {
-			error = `schedule: ${e instanceof Error ? e.message : String(e)}`;
-			renderStatus();
-		} finally {
-			tickInFlight = false;
-		}
-	}
-
 	/** Cards go in while the agent is idle; a busy agent gets them when its turn ends. */
 	function flush(): void {
 		if (!ctx || held.length === 0 || !ctx.isIdle()) return;
 		const rows = held;
 		held = [];
 		pi.sendMessage(
-			{ customType: "inbox", content: card(rows, INBOX_PY), display: true, details: { ids: rows.map((r) => r.id) } },
+			{ customType: "inbox", content: card(rows, LAUNCHER), display: true, details: { ids: rows.map((r) => r.id) } },
 			{ triggerTurn: rows.some((r) => r.action === "do") },
 		);
 		writeCursor(Math.max(...rows.map((r) => Number(r.id))));
 	}
 
+	async function claimFor(c: ExtensionContext, id: string, label: string): Promise<WatchLease | string> {
+		const claimed = await claim({ chatId: id, label, pid: process.pid, sessionId: c.sessionManager.getSessionId(), cwd: c.cwd, since: new Date().toISOString() });
+		return "owner" in claimed ? describeOwner(claimed.owner) : claimed.lease;
+	}
+
+	/**
+	 * One scheduler tick: hold (or try to take) the scheduler lease, then run every due job. A job's own failure is
+	 * a ledger row; a tick that cannot run at all lands on the status row and in /inbox status.
+	 */
+	async function tick(): Promise<void> {
+		if (!schedCtx || tickInFlight) return;
+		tickInFlight = true;
+		try {
+			if (!sched) {
+				const got = await claimFor(schedCtx, SCHED_ID, "inbox scheduler");
+				if (typeof got === "string") {
+					schedOwner = got;
+					return;
+				}
+				sched = got;
+				schedOwner = "";
+			}
+			const lines = await runSessionJobs(schedCtx);
+			const failed = lines.filter((l) => l.startsWith("fail "));
+			schedError = failed.length ? `schedule: ${failed.join("; ").slice(0, 200)}` : "";
+			renderSchedule(schedCtx.hasUI ? schedCtx.ui : undefined);
+		} catch (e) {
+			schedError = `schedule: ${e instanceof Error ? e.message : String(e)}`;
+		} finally {
+			tickInFlight = false;
+			renderStatus();
+		}
+	}
+
+	function startScheduler(c: ExtensionContext): void {
+		schedCtx = c;
+		if (!schedTimer) {
+			schedTimer = setInterval(() => void tick(), BACKSTOP_MS);
+			schedTimer.unref?.();
+		}
+		void tick();
+	}
+
+	function stopScheduler(): void {
+		clearInterval(schedTimer);
+		sched?.close();
+		sched = schedTimer = undefined;
+		schedError = schedOwner = "";
+		if (schedCtx?.hasUI) setStatusPart(schedCtx.ui, "sched", undefined);
+		schedCtx = undefined;
+	}
+
+	function schedulerLine(): string {
+		if (!isSetUp()) return "Not set up: run /inbox setup.";
+		if (sched) return "Scheduler: running here.";
+		if (schedOwner) return `Scheduler: runs in another session (${schedOwner}).`;
+		return "Scheduler: not running in this session.";
+	}
+
 	async function start(c: ExtensionContext): Promise<string> {
 		if (lease) return "Inbox is already delivered to this session.";
-		const claimed = await claim({
-			chatId: LEASE_ID,
-			label: "wayne inbox",
-			pid: process.pid,
-			sessionId: c.sessionManager.getSessionId(),
-			cwd: c.cwd,
-			since: new Date().toISOString(),
-		});
-		if ("owner" in claimed) throw new Error(`Inbox is already delivered to another session (${describeOwner(claimed.owner)}). Stop it there first.`);
-		lease = claimed.lease;
+		if (!isSetUp()) throw new Error(`${DIR} is not set up: run /inbox setup first.`);
+		const got = await claimFor(c, LEASE_ID, "wayne inbox");
+		if (typeof got === "string") throw new Error(`Inbox is already delivered to another session (${got}). Stop it there first.`);
+		lease = got;
 		ctx = c;
 		try {
-			// First delivery ever: what is already in the ledger is not news.
-			if (readCursor() === null) writeCursor(maxId(readRows()));
-			fs.mkdirSync(DIR, { recursive: true });
+			// Cursors start at "now" (first delivery ever: what is already in the ledger is not news); the same init as `inbox setup`.
+			initInbox();
 			// Any event in the directory rescans: Bun reports a rename by the temp file's name, not ledger.tsv.
 			dirWatch = fs.watch(DIR, () => { scan(); void agents?.poke(); });
-			agents = new AgentTailer({ dir: DIR, inboxPy, onChange: renderStatus });
+			agents = new AgentTailer({ dir: DIR, inbox: inboxCli, onChange: renderStatus });
 			agents.start();
-			// Mail before this watch is not news.
-			if (!fs.existsSync(MAIL_CURSOR)) fs.writeFileSync(MAIL_CURSOR, `${new Date().toISOString().replace(/\.\d+Z$/, "Z")}\n`);
 			timer = setInterval(() => {
 				scan();
 				void agents?.poke();
 				void agents?.tick();
 				void pollMail();
-				void pollSchedule();
 			}, BACKSTOP_MS);
 			timer.unref?.();
 			scan();
@@ -219,7 +248,7 @@ export default function inbox(pi: ExtensionAPI) {
 			throw e;
 		}
 		void pollMail();
-		void pollSchedule();
+		startScheduler(c);
 		return `Inbox: new notify/do rows in ${LEDGER} are delivered to this session.`;
 	}
 
@@ -232,43 +261,68 @@ export default function inbox(pi: ExtensionAPI) {
 		dirWatch = timer = lease = undefined;
 		held = [];
 		error = "";
-		if (ctx?.hasUI) {
-			setStatusPart(ctx.ui, "inbox", undefined);
-			setStatusPart(ctx.ui, "sched", undefined);
-		}
+		if (ctx?.hasUI) setStatusPart(ctx.ui, "inbox", undefined);
 		ctx = undefined;
+		renderStatus();
 	}
 
+	const SUBCOMMANDS = ["status", "setup", "watch", "stop"];
 	pi.registerCommand("inbox", {
-		description: "Wayne's inbox: watch (deliver new notify/do rows here) | stop | status",
+		description: "Inbox: status | setup (create rules.yaml, check tools) | watch (deliver new notify/do rows here) | stop",
 		getArgumentCompletions: (prefix: string) => {
-			const items = ["watch", "stop", "status"].filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s }));
+			const items = SUBCOMMANDS.filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s }));
 			return items.length > 0 ? items : null;
 		},
 		handler: async (args, c) => {
 			const arg = args.trim() || "status";
+			const here = c as unknown as ExtensionContext;
 			try {
-				if (arg === "watch") c.ui.notify(await start(c as unknown as ExtensionContext), "info");
-				else if (arg === "stop") {
+				if (arg === "watch") c.ui.notify(await start(here), "info");
+				else if (arg === "setup") {
+					const out = await inboxCli(["setup"]);
+					startScheduler(here);
+					c.ui.notify(out, "info");
+				} else if (arg === "stop") {
 					const had = !!lease;
 					stop();
 					c.ui.notify(had ? "Inbox delivery stopped." : "This session does not deliver the inbox.", "info");
 				} else if (arg === "status") {
 					const open = readRows().filter((r) => r.state === "open" || r.state === "claimed");
-					const head = `${lease ? "Delivering here" : "Not delivering here"}; cursor ${readCursor() ?? "unset"}; ${open.length} open/claimed rows.${error ? ` ⚠ ${error}` : ""}${agents ? `\n${agents.describe()}` : ""}`;
+					const problem = [error, schedError].filter(Boolean).join(" · ");
+					const jobs = isSetUp() ? widgetLines() : [];
+					const head = [
+						`${lease ? "Delivering here" : "Not delivering here"}; cursor ${readCursor() ?? "unset"}; ${open.length} open/claimed rows.${problem ? ` ⚠ ${problem}` : ""}`,
+						schedulerLine(),
+						...jobs.map((j) => `- ${j}`),
+						...(agents ? [agents.describe()] : []),
+					].join("\n");
 					pi.sendMessage({ customType: "inbox-status", content: statusCard(head, open), display: true, details: {} }, { triggerTurn: false });
-				} else c.ui.notify(`Unknown: /inbox ${arg}. Use watch | stop | status.`, "error");
+				} else c.ui.notify(`Unknown: /inbox ${arg}. Use ${SUBCOMMANDS.join(" | ")}.`, "error");
 			} catch (e) {
 				c.ui.notify(`Inbox: ${e instanceof Error ? e.message : e}`, "error");
 			}
 		},
 	});
 
+	// Jobs run while a session with a UI is open. Print runs (-p) start nothing, so a headless job never recurses.
+	pi.on("session_start", async (_event, c) => {
+		if (!c.hasUI) return;
+		if (!isSetUp()) {
+			c.ui.notify(`Inbox: ${DIR} is not set up, so no jobs run and nothing is delivered. Run /inbox setup.`, "warning");
+			return;
+		}
+		startScheduler(c);
+	});
 	// omp is not idle yet inside agent_end; look on the next tick, as the Teams watch does.
 	pi.on("agent_end", async () => {
 		setTimeout(flush, 0);
 	});
-	pi.on("session_switch", async () => stop());
-	pi.on("session_shutdown", async () => stop());
-
+	pi.on("session_switch", async () => {
+		stop();
+		stopScheduler();
+	});
+	pi.on("session_shutdown", async () => {
+		stop();
+		stopScheduler();
+	});
 }

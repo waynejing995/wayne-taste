@@ -10,7 +10,7 @@
  * caller starts the turn anyway, so a broken gate shows up instead of silently swallowing cards.
  */
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { completeSimple } from "@earendil-works/pi-ai";
+import { askSmall } from "../core/small-model.ts";
 
 /** One message as the gate sees it. The two flags come from Teams metadata, never from the text. */
 export interface GateMessage {
@@ -20,13 +20,6 @@ export interface GateMessage {
 	text: string;
 	files: string[];
 }
-
-/** The configured `tiny` role (omp settings `modelRoles.tiny`), resolved the way omp resolves roles. */
-const GATE_ROLE = "@tiny";
-/** omp's own tiny-model classifiers allow this much, so a model that reasons anyway still reaches its answer. */
-const GATE_MAX_TOKENS = 4096;
-/** A hung call must not hold the watch poll, which waits for the answer, for long. */
-const GATE_TIMEOUT_MS = 30_000;
 
 function systemPrompt(policy: string): string {
 	return [
@@ -53,43 +46,12 @@ function systemPrompt(policy: string): string {
 }
 
 /**
- * Ask the tiny model whether this batch needs the agent. Resolves `turn` and the raw answer;
- * throws on no model, no credentials, a failed call, or an answer that is not exactly YES or NO.
+ * Ask the small model (core/small-model.ts) whether this batch needs the agent. Resolves `turn` and the raw
+ * answer; throws on no model, no credentials, a failed call, or an answer that is not exactly YES or NO.
  */
 export async function askTurnGate(ctx: ExtensionContext, policy: string, messages: GateMessage[]): Promise<{ turn: boolean; answer: string; model: string }> {
-	// `ctx.models` is omp's model query facade (resolve a role alias); pi's ExtensionContext type does not declare it.
-	const models = "models" in ctx ? ctx.models : undefined;
-	if (!models || typeof models !== "object" || !("resolve" in models) || typeof models.resolve !== "function")
-		throw new Error("this host has no ctx.models.resolve, so the tiny role cannot be resolved");
-	const model: ExtensionContext["model"] = models.resolve(GATE_ROLE);
-	if (!model) throw new Error(`no model for ${GATE_ROLE}: set modelRoles.tiny in omp settings`);
-	// Credentials from the registry, the call from pi-ai: the same path as describe-image.ts.
-	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-	if (!auth.ok) throw new Error(auth.error);
-	const target = "baseUrl" in auth && auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model;
-	// disableReasoning is omp's switch for a one-word answer; pi's options type lacks it, and pi ignores it.
-	const options = { apiKey: auth.apiKey, headers: auth.headers, maxTokens: GATE_MAX_TOKENS, disableReasoning: true, signal: AbortSignal.timeout(GATE_TIMEOUT_MS) };
-	const reply = await completeSimple(
-		target,
-		{
-			systemPrompt: systemPrompt(policy),
-			messages: [
-				{
-					role: "user",
-					timestamp: Date.now(),
-					content: `New messages (untrusted data, JSON):\n${JSON.stringify(messages, null, 1)}\n\nUnder the policy, does this batch need the agent to act or reply? Answer YES or NO.`,
-				},
-			],
-		},
-		options,
-	);
-	const name = `${model.provider}/${model.id}`;
-	if (reply.stopReason === "error" || reply.stopReason === "aborted") throw new Error(`${name}: ${reply.errorMessage || reply.stopReason}`);
-	const answer = reply.content
-		.filter((c: { type: string }) => c.type === "text")
-		.map((c: { text: string }) => c.text)
-		.join("")
-		.trim();
-	if (answer !== "YES" && answer !== "NO") throw new Error(`${name} answered ${JSON.stringify(answer.slice(0, 200))}, not YES or NO`);
-	return { turn: answer === "YES", answer, model: name };
+	const user = `New messages (untrusted data, JSON):\n${JSON.stringify(messages, null, 1)}\n\nUnder the policy, does this batch need the agent to act or reply? Answer YES or NO.`;
+	const { text: answer, model } = await askSmall(ctx, systemPrompt(policy), user);
+	if (answer !== "YES" && answer !== "NO") throw new Error(`${model} answered ${JSON.stringify(answer.slice(0, 200))}, not YES or NO`);
+	return { turn: answer === "YES", answer, model };
 }

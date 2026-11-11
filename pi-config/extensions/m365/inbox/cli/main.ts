@@ -7,6 +7,7 @@ import { addAgent, listAgents, MUXES, removeAgents } from "./agents.ts";
 import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
 import { addEvent, doneRows, InboxError, listRows, places, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
 import { probeAgents } from "./probe.ts";
+import { setup } from "./setup.ts";
 
 function minutes(value: string, flag: string): number {
 	const n = Number(value);
@@ -199,6 +200,10 @@ const COMMANDS: Record<string, Command> = {
 		run: (p) => finishFire(p.args[0], { output: p.opts.output!, verdict: p.opts.verdict, summary: p.opts.summary, error: p.opts.error }),
 	},
 	"schedule widget": { help: "One line per job: name, next fire, last result.", run: () => widgetLines().join("\n") },
+	setup: {
+		help: "Make the inbox directory usable: rules.yaml from the template if missing, cursors, first fires; fail if an enabled job's tools are missing.",
+		run: () => setup(),
+	},
 };
 
 function usage(name: string, cmd: Command): string {

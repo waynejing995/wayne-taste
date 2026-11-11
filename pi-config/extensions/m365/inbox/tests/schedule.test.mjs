@@ -1,5 +1,6 @@
 /**
- * The session side of the schedule: the judge reads the tiny model's answer and rejects anything else.
+ * The session side of the schedule: the judge reads the small model's answer (omp: @tiny; pi: the session model)
+ * and rejects anything else.
  *
  *   node --experimental-strip-types inbox/tests/schedule.test.mjs
  */
@@ -11,10 +12,12 @@ const jiti = createJiti(import.meta.url, {
 	alias: {
 		"@earendil-works/pi-coding-agent": `${PI}/dist/index.js`,
 		"@earendil-works/pi-ai": `${PI}/node_modules/@earendil-works/pi-ai/dist/compat.js`,
+		typebox: `${PI}/node_modules/typebox/build/index.mjs`,
+		"@earendil-works/pi-tui": `${PI}/node_modules/@earendil-works/pi-tui/dist/index.js`,
 	},
 	interopDefault: true,
 });
-const { judgeOutput, runOne } = await jiti.import("../schedule.ts");
+const { judgeOutput } = await jiti.import("../schedule.ts");
 const { registerFauxProvider, fauxAssistantMessage } = await jiti.import("@earendil-works/pi-ai");
 const faux = registerFauxProvider();
 
@@ -29,12 +32,15 @@ async function check(label, fn) {
     }
 }
 
+const registry = { getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "k", headers: {} }) };
+/** omp: a `models` facade with roles. */
 function ctxWith() {
 	const model = faux.getModel();
-	return {
-		models: { resolve: (role) => (role === "@tiny" ? model : undefined) },
-		modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "k", headers: {} }) },
-	};
+	return { models: { resolve: (role) => (role === "@tiny" ? model : undefined) }, modelRegistry: registry };
+}
+/** pi 1.5: no `models`; the session's own model. */
+function piCtx() {
+	return { model: faux.getModel(), modelRegistry: registry };
 }
 const seen = [];
 function answer(text) {
@@ -65,25 +71,13 @@ await check("no tiny model throws instead of guessing", async () => {
     await rejects(() => judgeOutput(ctx, "rule", "output"), /no model for @tiny/);
 });
 
-await check("a tool that is not teams_read finishes with a card and returns the prompt", async () => {
-    const calls = [];
-    const stub = async (args) => {
-        calls.push(args);
-        return args.includes("show")
-            ? '{"action":{"kind":"tool","name":"read","args":{"path":"/etc/hostname"}},"judge":"off"}'
-            : "card foreign 2026-11-11T0114: notify foreign:2026-11-11T0114";
-    };
-    const line = await runOne(ctxWith(), "foreign", stub);
-    strictEqual(line, 'call the tool read with {"path":"/etc/hostname"}');
-    const finish = calls.find((args) => args.includes("finish"));
-    if (!finish || !finish.includes("DISPATCHED")) throw new Error("the card must be recorded so the job advances");
+await check("pi: the session model judges", async () => {
+    answer("SKIP");
+    strictEqual((await judgeOutput(piCtx(), "inject only outages", "all quiet")).verdict, "SKIP");
 });
 
-await check("a judged tool that is not teams_read is refused", async () => {
-    const stub = async (args) => args.includes("show")
-        ? '{"action":{"kind":"tool","name":"read","args":{}},"judge":"on","judge_prompt":"rule"}'
-        : "finished";
-    await rejects(() => runOne(ctxWith(), "foreign", stub), /cannot be judged/);
+await check("pi: no session model throws", async () => {
+    await rejects(() => judgeOutput({ modelRegistry: registry }, "rule", "output"), /no model selected/);
 });
 
 console.log(failed === 0 ? "all green" : `${failed} failed`);

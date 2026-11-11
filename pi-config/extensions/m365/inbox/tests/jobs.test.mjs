@@ -222,5 +222,23 @@ await check("show round-trips the tool spec", async () => {
 	strictEqual(YAML.parse(readFileSync(join(home, "rules.yaml"), "utf8")).schedule[0].name, "peek");
 });
 
+await check("setup fills an empty inbox from the template and keeps an existing rules.yaml", async () => {
+	const before = readFileSync(join(home, "rules.yaml"), "utf8");
+	await run("setup");
+	strictEqual(readFileSync(join(home, "rules.yaml"), "utf8"), before);
+	home = mkdtempSync(join(tmpdir(), "inbox-fresh-"));
+	process.env.WAYNE_INBOX_DIR = home;
+	const out = await run("setup");
+	ok(out.includes("created") && out.includes("tools: ok"), out);
+	const names = jobs.readJobs().map((j) => `${j.name}:${j.enabled === false ? "off" : j.next_fire ? "due" : "?"}`);
+	deepStrictEqual(names, ["agent-probe:due", "github-prs:off", "teams-digest:off"]);
+	strictEqual(readFileSync(join(home, "cursors", "session-push.id"), "utf8"), "0\n");
+});
+
+await check("setup fails loud naming a missing tool", async () => {
+	await run("schedule", "add", "ghost", "--every", "1", "--kind", "shell", "--action", '["no-such-program-xyz"]');
+	await rejects(() => run("setup"), /ghost: no-such-program-xyz is not on PATH/);
+});
+
 console.log(failed === 0 ? "all green" : `${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

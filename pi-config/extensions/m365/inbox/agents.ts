@@ -1,7 +1,7 @@
 /**
  * Push-watched agent sessions. Each session's reporter appends events to agent-events.jsonl on its host; this tails
  * that file (the local one directly, each remote one through a long-lived `ssh … tail -F`) and records what matters as
- * inbox.py rows. Byte cursors and per-name state live in cursors/agent-events.json, so a restart resumes where it stopped.
+ * inbox rows. Byte cursors and per-name state live in cursors/agent-events.json, so a restart resumes where it stopped.
  *
  * Everything runs through one promise chain: events are handled strictly in order, and a cursor never moves past a
  * line whose row was not recorded. Registrations are the `push: true` entries of agent_watch in rules.yaml.
@@ -13,7 +13,7 @@ import YAML from "yaml";
 
 export interface Deps {
 	dir: string;
-	inboxPy: (args: string[]) => Promise<string>;
+	inbox: (args: string[]) => Promise<string>;
 	spawn?: typeof spawnProcess;
 	now?: () => number;
 	deadSec?: number;
@@ -120,7 +120,7 @@ export class AgentTailer {
 	private readonly eventsFile: string;
 	private readonly cursorFile: string;
 	private readonly rulesFile: string;
-	private readonly inboxPy: Deps["inboxPy"];
+	private readonly inbox: Deps["inbox"];
 	private readonly spawn: typeof spawnProcess;
 	private readonly now: () => number;
 	private readonly deadMs: number;
@@ -143,7 +143,7 @@ export class AgentTailer {
 		this.eventsFile = path.join(deps.dir, "agent-events.jsonl");
 		this.cursorFile = path.join(deps.dir, "cursors", "agent-events.json");
 		this.rulesFile = path.join(deps.dir, "rules.yaml");
-		this.inboxPy = deps.inboxPy;
+		this.inbox = deps.inbox;
 		this.spawn = deps.spawn ?? spawnProcess;
 		this.now = deps.now ?? Date.now;
 		this.deadMs = (deps.deadSec ?? (Number(process.env.WAYNE_AGENT_DEAD_SEC) || 300)) * 1000;
@@ -340,7 +340,7 @@ export class AgentTailer {
 				try {
 					await this.apply(due[i].event, due[i].host, true);
 				} catch (e) {
-					// apply() changes nothing when inbox.py add fails, so this event and the rest wait, in order.
+					// apply() changes nothing when `inbox add` fails, so this event and the rest wait, in order.
 					state.pending = due.slice(i);
 					this.fail(`pending:${entry.name}`, e);
 					break;
@@ -473,7 +473,7 @@ export class AgentTailer {
 			if (ev.type === "result" && row.state === "done") {
 				retire = true;
 				try {
-					await this.inboxPy(["agent", "rm", ev.name]);
+					await this.inbox(["agent", "rm", ev.name]);
 					this.clearError(`rm:${ev.name}`);
 				} catch (e) {
 					this.fail(`rm:${ev.name}`, e);
@@ -510,7 +510,7 @@ export class AgentTailer {
 
 	private async add(entry: Entry, key: string, event: string, state: string, note: string, link: string): Promise<string> {
 		const full = entry.goal ? `${note}. Goal: ${entry.goal}` : note;
-		return this.inboxPy(["add", "--source", "agents", "--place", entry.name, "--key", key, "--subject", `agent ${entry.name}`,
+		return this.inbox(["add", "--source", "agents", "--place", entry.name, "--key", key, "--subject", `agent ${entry.name}`,
 			"--note", full, "--link", entry.result || link, "--field", `event=${event}`, "--field", `state=${state}`,
 			"--field", `mux=${entry.mux}`, "--field", `host=${entry.host}`]);
 	}

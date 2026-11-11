@@ -1,0 +1,101 @@
+# Your inbox rules. `inbox setup` wrote this file from the m365 plugin's template; it is never overwritten. Edit it freely.
+# source -> place -> rules, top to bottom, first match wins.
+# place = one chat / one repo / one mail folder / one agent session. A place not listed is not recorded.
+# when:   exact field values (a list = any of them; "!x" = anything but x). Empty `when` matches everything.
+# action: do (an agent acts) | notify (tell you) | log (record only) | ignore (not recorded)
+# owner:  optional default handler written into the ledger row.
+# The lists at the end (`schedule`, and `agent_watch` / `teams_watch` once used) are written by the inbox CLI and the plugin.
+
+github: # fields: number (PR number), event (review | check | merged), state, actor (reviewer login, or auto-review; review only), verdict (clean | critical) and commit (auto-review only)
+  example-org/example-repo: # replace with your repos, then `inbox schedule enable github-prs`
+    - when: { event: review, actor: [your-github-login, auto-review] }
+      action: ignore
+    - when: { event: review }
+      tag: pr-review
+      action: notify
+    - when: { event: check, state: [FAILURE, TIMED_OUT, CANCELLED] }
+      tag: ci-failed
+      action: notify
+    - when: { event: merged }
+      tag: pr-merged
+      action: log
+    - action: ignore
+
+outlook: # fields: from, flagged (yes | no). Watched by the session that runs `/inbox watch`; delete this block to stop.
+  Inbox:
+    - when: { flagged: "yes" } # quoted: a bare yes is a YAML boolean, and the inbox refuses it
+      tag: mail-flagged
+      action: notify
+    - action: ignore
+
+agents: # fields: event (result | idle | ask | ended | dead | gone | stalled | blocked), state, mux, host. Place = session name; "*" = any session
+  "*":
+    - when: { event: result }
+      tag: agent-result
+      action: do
+      owner: coordinator
+    - when: { event: idle }
+      tag: agent-no-result
+      action: do
+      owner: coordinator
+    - when: { event: ask } # pushed: the session waits on an `ask` or a tool approval; relay the question
+      tag: agent-ask
+      action: do
+      owner: coordinator
+    - when: { event: [ended, dead] } # pushed: omp exited, or no heartbeat (dead process)
+      tag: agent-ended
+      action: do
+      owner: coordinator
+    - when: { event: [gone, stalled, blocked] } # probed (sessions without push)
+      tag: agent-trouble
+      action: notify
+
+# Each job: action (shell: argv, with the plugin's bin/ on PATH; prompt: text for a headless omp or pi, run in this
+# directory; tool: teams_read), every (minutes) or cron, enabled, quiet (a successful fire records no row; the job adds
+# its own), timeout (seconds), tools (prompt only). `inbox schedule add|rm|enable|disable` edits the list below.
+
+# Scheduled jobs. Written by `inbox schedule add|rm`; run by the m365 inbox extension and `inbox schedule run`.
+schedule:
+  - name: agent-probe
+    action:
+      kind: shell
+      argv: [inbox, agent, probe]
+    enabled: true
+    quiet: true
+    owner: ''
+    judge: 'off'
+    fires: 0
+    every: 2
+  - name: github-prs
+    action:
+      kind: shell
+      argv: [watch-prs.sh]
+    enabled: false
+    quiet: true
+    owner: ''
+    judge: 'off'
+    fires: 0
+    every: 5
+  - name: teams-digest
+    action:
+      kind: prompt
+      text: |-
+        You read the watched Teams chats and record what must not be lost once the live cards scroll away.
+        The chats are the `teams_watch.chats` list (chat name, chat_id) in rules.yaml in the current directory, plus the self-chat (`target: self`).
+        For each chat call `teams_read` with `limit` 200 and `images` false. Only messages sent after {{since}} (local time) count.
+        Record each finding with the `inbox` command (bash), options first, then `--` and the text:
+        - someone waits for the user to decide or answer, and no later message shows they did: `inbox ask --key KEY --source teams-digest --note NOTE -- TEXT`
+        - a decision, standing rule or authorization the user stated or agreed to: `inbox fact --key KEY --source teams-digest --note NOTE -- TEXT`
+        - a chat whose OLDEST returned message is newer than {{since}} (messages in between were not read): `inbox ask` with TEXT `messages in <chat> between <since> and <oldest time> not read`
+        KEY: short, stable, lowercase words joined by `-`, naming the subject, not the time; the same subject seen again gets the same key.
+        TEXT: one sentence in English; keep short quotes verbatim. NOTE: chat name, who, and time `MM-DD HH:MM`.
+        Facts only, each from a message you read. Drop chit-chat, progress reports, and anything already resolved within the window. Never copy passwords, tokens or secrets. Do not post to Teams and write no file.
+        End with one line: `teams digest: N findings since {{since}}`.
+    enabled: false
+    quiet: true
+    owner: ''
+    judge: 'off'
+    fires: 0
+    every: 120
+    timeout: 900
+    tools: [read, bash, teams_read, teams_chats]

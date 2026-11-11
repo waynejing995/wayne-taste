@@ -37,7 +37,7 @@ function fixture(extra = {}) {
 		stamp += 2;
 		fs.utimesSync(rules, stamp, stamp);
 	};
-	const inboxPy = async (args) => {
+	const inbox = async (args) => {
 		calls.push([...args]);
 		if (args[0] === "agent") {
 			const name = args[2];
@@ -51,7 +51,7 @@ function fixture(extra = {}) {
 		rows.set(key, [...args]);
 		return `do ${rows.size} tag`;
 	};
-	const opts = { dir, inboxPy, now: () => clock, deadSec: 300, warn: (message) => warnings.push(message), onChange: () => changes.emit("change"), ...extra };
+	const opts = { dir, inbox, now: () => clock, deadSec: 300, warn: (message) => warnings.push(message), onChange: () => changes.emit("change"), ...extra };
 	let tailer = new AgentTailer(opts);
 	const watched = (name = "one", host = "local", since = "2026-11-09 00:00") => ({ name, host, since, mux: "tern", pane: name, push: true });
 	const event = (type, seq, overrides = {}) => ({ v: 1, ts: new Date(clock).toISOString(), name: "one", host: "localhost", pid: 17, session: "session", seq, type, ...overrides });
@@ -71,7 +71,7 @@ function fixture(extra = {}) {
 		dir, rules, file, cursor, rows, calls, warnings, changes, watched, event, append, start, restart, writeRules, waitUntil,
 		get tailer() { return tailer; },
 		advance(ms) { clock += ms; },
-		/** The `since` inbox.py would write now (Asia/Shanghai, to the second). */
+		/** The `since` `inbox agent add` writes now (Asia/Shanghai, to the second). */
 		since() { return new Date(clock + 8 * 3600_000).toISOString().slice(0, 19).replace("T", " "); },
 		fail(value) { failAdd = value; },
 		saved() { return JSON.parse(fs.readFileSync(cursor, "utf8")); },
