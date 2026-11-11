@@ -8,6 +8,7 @@ import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS,
 import { addEvent, doneRows, InboxError, listRows, places, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
 import { probeAgents } from "./probe.ts";
 import { setup } from "./setup.ts";
+import { addThen, checkThens, guardDone, openThenLines, thenDone } from "./thens.ts";
 
 function minutes(value: string, flag: string): number {
 	const n = Number(value);
@@ -67,18 +68,37 @@ const COMMANDS: Record<string, Command> = {
 		opts: { state: { choices: STATES }, owner: { help: "who handles it; empty clears" }, note: {} },
 		run: (p) => setRows(p.args, { state: p.opts.state, owner: p.opts.owner, note: p.opts.note }),
 	},
+	then: {
+		help: "Attach a deferred action to a live row: when the trigger happens, a `do` card says you owe it. Triggers: pr-merged:<owner/repo>#<n>, gh-run:<owner/repo>:<run-id>, agent-result:<name>, at:<YYYY-MM-DD HH:MM>.",
+		args: ["row-id", "action..."],
+		opts: { when: { required: true, help: "the trigger" } },
+		run: (p) => addThen(p.args[0], p.opts.when!, p.args.slice(1).join(" ")),
+	},
+	"then check": {
+		help: "Fire the then-actions whose trigger happened, remind fired ones left open for 10 minutes (the scheduler runs this every minute).",
+		run: async () => (await checkThens({ gh: true })).join("\n"),
+	},
+	"then-done": {
+		help: "Close one then-action (after doing it, or to cancel it).",
+		args: ["row-id", "n"],
+		opts: { note: { default: "" } },
+		run: (p) => thenDone(p.args[0], p.args[1], p.opts.note),
+	},
 	ask: direct("ask-wayne", "notify", "coordinator"),
 	fact: direct("teams-fact", "log", "digest"),
 	done: {
 		help: "Finish rows: move them from the ledger into archive.tsv.",
 		args: ["ids..."],
-		opts: { note: { help: "how it ended" } },
-		run: (p) => doneRows(p.args, p.opts.note),
+		opts: { note: { help: "how it ended" }, force: { flag: true, help: "also close the rows' fired, open then-actions (needs --note)" } },
+		run: (p) => {
+			guardDone(p.args, !!p.flags.force, p.opts.note);
+			return doneRows(p.args, p.opts.note);
+		},
 	},
 	ls: {
-		help: "Matching live rows as TSV with a header.",
+		help: "Matching live rows as TSV with a header, then one `# then …` line per open then-action.",
 		opts: { state: { many: true, choices: STATES }, owner: {}, subject: {} },
-		run: (p) => listRows({ states: p.many.state, owner: p.opts.owner, subject: p.opts.subject }),
+		run: (p) => [listRows({ states: p.many.state, owner: p.opts.owner, subject: p.opts.subject }).replace(/\n$/, ""), ...openThenLines().map((l) => `# ${l}`)].join("\n") + "\n",
 	},
 	places: { help: "The places rules.yaml lists under SOURCE, one per line.", args: ["source"], run: (p) => places(p.args[0]) },
 	"agent add": {

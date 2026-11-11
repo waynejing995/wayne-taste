@@ -49,7 +49,7 @@ Until step 2 a session shows one warning naming `/inbox setup`; no job runs and 
 
 `bin/inbox` runs `inbox/cli/` on plain node (`bin/strip-types.mjs` strips the types at load: no build step, and
 unlike `--experimental-strip-types` it works under `node_modules`, where omp links the plugin). `bin/inbox --help`
-lists the commands: `ls`, `add`, `set`, `done`, `ask`, `fact`, `places`, `agent add|rm|ls|probe`,
+lists the commands: `ls`, `add`, `set`, `done`, `ask`, `fact`, `places`, `then`, `then-done`, `agent add|rm|ls|probe`,
 `schedule add|ls|rm|enable|disable|run|pending|show|exec|finish|widget`, `setup`. The plugin calls the same code
 in-process.
 
@@ -62,6 +62,10 @@ in the inbox directory; `{{since}}` = the last successful run), or `tool` (`team
 INJECT or SKIP; omp uses the `tiny` role, pi the session model). No session open, no jobs: a missed fire runs once
 at the next tick. The template's jobs: `agent-probe` (`inbox agent probe`), `github-prs` (`bin/watch-prs.sh`;
 `bin/pr-ready.sh` answers "ready to merge?"), `teams-digest` (prompt job reading the watched Teams chats).
+
+`inbox then <id> --when <trigger> -- <action>` keeps a promised follow-up on a live row (`pr-merged:`, `gh-run:`,
+`agent-result:`, `at:` triggers): when the trigger happens, a `do` card names what is owed; one reminder after 10
+minutes; `inbox then-done <id> <n>` closes it, and `inbox done` refuses the row while it is open.
 
 An optional `card-note.md` in the inbox directory is said on every inbox and Teams watch card (the user's own
 standing instructions for the agent that receives them).

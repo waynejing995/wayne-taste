@@ -13,6 +13,7 @@ The inbox itself (CLI, scheduler, PR watch, agent probe, Teams digest job, card 
 | `archive.tsv` | `inbox done` | finished rows (`state` = `done`); keeps their keys so an event is never recorded twice |
 | `cursors/github-prs.since` | plugin `bin/watch-prs.sh` (job `github-prs`) | last PR scan time |
 | `cursors/schedule-<job>-<fire>.claim` | scheduler | one fire claimed, so two runners never run it twice; stale after 15 min (or the job's timeout + 1 min) |
+| `thens.json` | `inbox then` / `then-done`; the scheduler marks `fired` / `reminded` | deferred actions: row, trigger, action, when added, which ledger id was newest then (an `agent-result` trigger only counts a later RESULT row) |
 | `card-note.md` | Wayne (copy of `templates/card-note.md` in this skill) | the standing note said on every inbox and Teams watch card; no file, no note |
 | `cursors/session-push.id` | m365 extension | highest ledger id already pushed to the session |
 | `cursors/outlook-inbox.since` | m365 extension | last mail recorded (only when `outlook:` exists in rules.yaml) |
@@ -76,6 +77,9 @@ $I ask "<question>" --key <k> --note <where>   # someone waits for Wayne: ask-wa
 $I fact "<decision or rule>" --key <k> --note <chat, who, time>   # teams-fact log row
 $I schedule add <name> --every <min> | --cron '<m h dom mon dow>' --kind shell|prompt|tool --action <argv JSON | text | {name,args}> [--judge on --judge-prompt …] [--quiet] [--timeout s] [--tools a,b] [--disabled]
 $I schedule ls | rm | enable | disable | run --due | run --job <name>
+$I then <id> --when <trigger> -- <action>   # deferred action on a live row (see Then-actions)
+$I then-done <id> <n> [--note <why>]
+$I done <id> --force --note <why>       # also closes the row's fired, open then-actions
 ```
 
 In omp or pi: `/inbox setup`, `/inbox watch` (deliver here), `/inbox stop`, `/inbox status` (where the scheduler runs, each job's next fire and last result, the open rows).
@@ -83,6 +87,10 @@ In omp or pi: `/inbox setup`, `/inbox watch` (deliver here), `/inbox stop`, `/in
 ## Jobs
 
 The scheduler runs in the plugin, not in systemd: every minute, in the first omp or pi session on this inbox directory that holds the scheduler lease (any session with the plugin, `/inbox watch` or not). Nothing runs while no such session is open; a missed fire runs once at the next tick. A shell job's argv has the plugin's `bin/` first on PATH, so `inbox`, `watch-prs.sh` and `pr-ready.sh` resolve. A prompt job runs `omp -p` (else `pi -p`, or `INBOX_AGENT`) in the inbox directory, `{{since}}` replaced by the last successful run (24 h ago at first). A `quiet` job records no row when it succeeds (it writes its own rows); a failure always records a `notify` row. A judged job's output goes to a small model (omp: the `tiny` role; pi: the session model) that answers INJECT or SKIP.
+
+## Then-actions
+
+`inbox then <id> --when <trigger> -- <action>` hangs a follow-up on a live row. Triggers: `pr-merged:<owner/repo>#<n>` (the PR watch's `github:<repo>#<n>:merged` row exists), `gh-run:<owner/repo>:<run-id>` (`gh run view` says completed), `agent-result:<name>` (a RESULT row for that agent newer than the then), `at:<YYYY-MM-DD HH:MM>`. The delivering session checks on every inbox change; the scheduler tick also checks `gh-run`, `at:` and reminders. A trigger makes one `do` row (`then` tag, owner `coordinator`): "Trigger X happened; you owe: <action>". Still open 10 minutes later: one reminder row. `inbox then-done <id> <n>` closes it; `inbox done <id>` refuses while a fired one is open (`--force --note` overrides). An unfired then stays armed after its row is done. `inbox ls` and `/inbox status` list the open ones.
 
 ## Agent sessions
 

@@ -34,6 +34,7 @@ import { card, parseLedger, statusCard, type Row } from "./card.ts";
 import { inbox as inboxCli } from "./cli/main.ts";
 import { BIN_DIR, widgetLines } from "./cli/jobs.ts";
 import { initInbox, isSetUp } from "./cli/setup.ts";
+import { checkThens, openThenLines } from "./cli/thens.ts";
 import { AgentTailer } from "./agents.ts";
 import { GraphClient } from "../core/graph.ts";
 import { setStatusPart } from "../core/status-row.ts";
@@ -91,6 +92,7 @@ export default function inbox(pi: ExtensionAPI) {
 	let schedTimer: NodeJS.Timeout | undefined;
 	let schedOwner = "";
 	let schedError = "";
+	let thenError = "";
 	let tickInFlight = false;
 
 	function renderStatus(): void {
@@ -98,7 +100,7 @@ export default function inbox(pi: ExtensionAPI) {
 		if (!c?.hasUI) return;
 		const t = c.ui.theme;
 		const agentStatus = agents?.status() ?? "";
-		const problem = [error, schedError].filter(Boolean).join(" · ");
+		const problem = [error, schedError, thenError].filter(Boolean).join(" · ");
 		const status = `◉inbox${problem ? ` ⚠ ${problem}` : ""}${agentStatus ? ` · ${agentStatus}` : ""}`;
 		setStatusPart(c.ui, "inbox", lease || problem ? t.fg(problem || agentStatus.includes("⚠") ? "error" : "dim", status) : undefined);
 	}
@@ -161,6 +163,35 @@ export default function inbox(pi: ExtensionAPI) {
 		writeCursor(Math.max(...rows.map((r) => Number(r.id))));
 	}
 
+	/**
+	 * Then-actions: fire the ones whose trigger row just landed. The delivering session runs this on every inbox
+	 * directory change, so a merge or RESULT row becomes a card at once; the scheduler tick adds the time-based
+	 * triggers (at:, reminders) and gh-run, which only GitHub knows. Cards are keyed per then, so two checkers make one.
+	 */
+	let thenInFlight = false;
+	let thenAgain = false;
+	async function checkThenActions(gh: boolean): Promise<void> {
+		if (thenInFlight) {
+			thenAgain = true;
+			return;
+		}
+		thenInFlight = true;
+		try {
+			const failed = (await checkThens({ gh })).filter((l) => l.startsWith("fail "));
+			if (failed.length) thenError = failed.join("; ").slice(0, 200);
+			else if (gh) thenError = "";
+		} catch (e) {
+			thenError = `then: ${e instanceof Error ? e.message : String(e)}`;
+		} finally {
+			thenInFlight = false;
+			renderStatus();
+		}
+		if (thenAgain) {
+			thenAgain = false;
+			await checkThenActions(false);
+		}
+	}
+
 	async function claimFor(c: ExtensionContext, id: string, label: string): Promise<WatchLease | string> {
 		const claimed = await claim({ chatId: id, label, pid: process.pid, sessionId: c.sessionManager.getSessionId(), cwd: c.cwd, since: new Date().toISOString() });
 		return "owner" in claimed ? describeOwner(claimed.owner) : claimed.lease;
@@ -184,6 +215,7 @@ export default function inbox(pi: ExtensionAPI) {
 				schedOwner = "";
 			}
 			const lines = await runSessionJobs(schedCtx);
+			await checkThenActions(true);
 			const failed = lines.filter((l) => l.startsWith("fail "));
 			schedError = failed.length ? `schedule: ${failed.join("; ").slice(0, 200)}` : "";
 			renderSchedule(schedCtx.hasUI ? schedCtx.ui : undefined);
@@ -231,7 +263,7 @@ export default function inbox(pi: ExtensionAPI) {
 			// Cursors start at "now" (first delivery ever: what is already in the ledger is not news); the same init as `inbox setup`.
 			initInbox();
 			// Any event in the directory rescans: Bun reports a rename by the temp file's name, not ledger.tsv.
-			dirWatch = fs.watch(DIR, () => { scan(); void agents?.poke(); });
+			dirWatch = fs.watch(DIR, () => { scan(); void agents?.poke(); void checkThenActions(false); });
 			agents = new AgentTailer({ dir: DIR, inbox: inboxCli, onChange: renderStatus });
 			agents.start();
 			timer = setInterval(() => {
@@ -288,12 +320,13 @@ export default function inbox(pi: ExtensionAPI) {
 					c.ui.notify(had ? "Inbox delivery stopped." : "This session does not deliver the inbox.", "info");
 				} else if (arg === "status") {
 					const open = readRows().filter((r) => r.state === "open" || r.state === "claimed");
-					const problem = [error, schedError].filter(Boolean).join(" · ");
+					const problem = [error, schedError, thenError].filter(Boolean).join(" · ");
 					const jobs = isSetUp() ? widgetLines() : [];
 					const head = [
 						`${lease ? "Delivering here" : "Not delivering here"}; cursor ${readCursor() ?? "unset"}; ${open.length} open/claimed rows.${problem ? ` ⚠ ${problem}` : ""}`,
 						schedulerLine(),
 						...jobs.map((j) => `- ${j}`),
+						...(isSetUp() ? openThenLines().map((l) => `- ${l}`) : []),
 						...(agents ? [agents.describe()] : []),
 					].join("\n");
 					pi.sendMessage({ customType: "inbox-status", content: statusCard(head, open), display: true, details: {} }, { triggerTurn: false });
