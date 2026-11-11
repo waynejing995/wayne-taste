@@ -361,6 +361,12 @@ self-chat stays text unless a card field below is given or `card: true`;
 `card: false` forces text anywhere. The script backend sends text and refuses
 `card: true`.
 
+When to use one: automation output, status updates and questions that ask for a
+decision go out as a card (in the self-chat too, by giving `title` or another
+card field). Ordinary Q&A replies may be either: in a chat they are a card by
+default, and `card: false` sends plain text. The tool description gives the
+model the same rule, so the default and the guidance agree.
+
 | Parameter | In the card |
 |---|---|
 | `title` | The header, beside the `🤖 pi agent` badge |

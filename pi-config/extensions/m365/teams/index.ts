@@ -962,9 +962,12 @@ export default function (pi: ExtensionAPI) {
 			"numbered options, each with its consequence, one marked recommended with the reason), `links` (buttons), " +
 			"`details` (collapsed). A card carries the real content, not a one-line summary: the whole message in " +
 			"`message`, a fact for every key value you have (PR, commit sha, run id, ticket, times, owner), and the " +
-			"long parts (cause, evidence, logs, next steps) in `details` so the top stays short. A self send is plain " +
-			"text unless one of those card fields is given or card=true; card=false forces text anywhere. " +
-			"Use `decision` whenever you ask people to choose. Cards render bold, italic, links and lists, not " +
+			"long parts (cause, evidence, logs, next steps) in `details` so the top stays short. " +
+			"When to use a card: automation output, status updates and questions asking for a decision -> a card " +
+			"(give `title` and the fields that fit; use `decision` whenever you ask people to choose). Ordinary Q&A " +
+			"replies -> either: in a chat or channel leave the default card or pass card=false for plain text. " +
+			"Defaults: a chat or channel send is a card; a self send is plain text unless a card field is given or " +
+			"card=true; card=false forces text anywhere. Cards render bold, italic, links and lists, not " +
 			"headings, tables or code blocks; send those with card=false. @mentions in a card's text still notify.",
 		parameters: Type.Object({
 			target: StringEnum(["self", "chat", "channel"], { description: "Where to send" }),
