@@ -364,12 +364,12 @@ self-chat stays text unless a card field below is given or `card: true`;
 | Parameter | In the card |
 |---|---|
 | `title` | The header, beside the `🤖 pi agent` badge |
-| `message` | The text (bold, italic, links and lists render; headings, tables and code blocks do not — send those with `card: false`) |
-| `facts` | Status rows `{name, value, tone?}`; `tone` `good`/`warning`/`attention` colours the value |
-| `decision` | `{question, options, recommended?, reason?}`: numbered options, the recommended one highlighted with its reason. Two options at least; `recommended` is a 0-based index |
+| `message` | The whole message, not a one-line summary (bold, italic, links and lists render; headings, tables and code blocks do not — send those with `card: false`) |
+| `facts` | Rows `{name, value, tone?}`, one per key value (PR, sha, run id, ticket, times); `tone` `good`/`warning`/`attention` colours the value |
+| `decision` | `{question, context?, options: [{label, consequence?}], recommended?, reason?}`: the question, what readers need to know to choose, numbered options each with what happens if taken, the recommended one highlighted with its reason. Two options at least; `recommended` is a 0-based index |
 | `agents` | Progress rows `{name, host, idle_min, status, tail?}`: `status` is `waiting on question`, `probe failed`, `done` or `working`; rows needing you come first; the idle timer is green under 10 min, yellow under 30, red after; `tail` opens on a tap |
 | `links` | `{title, url}` buttons (`Action.OpenUrl`, https only — the only action Graph accepts without a bot) |
-| `details` | Text behind a **Details** button |
+| `details` | Markdown behind a **Details** button: the long parts (cause, evidence, logs, next steps), so the top stays short |
 
 How it is posted: `POST /chats/{id}/messages` (or the channel's) with the card as
 one `attachments` entry (`contentType: application/vnd.microsoft.card.adaptive`,

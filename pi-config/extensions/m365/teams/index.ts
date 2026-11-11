@@ -958,8 +958,11 @@ export default function (pi: ExtensionAPI) {
 			"To show the user a picture (a screenshot, a rendered UI), pass local image paths in `images`; " +
 			"they appear under the text. Images go to the self-chat only (target='self') and make it a text message. " +
 			"Card: a chat or channel send goes out as an Adaptive Card with an agent badge: `title` on top, " +
-			"`message` as its text, and any of `facts` (status rows), `decision` (a question with numbered " +
-			"options, one marked recommended), `links` (buttons), `details` (collapsed). A self send is plain " +
+			"`message` as its text, and any of `facts` (status rows), `decision` (a question with its context and " +
+			"numbered options, each with its consequence, one marked recommended with the reason), `links` (buttons), " +
+			"`details` (collapsed). A card carries the real content, not a one-line summary: the whole message in " +
+			"`message`, a fact for every key value you have (PR, commit sha, run id, ticket, times, owner), and the " +
+			"long parts (cause, evidence, logs, next steps) in `details` so the top stays short. A self send is plain " +
 			"text unless one of those card fields is given or card=true; card=false forces text anywhere. " +
 			"Use `decision` whenever you ask people to choose. Cards render bold, italic, links and lists, not " +
 			"headings, tables or code blocks; send those with card=false. @mentions in a card's text still notify.",
@@ -996,16 +999,23 @@ export default function (pi: ExtensionAPI) {
 						value: Type.String(),
 						tone: Type.Optional(StringEnum(["good", "warning", "attention"], { description: "Colours the value" })),
 					}),
-					{ description: "Card status rows: name, value, optional tone." },
+					{ description: "Card status rows, one per key value (PR, sha, run id, ticket, times): name, value, optional tone." },
 				),
 			),
 			decision: Type.Optional(
 				Type.Object(
 					{
 						question: Type.String(),
-						options: Type.Array(Type.String(), { description: "At least 2." }),
+						context: Type.Optional(Type.String({ description: "What readers need to know to choose: situation, constraints, what is known." })),
+						options: Type.Array(
+							Type.Object({
+								label: Type.String(),
+								consequence: Type.Optional(Type.String({ description: "What happens if this option is taken." })),
+							}),
+							{ description: "At least 2." },
+						),
 						recommended: Type.Optional(Type.Integer({ description: "0-based index of the recommended option." })),
-						reason: Type.Optional(Type.String({ description: "Why the recommended option, one line." })),
+						reason: Type.Optional(Type.String({ description: "Why the recommended option." })),
 					},
 					{ description: "A choice the readers must make." },
 				),
@@ -1015,7 +1025,9 @@ export default function (pi: ExtensionAPI) {
 					description: "Card buttons that open a URL.",
 				}),
 			),
-			details: Type.Optional(Type.String({ description: "Card text hidden behind a Details button." })),
+			details: Type.Optional(
+				Type.String({ description: "Markdown hidden behind a Details button: the long parts (cause, evidence, logs, next steps)." }),
+			),
 			agents: Type.Optional(
 				Type.Array(
 					Type.Object({

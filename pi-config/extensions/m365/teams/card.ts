@@ -32,9 +32,16 @@ export interface Fact {
 	value: string;
 	tone?: Tone;
 }
+export interface DecisionOption {
+	label: string;
+	/** What happens if this option is taken. */
+	consequence?: string;
+}
 export interface Decision {
 	question: string;
-	options: string[];
+	/** What the readers need to know to choose: the situation, constraints, what is already known. */
+	context?: string;
+	options: DecisionOption[];
 	/** Index into `options`. */
 	recommended?: number;
 	/** Why the recommended option. */
@@ -118,6 +125,10 @@ function agentRow(row: AgentRow, i: number): El {
 }
 
 function decisionBlock(d: Decision): El {
+	const option = (o: DecisionOption, i: number, picked: boolean): El[] => [
+		text(picked ? `**${i + 1}. ${o.label}**` : `**${i + 1}.** ${o.label}`),
+		...(o.consequence ? [text(`→ ${o.consequence}`, { size: "Small", isSubtle: !picked, spacing: "None" })] : []),
+	];
 	return {
 		type: "Container",
 		style: "emphasis",
@@ -125,15 +136,16 @@ function decisionBlock(d: Decision): El {
 		items: [
 			text("Decision needed", { weight: "Bolder", color: "Accent" }),
 			text(d.question, { size: "Medium", weight: "Bolder", spacing: "Small" }),
+			...(d.context ? [text(d.context, { spacing: "Small" })] : []),
 			...d.options.map((o, i) =>
 				i === d.recommended
 					? {
 							type: "Container",
 							style: "good",
 							spacing: "Small",
-							items: [text(`**${i + 1}. ${o}**`), text(`★ Recommended${d.reason ? ` — ${d.reason}` : ""}`, { size: "Small", spacing: "None" })],
+							items: [...option(o, i, true), text(`★ Recommended${d.reason ? `: ${d.reason}` : ""}`, { size: "Small", weight: "Bolder", spacing: "Small" })],
 						}
-					: text(`${i + 1}. ${o}`, { spacing: "Small" }),
+					: { type: "Container", spacing: "Small", items: option(o, i, false) },
 			),
 		],
 	};
@@ -189,7 +201,15 @@ export function buildCard(spec: CardSpec): El {
 		body.push(text(`${needYou} need you · ${agents.length - needYou} other`, { weight: "Bolder", color: needYou ? "Attention" : "Good", spacing: "Medium" }));
 		body.push({ type: "Container", spacing: "Small", items: agents.map(agentRow) });
 	}
-	if (spec.details) body.push({ type: "Container", id: "details", isVisible: false, items: [text(spec.details, { size: "Small" })] });
+	if (spec.details)
+		body.push({
+			type: "Container",
+			id: "details",
+			isVisible: false,
+			separator: true,
+			spacing: "Medium",
+			items: [text("Details", { weight: "Bolder", isSubtle: true }), text(spec.details, { spacing: "Small" })],
+		});
 	body.push(text(AGENT_FOOTER_TEXT, { size: "Small", isSubtle: true, separator: true }));
 	const actions: El[] = [
 		...(spec.links ?? []).map((l) => ({ type: "Action.OpenUrl", title: l.title, url: l.url })),

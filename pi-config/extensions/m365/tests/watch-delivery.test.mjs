@@ -201,7 +201,7 @@ console.log("\n== the agent's own card in the self-chat is not news: no echo loo
 {
 	const { buildCard, cardText } = await jiti.import(join(ROOT, "teams", "card.ts"));
 	const before = sent.length;
-	const card = buildCard({ title: "Ship?", text: "pick one", decision: { question: "Which?", options: ["a", "b"], recommended: 0 } });
+	const card = buildCard({ title: "Ship?", text: "pick one", decision: { question: "Which?", options: [{ label: "a" }, { label: "b" }], recommended: 0 } });
 	// The text the self-chat read gives a card (skype.ts projects properties.cards through cardText).
 	notes.push({ id: "104.5", at: "2026-11-06T11:07:45Z", text: cardText(card) });
 	await poll();

@@ -39,24 +39,32 @@ async function check(label, fn) {
 	}
 }
 
-const DECISION = { question: "Which branch ships?", options: ["main", "release/1.2", "wait"], recommended: 1, reason: "CI is green there" };
+const DECISION = {
+	question: "Which branch ships?",
+	context: "release/1.2 has the hotfix; main also carries the untested proxy refactor.",
+	options: [{ label: "main", consequence: "ships the refactor untested" }, { label: "release/1.2", consequence: "hotfix only, CI green" }, { label: "wait" }],
+	recommended: 1,
+	reason: "CI is green there",
+};
 
 await check("a card opens with the agent badge and ends with the footer line", () => {
 	const lines = cardText(buildCard({ title: "Build 412", text: "It is **green**." })).split("\n");
 	deepStrictEqual(lines, ["🤖 pi agent", "Build 412", "It is **green**.", AGENT_FOOTER_TEXT]);
 });
 
-await check("a decision lists every option, marks only the recommended one, and keeps the reason", () => {
+await check("a decision keeps its context, every option with its consequence, marks only the recommended one with the reason", () => {
 	const text = cardText(buildCard({ text: "", decision: DECISION }));
 	ok(text.includes("Which branch ships?"));
-	ok(text.includes("1. main") && text.includes("3. wait"));
+	ok(text.includes("untested proxy refactor"), "context");
+	ok(text.includes("**1.** main") && text.includes("**3.** wait"));
+	ok(text.includes("→ ships the refactor untested") && text.includes("→ hotfix only, CI green"), "consequences");
 	ok(text.includes("**2. release/1.2**"), "recommended option is bold");
 	equal(text.match(/★ Recommended/g)?.length, 1);
-	ok(text.includes("CI is green there"));
+	ok(text.includes("★ Recommended: CI is green there"));
 });
 
 await check("a decision with one option or a recommended index out of range is refused before sending", () => {
-	throws(() => buildCard({ text: "", decision: { question: "q", options: ["only"] } }), /at least 2 options/);
+	throws(() => buildCard({ text: "", decision: { question: "q", options: [{ label: "only" }] } }), /at least 2 options/);
 	throws(() => buildCard({ text: "", decision: { ...DECISION, recommended: 3 } }), /must index options/);
 	throws(() => buildCard({ text: "", decision: { ...DECISION, recommended: -1 } }), /must index options/);
 });
