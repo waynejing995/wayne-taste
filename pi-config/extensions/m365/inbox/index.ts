@@ -29,13 +29,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as auth from "../core/auth.ts";
-import { card, parseLedger, type Row } from "./card.ts";
+import { card, parseLedger, statusCard, type Row } from "./card.ts";
 import { AgentTailer } from "./agents.ts";
 import { GraphClient } from "../core/graph.ts";
 import { setStatusPart } from "../core/status-row.ts";
 import { Mailbox } from "../outlook/mailbox.ts";
 import { mailSince } from "./mail.ts";
 import { claim, describeOwner, type WatchLease } from "../teams/watch.ts";
+import { renderSchedule, runSessionJobs } from "./schedule.ts";
 
 const DIR = process.env.WAYNE_INBOX_DIR ?? path.join(os.homedir(), ".wayne", "inbox");
 const LEDGER = path.join(DIR, "ledger.tsv");
@@ -79,9 +80,12 @@ function inboxPy(args: string[]): Promise<string> {
 	return promise;
 }
 
+
+
 export default function inbox(pi: ExtensionAPI) {
 	const mailbox = new Mailbox(new GraphClient(() => auth.getToken({ scopes: auth.GRAPH_SCOPES })));
 	let mailInFlight = false;
+	let tickInFlight = false;
 	let lease: WatchLease | undefined;
 	let ctx: ExtensionContext | undefined;
 	let dirWatch: fs.FSWatcher | undefined;
@@ -144,6 +148,27 @@ export default function inbox(pi: ExtensionAPI) {
 		}
 	}
 
+	/** Due tool and judged jobs. `teams_read` runs in this process; any other tool becomes a prompt card.
+	 * A tool call can only start while the agent is idle, so a busy agent is retried shortly instead of waiting a minute. */
+	async function pollSchedule(): Promise<void> {
+		if (!lease || !ctx || tickInFlight) return;
+		if (!ctx.isIdle()) {
+			setTimeout(() => void pollSchedule(), 2000);
+			return;
+		}
+		tickInFlight = true;
+		try {
+			// The prompt is already a ledger row (verdict DISPATCHED). flush() delivers that row, so sending it here too would run the tool twice.
+			await runSessionJobs(ctx);
+			await renderSchedule(ctx.hasUI ? ctx.ui : undefined);
+		} catch (e) {
+			error = `schedule: ${e instanceof Error ? e.message : String(e)}`;
+			renderStatus();
+		} finally {
+			tickInFlight = false;
+		}
+	}
+
 	/** Cards go in while the agent is idle; a busy agent gets them when its turn ends. */
 	function flush(): void {
 		if (!ctx || held.length === 0 || !ctx.isIdle()) return;
@@ -184,6 +209,7 @@ export default function inbox(pi: ExtensionAPI) {
 				void agents?.poke();
 				void agents?.tick();
 				void pollMail();
+				void pollSchedule();
 			}, BACKSTOP_MS);
 			timer.unref?.();
 			scan();
@@ -193,6 +219,7 @@ export default function inbox(pi: ExtensionAPI) {
 			throw e;
 		}
 		void pollMail();
+		void pollSchedule();
 		return `Inbox: new notify/do rows in ${LEDGER} are delivered to this session.`;
 	}
 
@@ -205,7 +232,10 @@ export default function inbox(pi: ExtensionAPI) {
 		dirWatch = timer = lease = undefined;
 		held = [];
 		error = "";
-		if (ctx?.hasUI) setStatusPart(ctx.ui, "inbox", undefined);
+		if (ctx?.hasUI) {
+			setStatusPart(ctx.ui, "inbox", undefined);
+			setStatusPart(ctx.ui, "sched", undefined);
+		}
 		ctx = undefined;
 	}
 
@@ -225,7 +255,8 @@ export default function inbox(pi: ExtensionAPI) {
 					c.ui.notify(had ? "Inbox delivery stopped." : "This session does not deliver the inbox.", "info");
 				} else if (arg === "status") {
 					const open = readRows().filter((r) => r.state === "open" || r.state === "claimed");
-					c.ui.notify(`${lease ? "Delivering here" : "Not delivering here"}; cursor ${readCursor() ?? "unset"}; ${open.length} open/claimed rows.${error ? ` ⚠ ${error}` : ""}${agents ? `\n${agents.describe()}` : ""}`, "info");
+					const head = `${lease ? "Delivering here" : "Not delivering here"}; cursor ${readCursor() ?? "unset"}; ${open.length} open/claimed rows.${error ? ` ⚠ ${error}` : ""}${agents ? `\n${agents.describe()}` : ""}`;
+					pi.sendMessage({ customType: "inbox-status", content: statusCard(head, open), display: true, details: {} }, { triggerTurn: false });
 				} else c.ui.notify(`Unknown: /inbox ${arg}. Use watch | stop | status.`, "error");
 			} catch (e) {
 				c.ui.notify(`Inbox: ${e instanceof Error ? e.message : e}`, "error");
@@ -239,4 +270,5 @@ export default function inbox(pi: ExtensionAPI) {
 	});
 	pi.on("session_switch", async () => stop());
 	pi.on("session_shutdown", async () => stop());
+
 }

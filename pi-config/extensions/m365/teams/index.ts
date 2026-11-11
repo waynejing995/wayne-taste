@@ -192,6 +192,13 @@ interface WatchRead {
 	gap: boolean;
 }
 
+let readForSchedule: ((target: SendTarget, limit: number) => Promise<HistoryMessage[]>) | undefined;
+
+/** The `teams_read` function, once the extension has started. The schedule calls this directly. */
+export function teamsReader(): ((target: SendTarget, limit: number) => Promise<HistoryMessage[]>) | undefined {
+	return readForSchedule;
+}
+
 export default function (pi: ExtensionAPI) {
 	const cfg = loadConfig();
 
@@ -885,6 +892,7 @@ export default function (pi: ExtensionAPI) {
 		const payload = await backend.messages({ id: target.id, name: target.chat }, limit);
 		return payload.messages.map((m) => ({ ...m, me: payload.me }));
 	}
+	readForSchedule = loadRecent;
 	// ── Compose overlay ─────────────────────────────────────────────
 
 	async function compose(ctx: ExtensionContext) {
@@ -1572,4 +1580,25 @@ export default function (pi: ExtensionAPI) {
 		unreadTimer = undefined;
 		stopAllWatches();
 	});
+}
+
+/**
+ * One recent page of a conversation, as `teams_read` returns it, without going through the tool runner.
+ * The schedule calls this for a `teams_read` job: an extension event has no supported way to invoke a
+ * registered tool, and this is the same function the tool calls.
+ */
+export async function readTeams(
+	args: { target?: string; chat_id?: string; chat?: string; limit?: number },
+	load: (target: SendTarget, limit: number) => Promise<HistoryMessage[]>,
+): Promise<string> {
+	if (args.target === "chat" && !args.chat_id && !args.chat) throw new Error("target='chat' requires 'chat_id' or 'chat'");
+	const target: SendTarget = args.target === "self" ? { kind: "self" } : { kind: "chat", chat: args.chat ?? "", id: args.chat_id };
+	const limit = args.limit ?? HISTORY_MESSAGES;
+	const msgs = await load(target, limit);
+	const lines = msgs.map((m) => {
+		const who = m.mine ? "me" : m.sender;
+		return m.text ? `[${formatLocal(m.at)}] ${who}: ${m.text}` : `[${formatLocal(m.at)}] ${who}:`;
+	});
+	const where = target.kind === "self" ? "self-chat (48:notes)" : `chat ${target.id ?? target.chat}`;
+	return `${where} — ${msgs.length} message(s)\n${lines.join("\n") || "(no messages)"}`;
 }

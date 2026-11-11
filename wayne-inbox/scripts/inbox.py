@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import csv
 import fcntl
+import json
 import os
 import re
 import sys
@@ -29,6 +30,8 @@ import click
 import yaml
 from loguru import logger
 
+import schedule_jobs as schedule_mod
+
 HOME = Path(os.environ.get("WAYNE_INBOX_DIR", Path.home() / ".wayne" / "inbox"))
 RULES = HOME / "rules.yaml"
 LEDGER = HOME / "ledger.tsv"
@@ -37,7 +40,7 @@ LOCK = HOME / ".ledger.lock"
 # Same lock file the m365 extension takes to rewrite teams_watch: one writer of rules.yaml at a time.
 RULES_LOCK = HOME / "rules.yaml.lock"
 # Sections of rules.yaml that are lists kept by programs, not classification rules.
-LISTS = {"teams_watch", "agent_watch"}
+LISTS = {"teams_watch", "agent_watch", "schedule"}
 AGENT_HEADER = "# Agent sessions to watch (tern / herdr / hc / tmux). Written by `inbox.py agent add|rm`; read by watch-agents.py (probe) and the m365 inbox extension (push: true).\n"
 AGENT_BLOCK = re.compile(r"(?:^# Agent sessions to watch.*\n)?^agent_watch:.*(?:\n|$)(?:(?:[ \t#].*|)(?:\n|$))*", re.M)
 COLUMNS = ["id", "key", "subject", "first_seen", "source", "tag", "action", "state", "owner", "note", "link"]
@@ -227,7 +230,7 @@ def set_(ids: tuple[str, ...], state: str | None, owner: str | None, note: str |
     click.echo(f"updated {' '.join(ids)}")
 
 
-def record_direct(tag: str, action: str, key: str, subject: str, source: str, note: str, link: str) -> None:
+def record_direct(tag: str, action: str, key: str, subject: str, source: str, note: str, link: str, owner: str = "wayne") -> None:
     """Write one row without rules: the caller already knows what it is. Same key dedup as `add`."""
     key = f"{tag}:{clean(key)}"
     with Ledger() as ledger:
@@ -247,7 +250,7 @@ def record_direct(tag: str, action: str, key: str, subject: str, source: str, no
                 "tag": tag,
                 "action": action,
                 "state": "open",
-                "owner": "wayne",
+                "owner": clean(owner) or "wayne",
                 "note": clean(note),
                 "link": clean(link),
             }
@@ -428,6 +431,174 @@ def agent_ls() -> None:
     for a in read_agents():
         click.echo("\t".join(str(a.get(k, "")) if k != "push" else "push" if a.get(k) else ""
                              for k in ("name", "mux", "host", "pane", "result", "since", "goal", "push")))
+
+
+@cli.group()
+def schedule():
+    """Register, list, remove, and run scheduled jobs (the `schedule` list in rules.yaml)."""
+
+
+@schedule.command("add")
+@click.argument("name")
+@click.option("--cron", default=None, help="5-field cron: minute hour day month weekday, 0 or 7 = Sunday")
+@click.option("--every", default=None, type=int, help="interval in minutes")
+@click.option("--kind", required=True, type=click.Choice(sorted(schedule_mod.KINDS)))
+@click.option("--action", required=True, help="shell: JSON argv; prompt: text; tool: JSON {name,args}")
+@click.option("--owner", default="", help="label copied onto the ledger row; not a session address")
+@click.option("--judge", default="off", type=click.Choice(["on", "off"]))
+@click.option("--judge-prompt", default="", help="what the tiny model should treat as worth injecting")
+def schedule_add(name, cron, every, kind, action, owner, judge, judge_prompt):
+    """Register a job. It first fires at its next cron minute or one interval from now."""
+    name = schedule_mod.check_name(name)
+    if judge == "on" and not judge_prompt.strip():
+        raise click.ClickException("--judge on needs --judge-prompt")
+    if kind == "tool" and action.find('"teams_read"') < 0 and judge == "on":
+        raise click.ClickException("a tool other than teams_read cannot be judged: its result never comes back")
+    job = {
+        "name": name, "action": schedule_mod.parse_action(kind, action),
+        "enabled": True, "owner": owner, "judge": judge, "fires": 0,
+    }
+    if cron is not None:
+        job["cron"] = cron
+    else:
+        job["every"] = every
+    schedule_mod.validate_when(cron, every)
+    if judge == "on":
+        job["judge_prompt"] = judge_prompt.strip()
+    job["next_fire"] = schedule_mod.stamp(schedule_mod.next_fire(job, schedule_mod.now()))
+    with RulesLock():
+        jobs = schedule_mod.read_jobs()
+        if any(item.get("name") == name for item in jobs):
+            raise click.ClickException(f"{name} is already registered; remove it first")
+        jobs.append(job)
+        schedule_mod.write_jobs(jobs)
+    click.echo(f"added {name} next {job['next_fire']}")
+
+
+@schedule.command("ls")
+def schedule_ls():
+    """List jobs: name, when, next fire, last result."""
+    jobs = schedule_mod.read_jobs()
+    if not jobs:
+        click.echo("(no scheduled jobs)")
+        return
+    for job in jobs:
+        when = job.get("cron") or f"every {job.get('every')}m"
+        last = job.get("last") or {}
+        click.echo(
+            f"{job.get('name')}  {when}  next {job.get('next_fire') or '-'}  "
+            f"last {last.get('status') or 'never'}  {schedule_mod.action_line(job.get('action') or {})}"
+        )
+
+
+@schedule.command("rm")
+@click.argument("name")
+def schedule_rm(name):
+    """Remove a job. Nothing keeps firing it."""
+    with RulesLock():
+        jobs = schedule_mod.read_jobs()
+        kept = [job for job in jobs if job.get("name") != name]
+        if len(kept) == len(jobs):
+            raise click.ClickException(f"no scheduled job named {name}")
+        schedule_mod.write_jobs(kept)
+    click.echo(f"removed {name}")
+
+
+@schedule.command("run")
+@click.option("--due", is_flag=True, help="run every job whose next_fire has passed")
+@click.option("--job", default=None, help="run one job now even if it is not due")
+def schedule_run(due, job):
+    """Run due jobs. Shell and prompt only; a tool or judged job waits for the live omp session."""
+    if bool(due) == bool(job):
+        raise click.ClickException("give exactly one of --due and --job")
+    if job:
+        with RulesLock():
+            jobs = schedule_mod.read_jobs()
+            found = next((item for item in jobs if item.get("name") == job), None)
+            if found is None:
+                raise click.ClickException(f"no scheduled job named {job}")
+            found["next_fire"] = schedule_mod.stamp(schedule_mod.now())
+            schedule_mod.write_jobs(jobs)
+    for line in schedule_mod.run_due(session=False):
+        click.echo(line)
+
+
+def _job(name: str) -> dict:
+    found = next((item for item in schedule_mod.read_jobs() if item.get("name") == name), None)
+    if found is None:
+        raise click.ClickException(f"no scheduled job named {name}")
+    return found
+
+
+@schedule.command("pending")
+def schedule_pending():
+    """Due jobs, one per line: name, `session` or `timer`, widget line. The session tick reads this."""
+    for job in schedule_mod.due_jobs(schedule_mod.read_jobs(), schedule_mod.now()):
+        where = "session" if schedule_mod.needs_session(job) else "timer"
+        click.echo(f"{job['name']}\t{where}\t{schedule_mod.widget_lines([job])[0]}")
+
+
+@schedule.command("show")
+@click.argument("name")
+def schedule_show(name):
+    """One job as JSON, for the session tick."""
+    click.echo(json.dumps(_job(name), ensure_ascii=False))
+
+
+@schedule.command("exec")
+@click.argument("name")
+def schedule_exec(name):
+    """Run a shell or prompt action and print its output. Does not record or advance the job."""
+    job = _job(name)
+    if job.get("action", {}).get("kind") == "tool":
+        raise click.ClickException("a tool action runs inside the omp session")
+    output, _error = schedule_mod.run_action(job)
+    click.echo(output)
+
+
+@schedule.command("finish")
+@click.argument("name")
+@click.option("--output", required=True, help="what the action returned")
+@click.option("--verdict", default=None, type=click.Choice(["INJECT", "SKIP", "FAIL", "DISPATCHED"]))
+@click.option("--summary", default="")
+@click.option("--error", default="")
+def schedule_finish(name, output, verdict, summary, error):
+    """Record one fire the session already ran, then advance the job."""
+    at = schedule_mod.now().replace(second=0, microsecond=0)
+    with RulesLock():
+        jobs = schedule_mod.read_jobs()
+        job = next((item for item in jobs if item.get("name") == name), None)
+        if job is None:
+            raise click.ClickException(f"no scheduled job named {name}")
+        if not schedule_mod.due_jobs([job], at):
+            raise click.ClickException(f"{name} is not due")
+        fire = schedule_mod.fire_id(job)
+        schedule_mod.release(name, fire)  # the timer's claim, if it noticed this job first
+        if error:
+            line = schedule_mod.record(job, fire, "", action="notify", error=error)
+            schedule_mod.finish(job, at, "fail", error)
+        else:
+            action, status, detail = "notify", "ok", (summary or output)[:200]
+            text = output
+            if verdict == "FAIL":
+                action, status, detail = "notify", "fail", summary or output
+            elif verdict == "DISPATCHED":
+                action, status, detail = "do", "dispatched", summary or "prompt card sent"
+            elif verdict == "SKIP":
+                action, status, detail = "log", "skip", summary or "judge skipped"
+            elif summary:
+                text, detail = f"{summary}\n{output}", summary[:200]
+            line = schedule_mod.record(job, fire, text, action=action)
+            schedule_mod.finish(job, at, status, detail)
+        schedule_mod.write_jobs(jobs)
+    click.echo(f"{job['last']['status']} {name} {fire}: {line}")
+
+
+@schedule.command("widget")
+def schedule_widget():
+    """One line per job: name, next fire, last result. The status row prints these."""
+    for line in schedule_mod.widget_lines():
+        click.echo(line)
 
 
 if __name__ == "__main__":
