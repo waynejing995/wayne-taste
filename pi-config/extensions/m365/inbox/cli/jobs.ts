@@ -370,10 +370,27 @@ async function one(job: Job, at: Date, o: RunOptions): Promise<string> {
 	}
 }
 
-/** Claim and run every due job this caller can run, side by side. One line per job. */
+/** Jobs this process is running now. A later tick starts the other due jobs, not these again. */
+const running = new Set<string>();
+
+/**
+ * Claim and run every due job this caller can run, side by side. One line per job. A job this process is still
+ * running (a 15-minute prompt job) is left out, so a caller that does not wait for the last call (the plugin's
+ * minute tick) keeps starting the short jobs; the fire claim stops another process from running it twice.
+ */
 export async function runDue(o: RunOptions, at: Date = new Date()): Promise<string[]> {
 	const now = minute(at);
-	return Promise.all(dueJobs(readJobs(), now).map((job) => one(job, now, o)));
+	const due = dueJobs(readJobs(), now).filter((j) => !running.has(j.name));
+	return Promise.all(
+		due.map(async (job) => {
+			running.add(job.name);
+			try {
+				return await one(job, now, o);
+			} finally {
+				running.delete(job.name);
+			}
+		}),
+	);
 }
 
 /** `inbox schedule run --job NAME`: make it due now, then run what is due. */

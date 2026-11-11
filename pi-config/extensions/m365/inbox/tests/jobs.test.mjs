@@ -156,6 +156,24 @@ await check("a prompt job runs the agent with {{since}} filled and keeps the own
 	strictEqual(rows()[0].note, "since 2026-11-10 11:00");
 });
 
+await check("a job still running is left out of the next call, which runs the other due jobs", async () => {
+	await run("schedule", "add", "slow", "--every", "1", "--kind", "shell", "--timeout", "30", "--action", '["sleep", "3"]', "--quiet");
+	await run("schedule", "add", "fast", "--every", "1", "--kind", "shell", "--action", '["echo", "fast"]');
+	const all = jobs.readJobs();
+	for (const j of all) j.next_fire = "2026-11-10 12:00";
+	jobs.writeJobs(all);
+	let slowDone = false;
+	const first = jobs.runDue({ session: false }, at("2026-11-10 12:00")).then((lines) => ((slowDone = true), lines));
+	await new Promise((r) => setTimeout(r, 300));
+	const t0 = Date.now();
+	const second = await jobs.runDue({ session: false }, at("2026-11-10 12:01"));
+	ok(Date.now() - t0 < 2000 && !slowDone, "the second call did not wait for the slow job");
+	deepStrictEqual(second.map((l) => l.split(" ").slice(0, 2).join(" ")), ["ok fast"]);
+	const lines = await first;
+	deepStrictEqual(lines.map((l) => l.split(" ").slice(0, 2).join(" ")).sort(), ["ok fast", "ok slow"]);
+	strictEqual(rows().filter((r) => r.note === "fast").length, 2, "fast fired at 12:00 and at 12:01 while slow ran");
+});
+
 await check("verdict FAIL records a row and advances", async () => {
 	await run("schedule", "add", "boom", "--every", "1", "--kind", "tool", "--action", '{"name": "teams_read", "args": {"target": "self"}}');
 	const due = stamp(new Date(Date.now() - 60_000));

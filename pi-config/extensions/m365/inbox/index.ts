@@ -92,6 +92,7 @@ export default function inbox(pi: ExtensionAPI) {
 	let schedTimer: NodeJS.Timeout | undefined;
 	let schedOwner = "";
 	let schedError = "";
+	const jobFailures = new Map<string, string>();
 	let thenError = "";
 	let tickInFlight = false;
 
@@ -198,8 +199,10 @@ export default function inbox(pi: ExtensionAPI) {
 	}
 
 	/**
-	 * One scheduler tick: hold (or try to take) the scheduler lease, then run every due job. A job's own failure is
-	 * a ledger row; a tick that cannot run at all lands on the status row and in /inbox status.
+	 * One scheduler tick: hold (or try to take) the scheduler lease, check the then-actions, then start every due
+	 * job without waiting for it, so a long job (a 15-minute digest) never holds back the next minute's short jobs,
+	 * `at:` triggers or reminders. A job's own failure is a ledger row; the last failure per job (and a tick that
+	 * cannot run at all) lands on the status row and in /inbox status.
 	 */
 	async function tick(): Promise<void> {
 		if (!schedCtx || tickInFlight) return;
@@ -214,11 +217,25 @@ export default function inbox(pi: ExtensionAPI) {
 				sched = got;
 				schedOwner = "";
 			}
-			const lines = await runSessionJobs(schedCtx);
 			await checkThenActions(true);
-			const failed = lines.filter((l) => l.startsWith("fail "));
-			schedError = failed.length ? `schedule: ${failed.join("; ").slice(0, 200)}` : "";
-			renderSchedule(schedCtx.hasUI ? schedCtx.ui : undefined);
+			const c = schedCtx;
+			void runSessionJobs(c)
+				.then((lines) => {
+					for (const line of lines) {
+						const name = line.split(" ")[1] ?? "";
+						if (line.startsWith("fail ")) jobFailures.set(name, line);
+						else jobFailures.delete(name);
+					}
+					const failed = [...jobFailures.values()];
+					schedError = failed.length ? `schedule: ${failed.join("; ").slice(0, 200)}` : "";
+				})
+				.catch((e) => {
+					schedError = `schedule: ${e instanceof Error ? e.message : String(e)}`;
+				})
+				.finally(() => {
+					if (schedCtx === c) renderSchedule(c.hasUI ? c.ui : undefined);
+					renderStatus();
+				});
 		} catch (e) {
 			schedError = `schedule: ${e instanceof Error ? e.message : String(e)}`;
 		} finally {
@@ -241,6 +258,7 @@ export default function inbox(pi: ExtensionAPI) {
 		sched?.close();
 		sched = schedTimer = undefined;
 		schedError = schedOwner = "";
+		jobFailures.clear();
 		if (schedCtx?.hasUI) setStatusPart(schedCtx.ui, "sched", undefined);
 		schedCtx = undefined;
 	}

@@ -60,7 +60,7 @@ directory runs the due jobs: `shell` (argv, `bin/` first on PATH), `prompt` (a h
 in the inbox directory; `{{since}}` = the last successful run), or `tool` (`teams_read`). A job may be `quiet`
 (writes its own rows), have a `timeout`, or be judged (`--judge on`: a small model reads the output and answers
 INJECT or SKIP; omp uses the `tiny` role, pi the session model). No session open, no jobs: a missed fire runs once
-at the next tick. The template's jobs: `agent-probe` (`inbox agent probe`), `github-prs` (`bin/watch-prs.sh`;
+at the next tick. A long job never holds back the others: later ticks skip it while it runs. The template's jobs: `agent-probe` (`inbox agent probe`), `github-prs` (`bin/watch-prs.sh`;
 `bin/pr-ready.sh` answers "ready to merge?"), `teams-digest` (prompt job reading the watched Teams chats).
 
 `inbox then <id> --when <trigger> -- <action>` keeps a promised follow-up on a live row (`pr-merged:`, `gh-run:`,
