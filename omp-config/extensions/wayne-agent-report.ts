@@ -16,7 +16,7 @@ import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 const retryableErrorPattern =
 	/overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
 
-// Same as watch-agents.py: last matching line; a `|` is the template, never a status.
+// Same as the m365 plugin's `inbox agent probe` (inbox/cli/probe.sh): last matching line; a `|` is the template, never a status.
 const STATUS_RE =
 	/^ *(?:[-*] )?(?:\*\*status(?:\*\*:?|:\*\*)|`status`:|`status:`|status:) *([a-z_][a-z_]*)/;
 const OPEN_RE = /^ *(?:[-*] )?(?:\*\*open(?:\*\*:?|:\*\*)|`open`:|`open:`|open:) *(.*)$/;

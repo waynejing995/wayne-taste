@@ -7,7 +7,7 @@
  * it and calls teams_watch start for each chat.
  *
  * rules.yaml is hand-written, so only the text of this section is rewritten: it is kept as the last top-level
- * block, and every byte before it stays as the user wrote it. inbox.py, which classifies by the rest, skips it.
+ * block, and every byte before it stays as the user wrote it. The inbox CLI, which classifies by the rest, skips it.
  *
  * The list is a convenience, not the watch: a failed save is reported to the caller as a warning and the
  * watch runs anyway.

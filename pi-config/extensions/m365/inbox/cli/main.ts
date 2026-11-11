@@ -27,7 +27,7 @@ interface Command {
 
 const KEY_HELP = "stable id, so recording the same thing twice keeps one row";
 const direct = (tag: string, action: string, source: string): Command => ({
-	help: tag === "ask-wayne" ? "A question only Wayne can answer: an `ask-wayne` notify row, open until `done`." : "A decision or rule seen in Teams: a `teams-fact` log row (no card).",
+	help: tag === "ask-wayne" ? "A question only the user can answer: an `ask-wayne` notify row, open until `done`." : "A decision or rule seen in Teams: a `teams-fact` log row (no card).",
 	args: ["text"],
 	opts: { key: { required: true, help: KEY_HELP }, source: { default: source }, note: { default: "" }, link: { default: "" } },
 	run: (p) => recordDirect(tag, action, p.opts.key!, p.args[0], p.opts.source!, p.opts.note, p.opts.link),

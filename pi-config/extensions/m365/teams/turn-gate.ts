@@ -1,5 +1,5 @@
 /**
- * Does a watch card need the agent? One call to the `tiny` model role decides, from the chat's policy.
+ * Does a watch card need the agent? One call to a small model (core/small-model.ts) decides, from the chat's policy.
  *
  * A card that starts a turn the agent then ends without a word trips omp's unexpected-stop nudge and leaks
  * placeholder text into the chat. A card the policy says to ignore should only be shown. The policy is free

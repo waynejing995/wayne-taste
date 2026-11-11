@@ -40,7 +40,7 @@ function StringEnum(values: string[], options?: { description?: string; default?
 import { marked } from "marked";
 import { Type } from "typebox";
 import * as auth from "../core/auth.ts";
-import { CHIEF_NOTE } from "../core/chief.ts";
+import { cardNote } from "../core/card-note.ts";
 import { describeImage, type LoadedImage } from "../core/describe-image.ts";
 import { GraphClient } from "../core/graph.ts";
 import type { Person } from "../core/people.ts";
@@ -776,8 +776,9 @@ export default function (pi: ExtensionAPI) {
 		const how = delivery ? `**Delivery**: ${delivery}\n\n` : "";
 		// The chat name, senders, texts and file names are all written by others; defuse any copy of our tag in them.
 		const quoted = `chat: ${label}\n${lines.join("\n")}`.replace(UNTRUSTED_TAG_RE, "‹$1" + UNTRUSTED_TAG);
-		// The chat's policy above decides whether to reply or write; the chief note only decides who does the work.
-		return `**Teams watch** — ${news.length} new message(s)  \`chat_id: ${chatId}\`\n\n${rule}${how}${note}\n\n${CHIEF_NOTE}\n\n<${UNTRUSTED_TAG}>\n${quoted}\n</${UNTRUSTED_TAG}>${gapNote}`;
+		// The chat's policy above decides whether to reply or write; the user's card note only decides who does the work.
+		const standing = cardNote();
+		return `**Teams watch** — ${news.length} new message(s)  \`chat_id: ${chatId}\`\n\n${rule}${how}${note}\n\n${standing ? `${standing}\n\n` : ""}<${UNTRUSTED_TAG}>\n${quoted}\n</${UNTRUSTED_TAG}>${gapNote}`;
 	}
 
 	/**

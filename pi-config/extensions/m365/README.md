@@ -9,7 +9,7 @@ both; each half keeps its own tools (`teams_*`, `outlook_*`), its own command
 | `core/` | What both halves use: sign-in, Graph, people, SharePoint files, saving, picture descriptions, @mention syntax, status row, time | below |
 | `teams/` | Chats: unread count, the `/teams` overlay, send/read/people/download/transcript tools, chat watches (the self-chat takes `omp:`/`pi:` instructions) | `teams/README.md` — read its sign-in note first |
 | `outlook/` | Mail: the `/outlook` three-pane reader and composer, ten mail tools, signature | `outlook/README.md` |
-| `inbox/` | `/inbox watch`: new `notify`/`do` rows of the wayne-inbox ledger (`~/.wayne/inbox/ledger.tsv`) pushed into this session as `inbox` cards; Inbox mail into that ledger when `rules.yaml` has an `outlook:` section | `wayne-inbox/SKILL.md` in this repo |
+| `inbox/` | The inbox: a general ledger + scheduler. `inbox/cli/` is the `inbox` command (`bin/inbox`), the scheduler runs its jobs while a session is open, `/inbox watch` pushes new `notify`/`do` rows into this session as cards | [Inbox](#inbox) below |
 
 ## core/
 
@@ -25,6 +25,46 @@ both; each half keeps its own tools (`teams_*`, `outlook_*`), its own command
 | `status-row.ts` | One status-bar row for both counts (omp gives each status key its own line) |
 | `tern-native.ts` | The Tern layer: TSP node builders the two overlays describe themselves with (below) |
 | `time.ts` | Local time formatting |
+
+## Inbox
+
+A ledger of things that need attention (`ledger.tsv`, finished rows in `archive.tsv`), filled by rules
+(`rules.yaml`: source → place → first matching rule → `do` / `notify` / `log` / `ignore`) and by scheduled jobs.
+Everything lives in `~/.wayne/inbox/` (`WAYNE_INBOX_DIR` overrides it).
+
+### Set up (once per machine)
+
+1. Install the plugin (above) and node ≥ 22.
+2. In omp or pi: `/inbox setup`, or from a shell `bin/inbox setup`. It creates `rules.yaml` from
+   `inbox/templates/rules.yaml` when missing (never overwrites), starts the cursors, schedules the first fires,
+   and fails naming any tool an enabled job needs and the machine lacks (`gh`/`jq` for the PR watch, `omp` or `pi`
+   for prompt jobs). Fix it, or `bin/inbox schedule disable <job>`, and run setup again.
+3. Edit `rules.yaml`: the template's GitHub/Outlook/agent rules are examples. `github-prs` and `teams-digest` ship
+   disabled: `bin/inbox schedule enable <job>` once their section is filled in.
+4. `/inbox watch` in the session that should receive the cards; `/inbox status` shows the scheduler and the rows.
+
+Until step 2 a session shows one warning naming `/inbox setup`; no job runs and nothing is delivered.
+
+### The command
+
+`bin/inbox` runs `inbox/cli/` on plain node (`bin/strip-types.mjs` strips the types at load: no build step, and
+unlike `--experimental-strip-types` it works under `node_modules`, where omp links the plugin). `bin/inbox --help`
+lists the commands: `ls`, `add`, `set`, `done`, `ask`, `fact`, `places`, `agent add|rm|ls|probe`,
+`schedule add|ls|rm|enable|disable|run|pending|show|exec|finish|widget`, `setup`. The plugin calls the same code
+in-process.
+
+### Jobs
+
+`schedule` in `rules.yaml`. Every minute, the one omp/pi session that holds the scheduler lease for the inbox
+directory runs the due jobs: `shell` (argv, `bin/` first on PATH), `prompt` (a headless `omp -p`, else `pi -p`,
+in the inbox directory; `{{since}}` = the last successful run), or `tool` (`teams_read`). A job may be `quiet`
+(writes its own rows), have a `timeout`, or be judged (`--judge on`: a small model reads the output and answers
+INJECT or SKIP; omp uses the `tiny` role, pi the session model). No session open, no jobs: a missed fire runs once
+at the next tick. The template's jobs: `agent-probe` (`inbox agent probe`), `github-prs` (`bin/watch-prs.sh`;
+`bin/pr-ready.sh` answers "ready to merge?"), `teams-digest` (prompt job reading the watched Teams chats).
+
+An optional `card-note.md` in the inbox directory is said on every inbox and Teams watch card (the user's own
+standing instructions for the agent that receives them).
 
 ## In Tern
 

@@ -294,7 +294,7 @@ type Outcome = { action: string; status: string; detail: string; text: string; e
 async function execute(job: Job, o: RunOptions): Promise<Outcome> {
 	const a = job.action;
 	if (a.kind === "tool" && a.name !== "teams_read") {
-		// Only this package's tools run in-process; any other becomes Wayne's own dispatch line on a `do` card.
+		// Only this package's tools run in-process; any other becomes the user's own dispatch line on a `do` card.
 		if (job.judge === "on") throw new InboxError("a tool other than teams_read cannot be judged: its result never comes back");
 		const prompt = `call the tool ${a.name} with ${JSON.stringify(a.args ?? {})}`;
 		return { action: "do", status: "dispatched", detail: prompt.slice(0, 200), text: prompt };

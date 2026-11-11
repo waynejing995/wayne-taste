@@ -3,7 +3,7 @@
  *
  * The cursor is the `received` time of the last mail recorded. Mail at exactly that time is read again
  * (`>=`): two mails can share a second, and when the second failed to record, `>` would skip it forever.
- * The re-read first one is harmless: `inbox.py add` answers `seen` for a key it already holds.
+ * The re-read first one is harmless: `inbox add` answers `seen` for a key it already holds.
  */
 
 /** The fields of an Outlook summary this needs. */
