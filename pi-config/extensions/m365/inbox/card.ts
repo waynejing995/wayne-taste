@@ -2,6 +2,7 @@
  * Reading ledger.tsv and writing the card the agent sees. No pi or Graph import, so its test runs on plain node.
  */
 import { cardNote } from "../core/card-note.ts";
+import { readThens } from "./cli/thens.ts";
 
 export type Row = Record<string, string>;
 
@@ -30,9 +31,20 @@ export function parseLedger(text: string): Row[] {
  * written by whoever sent the mail or opened the PR, so they sit inside the untrusted fence, never beside the instructions.
  */
 export function card(rows: Row[], launcher: string): string {
+	const thens = rows.some((r) => r.source === "then") ? readThens() : [];
 	const lines = rows.map((r) => {
 		const head = `#${r.id} [${r.action}] ${r.tag}${r.owner ? ` · owner ${r.owner}` : ""}`;
 		const text = [r.subject, r.note, r.link].filter(Boolean).join("\n  ").replace(UNTRUSTED_TAG_RE, `‹$1${UNTRUSTED_TAG}`);
+		// A then row: the action is the coordinator's own promise (thens.json, written only by `inbox then`), so it is
+		// the instruction; what triggered it (a RESULT line, a run conclusion) stays fenced in the row text.
+		const m = r.source === "then" ? /^then:(\d+)\.(\d+):(fired|remind)$/.exec(r.key ?? "") : null;
+		const then = m && thens.find((t) => t.row === m[1] && t.n === Number(m[2]));
+		if (then) {
+			const owe = then.done
+				? `Already closed (then-done ${then.done}); nothing owed.`
+				: `Trigger \`${then.when}\` happened. You owe this, your own deferred action: ${then.action}\n  Do it, then run \`inbox then-done ${then.row} ${then.n}\`.`;
+			return `- ${head}\n  ${owe}\n  <${UNTRUSTED_TAG}>\n  ${text}\n  </${UNTRUSTED_TAG}>`;
+		}
 		// Only the dispatch line the user registered (`call the tool X with {args}`) is their instruction.
 		// teams_read text, shell output and a judge summary are someone else's words, so they stay fenced.
 		const dispatch = r.tag === "schedule" && r.action === "do" && (r.note ?? "").startsWith("call the tool ");

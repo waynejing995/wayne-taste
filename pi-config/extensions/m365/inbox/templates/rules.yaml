@@ -66,6 +66,7 @@ schedule:
     judge: 'off'
     fires: 0
     every: 2
+    timeout: 720
   - name: github-prs
     action:
       kind: shell
