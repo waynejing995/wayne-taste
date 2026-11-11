@@ -15,7 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import YAML from "yaml";
-import { latestLine, paneLine, probeAgents, runProbe } from "../cli/probe.ts";
+import { CARD_PROMPT, latestLine, paneLine, probeAgents, runProbe } from "../cli/probe.ts";
 
 let failed = 0;
 async function check(label, fn) {
@@ -30,6 +30,7 @@ async function check(label, fn) {
 
 const DOT = " \u00b7 ";
 const SELF_RECEIPT = "Sent to self-chat (48:notes).";
+const CARD_RECEIPT = "Sent a card to self-chat (48:notes).";
 const T0 = Date.UTC(2026, 10, 6, 14, 0) / 1000;
 const pad = (n) => String(n).padStart(2, "0");
 const hhmm = (s) => {
@@ -74,8 +75,9 @@ const partialResult = (ropen) => (now, want) => ({ ...ompLive(now, want), rmtime
 const blocked = (waiting) => (now, want) => ({ ...ompLive(now, want), state: "blocked", smtime: T0 - 3600, text: "", waiting });
 
 /**
- * Stands in for `omp --mode json` running one teams_send. Its mode comes from FAKE_OMP_MODE at call time: ok,
- * exit, error (teams error), receipt (wrong chat), message (other text). Every call's argv is appended to FAKE_OMP_LOG.
+ * Stands in for `omp --mode json` running one teams_send with the arguments the prompt carries (a card prompt's JSON,
+ * or the text digest). Its mode comes from FAKE_OMP_MODE at call time: ok, exit, error (teams error), receipt (wrong
+ * chat), message (other text), cardfail (the card is refused, text works). Every call's argv is appended to FAKE_OMP_LOG.
  */
 const OMP = `#!/usr/bin/env node
 const fs = require("node:fs");
@@ -86,11 +88,16 @@ if (mode === "exit") {
 	process.stderr.write("boom: no teams token");
 	process.exit(1);
 }
-const digest = argv.at(-1).split("\\n\\n").slice(1).join("\\n\\n").trim();
-const start = { type: "tool_execution_start", toolCallId: "call-1", toolName: "teams_send", args: { target: "self", message: mode === "message" ? "some other text" : digest } };
-const text = { ok: "${SELF_RECEIPT}", message: "${SELF_RECEIPT}", error: "Graph 403 Forbidden", receipt: "Sent to chat 19:group@thread" }[mode];
+const prompt = argv.at(-1);
+const card = prompt.startsWith(${JSON.stringify(CARD_PROMPT)});
+const args = card ? JSON.parse(prompt.slice(${JSON.stringify(CARD_PROMPT)}.length)) : { target: "self", message: prompt.split("\\n\\n").slice(1).join("\\n\\n").trim() };
+if (mode === "message") args.message = "some other text";
+const refused = mode === "error" || (mode === "cardfail" && card);
+const ok = card ? "${CARD_RECEIPT}" : "${SELF_RECEIPT}";
+const text = refused ? (card && mode === "cardfail" ? "Graph 400: card rejected" : "Graph 403 Forbidden") : mode === "receipt" ? "Sent to chat 19:group@thread" : ok;
+const start = { type: "tool_execution_start", toolCallId: "call-1", toolName: "teams_send", args };
 const end = { type: "tool_execution_end", toolCallId: "call-1", toolName: "teams_send", result: { content: [{ type: "text", text }] } };
-if (mode === "error") end.isError = true;
+if (refused) end.isError = true;
 console.log("noise");
 console.log(JSON.stringify(start));
 console.log(JSON.stringify(end));
@@ -139,9 +146,18 @@ function makeFixture(dir) {
 			if (!fs.existsSync(process.env.FAKE_OMP_LOG)) return [];
 			return fs.readFileSync(process.env.FAKE_OMP_LOG, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
 		},
-		/** The digest prompt of every fake omp call. */
+		/** What each fake omp call asked to send, as text: a card is its title, then one `- name · host · status · tail` line per row. */
 		sent() {
-			return f.calls().map((argv) => argv.at(-1).split("\n\n").slice(1).join("\n\n").trim());
+			return f.calls().map((argv) => {
+				const prompt = argv.at(-1);
+				if (!prompt.startsWith(CARD_PROMPT)) return prompt.split("\n\n").slice(1).join("\n\n").trim();
+				const card = JSON.parse(prompt.slice(CARD_PROMPT.length));
+				return [card.title, ...card.agents.map((r) => `- ${[r.name, r.host, r.status, r.tail].join(DOT)}`)].join("\n");
+			});
+		},
+		/** The teams_send arguments of every card call. */
+		cards() {
+			return f.calls().map((argv) => argv.at(-1)).filter((p) => p.startsWith(CARD_PROMPT)).map((p) => JSON.parse(p.slice(CARD_PROMPT.length)));
 		},
 		state() {
 			return JSON.parse(fs.readFileSync(stateFile, "utf8"));
@@ -302,7 +318,7 @@ await check("first run sends one digest and records its time", () =>
 		const [digest] = f.sent();
 		const lines = digest.split("\n");
 		strictEqual(lines[0], `agent progress ${HHMM}${DOT}1 changed`);
-		strictEqual(lines[1], `- alpha${DOT}local${DOT}last activity ${HHMM}${DOT}tail latest answer`);
+		strictEqual(lines[1], `- alpha${DOT}local${DOT}working${DOT}tail latest answer`);
 		strictEqual(f.state()._digest.at, T0);
 	}),
 );
@@ -331,6 +347,18 @@ await check("an unchanged session is not resent and a changed one is", () =>
 		await f.run();
 		strictEqual(f.sent().length, 2);
 		ok(f.sent()[1].split("\n")[1].endsWith(`${DOT}last pane line`));
+	}),
+);
+
+await check("a status change with the same tail is sent", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		await f.run();
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), state: "blocked", waiting: true }));
+		f.now = T0 + 30 * 60;
+		await f.run();
+		deepStrictEqual(f.cards().map((c) => c.agents.map((r) => r.status)), [["working"], ["waiting on question"]], "same tail, new status: the user must see it now waits on them");
+		strictEqual(f.cards()[0].agents[0].tail, f.cards()[1].agents[0].tail);
 	}),
 );
 
@@ -363,10 +391,10 @@ await check("a finished push session gets only a digest line and is not removed"
 		f.watch("alpha", finished, true);
 		await f.run();
 		const [digest] = f.sent();
-		strictEqual(digest.split("\n")[1], `- alpha${DOT}local${DOT}last activity ${HHMM}${DOT}tail latest answer`);
+		strictEqual(digest.split("\n")[1], `- alpha${DOT}local${DOT}done${DOT}tail latest answer`);
 		deepStrictEqual(f.probes, [["alpha", true]]);
 		strictEqual(f.calls().length, 1);
-		deepStrictEqual(f.state().alpha, { last_active: T0, last_seen: T0, digested: `- alpha${DOT}local${DOT}tail latest answer` });
+		deepStrictEqual(f.state().alpha, { last_active: T0, last_seen: T0, digested: `done:- alpha${DOT}local${DOT}tail latest answer` });
 		deepStrictEqual(f.watchedNames(), ["alpha"]);
 
 		f.now = T0 + 120;
@@ -386,7 +414,7 @@ for (const [label, behaviour] of [
 			f.watch("alpha", behaviour, true);
 			await failsWith(f.run(), "alpha:");
 			strictEqual(f.calls().length, 1);
-			ok(f.sent()[0].split("\n").some((line) => line.startsWith(`- alpha${DOT}local${DOT}probe failed:`)), f.sent()[0]);
+			ok(f.sent()[0].split("\n").some((line) => line.startsWith(`- alpha${DOT}local${DOT}probe failed${DOT}`)), f.sent()[0]);
 		}),
 	);
 }
@@ -411,7 +439,7 @@ await check("a pane session's digest line uses the last non-empty pane line", ()
 	withFixture(async (f) => {
 		f.watch("beta", paneLive);
 		await f.run();
-		strictEqual(f.sent()[0].split("\n")[1], `- beta${DOT}local${DOT}last activity ${HHMM}${DOT}last pane line`);
+		strictEqual(f.sent()[0].split("\n")[1], `- beta${DOT}local${DOT}working${DOT}last pane line`);
 	}),
 );
 
@@ -444,7 +472,7 @@ await check("a finished session is left out of the digest", () =>
 		await f.run();
 		const [digest] = f.sent();
 		ok(!digest.includes("- alpha"), digest);
-		ok(digest.split("\n")[1].startsWith(`- beta${DOT}local${DOT}last activity `));
+		ok(digest.split("\n")[1].startsWith(`- beta${DOT}local${DOT}working${DOT}`));
 	}),
 );
 
@@ -497,7 +525,7 @@ for (const [label, mode, agent, cause, ran] of FAILED_SENDS) {
 			f.watch("alpha", paneLive);
 			f.now = T0 + 30 * 60;
 			await failsWith(f.run({ agent }), cause);
-			strictEqual(f.calls().length, ran ? 2 : 1, "a failed send is not retried inside the run");
+			strictEqual(f.calls().length, ran ? 3 : 1, "card, then text; a failed send is not retried inside the run");
 			const state = f.state();
 			deepStrictEqual(state._digest, { at: T0 });
 			strictEqual(state.alpha.last_seen, T0 + 30 * 60);
@@ -514,9 +542,54 @@ await check("a probe failure for one session still sends the digest", () =>
 		const [digest] = f.sent();
 		const lines = digest.split("\n");
 		strictEqual(lines[0], `agent progress ${HHMM}${DOT}2 changed`);
-		ok(lines.includes(`- beta${DOT}local${DOT}probe failed: ssh: connect refused`), digest);
-		ok(lines.includes(`- alpha${DOT}local${DOT}last activity ${HHMM}${DOT}tail latest answer`), digest);
+		ok(lines.includes(`- beta${DOT}local${DOT}probe failed${DOT}ssh: connect refused`), digest);
+		ok(lines.includes(`- alpha${DOT}local${DOT}working${DOT}tail latest answer`), digest);
 		strictEqual(f.state()._digest.at, T0);
+	}),
+);
+
+await check("the digest goes out as the progress card", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		f.watch("beta", (now, want) => ({ ...ompLive(now, want), state: "blocked", waiting: true, smtime: now - 45 * 60 }));
+		// Seen before with the same pane, active 45 min ago: an unchanged pane is no new activity.
+		fs.mkdirSync(path.join(f.dir, "cursors"), { recursive: true });
+		fs.writeFileSync(path.join(f.dir, "cursors", "agent-watch.json"), JSON.stringify({ beta: { last_active: T0 - 45 * 60, text: "pane-hash" } }));
+		await f.run();
+		const [card] = f.cards();
+		strictEqual(card.target, "self");
+		strictEqual(card.title, `agent progress ${HHMM}${DOT}2 changed`);
+		strictEqual(card.message, "");
+		deepStrictEqual(card.agents, [
+			{ name: "alpha", host: "local", idle_min: 0, status: "working", tail: "tail latest answer" },
+			{ name: "beta", host: "local", idle_min: 45, status: "waiting on question", tail: "tail latest answer" },
+		]);
+		strictEqual(f.calls().length, 1, "a sent card is the whole digest");
+		ok(f.logs.includes(`progress digest: ${CARD_RECEIPT}`), f.logs.join("\n"));
+	}),
+);
+
+await check("a refused card falls back to the text digest", () =>
+	withFixture(async (f) => {
+		f.mode("cardfail");
+		f.watch("alpha", ompLive);
+		await f.run();
+		ok(f.logs.includes("progress card not sent, sending the text digest: teams_send tool error: Graph 400: card rejected"), f.logs.join("\n"));
+		const [, text] = f.sent();
+		strictEqual(text.split("\n")[1], `- alpha${DOT}local${DOT}last activity ${HHMM}${DOT}tail latest answer`);
+		ok(f.logs.includes(`progress digest: ${SELF_RECEIPT}`), f.logs.join("\n"));
+		strictEqual(f.state()._digest.at, T0);
+		strictEqual(f.state().alpha.digested, `working:- alpha${DOT}local${DOT}tail latest answer`);
+	}),
+);
+
+await check("a card or text send whose arguments differ from the digest does not count as sent", () =>
+	withFixture(async (f) => {
+		f.mode("message");
+		f.watch("alpha", ompLive);
+		await failsWith(f.run(), "teams_send message differs");
+		ok(f.logs.some((l) => l.startsWith("progress card not sent")), f.logs.join("\n"));
+		ok(!("_digest" in f.state()));
 	}),
 );
 

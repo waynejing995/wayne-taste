@@ -17,9 +17,12 @@
  * A session whose RESULT says `done` is taken off the list once its event is recorded. Entries with `push: true`
  * report their own events (the m365 inbox extension tails them); they only get a digest line.
  *
- * Progress digest (every --digest-min minutes): one self-chat message, sent by a headless omp or pi through
- * `teams_send`, lists each running session whose line changed since the last digest sent. It counts as sent only
- * when the agent's JSON event stream shows one successful self-chat `teams_send` carrying the digest verbatim.
+ * Progress digest (every --digest-min minutes): one self-chat progress card, sent by a headless omp or pi through
+ * `teams_send` (`agents`: one row per session, status, idle minutes, the tail behind a tap; sessions that need the
+ * user first), lists each running session whose entry changed since the last digest sent; an entry is its status
+ * plus its line without the `last activity` time, so a session turning to `waiting on question` with the same tail
+ * is news. A card send that fails is logged and the same digest goes out as plain text. A send counts only when the
+ * agent's JSON event stream shows one successful self-chat `teams_send` with the receipt and the arguments verbatim.
  * Run state is cursors/agent-watch.json, never rules.yaml.
  */
 import { createHash } from "node:crypto";
@@ -27,7 +30,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { gunzipSync } from "node:zlib";
+import type { AgentRow, AgentStatus } from "../../teams/card.ts";
 import { readAgents, removeAgents, type AgentEntry } from "./agents.ts";
 import { agentArgv, runProcess } from "./jobs.ts";
 import { addEvent, inboxFile, InboxError } from "./ledger.ts";
@@ -67,7 +72,8 @@ export interface ProbeOptions {
 	/** The headless agent the digest is sent through (default as for prompt jobs). */
 	agent?: string;
 	probe?: (a: AgentEntry, want: boolean) => Promise<Probe>;
-	post?: (digest: string) => Promise<string>;
+	/** Sends the digest: its text and its progress-card rows. */
+	post?: (digest: string, rows: AgentRow[]) => Promise<string>;
 	now?: () => number;
 	log?: (line: string) => void;
 }
@@ -76,6 +82,8 @@ const SCRIPT = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.
 const EMPTY = createHash("md5").update("").digest("hex").slice(0, 16);
 const DIGEST = "_digest";
 const SELF_RECEIPT = "Sent to self-chat (48:notes).";
+const CARD_RECEIPT = "Sent a card to self-chat (48:notes).";
+export const CARD_PROMPT = "Call `teams_send` exactly once with exactly the arguments below (JSON), copied verbatim with no edits. Do not call any other tools.\n\n";
 const CLIP = 300;
 const PROBE_TIMEOUT_S = 60;
 const POST_TIMEOUT_S = 600;
@@ -149,17 +157,36 @@ const hhmm = (epoch: number) => {
 	return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
-function sessionEntry(a: AgentEntry, st: SessionState, p: Probe): string {
-	const text = gunzipSync(Buffer.from(p.tail ?? "", "base64")).toString("utf8");
-	const latest = p.kind === "jsonl" ? latestLine(text) : paneLine(text);
-	return `- ${a.name} \u00b7 ${a.host || "local"} \u00b7 last activity ${hhmm(st.last_active ?? p.now)} \u00b7 ${latest}`;
+/** A session's digest line and its progress-card row. */
+type Entry = { line: string; row: AgentRow };
+
+/** One progress-card row (teams_send `agents`). */
+export function cardRow(a: AgentEntry, st: SessionState, now: number, status: AgentStatus, tail: string): AgentRow {
+	const idle = Math.floor(Math.max(0, now - (st.last_active ?? now)) / 60);
+	return { name: a.name, host: a.host || "local", idle_min: idle, status, tail };
 }
 
-/** What a digest line says, minus its `last activity` time: the part compared with the last digest sent. */
-export const unchanged = (line: string) => line.replace(/ \u00b7 last activity \d\d:\d\d/, "");
+/** Anything but working or a done RESULT waits on the user: a blocked pane, a turn ended without RESULT, a partial one. */
+export function cardStatus(p: Probe): AgentStatus {
+	if (p.rstatus === "done") return "done";
+	if (p.rstatus || p.waiting || ["blocked", "idle", "done"].includes(p.state)) return "waiting on question";
+	return "working";
+}
 
-/** The digest counts as sent only if the agent's own stream shows one successful self-chat teams_send carrying it verbatim. */
-export function verifyDigest(stdout: string, digest: string): string {
+/** A running session's entry, from the probe's tail. The tail may start mid-line; latestLine skips that. */
+function sessionEntry(a: AgentEntry, st: SessionState, p: Probe): Entry {
+	const text = gunzipSync(Buffer.from(p.tail ?? "", "base64")).toString("utf8");
+	const latest = p.kind === "jsonl" ? latestLine(text) : paneLine(text);
+	const line = `- ${a.name} \u00b7 ${a.host || "local"} \u00b7 last activity ${hhmm(st.last_active ?? p.now)} \u00b7 ${latest}`;
+	return { line, row: cardRow(a, st, p.now, cardStatus(p), latest) };
+}
+
+/** What an entry says, minus its `last activity` time: the part compared with the last digest sent. The card status
+ * is part of it, so a session turning to `waiting on question` with the same tail is still news. */
+export const unchanged = (e: Entry) => `${e.row.status}:${e.line.replace(/ \u00b7 last activity \d\d:\d\d/, "")}`;
+
+/** A send counts only if the agent's own stream shows one successful teams_send with `receipt` and the `want` arguments verbatim. */
+export function verifySend(stdout: string, want: Record<string, unknown>, receipt: string): string {
 	const events: Record<string, unknown>[] = [];
 	for (const line of stdout.split("\n")) {
 		try {
@@ -173,23 +200,38 @@ export function verifyDigest(stdout: string, digest: string): string {
 	const result = end.result as { content?: { text?: string }[] } | undefined;
 	const text = (result?.content ?? []).map((c) => c?.text ?? "").join("");
 	if (end.isError === true) throw new InboxError(`teams_send tool error: ${text || "unknown"}`);
-	if (!text.startsWith(SELF_RECEIPT)) throw new InboxError(`teams_send receipt is not the self-chat receipt: ${text || "(empty)"}`);
+	if (!text.startsWith(receipt)) throw new InboxError(`teams_send receipt is not ${JSON.stringify(receipt)}: ${text || "(empty)"}`);
 	const start = events.find((e) => e.type === "tool_execution_start" && e.toolCallId === end.toolCallId);
-	const args = (start?.args && typeof start.args === "object" ? start.args : {}) as { message?: unknown; target?: unknown };
-	if (String(args.message ?? "").trim() !== digest.trim()) throw new InboxError("teams_send message differs from the digest");
-	if (args.target !== "self") throw new InboxError(`teams_send target is ${JSON.stringify(args.target)}, expected self`);
+	const args = (start?.args && typeof start.args === "object" ? start.args : {}) as Record<string, unknown>;
+	for (const [key, value] of Object.entries(want)) {
+		const got = args[key];
+		const same = typeof value === "string" ? String(got ?? "").trim() === value.trim() : isDeepStrictEqual(got, value);
+		if (!same) throw new InboxError(`teams_send ${key} differs from the digest`);
+	}
 	return text;
 }
 
-async function postDigest(digest: string, agent?: string): Promise<string> {
-	const argv = agentArgv(agent, DIGEST_PROMPT + digest, ["teams_send"]);
+/** stdout of one headless `--mode json` agent turn that may call only teams_send. */
+async function runSend(prompt: string, agent?: string): Promise<string> {
+	const argv = agentArgv(agent, prompt, ["teams_send"]);
 	argv.splice(1, 0, "--mode", "json");
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-digest-"));
 	try {
-		return verifyDigest(await runProcess(argv, POST_TIMEOUT_S, "digest agent", tmp), digest);
+		return await runProcess(argv, POST_TIMEOUT_S, "digest agent", tmp);
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	}
+}
+
+/** The digest to the self-chat: the progress card, else (logged) the same digest as plain text. */
+async function postDigest(digest: string, rows: AgentRow[], agent: string | undefined, log: (line: string) => void): Promise<string> {
+	const card = { target: "self", title: digest.split("\n")[0], message: "", agents: rows };
+	try {
+		return verifySend(await runSend(CARD_PROMPT + JSON.stringify(card), agent), card, CARD_RECEIPT);
+	} catch (e) {
+		log(`progress card not sent, sending the text digest: ${e instanceof Error ? e.message : String(e)}`);
+	}
+	return verifySend(await runSend(DIGEST_PROMPT + digest, agent), { message: digest, target: "self" }, SELF_RECEIPT);
 }
 
 /** The events this run owes one session, and its probe. Updates `st` in place. */
@@ -238,9 +280,9 @@ function record(a: AgentEntry, e: Event): string {
 /** One probe pass over every watched session. Returns the log lines; throws (after saving state) when anything failed. */
 export async function probeAgents(o: ProbeOptions): Promise<string> {
 	const probe = o.probe ?? runProbe;
-	const post = o.post ?? ((d: string) => postDigest(d, o.agent));
 	const out: string[] = [];
 	const log = o.log ?? ((l: string) => out.push(l));
+	const post = o.post ?? ((d: string, rows: AgentRow[]) => postDigest(d, rows, o.agent, log));
 	const stateFile = inboxFile("cursors", "agent-watch.json");
 	const agents = readAgents();
 	const state: State = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
@@ -249,7 +291,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 	const digestDue = !o.noDigest && (last === undefined || now - last >= o.digestMin * 60);
 	const sessions = (name: string) => (state[name] ??= {}) as SessionState;
 	const finished: string[] = [];
-	const lines: [string, string][] = [];
+	const lines: [string, Entry][] = [];
 	const errors: string[] = [];
 	const fail = (name: string, e: unknown) => errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
 	// Probes run side by side (each can wait on ssh); events are recorded in list order.
@@ -262,7 +304,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 					const p = await probe(a, true);
 					st.last_active = Math.max(st.last_active ?? 0, p.smtime || 0) || p.now;
 					st.last_seen = p.now;
-					return { a, line: p.alive ? sessionEntry(a, st, p) : undefined };
+					return { a, entry: p.alive ? sessionEntry(a, st, p) : undefined };
 				}
 				return { a, ...(await check(a, st, o.stallMin * 60, digestDue, probe)) };
 			} catch (e) {
@@ -275,11 +317,15 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 		const st = sessions(a.name);
 		if ("error" in r) {
 			fail(a.name, r.error);
-			if (digestDue) lines.push([a.name, `- ${a.name} \u00b7 ${a.host || "local"} \u00b7 probe failed: ${String(r.error instanceof Error ? r.error.message : r.error).slice(0, 200)}`]);
+			if (digestDue) {
+				const cause = String(r.error instanceof Error ? r.error.message : r.error).slice(0, 200);
+				const line = `- ${a.name} \u00b7 ${a.host || "local"} \u00b7 probe failed: ${cause}`;
+				lines.push([a.name, { line, row: cardRow(a, st, now, "probe failed", cause) }]);
+			}
 			continue;
 		}
-		if ("line" in r) {
-			if (r.line) lines.push([a.name, r.line]);
+		if ("entry" in r) {
+			if (r.entry) lines.push([a.name, r.entry]);
 			continue;
 		}
 		if (!("events" in r) || !r.events || !r.p) continue;
@@ -300,17 +346,17 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 			fail(a.name, e);
 		}
 	}
-	// Only new information goes out: a line equal to the one last sent for that session is dropped.
-	const fresh = lines.filter(([name, line]) => unchanged(line) !== sessions(name).digested);
+	// Only new information goes out: an entry equal to the one last sent for that session is dropped.
+	const fresh = lines.filter(([name, e]) => unchanged(e) !== sessions(name).digested);
 	if (digestDue && lines.length && !fresh.length) {
 		log("progress digest due, nothing changed since the last one; not sent");
 		state[DIGEST] = { at: now };
 	} else if (digestDue && fresh.length) {
-		const digest = `agent progress ${hhmm(now)} \u00b7 ${fresh.length} changed\n${fresh.map(([, l]) => l).join("\n")}`;
+		const digest = `agent progress ${hhmm(now)} \u00b7 ${fresh.length} changed\n${fresh.map(([, e]) => e.line).join("\n")}`;
 		try {
-			log(`progress digest: ${await post(digest)}`);
+			log(`progress digest: ${await post(digest, fresh.map(([, e]) => e.row))}`);
 			state[DIGEST] = { at: now };
-			for (const [name, line] of fresh) sessions(name).digested = unchanged(line);
+			for (const [name, e] of fresh) sessions(name).digested = unchanged(e);
 		} catch (e) {
 			fail("progress digest not sent", e);
 		}
