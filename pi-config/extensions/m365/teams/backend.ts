@@ -114,8 +114,9 @@ export interface Backend {
 	 * `mentions` are the @mentions cut from the Markdown (mentions.ts). Only the
 	 * graph backend can resolve them to people, so the script backend refuses.
 	 * `images` are local image files shown under the text; the self-chat only for now.
+	 * `card` is an Adaptive Card (card.ts) posted after `message`, which then holds only the mentions.
 	 */
-	send(target: SendTarget, message: string, html: boolean, mentions?: Mention[], images?: string[]): Promise<void>;
+	send(target: SendTarget, message: string, html: boolean, mentions?: Mention[], images?: string[], card?: Record<string, unknown>): Promise<void>;
 }
 
 /** The script logs progress to stderr and emits exactly one JSON line on stdout. */
@@ -208,9 +209,11 @@ export class ScriptBackend implements Backend {
 		);
 	}
 
-	async send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = [], images: string[] = []): Promise<void> {
+	async send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = [], images: string[] = [], card?: Record<string, unknown>): Promise<void> {
 		if (images.length > 0)
 			throw new Error('images need the graph backend. Set "backend": "graph" in ~/.pi/agent/teams.json, or send without images.');
+		if (card)
+			throw new Error('cards need the graph backend. Set "backend": "graph" in ~/.pi/agent/teams.json, or send with card=false.');
 		if (mentions.length > 0)
 			throw new Error(
 				'@mentions need the graph backend: the script cannot look a person up in the directory. Set "backend": "graph" in ~/.pi/agent/teams.json, or send without the mention.',

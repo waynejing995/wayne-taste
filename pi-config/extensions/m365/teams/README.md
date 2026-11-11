@@ -67,7 +67,7 @@ click per refresh-token lifetime is a bad trade. Nothing here ever reads it.
 | Surface | What it does |
 |---|---|
 | Status bar | `Teams: 3 unread` — chats holding unread activity, polled every 10 min |
-| `teams_send` tool | The agent sends a Teams message when you tell it to. self / chat / channel. **It says what you asked, worded naturally, at the size you asked for** — rephrasing is fine; padding it with summaries and background you never mentioned is not. To notify someone it writes `@[Name](email)`; see [@mentions](#mentions). `images` (local paths) shows pictures under the text — self-chat only: each is uploaded to Teams' AMS store, readable by the self-chat, and referenced the way Teams itself posts an image |
+| `teams_send` tool | The agent sends a Teams message when you tell it to. self / chat / channel. **It says what you asked, worded naturally, at the size you asked for** — rephrasing is fine; padding it with summaries and background you never mentioned is not. A chat or channel send is an Adaptive Card by default; see [Cards](#cards). To notify someone it writes `@[Name](email)`; see [@mentions](#mentions). `images` (local paths) shows pictures under the text — self-chat only, text messages only: each is uploaded to Teams' AMS store, readable by the self-chat, and referenced the way Teams itself posts an image |
 | `teams_read` tool | The agent reads the last 20 messages of a chat or the self-chat (`limit` up to 200). A shared file becomes two lines: the name, and the url `teams_download` needs |
 | `teams_download` tool | Fetches a file someone shared, to a local path. Size-capped (256 MB default) |
 | `teams_transcript` tool | Reads the speaker-attributed transcript of a recorded meeting (`19:meeting_...@thread.v2`), or lists its recorded sessions (`list: true`, `date: "YYYY-MM-DD"` picks one). If the speaker-attributed Stream JSON is unavailable it falls back to WebVTT, which can lose speakers; the result then carries a `fallbackWarning` |
@@ -352,6 +352,39 @@ separate containers do not see each other's watches.
 `<br>` the way chat clients behave. Teams accepts the subset marked emits:
 `<h1-6>`, `<p>`, `<b>/<strong>`, `<i>`, `<a>`, `<ul>/<ol>/<li>`, `<pre>`,
 `<code>`, `<blockquote>`.
+
+## Cards
+
+On the graph backend, `teams_send` to a chat or channel posts an Adaptive Card
+instead of a text message, so readers see at once that an agent wrote it. The
+self-chat stays text unless a card field below is given or `card: true`;
+`card: false` forces text anywhere. The script backend sends text and refuses
+`card: true`.
+
+| Parameter | In the card |
+|---|---|
+| `title` | The header, beside the `🤖 pi agent` badge |
+| `message` | The text (bold, italic, links and lists render; headings, tables and code blocks do not — send those with `card: false`) |
+| `facts` | Status rows `{name, value, tone?}`; `tone` `good`/`warning`/`attention` colours the value |
+| `decision` | `{question, options, recommended?, reason?}`: numbered options, the recommended one highlighted with its reason. Two options at least; `recommended` is a 0-based index |
+| `agents` | Progress rows `{name, host, idle_min, status, tail?}`: `status` is `waiting on question`, `probe failed`, `done` or `working`; rows needing you come first; the idle timer is green under 10 min, yellow under 30, red after; `tail` opens on a tap |
+| `links` | `{title, url}` buttons (`Action.OpenUrl`, https only — the only action Graph accepts without a bot) |
+| `details` | Text behind a **Details** button |
+
+How it is posted: `POST /chats/{id}/messages` (or the channel's) with the card as
+one `attachments` entry (`contentType: application/vnd.microsoft.card.adaptive`,
+`content` the card JSON as a string) and `<attachment id="…">` in the body. The
+self-chat card goes through Graph too (`/chats/48:notes/messages`); a text
+self-chat message still goes through chatsvc.
+
+@mentions in a card's `message` show as bold names in the card and notify from
+the message body beside it, as `<at>` tags with the usual `mentions` array.
+
+Every card ends with the line `sent by pi agent`, the same words a text send
+ends with. Reading back, a card's text is the card itself (Graph: the
+attachment; chatsvc: `properties.cards`), so the self-chat watch recognises the
+agent's own card by that last line and never answers it (`isAgentSend` in
+`card.ts`).
 
 ## @mentions
 

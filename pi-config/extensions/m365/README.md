@@ -61,8 +61,9 @@ npm install            # once
 npm test               # node tests/run.mjs
 ```
 
-All offline: no sign-in, no network. Runs Outlook's suite and the package load
-check. Teams' suite is local-only (`teams/.gitignore`: it was written against a
+All offline: no sign-in, no network. Runs Outlook's suite, the package load
+check, and the Teams card tests (`tests/card.test.mjs`: the card builder, the
+Graph card post, and the echo guard on cards read back). Teams' suite is local-only (`teams/.gitignore`: it was written against a
 real mailbox and holds real names and messages); it runs where it exists and is
 reported as skipped in a clone. It runs as `unshare -rn node teams/tests/run.mjs`
 (needs util-linux and unprivileged user namespaces): a Teams watch is claimed with

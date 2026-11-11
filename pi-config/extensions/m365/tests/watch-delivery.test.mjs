@@ -197,6 +197,17 @@ check("two cards: the group's display-only, then the note's turn", sent.slice(6)
 	["48:notes", { triggerTurn: true }],
 ]);
 
+console.log("\n== the agent's own card in the self-chat is not news: no echo loop ==");
+{
+	const { buildCard, cardText } = await jiti.import(join(ROOT, "teams", "card.ts"));
+	const before = sent.length;
+	const card = buildCard({ title: "Ship?", text: "pick one", decision: { question: "Which?", options: ["a", "b"], recommended: 0 } });
+	// The text the self-chat read gives a card (skype.ts projects properties.cards through cardText).
+	notes.push({ id: "104.5", at: "2026-11-06T11:07:45Z", text: cardText(card) });
+	await poll();
+	check("no card, no turn for the agent's own card", [sent.length - before, prompts.length], [0, 0]);
+}
+
 console.log("\n== the gate fails or answers off-format: warn, and start the turn ==");
 gateAnswers(fauxAssistantMessage("", { stopReason: "error", errorMessage: "gateway 503" }));
 group.push({ sender: "Lin", at: "2026-11-06T11:08:00Z", mine: false, text: "group-error" });

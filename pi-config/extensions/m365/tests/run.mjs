@@ -25,6 +25,7 @@ const groups = [
 	{ label: "inbox schedule", script: join(root, "inbox", "tests", "schedule.test.mjs"), local: false },
 	{ label: "teams watch list", script: join(root, "tests", "watch-list.test.mjs"), local: false },
 	{ label: "teams watch delivery", script: join(root, "tests", "watch-delivery.test.mjs"), local: false },
+	{ label: "teams cards", script: join(root, "tests", "card.test.mjs"), local: false },
 	{ label: "teams (local-only)", script: join(root, "teams", "tests", "run.mjs"), local: true, isolated: true },
 ];
 let failed = 0;
