@@ -28,10 +28,12 @@ Entries with push: true are not probed for events (the m365 inbox extension rece
 
 Progress digest (every `--digest-min` minutes, default 30): one message to Wayne's self-chat lists each running
 session with its newest assistant text (omp: from its session jsonl; other panes: the last pane line) and, for omp,
-its todo progress. It is not an inbox row and never calls inbox.py. A session whose line (without its `last activity`
-time) is the one it had in the last digest sent is left out; nothing new anywhere sends nothing. The last digest time
-is `_digest` and each session's last sent line is its `digested` in cursors/agent-watch.json; a failed send is logged,
-exits 1, and leaves both as they were.
+its todo progress. It goes out as teams_send's progress card (one row per session: status, idle timer, the text
+behind a tap; sessions that need Wayne first); when the card send fails, the failure is logged and the same digest
+goes out as plain text. It is not an inbox row and never calls inbox.py. A session whose line (without its
+`last activity` time) is the one it had in the last digest sent is left out; nothing new anywhere sends nothing. The
+last digest time is `_digest` and each session's last sent line is its `digested` in cursors/agent-watch.json; a
+failed send (card and text both) is logged, exits 1, and leaves both as they were.
 
 Usage: watch-agents.py [--stall-min 30] [--digest-min 30]   (a systemd user timer runs it every 2 minutes)
 """
@@ -63,6 +65,9 @@ INBOX = [sys.executable, str(Path(__file__).with_name("inbox.py"))]
 EMPTY = hashlib.md5(b"").hexdigest()[:16]
 DIGEST = "_digest"  # reserved STATE key: when the last progress digest went out
 SELF_RECEIPT = "Sent to self-chat (48:notes)."
+CARD_RECEIPT = "Sent a card to self-chat (48:notes)."
+CARD_PROMPT = ("Call `teams_send` exactly once with exactly the arguments below (JSON), copied verbatim with no edits. "
+               "Do not call any other tools.\n\n")
 CLIP = 300
 
 # One probe per session, run where the pane lives. Prints one JSON object. The paths after it are
@@ -217,12 +222,26 @@ def add(a: dict, key: str, event: str, state: str, note: str) -> str:
     return r.stdout.strip()
 
 
-def session_entry(a: dict, st: dict, p: dict) -> str:
-    """One digest line for a running session, from the probe's tail. The tail may start mid-line; latest_line skips that."""
+def session_entry(a: dict, st: dict, p: dict) -> tuple[str, dict]:
+    """A running session's digest line and its progress-card row, from the probe's tail. The tail may start mid-line; latest_line skips that."""
     text = gzip.decompress(base64.b64decode(p["tail"])).decode(errors="replace")
     latest = latest_line(text) if p["kind"] == "jsonl" else pane_line(text)
     when = datetime.fromtimestamp(st["last_active"]).strftime("%H:%M")
-    return f"- {a['name']} \u00b7 {a.get('host', 'local')} \u00b7 last activity {when} \u00b7 {latest}"
+    line = f"- {a['name']} \u00b7 {a.get('host', 'local')} \u00b7 last activity {when} \u00b7 {latest}"
+    # Anything but working or a done RESULT waits on Wayne: a blocked pane, a turn ended without RESULT, a partial one.
+    if p.get("rstatus") == "done":
+        status = "done"
+    elif p.get("rstatus") or p.get("waiting") or p.get("state") in ("blocked", "idle", "done"):
+        status = "waiting on question"
+    else:
+        status = "working"
+    return line, row(a, st, p["now"], status, latest)
+
+
+def row(a: dict, st: dict, now: int, status: str, tail: str) -> dict:
+    """One progress-card row (teams_send `agents`)."""
+    idle = max(0, now - st.get("last_active", now)) // 60
+    return {"name": a["name"], "host": a.get("host", "local"), "idle_min": idle, "status": status, "tail": tail}
 
 
 def receipt_text(event: dict) -> str:
@@ -230,8 +249,8 @@ def receipt_text(event: dict) -> str:
     return "".join(item.get("text", "") for item in content if isinstance(item, dict))
 
 
-def verify_digest(stdout: str, digest: str) -> str:
-    """The digest counts as sent only if omp's own stream shows one successful self-chat teams_send carrying it verbatim."""
+def verify_send(stdout: str, want: dict, receipt: str) -> str:
+    """A send counts only if omp's own stream shows one successful teams_send with the `receipt` and the `want` arguments verbatim."""
     events = []
     for line in stdout.splitlines():
         try:
@@ -245,22 +264,20 @@ def verify_digest(stdout: str, digest: str) -> str:
     text = receipt_text(end)
     if end.get("isError") is True:
         raise RuntimeError(f"teams_send tool error: {text or 'unknown'}")
-    if not text.startswith(SELF_RECEIPT):
-        raise RuntimeError(f"teams_send receipt is not the self-chat receipt: {text or '(empty)'}")
+    if not text.startswith(receipt):
+        raise RuntimeError(f"teams_send receipt is not {receipt!r}: {text or '(empty)'}")
     starts = [event for event in events if event.get("type") == "tool_execution_start"
               and event.get("toolCallId") == end.get("toolCallId")]
     args = starts[0].get("args") if starts and isinstance(starts[0].get("args"), dict) else {}
-    if str(args.get("message", "")).strip() != digest.strip():
-        raise RuntimeError("teams_send message differs from the digest")
-    if args.get("target") != "self":
-        raise RuntimeError(f"teams_send target is {args.get('target')!r}, expected self")
+    for key, value in want.items():
+        got = args.get(key)
+        if (str(got or "").strip() != value.strip()) if isinstance(value, str) else got != value:
+            raise RuntimeError(f"teams_send {key} differs from the digest")
     return text
 
 
-def post_digest(digest: str) -> str:
-    """Send the digest to Wayne's self-chat through omp's teams_send: trace-monitor's self path, copied, with the digest verbatim."""
-    prompt = (Path(__file__).with_name("trace-monitor.prompt.md").read_text()
-              .replace("{{DESTINATION}}", "`target: self`").replace("{{DIGEST}}", digest))
+def run_send(prompt: str) -> str:
+    """omp's stdout for one headless teams_send turn."""
     command = ["omp", "-p", "--mode", "json", "--no-session", "--no-title", "--max-time", "10m",
                "--tools", "teams_send", prompt]
     try:
@@ -270,7 +287,20 @@ def post_digest(digest: str) -> str:
         raise RuntimeError(f"omp not run: {exc}") from exc
     if result.returncode != 0:
         raise RuntimeError(f"omp exited {result.returncode}: {result.stderr.strip()[-200:]}")
-    return verify_digest(result.stdout, digest)
+    return result.stdout
+
+
+def post_digest(digest: str, rows: list[dict]) -> str:
+    """The digest to Wayne's self-chat through omp's teams_send: the progress card, else the same digest as text
+    (trace-monitor's self path, copied, with the digest verbatim)."""
+    card = {"target": "self", "title": digest.splitlines()[0], "message": "", "agents": rows}
+    try:
+        return verify_send(run_send(CARD_PROMPT + json.dumps(card, ensure_ascii=False)), card, CARD_RECEIPT)
+    except RuntimeError as e:
+        logger.warning("progress card not sent, sending the text digest: {}", e)
+    prompt = (Path(__file__).with_name("trace-monitor.prompt.md").read_text()
+              .replace("{{DESTINATION}}", "`target: self`").replace("{{DIGEST}}", digest))
+    return verify_send(run_send(prompt), {"message": digest, "target": "self"}, SELF_RECEIPT)
 
 
 def check(a: dict, st: dict, stall_s: int, want: bool) -> tuple[list[tuple[str, str, str, str]], dict]:
@@ -315,7 +345,7 @@ def check(a: dict, st: dict, stall_s: int, want: bool) -> tuple[list[tuple[str, 
     return events, p
 
 
-def digest_probe(a: dict, st: dict) -> str | None:
+def digest_probe(a: dict, st: dict) -> tuple[str, dict] | None:
     """Probe a push session only for its digest line, without producing events."""
     p = probe(a, want=True)
     st["last_active"] = max(st.get("last_active", 0), p["smtime"] or 0) or p["now"]
@@ -348,20 +378,21 @@ def main(stall_min: int, digest_min: int, verbose: bool) -> None:
         try:
             if a.get("push"):
                 if digest_due:
-                    line = digest_probe(a, st)
-                    if line:
-                        lines.append((a["name"], line))
+                    entry = digest_probe(a, st)
+                    if entry:
+                        lines.append((a["name"], *entry))
                 continue
             events, p = check(a, st, stall_min * 60, want=digest_due)
         except Exception as e:  # one session's failure must not hide the others'
             failed += 1
             logger.error("{}: {}", a["name"], e)
             if digest_due:
-                lines.append((a["name"], f"- {a['name']} \u00b7 {a.get('host', 'local')} \u00b7 probe failed: {str(e)[:200]}"))
+                lines.append((a["name"], f"- {a['name']} \u00b7 {a.get('host', 'local')} \u00b7 probe failed: {str(e)[:200]}",
+                              row(a, st, now, "probe failed", str(e)[:200])))
             continue
         if digest_due and p["alive"] and not any(event == "result" and s == "done" for _, event, s, _ in events):
             try:
-                lines.append((a["name"], session_entry(a, st, p)))
+                lines.append((a["name"], *session_entry(a, st, p)))
             except Exception as e:  # a bad tail costs this session its digest line, not the others
                 failed += 1
                 logger.error("{}: digest line: {}", a["name"], e)
@@ -377,7 +408,7 @@ def main(stall_min: int, digest_min: int, verbose: bool) -> None:
             failed += 1
             logger.error("{}: {}", a["name"], e)
     # Only new information goes out: a line equal to the one last sent for that session is dropped.
-    fresh = [(name, line, unchanged(line)) for name, line in lines
+    fresh = [(name, line, unchanged(line), card_row) for name, line, card_row in lines
              if unchanged(line) != state.get(name, {}).get("digested")]
     if digest_due and lines and not fresh:
         # Checked and nothing to say: the next look is a full interval away, like after a sent digest.
@@ -385,11 +416,11 @@ def main(stall_min: int, digest_min: int, verbose: bool) -> None:
         state[DIGEST] = {"at": now}
     elif digest_due and fresh:
         digest = (f"agent progress {datetime.fromtimestamp(now).strftime('%H:%M')} \u00b7 {len(fresh)} changed\n"
-                  + "\n".join(line for _, line, _ in fresh))
+                  + "\n".join(line for _, line, _, _ in fresh))
         try:
-            logger.info("progress digest: {}", post_digest(digest))
+            logger.info("progress digest: {}", post_digest(digest, [card_row for *_, card_row in fresh]))
             state[DIGEST] = {"at": now}
-            for name, _, key in fresh:
+            for name, _, key, _ in fresh:
                 state[name]["digested"] = key
         except Exception as e:  # any failure is a missed digest: logged, not retried here, state still written
             failed += 1

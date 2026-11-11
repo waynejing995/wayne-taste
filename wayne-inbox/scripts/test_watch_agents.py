@@ -151,16 +151,32 @@ def broken(now, want):
     raise RuntimeError("ssh: connect refused")
 
 
-def teams_stdout(command, *, receipt=SELF_RECEIPT, error=None, message=None):
-    """The omp --mode json stream of one teams_send call; `message` defaults to the digest the prompt carries."""
-    digest = message if message is not None else command[-1].split("\n\n", 1)[1].strip()
-    start = {"type": "tool_execution_start", "toolCallId": "call-1", "toolName": "teams_send",
-             "args": {"target": "self", "message": digest}}
+def prompt_args(command):
+    """The teams_send arguments an omp prompt asks for, and the receipt the real tool gives for them."""
+    prompt = command[-1]
+    if prompt.startswith(wa.CARD_PROMPT):
+        return json.loads(prompt[len(wa.CARD_PROMPT):]), wa.CARD_RECEIPT
+    return {"target": "self", "message": prompt.split("\n\n", 1)[1].strip()}, SELF_RECEIPT
+
+
+def teams_stdout(command, *, receipt=None, error=None, message=None):
+    """The omp --mode json stream of one teams_send call with the arguments the prompt carries; `message` overrides its message."""
+    args, default_receipt = prompt_args(command)
+    if message is not None:
+        args = {**args, "message": message}
+    start = {"type": "tool_execution_start", "toolCallId": "call-1", "toolName": "teams_send", "args": args}
     end = {"type": "tool_execution_end", "toolCallId": "call-1", "toolName": "teams_send",
-           "result": {"content": [{"type": "text", "text": error or receipt}]}}
+           "result": {"content": [{"type": "text", "text": error or receipt or default_receipt}]}}
     if error:
         end["isError"] = True
     return subprocess.CompletedProcess(command, 0, stdout="noise\n" + "\n".join(json.dumps(e) for e in (start, end)))
+
+
+def card_refused(command):
+    """The card send fails as a tool error; the text send that follows succeeds."""
+    if command[-1].startswith(wa.CARD_PROMPT):
+        return teams_stdout(command, error="Graph 400: card rejected")
+    return teams_stdout(command)
 
 
 def omp_exits(command):
@@ -213,7 +229,18 @@ class Env:
         return CliRunner().invoke(wa.main, list(args))
 
     def sent(self):
-        return [c[-1].split("\n\n", 1)[1].strip() for c in self.calls if c[0] == "omp"]
+        """What each omp call asked to send, as text: a card is its title, then one `- name · host · status · tail` line per row."""
+        out = []
+        for c in self.calls:
+            if c[0] != "omp":
+                continue
+            args, _ = prompt_args(c)
+            out.append("\n".join([args["title"], *(" \u00b7 ".join(["- " + r["name"], r["host"], r["status"], r["tail"]])
+                                                     for r in args["agents"])]) if "agents" in args else args["message"])
+        return out
+
+    def cards(self):
+        return [prompt_args(c)[0] for c in self.calls if c[0] == "omp" and c[-1].startswith(wa.CARD_PROMPT)]
 
     def state(self):
         return json.loads(self.state_file.read_text())
@@ -231,7 +258,7 @@ def test_first_run_sends_one_digest_and_records_its_time(env):
     [digest] = env.sent()
     lines = digest.splitlines()
     assert lines[0] == f"agent progress {HHMM} \u00b7 1 changed"
-    assert lines[1] == f"- alpha \u00b7 local \u00b7 last activity {HHMM} \u00b7 tail latest answer"
+    assert lines[1] == "- alpha \u00b7 local \u00b7 working \u00b7 tail latest answer"
     assert env.state()["_digest"]["at"] == T0
 
 
@@ -286,7 +313,7 @@ def test_push_finished_session_only_gets_a_digest_and_is_not_removed(env):
     result = env.main()
     assert result.exit_code == 0, result.output
     [digest] = env.sent()
-    assert digest.splitlines()[1] == f"- alpha \u00b7 local \u00b7 last activity {HHMM} \u00b7 tail latest answer"
+    assert digest.splitlines()[1] == "- alpha \u00b7 local \u00b7 done \u00b7 tail latest answer"
     assert env.probes == [("alpha", True)]
     assert [c[0] for c in env.calls] == ["omp"]
     assert env.state()["alpha"] == {"last_active": T0, "last_seen": T0,
@@ -308,7 +335,7 @@ def test_push_digest_failure_reports_probe_failure(env, behaviour):
     result = env.main()
     assert result.exit_code == 1, result.output
     [digest] = env.sent()
-    assert "- alpha \u00b7 local \u00b7 probe failed:" in digest
+    assert "- alpha \u00b7 local \u00b7 probe failed \u00b7 " in digest
     assert [c[0] for c in env.calls] == ["omp"]
 
 
@@ -331,7 +358,7 @@ def test_pane_session_line_uses_the_last_non_empty_pane_line(env):
     env.watch("beta", pane_live)
     env.main()
     [digest] = env.sent()
-    assert digest.splitlines()[1] == f"- beta \u00b7 local \u00b7 last activity {HHMM} \u00b7 last pane line"
+    assert digest.splitlines()[1] == "- beta \u00b7 local \u00b7 working \u00b7 last pane line"
 
 
 @pytest.mark.parametrize("behaviour", [dead, finished], ids=["all-dead", "finished-this-run"])
@@ -356,7 +383,7 @@ def test_finished_session_is_left_out_of_the_digest(env):
     env.main()
     [digest] = env.sent()
     assert "- alpha" not in digest
-    assert digest.splitlines()[1].startswith("- beta \u00b7 local \u00b7 last activity ")
+    assert digest.splitlines()[1].startswith("- beta \u00b7 local \u00b7 working \u00b7 ")
 
 
 def partial_result(ropen):
@@ -413,7 +440,7 @@ def test_failed_send_exits_1_keeps_the_last_digest_time_and_session_state(env, o
     result = env.main()
     assert result.exit_code == 1, result.output
     assert cause in result.output
-    assert sum(c[0] == "omp" for c in env.calls) == 2, "a failed send is not retried inside the run"
+    assert sum(c[0] == "omp" for c in env.calls) == 3, "card, then text; a failed send is not retried inside the run"
     state = env.state()
     assert state["_digest"] == {"at": T0}
     assert state["alpha"]["last_seen"] == T0 + 30 * 60
@@ -428,8 +455,40 @@ def test_probe_failure_for_one_session_still_sends_the_digest(env):
     [digest] = env.sent()
     lines = digest.splitlines()
     assert lines[0] == f"agent progress {HHMM} \u00b7 2 changed"
-    assert "- beta \u00b7 local \u00b7 probe failed: ssh: connect refused" in lines
-    assert f"- alpha \u00b7 local \u00b7 last activity {HHMM} \u00b7 tail latest answer" in lines
+    assert "- beta \u00b7 local \u00b7 probe failed \u00b7 ssh: connect refused" in lines
+    assert "- alpha \u00b7 local \u00b7 working \u00b7 tail latest answer" in lines
+    assert env.state()["_digest"]["at"] == T0
+
+
+def test_digest_goes_out_as_the_progress_card(env):
+    def waiting(now, want):
+        p = omp_live(now, want)
+        p.update(state="blocked", waiting=True, smtime=now - 45 * 60)
+        return p
+    env.watch("alpha", omp_live)
+    env.watch("beta", waiting)
+    # Seen before with the same pane, active 45 min ago: an unchanged pane is no new activity.
+    env.state_file.parent.mkdir(parents=True)
+    env.state_file.write_text(json.dumps({"beta": {"last_active": T0 - 45 * 60, "text": "pane-hash"}}))
+    result = env.main()
+    assert result.exit_code == 0, result.output
+    [card] = env.cards()
+    assert card["target"] == "self" and card["title"] == f"agent progress {HHMM} \u00b7 2 changed"
+    assert card["agents"] == [
+        {"name": "alpha", "host": "local", "idle_min": 0, "status": "working", "tail": "tail latest answer"},
+        {"name": "beta", "host": "local", "idle_min": 45, "status": "waiting on question", "tail": "tail latest answer"},
+    ]
+    assert [c[0] for c in env.calls if c[0] == "omp"] == ["omp"], "a sent card is the whole digest"
+
+
+def test_refused_card_falls_back_to_the_text_digest(env):
+    env.omp = card_refused
+    env.watch("alpha", omp_live)
+    result = env.main()
+    assert result.exit_code == 0, result.output
+    assert "progress card not sent, sending the text digest: teams_send tool error: Graph 400: card rejected" in result.output
+    card, text = env.sent()
+    assert text.splitlines()[1] == f"- alpha \u00b7 local \u00b7 last activity {HHMM} \u00b7 tail latest answer"
     assert env.state()["_digest"]["at"] == T0
 
 
