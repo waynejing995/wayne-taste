@@ -30,6 +30,7 @@ const groups = [
 	{ label: "rules block", script: join(root, "tests", "rules-block.test.mjs"), local: false },
 	{ label: "teams watch list", script: join(root, "tests", "watch-list.test.mjs"), local: false },
 	{ label: "teams watch delivery", script: join(root, "tests", "watch-delivery.test.mjs"), local: false },
+	{ label: "teams cards", script: join(root, "tests", "card.test.mjs"), local: false },
 	{ label: "teams (local-only)", script: join(root, "teams", "tests", "run.mjs"), local: true, isolated: true },
 ];
 let failed = 0;

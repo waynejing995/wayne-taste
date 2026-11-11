@@ -20,6 +20,7 @@
  * target=self, and the self-chat watch poll.
  */
 import type { SelfHistoryPage, SelfMessage } from "./backend.ts";
+import { attachedCardText, CARD_CONTENT_TYPE } from "./card.ts";
 import { escapeHtml, htmlToText } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import { fillMentions, type ResolvedMention } from "./mentions.ts";
@@ -55,6 +56,24 @@ export interface RawSkypeMessage {
 	composetime?: string;
 	content?: string;
 	messagetype?: string;
+	/** `cards` is a JSON string: [{cardClientId, contentType, content}], what a Graph card send stores. */
+	properties?: { cards?: string };
+}
+
+/** The text of the Adaptive Cards a chatsvc message carries, one per line; "" for none or unreadable JSON. */
+function cardsText(m: RawSkypeMessage): string {
+	if (!m.properties?.cards) return "";
+	let cards: { contentType?: string; content?: unknown }[];
+	try {
+		cards = JSON.parse(m.properties.cards);
+	} catch {
+		return "";
+	}
+	return cards
+		.filter((c) => c.contentType === CARD_CONTENT_TYPE)
+		.map((c) => attachedCardText(c.content))
+		.filter(Boolean)
+		.join("\n");
 }
 
 export class SkypeClient {
@@ -197,11 +216,13 @@ export class SkypeClient {
 			// Typing indicators and other control frames are not messages.
 			if ((m.messagetype ?? "").startsWith("Control/")) continue;
 			const html = m.content ?? "";
-			const flat = htmlToText(html);
+			// A card's content is an empty span pointing at it: the card is the text.
+			const card = cardsText(m);
+			const flat = [htmlToText(html), card].filter(Boolean).join("\n");
 			if (!flat) continue;
 			// The self-chat used to skip Markdown conversion entirely, so code
 			// blocks I sent myself came back flat while every other chat rendered.
-			out.push({ id, at: m.composetime ?? "", text: flat, md: htmlToMarkdown(html) });
+			out.push({ id, at: m.composetime ?? "", text: flat, md: [htmlToMarkdown(html), card].filter(Boolean).join("\n\n") });
 		}
 		out.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
 		return out;

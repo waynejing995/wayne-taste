@@ -51,6 +51,7 @@ import type { Backend, SelfMessage, UnreadItem } from "./backend.ts";
 import { ScriptBackend } from "./backend.ts";
 import type { ChatRef, ChatsPage, HistoryMessage, HistoryPage, SendTarget } from "./compose-overlay.ts";
 import { HISTORY_MESSAGES, openComposeOverlay } from "./compose-overlay.ts";
+import { AGENT_STATUSES, AGENT_FOOTER_TEXT, buildCard, cardMentions, isAgentSend } from "./card.ts";
 import { findChat, GraphBackend } from "./graph-backend.ts";
 import { escapeHtml } from "./html.ts";
 import { type Mention, renderWithMentions } from "./mentions.ts";
@@ -156,16 +157,10 @@ const CHATS_SEARCH_PAGES = 10;
 /** Screenshots are heavy in context; a chat can hold many. Newest win. */
 const MAX_IMAGES_PER_READ = 4;
 /**
- * Marks a message the agent sent rather than one the user typed.
- *
- * It goes out under the user's own account, so without this the recipient has
- * no way to tell a machine wrote it. Only teams_send adds it: anything composed
- * by hand in /teams was typed by a person and must not claim otherwise.
- *
- * The self-chat watch skips notes ending in AGENT_FOOTER_TEXT (as Teams reads it
- * back, plain text), so change the words here and both sides follow.
+ * The footer a text send ends with; AGENT_FOOTER_TEXT and the echo guard (isAgentSend) live in card.ts, whose cards
+ * end with the same line. Only teams_send adds it: anything composed by hand in /teams was typed by a person and must
+ * not claim otherwise.
  */
-const AGENT_FOOTER_TEXT = "sent by pi agent";
 const AGENT_FOOTER = `\n\n---\n\n*${AGENT_FOOTER_TEXT}*`;
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -460,9 +455,10 @@ export default function (pi: ExtensionAPI) {
 		html: boolean,
 		mentions: Mention[] = [],
 		images: string[] = [],
+		card?: Record<string, unknown>,
 	): Promise<string> {
-		await backend.send(target, message, html, mentions, images);
-		return `Sent to ${describeTarget(target)}.`;
+		await backend.send(target, message, html, mentions, images, card);
+		return `Sent ${card ? "a card " : ""}to ${describeTarget(target)}.`;
 	}
 
 	// ── Markdown → Teams HTML ───────────────────────────────────────────────
@@ -594,9 +590,9 @@ export default function (pi: ExtensionAPI) {
 			const commands: string[] = [];
 			for (const m of fresh) {
 				const text = m.text.trim();
-				// The agent's own sends (teams_send footer) are not news: a reply to a card would come back as a card, forever.
-				// Images a send carries come after the footer and read back as "[name]", so they are cut before the check.
-				if (text.replace(/(\s*\[[^\]\n]*\])+$/, "").replace(/\*+$/, "").endsWith(AGENT_FOOTER_TEXT)) continue;
+				// The agent's own sends (teams_send footer, or a card's last line) are not news: a reply to a card would
+				// come back as a card, forever.
+				if (isAgentSend(text)) continue;
 				const body = COMMAND.test(text) ? text.replace(COMMAND, "").trim() : "";
 				if (body) commands.push(body);
 				else {
@@ -623,7 +619,7 @@ export default function (pi: ExtensionAPI) {
 			news,
 			ids: news.map((m) => m.at),
 			commands: texts
-				.filter((text, i) => myOid !== "" && fresh[i].sender_id === myOid && COMMAND.test(text) && !text.replace(/\*+$/, "").endsWith(AGENT_FOOTER_TEXT))
+				.filter((text, i) => myOid !== "" && fresh[i].sender_id === myOid && COMMAND.test(text) && !isAgentSend(text))
 				.map((text) => text.replace(COMMAND, "").trim())
 				.filter(Boolean),
 			cursor: fresh.at(-1)?.at ?? cursor,
@@ -961,7 +957,19 @@ export default function (pi: ExtensionAPI) {
 			"first and never guess it: an address the directory does not know fails the whole send, and " +
 			"nothing is posted. " +
 			"To show the user a picture (a screenshot, a rendered UI), pass local image paths in `images`; " +
-			"they appear under the text. Images go to the self-chat only (target='self').",
+			"they appear under the text. Images go to the self-chat only (target='self') and make it a text message. " +
+			"Card: a chat or channel send goes out as an Adaptive Card with an agent badge: `title` on top, " +
+			"`message` as its text, and any of `facts` (status rows), `decision` (a question with its context and " +
+			"numbered options, each with its consequence, one marked recommended with the reason), `links` (buttons), " +
+			"`details` (collapsed). A card carries the real content, not a one-line summary: the whole message in " +
+			"`message`, a fact for every key value you have (PR, commit sha, run id, ticket, times, owner), and the " +
+			"long parts (cause, evidence, logs, next steps) in `details` so the top stays short. " +
+			"When to use a card: automation output, status updates and questions asking for a decision -> a card " +
+			"(give `title` and the fields that fit; use `decision` whenever you ask people to choose). Ordinary Q&A " +
+			"replies -> either: in a chat or channel leave the default card or pass card=false for plain text. " +
+			"Defaults: a chat or channel send is a card; a self send is plain text unless a card field is given or " +
+			"card=true; card=false forces text anywhere. Cards render bold, italic, links and lists, not " +
+			"headings, tables or code blocks; send those with card=false. @mentions in a card's text still notify.",
 		parameters: Type.Object({
 			target: StringEnum(["self", "chat", "channel"], { description: "Where to send" }),
 			message: Type.String({
@@ -983,6 +991,58 @@ export default function (pi: ExtensionAPI) {
 				Type.Array(Type.String(), {
 					description: "Local image file paths (png/jpg) shown under the text. target='self' only.",
 				}),
+			),
+			card: Type.Optional(
+				Type.Boolean({ description: "Card or plain text. Default: card for chat/channel, text for self (see the tool description)." }),
+			),
+			title: Type.Optional(Type.String({ description: "Card title: a few words." })),
+			facts: Type.Optional(
+				Type.Array(
+					Type.Object({
+						name: Type.String(),
+						value: Type.String(),
+						tone: Type.Optional(StringEnum(["good", "warning", "attention"], { description: "Colours the value" })),
+					}),
+					{ description: "Card status rows, one per key value (PR, sha, run id, ticket, times): name, value, optional tone." },
+				),
+			),
+			decision: Type.Optional(
+				Type.Object(
+					{
+						question: Type.String(),
+						context: Type.Optional(Type.String({ description: "What readers need to know to choose: situation, constraints, what is known." })),
+						options: Type.Array(
+							Type.Object({
+								label: Type.String(),
+								consequence: Type.Optional(Type.String({ description: "What happens if this option is taken." })),
+							}),
+							{ description: "At least 2." },
+						),
+						recommended: Type.Optional(Type.Integer({ description: "0-based index of the recommended option." })),
+						reason: Type.Optional(Type.String({ description: "Why the recommended option." })),
+					},
+					{ description: "A choice the readers must make." },
+				),
+			),
+			links: Type.Optional(
+				Type.Array(Type.Object({ title: Type.String(), url: Type.String({ description: "https URL" }) }), {
+					description: "Card buttons that open a URL.",
+				}),
+			),
+			details: Type.Optional(
+				Type.String({ description: "Markdown hidden behind a Details button: the long parts (cause, evidence, logs, next steps)." }),
+			),
+			agents: Type.Optional(
+				Type.Array(
+					Type.Object({
+						name: Type.String(),
+						host: Type.String(),
+						idle_min: Type.Number({ description: "Minutes since its last activity." }),
+						status: StringEnum([...AGENT_STATUSES]),
+						tail: Type.Optional(Type.String({ description: "Its newest output; collapsed in the card." })),
+					}),
+					{ description: "Agent progress rows, one per agent; the card sorts those needing the user first." },
+				),
 			),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -1009,8 +1069,22 @@ export default function (pi: ExtensionAPI) {
 				// emoji looked to it like something that needed no formatting.
 				// Rendered with the mention extension, so only what the Markdown reads as a
 				// mention notifies anyone: an example in code or an escaped one does not.
-				const { html: payload, mentions } = renderWithMentions(params.message + AGENT_FOOTER);
-				const msg = await send(target, payload, true, mentions, params.images ?? []);
+				// A card field asks for a card anywhere. A plain chat send is a card only where one can be posted: the
+				// script backend sends it as text, and refuses a card it was asked for.
+				const cardFields = ["title", "facts", "decision", "links", "details", "agents"] as const;
+				const asCard =
+					params.card ?? (cardFields.some((k) => params[k] !== undefined) || (params.target !== "self" && cfg.backend !== "script"));
+				if (!asCard) {
+					const { html: payload, mentions } = renderWithMentions(params.message + AGENT_FOOTER);
+					const msg = await send(target, payload, true, mentions, params.images ?? []);
+					flash(ctx as ExtensionContext, "sent ✓");
+					return { content: [{ type: "text", text: msg }], details: {} };
+				}
+				// A card cannot notify: its mentions show as bold names, and go into the message body beside it as real ones.
+				const { text, mentions: inCard } = cardMentions(params.message);
+				const card = buildCard({ ...params, text });
+				const { html: notify, mentions } = renderWithMentions(inCard.map((m) => `@[${m.name}](${m.email})`).join(" "));
+				const msg = await send(target, mentions.length > 0 ? notify : "", true, mentions, params.images ?? [], card);
 				flash(ctx as ExtensionContext, "sent ✓");
 				return { content: [{ type: "text", text: msg }], details: {} };
 			} catch (e) {

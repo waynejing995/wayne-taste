@@ -21,6 +21,7 @@ import { colleagueId, type Person, searchPeople } from "../core/people.ts";
 import { type DownloadedFile, downloadShared } from "../core/shares.ts";
 import type { Backend, ChatAddr, ChatHistoryPage, SelfHistoryPage, SelfMessage, UnreadItem, UnreadPayload } from "./backend.ts";
 import { HISTORY_MESSAGES, type ChatRef, type ChatsPage, type HistoryMessage, type SendTarget } from "./compose-overlay.ts";
+import { attachedCardText, CARD_CONTENT_TYPE } from "./card.ts";
 import { escapeHtml, htmlToText } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import { fillMentions, type Mention, type ResolvedMention } from "./mentions.ts";
@@ -224,7 +225,10 @@ export function msgSender(m: RawMessage): string {
  */
 export function msgText(m: RawMessage): string {
 	const body = m.body ?? {};
-	return body.contentType === "html" ? htmlToText(body.content ?? "") : (body.content ?? "").trim();
+	const text = body.contentType === "html" ? htmlToText(body.content ?? "") : (body.content ?? "").trim();
+	// A card's body is only the <attachment> tag pointing at it, so the card is the message's text.
+	const cards = (m.attachments ?? []).filter((a) => a.contentType === CARD_CONTENT_TYPE).map((a) => attachedCardText(a.content));
+	return [text, ...cards].filter(Boolean).join("\n");
 }
 
 /**
@@ -583,10 +587,17 @@ export class GraphBackend implements Backend {
 		});
 	}
 
-	async send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = [], images: string[] = []): Promise<void> {
+	async send(
+		target: SendTarget,
+		message: string,
+		html: boolean,
+		mentions: Mention[] = [],
+		images: string[] = [],
+		card?: Record<string, unknown>,
+	): Promise<void> {
 		if (mentions.length > 0 && !html) throw new Error("an @mention can only be sent as html");
-		if (images.length > 0 && target.kind !== "self")
-			throw new Error("images can only be sent to the self-chat for now (target='self')");
+		if (images.length > 0 && (target.kind !== "self" || card))
+			throw new Error("images can only be sent to the self-chat for now (target='self'), and not with a card");
 		// Read before anything is uploaded or posted: one bad file refuses the whole message. The paths come from the
 		// model, so only regular PNG/JPEG/GIF files totalling at most IMAGE_MAX_BYTES are read and sent: never a
 		// device, a secret, a huge file. A non-regular path is refused before it is opened, and the opened descriptor
@@ -622,7 +633,7 @@ export class GraphBackend implements Backend {
 		// know refuses the whole message.
 		const resolved = await resolveMentions(this.graph, mentions);
 
-		if (target.kind === "self") {
+		if (target.kind === "self" && !card) {
 			// 48:notes is chatsvc with a Skype token, not Graph. Its mention markup
 			// is chatsvc's own, so the resolved list goes to skype.ts unchanged.
 			const skype = this.requireSkype();
@@ -634,7 +645,12 @@ export class GraphBackend implements Backend {
 
 		// Carried, not guessed: posting RichText/Html unconditionally once made
 		// plain text containing "<" disappear as markup.
-		const content = fillMentions(message, resolved, (m, i) => `<at id="${i}">${escapeHtml(m.name)}</at>`);
+		// With a card, `message` holds only what notifies (the mentions); the card follows it as an attachment the
+		// body points at, the shape Graph's own card example posts. Graph posts cards to the self-chat too.
+		const attachmentId = card ? crypto.randomUUID().replaceAll("-", "") : "";
+		const content =
+			fillMentions(message, resolved, (m, i) => `<at id="${i}">${escapeHtml(m.name)}</at>`) +
+			(card ? `<attachment id="${attachmentId}"></attachment>` : "");
 		const graphMentions = resolved.map((m, i) => ({
 			id: i,
 			mentionText: m.name,
@@ -644,10 +660,11 @@ export class GraphBackend implements Backend {
 		const body = {
 			body: { contentType: html ? "html" : "text", content },
 			...(graphMentions.length > 0 ? { mentions: graphMentions } : {}),
+			...(card ? { attachments: [{ id: attachmentId, contentType: CARD_CONTENT_TYPE, content: JSON.stringify(card) }] } : {}),
 		};
 
-		if (target.kind === "chat") {
-			const id = target.id || findChat(await this.allChats(), target.chat).id;
+		if (target.kind !== "channel") {
+			const id = target.kind === "self" ? "48:notes" : target.id || findChat(await this.allChats(), target.chat).id;
 			await this.graph.post(`/chats/${id}/messages`, body);
 			return;
 		}
