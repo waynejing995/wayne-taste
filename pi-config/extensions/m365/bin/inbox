@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# The inbox command line (see inbox/cli/main.ts). Needs node >= 22.13; nothing else.
+set -euo pipefail
+here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+exec node --no-warnings --import "$here/strip-types.mjs" "$here/../inbox/cli/run.ts" "$@"

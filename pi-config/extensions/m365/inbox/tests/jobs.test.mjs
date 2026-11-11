@@ -1,0 +1,226 @@
+/**
+ * Scheduled jobs through the TS CLI: register, fire into the ledger, judge, remove. Ported from test_schedule.py.
+ *
+ *   node inbox/tests/jobs.test.mjs
+ */
+import { deepStrictEqual, ok, rejects, strictEqual } from "node:assert/strict";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createJiti } from "../../tests/host.mjs";
+import YAML from "yaml";
+
+const jiti = createJiti(import.meta.url, { interopDefault: true });
+const { inbox } = await jiti.import("../cli/main.ts");
+const jobs = await jiti.import("../cli/jobs.ts");
+const { readTsv, stamp } = await jiti.import("../cli/ledger.ts");
+
+// A prompt job's agent: prints its prompt, so the job's output is the prompt text.
+const bin = mkdtempSync(join(tmpdir(), "inbox-agent-"));
+const agent = join(bin, "echo-agent");
+writeFileSync(agent, '#!/usr/bin/env bash\nprintf "%s\\n" "${@: -1}"\n');
+chmodSync(agent, 0o755);
+process.env.INBOX_AGENT = agent;
+
+let failed = 0;
+let home;
+async function check(label, fn) {
+	home = mkdtempSync(join(tmpdir(), "inbox-jobs-"));
+	process.env.WAYNE_INBOX_DIR = home;
+	writeFileSync(join(home, "rules.yaml"), "github:\n  acme:\n    - when: {review: requested}\n      action: notify\n      tag: pr\n");
+	try {
+		await fn();
+		console.log(`PASS ${label}`);
+	} catch (e) {
+		failed++;
+		console.log(`FAIL ${label}\n${e.stack ?? e.message}`);
+	}
+}
+
+const at = (text) => jobs.parseStamp(text);
+const rows = () => readTsv(join(home, "ledger.tsv"));
+const run = (...args) => inbox(args);
+function dueAt(next) {
+	const all = jobs.readJobs();
+	all[0].next_fire = next;
+	jobs.writeJobs(all);
+}
+
+await check("register, list, remove", async () => {
+	ok((await run("schedule", "add", "minute", "--every", "1", "--kind", "prompt", "--action", "hello")).startsWith("added minute next "));
+	const listed = await run("schedule", "ls");
+	ok(listed.includes("minute  every 1m") && listed.includes("last never") && listed.includes("prompt hello"), listed);
+	const rules = readFileSync(join(home, "rules.yaml"), "utf8");
+	ok(rules.startsWith("github:\n") && rules.includes("acme"), "the schedule block does not disturb the rules above it");
+	await run("schedule", "rm", "minute");
+	strictEqual((await run("schedule", "ls")).trim(), "(no scheduled jobs)");
+});
+
+await check("a shell job writes one ledger row per fire", async () => {
+	await run("schedule", "add", "echo", "--every", "1", "--kind", "shell", "--action", '["echo", "pong"]');
+	deepStrictEqual(await jobs.runDue({ session: false }, at("2026-11-10 12:00")), [], "not due: the first fire is one interval after registration");
+	dueAt("2026-11-10 12:00");
+	const lines = await jobs.runDue({ session: false }, at("2026-11-10 12:00"));
+	ok(lines[0].startsWith("ok echo 2026-11-10T1200"), lines[0]);
+	strictEqual(rows().length, 1);
+	strictEqual(rows()[0].key, "schedule:echo:2026-11-10T1200");
+	strictEqual(rows()[0].action, "notify");
+	ok(rows()[0].note.includes("pong"));
+	deepStrictEqual(await jobs.runDue({ session: false }, at("2026-11-10 12:00")), [], "the fire advanced next_fire");
+	strictEqual(rows().length, 1);
+});
+
+await check("a quiet job writes no row on success and one on failure", async () => {
+	await run("schedule", "add", "hush", "--every", "1", "--kind", "shell", "--action", '["echo", "fine"]', "--quiet");
+	dueAt("2026-11-10 12:00");
+	ok((await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0].startsWith("ok hush"));
+	strictEqual(rows().length, 0);
+	strictEqual(jobs.readJobs()[0].last_ok, "2026-11-10 12:00");
+	const all = jobs.readJobs();
+	all[0].action = { kind: "shell", argv: ["false"] };
+	all[0].next_fire = "2026-11-10 12:05";
+	jobs.writeJobs(all);
+	ok((await jobs.runDue({ session: false }, at("2026-11-10 12:05")))[0].startsWith("fail hush"));
+	strictEqual(rows().length, 1);
+	ok(rows()[0].subject.endsWith("FAILED"));
+	strictEqual(jobs.readJobs()[0].last_ok, "2026-11-10 12:00", "a failure does not move last_ok");
+});
+
+await check("outside a session a tool job stays due", async () => {
+	await run("schedule", "add", "peek", "--every", "1", "--kind", "tool", "--action", '{"name": "teams_read", "args": {"target": "self"}}');
+	dueAt("2026-11-10 12:00");
+	deepStrictEqual(await jobs.runDue({ session: false }, at("2026-11-10 12:00")), ["skip peek: needs a live omp or pi session"]);
+	strictEqual(jobs.readJobs()[0].next_fire, "2026-11-10 12:00");
+	ok((await run("schedule", "pending")).startsWith("peek\tsession\t"));
+});
+
+await check("in a session a teams_read job calls the tool and records its text", async () => {
+	await run("schedule", "add", "peek", "--every", "1", "--kind", "tool", "--action", '{"name": "teams_read", "args": {"target": "self"}}');
+	dueAt("2026-11-10 12:00");
+	const calls = [];
+	const tool = async (name, args) => (calls.push([name, args]), "self-chat — 2 message(s)");
+	ok((await jobs.runDue({ session: true, tool }, at("2026-11-10 12:00")))[0].startsWith("ok peek"));
+	deepStrictEqual(calls, [["teams_read", { target: "self" }]]);
+	ok(rows()[0].note.includes("2 message(s)"));
+});
+
+await check("finish records a session's tool result", async () => {
+	await run("schedule", "add", "peek", "--every", "1", "--kind", "tool", "--action", '{"name": "teams_read", "args": {"target": "self"}}');
+	dueAt(stamp(new Date(Date.now() - 60_000)));
+	ok((await run("schedule", "finish", "peek", "--output", "self-chat — 2 message(s)")).startsWith("ok peek "));
+	strictEqual(rows()[0].action, "notify");
+	ok(rows()[0].note.includes("2 message(s)"));
+});
+
+await check("judge SKIP is recorded as log, not pushed", async () => {
+	await run("schedule", "add", "triage", "--every", "1", "--kind", "prompt", "--action", "noise", "--judge", "on", "--judge-prompt", "inject only outages");
+	dueAt("2026-11-10 12:00");
+	deepStrictEqual(await jobs.runDue({ session: false }, at("2026-11-10 12:00")), ["skip triage: needs a live omp or pi session"]);
+	const judge = async (prompt, output) => {
+		strictEqual(prompt, "inject only outages");
+		strictEqual(output, "noise");
+		return { verdict: "SKIP", summary: "nothing to report" };
+	};
+	ok((await jobs.runDue({ session: true, judge }, at("2026-11-10 12:00")))[0].startsWith("skip triage"));
+	strictEqual(rows()[0].action, "log");
+	strictEqual(jobs.readJobs()[0].last.status, "skip");
+	ok((await run("schedule", "widget")).includes("last skip"));
+});
+
+await check("judge INJECT can summarize", async () => {
+	await run("schedule", "add", "triage", "--every", "1", "--kind", "prompt", "--action", "disk full on host b", "--judge", "on", "--judge-prompt", "inject only outages");
+	dueAt("2026-11-10 12:01");
+	const judge = async () => ({ verdict: "INJECT", summary: "host b is full" });
+	ok((await jobs.runDue({ session: true, judge }, at("2026-11-10 12:01")))[0].startsWith("ok triage"));
+	strictEqual(rows()[0].action, "notify");
+	ok(rows()[0].note.startsWith("host b is full"));
+});
+
+await check("a failed shell records a FAILED row", async () => {
+	await run("schedule", "add", "bad", "--every", "1", "--kind", "shell", "--action", '["false"]');
+	dueAt("2026-11-10 12:00");
+	ok((await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0].startsWith("fail bad"));
+	strictEqual(jobs.readJobs()[0].last.status, "fail");
+	ok(rows()[0].subject.endsWith("FAILED"));
+});
+
+await check("a prompt job runs the agent with {{since}} filled and keeps the owner", async () => {
+	await run("schedule", "add", "ping", "--every", "1", "--kind", "prompt", "--action", "since {{since}}", "--owner", "lin");
+	const all = jobs.readJobs();
+	all[0].next_fire = "2026-11-10 12:00";
+	all[0].last_ok = "2026-11-10 11:00";
+	jobs.writeJobs(all);
+	await jobs.runDue({ session: false }, at("2026-11-10 12:00"));
+	strictEqual(rows()[0].owner, "lin");
+	strictEqual(rows()[0].action, "notify");
+	strictEqual(rows()[0].note, "since 2026-11-10 11:00");
+});
+
+await check("verdict FAIL records a row and advances", async () => {
+	await run("schedule", "add", "boom", "--every", "1", "--kind", "tool", "--action", '{"name": "teams_read", "args": {"target": "self"}}');
+	const due = stamp(new Date(Date.now() - 60_000));
+	dueAt(due);
+	ok((await run("schedule", "finish", "boom", "--output", "teams down", "--verdict", "FAIL", "--summary", "teams down")).startsWith("fail boom"));
+	strictEqual(jobs.readJobs()[0].last.status, "fail");
+	ok(jobs.readJobs()[0].next_fire !== due);
+	strictEqual(rows()[0].action, "notify");
+	strictEqual(rows()[0].note, "teams down");
+});
+
+await check("a foreign tool becomes one `do` row and advances", async () => {
+	await run("schedule", "add", "reader", "--every", "1", "--kind", "tool", "--action", '{"name": "read", "args": {"path": "/etc/hostname"}}');
+	dueAt("2026-11-11 01:14");
+	ok((await jobs.runDue({ session: true }, at("2026-11-11 01:14")))[0].startsWith("dispatched reader"));
+	ok(jobs.readJobs()[0].next_fire !== "2026-11-11 01:14");
+	strictEqual(rows().length, 1);
+	strictEqual(rows()[0].action, "do");
+	strictEqual(rows()[0].note, 'call the tool read with {"path":"/etc/hostname"}');
+});
+
+await check("a judged foreign tool is rejected", async () => {
+	await rejects(() => run("schedule", "add", "reader", "--every", "1", "--kind", "tool", "--action", '{"name": "read", "args": {}}', "--judge", "on", "--judge-prompt", "rule"), /cannot be judged/);
+});
+
+await check("a disabled job never fires; enable gives it a next fire", async () => {
+	strictEqual(await run("schedule", "add", "later", "--every", "5", "--kind", "shell", "--action", '["true"]', "--disabled"), "added later (disabled)");
+	deepStrictEqual(await jobs.runDue({ session: true }, at("2030-01-01 00:00")), []);
+	ok((await run("schedule", "enable", "later")).length > 0);
+	ok(jobs.readJobs()[0].next_fire);
+});
+
+await check("cron steps and ranges", async () => {
+	ok(jobs.cronMatches("*/15 * * * *", at("2026-11-10 12:45")));
+	ok(!jobs.cronMatches("*/15 * * * *", at("2026-11-10 12:46")));
+	ok(jobs.cronMatches("0 9 * * 1-5", at("2026-11-09 09:00")));
+	ok(!jobs.cronMatches("0 9 * * 1-5", at("2026-11-08 09:00")));
+	strictEqual(stamp(jobs.nextFire({ cron: "0 9 * * 1" }, at("2026-11-10 12:00"))), "2026-11-16 09:00");
+});
+
+await check("day fields are OR only when both are restricted (cronie)", async () => {
+	ok(jobs.cronMatches("0 9 1 * 1", at("2026-12-01 09:00")));
+	ok(jobs.cronMatches("0 9 1 * 1", at("2026-11-16 09:00")));
+	ok(!jobs.cronMatches("0 9 1 * 1", at("2026-11-17 09:00")));
+	ok(jobs.cronMatches("0 9 * * 1", at("2026-11-16 09:00")));
+	ok(!jobs.cronMatches("0 9 * * 1", at("2026-12-01 09:00")));
+	ok(jobs.cronMatches("0 9 */1 * 1", at("2026-11-16 09:00")));
+	ok(!jobs.cronMatches("0 9 */1 * 1", at("2026-11-17 09:00")));
+	ok(jobs.cronMatches("0 9 1 * */1", at("2026-12-01 09:00")));
+	ok(!jobs.cronMatches("0 9 1 * */1", at("2026-11-17 09:00")));
+});
+
+await check("bad input is an error", async () => {
+	await rejects(() => run("schedule", "add", "Bad", "--every", "1", "--kind", "prompt", "--action", "x"), /job name/);
+	await rejects(() => run("schedule", "add", "both", "--every", "1", "--cron", "* * * * *", "--kind", "prompt", "--action", "x"), /exactly one/);
+	await rejects(() => run("schedule", "add", "nope", "--every", "1", "--kind", "tool", "--action", "nope"));
+});
+
+await check("show round-trips the tool spec", async () => {
+	await run("schedule", "add", "peek", "--cron", "*/5 * * * *", "--kind", "tool", "--action", '{"name": "teams_read", "args": {"target": "self", "limit": 5}}', "--owner", "wayne");
+	const spec = JSON.parse(await run("schedule", "show", "peek"));
+	deepStrictEqual(spec.action, { kind: "tool", name: "teams_read", args: { target: "self", limit: 5 } });
+	strictEqual(spec.owner, "wayne");
+	strictEqual(YAML.parse(readFileSync(join(home, "rules.yaml"), "utf8")).schedule[0].name, "peek");
+});
+
+console.log(failed === 0 ? "all green" : `${failed} failed`);
+process.exit(failed === 0 ? 0 : 1);
