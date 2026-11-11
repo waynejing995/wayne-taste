@@ -317,8 +317,9 @@ async function execute(job: Job, o: RunOptions): Promise<Outcome> {
 
 /** One ledger row for this fire; recordDirect dedups by key, so the same fire writes one row. A quiet job's success writes none. */
 function record(job: Job, fire: string, out: Outcome): string {
-	if (job.quiet && !out.error) return `quiet ${job.name}:${fire}`;
-	const subject = (out.error ? `${job.name} ${fire} FAILED` : `${job.name} ${fire}`).slice(0, 200);
+	const fail = out.status === "fail";
+	if (job.quiet && !fail) return `quiet ${job.name}:${fire}`;
+	const subject = (fail ? `${job.name} ${fire} FAILED` : `${job.name} ${fire}`).slice(0, 200);
 	recordDirect("schedule", out.action, `${job.name}:${fire}`, subject, "schedule", (out.error ?? out.text).slice(0, OUTPUT_CAP), "", job.owner || "wayne");
 	return `${out.action} ${job.name}:${fire}`;
 }
@@ -326,7 +327,7 @@ function record(job: Job, fire: string, out: Outcome): string {
 function advance(job: Job, at: Date, out: Outcome): void {
 	job.next_fire = stamp(nextFire(job, at));
 	job.last = { status: out.status, at: stamp(at), detail: out.detail.slice(0, 200) };
-	if (!out.error) job.last_ok = stamp(at);
+	if (out.status !== "fail") job.last_ok = stamp(at);
 	job.fires = Number(job.fires ?? 0) + 1;
 }
 

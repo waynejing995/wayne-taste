@@ -185,6 +185,19 @@ await check("verdict FAIL records a row and advances", async () => {
 	strictEqual(rows()[0].note, "teams down");
 });
 
+await check("a quiet job's FAIL verdict writes a notify row and keeps last_ok", async () => {
+	await run("schedule", "add", "hushfail", "--every", "1", "--kind", "tool", "--action", '{"name": "teams_read", "args": {"target": "self"}}', "--quiet");
+	const all = jobs.readJobs();
+	all[0].last_ok = "2026-11-10 08:00";
+	jobs.writeJobs(all);
+	dueAt(stamp(new Date(Date.now() - 60_000)));
+	ok((await run("schedule", "finish", "hushfail", "--output", "teams down", "--verdict", "FAIL")).startsWith("fail hushfail"));
+	strictEqual(jobs.readJobs()[0].last_ok, "2026-11-10 08:00", "a failed fire must not move {{since}} past its window");
+	strictEqual(rows().length, 1);
+	strictEqual(rows()[0].action, "notify");
+	ok(rows()[0].subject.endsWith("FAILED"));
+});
+
 await check("a foreign tool becomes one `do` row and advances", async () => {
 	await run("schedule", "add", "reader", "--every", "1", "--kind", "tool", "--action", '{"name": "read", "args": {"path": "/etc/hostname"}}');
 	dueAt("2026-11-11 01:14");
