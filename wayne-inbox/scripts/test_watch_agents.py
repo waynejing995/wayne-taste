@@ -287,6 +287,22 @@ def test_unchanged_session_is_not_resent_and_a_changed_one_is(env):
     assert env.sent()[1].splitlines()[1].endswith("\u00b7 last pane line")
 
 
+def test_status_change_with_the_same_tail_is_sent(env):
+    def waiting(now, want):
+        p = omp_live(now, want)
+        p.update(state="blocked", waiting=True)
+        return p
+    env.watch("alpha", omp_live)
+    env.main()
+    env.watch("alpha", waiting)
+    env.now = T0 + 30 * 60
+    result = env.main()
+    assert result.exit_code == 0, result.output
+    assert [[r["status"] for r in c["agents"]] for c in env.cards()] == [["working"], ["waiting on question"]], \
+        "same tail, new status: Wayne must see the session now waits on him"
+    assert env.cards()[0]["agents"][0]["tail"] == env.cards()[1]["agents"][0]["tail"]
+
+
 def test_only_changed_sessions_are_in_the_digest(env):
     env.watch("alpha", omp_live)
     env.watch("beta", omp_live)
@@ -317,7 +333,7 @@ def test_push_finished_session_only_gets_a_digest_and_is_not_removed(env):
     assert env.probes == [("alpha", True)]
     assert [c[0] for c in env.calls] == ["omp"]
     assert env.state()["alpha"] == {"last_active": T0, "last_seen": T0,
-                                    "digested": "- alpha \u00b7 local \u00b7 tail latest answer"}
+                                    "digested": "done:- alpha \u00b7 local \u00b7 tail latest answer"}
     assert json.loads(env.rules.read_text())["agent_watch"][0]["name"] == "alpha"
 
     env.now = T0 + 120

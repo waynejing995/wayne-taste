@@ -353,9 +353,10 @@ def digest_probe(a: dict, st: dict) -> tuple[str, dict] | None:
     return session_entry(a, st, p) if p["alive"] else None
 
 
-def unchanged(line: str) -> str:
-    """What a digest line says, minus its `last activity` time: the part compared with the last digest sent."""
-    return re.sub(r" \u00b7 last activity \d\d:\d\d", "", line)
+def unchanged(line: str, card_row: dict) -> str:
+    """What a session's digest entry says, minus its `last activity` time: the part compared with the last digest sent.
+    The card status is part of it, so a session turning to `waiting on question` with the same tail is still news."""
+    return f"{card_row['status']}:" + re.sub(r" \u00b7 last activity \d\d:\d\d", "", line)
 
 
 @click.command()
@@ -407,9 +408,9 @@ def main(stall_min: int, digest_min: int, verbose: bool) -> None:
         except Exception as e:  # one session's failure must not hide the others'
             failed += 1
             logger.error("{}: {}", a["name"], e)
-    # Only new information goes out: a line equal to the one last sent for that session is dropped.
-    fresh = [(name, line, unchanged(line), card_row) for name, line, card_row in lines
-             if unchanged(line) != state.get(name, {}).get("digested")]
+    # Only new information goes out: an entry equal to the one last sent for that session is dropped.
+    fresh = [(name, line, unchanged(line, card_row), card_row) for name, line, card_row in lines
+             if unchanged(line, card_row) != state.get(name, {}).get("digested")]
     if digest_due and lines and not fresh:
         # Checked and nothing to say: the next look is a full interval away, like after a sent digest.
         logger.info("progress digest due, nothing changed since the last one; not sent")
