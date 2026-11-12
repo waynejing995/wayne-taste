@@ -511,6 +511,9 @@ export class AgentTailer {
 					}
 					this.clearError(`rm:${ev.name}`);
 					if (replacement && replacement.generation !== generation) {
+						// This session's round retired the old registration, not the replacement: its later events are that
+						// round settling (see retiredAt) and must not retire the replacement.
+						replacement.retiredAt = { session: ev.session, seq: ev.seq, said };
 						this.names[ev.name] = replacement;
 						return;
 					}

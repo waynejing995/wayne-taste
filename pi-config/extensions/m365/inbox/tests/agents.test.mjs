@@ -164,6 +164,26 @@ await check("a re-registration survives result cleanup", () => withFixture(async
 	equal(f.saved().names.one.status, undefined);
 }));
 
+await check("a late result from the session that retired the old registration keeps the re-registration", () => withFixture(async (f) => {
+	const first = { ...f.watched(), generation: "old" };
+	await f.start([first]);
+	let release;
+	const held = new Promise((resolve) => { release = resolve; });
+	const add = f.tailer.add.bind(f.tailer);
+	f.tailer.add = async (...args) => { await held; return add(...args); };
+	f.append(f.event("result", 1, { text: "finished", result: { status: "done", path: "/answer" } }));
+	const running = f.tailer.poke();
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	f.writeRules([{ ...f.watched(), generation: "new", since: "2026-11-09 00:01" }]);
+	release();
+	await running;
+	f.tailer.add = add;
+	f.append(f.event("result", 2, { text: "late", result: { status: "done", path: "/late" } }));
+	await f.tailer.poke();
+	deepStrictEqual(f.tailer.entries.map((e) => e.generation), ["new"]);
+	deepStrictEqual(f.calls.filter((c) => c[0] === "agent" && c[1] === "rm"), []);
+}));
+
 await check("an unchanged status makes no second card; a changed one does", () => withFixture(async (f) => {
 	await f.start();
 	const partial = (seq, open, text) => f.event("result", seq, { text, result: { status: "partial", path: "/r", open } });
