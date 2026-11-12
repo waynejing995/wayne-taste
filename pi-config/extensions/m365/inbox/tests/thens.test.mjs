@@ -221,5 +221,14 @@ await check("a busy rules lock fails agent add before its plan is armed", async 
 	deepStrictEqual(readThens(), [], "no plan armed for a registration that was not written");
 });
 
+await check("agent add keeps a then someone added by hand for the same agent", async () => {
+	const id = await row();
+	await inbox(["then", id, "--when", "agent-result:fixer", "--", "verify the fix by hand"]);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan one"]);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan two"]);
+	const open = readThens().filter((t) => !t.done).map((t) => t.action);
+	deepStrictEqual(open, ["verify the fix by hand", "plan two"]);
+});
+
 console.log(failed === 0 ? "all green" : `${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

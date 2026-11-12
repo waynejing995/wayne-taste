@@ -52,10 +52,12 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 	// Seconds, not minutes: the push tailer tells a re-registration of the same name by a changed `since`.
 	entry.since = stamp(new Date(), true);
 	entry.generation = randomUUID();
-	// Under the rules lock, so the plan is armed only for the registration that is written.
+	// Under the rules lock, so the plan is armed only for the registration that is written, and a racing add of the
+	// same name cannot cancel a plan it did not replace.
 	return withRulesLock(() => {
 		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
-		const then = addThen(a.row, `agent-result:${a.name}`, a.then, true);
+		const replaces = agents.find((e) => e.name === a.name)?.generation;
+		const then = addThen(a.row, `agent-result:${a.name}`, a.then, { generation: entry.generation!, replaces });
 		writeAgents([...agents.filter((e) => e.name !== a.name), entry]);
 		return `watching ${a.name}; ${then}`;
 	});

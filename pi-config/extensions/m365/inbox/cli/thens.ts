@@ -34,6 +34,8 @@ export interface Then {
 	reminded?: string;
 	done?: string;
 	note?: string;
+	/** Set by `agent add`: the registration whose plan this is. A re-registration cancels only that plan. */
+	generation?: string;
 }
 
 const REMIND_MIN = 10;
@@ -71,7 +73,11 @@ function withThens<T>(fn: (thens: Then[], save: () => void) => T): T {
 const allRows = (): Row[] => [...readTsv(inboxFile("ledger.tsv")), ...readTsv(inboxFile("archive.tsv"))];
 const label = (t: Then) => `${t.row}.${t.n}`;
 
-export function addThen(row: string, when: string, action: string, replace = false): string {
+/**
+ * `agent` marks a registration's plan: its generation is stored, and `replaces` (the generation it supersedes)
+ * cancels that registration's unfired plan. A then added by hand is never cancelled this way.
+ */
+export function addThen(row: string, when: string, action: string, agent?: { generation: string; replaces?: string }): string {
 	if (!TRIGGERS.some(([re]) => re.test(when)))
 		throw new InboxError(`bad trigger '${when}': expected one of ${TRIGGERS.map(([, h]) => h).join(", ")}`);
 	// Date() rolls an impossible time over (13th month, 99:00) instead of failing; the round trip catches it.
@@ -81,10 +87,10 @@ export function addThen(row: string, when: string, action: string, replace = fal
 	if (!live.some((r) => r.id === row)) throw new InboxError(`no such live id: ${row}`);
 	const after = allRows().reduce((max, r) => Math.max(max, Number(r.id)), 0);
 	return withThens((thens, save) => {
-		const prior = replace ? thens.filter((t) => t.when === when && !t.fired && !t.done) : [];
+		const prior = agent?.replaces ? thens.filter((t) => t.when === when && t.generation === agent.replaces && !t.fired && !t.done) : [];
 		for (const t of prior) Object.assign(t, { done: stamp(), note: "replaced by a new registration" });
 		const n = thens.filter((t) => t.row === row).reduce((max, t) => Math.max(max, t.n), 0) + 1;
-		thens.push({ row, n, when, action, added: stamp(), after });
+		thens.push({ row, n, when, action, added: stamp(), after, ...(agent ? { generation: agent.generation } : {}) });
 		save();
 		return `then ${row}.${n} waits for ${when}`;
 	});
