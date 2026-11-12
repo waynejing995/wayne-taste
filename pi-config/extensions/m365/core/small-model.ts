@@ -38,7 +38,9 @@ export async function askSmall(ctx: ExtensionContext, systemPrompt: string, user
 	const target = "baseUrl" in auth && auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model;
 	// disableReasoning is omp's switch for a short answer; pi's options type lacks it, and pi ignores it.
 	const options = { apiKey: auth.apiKey, headers: auth.headers, maxTokens: MAX_TOKENS, disableReasoning: true, signal: AbortSignal.timeout(TIMEOUT_MS) };
-	const reply = await completeSimple(target, { systemPrompt, messages: [{ role: "user", timestamp: Date.now(), content: user }] }, options);
+	// omp declares systemPrompt as string[] but normalizes a plain string too (pi-ai normalizeSystemPrompts); pi declares
+	// and reads a string. A string is the one value both hosts accept, so only omp's declaration is widened here.
+	const reply = await completeSimple(target, { systemPrompt: systemPrompt as string & string[], messages: [{ role: "user", timestamp: Date.now(), content: user }] }, options);
 	const name = `${model.provider}/${model.id}`;
 	if (reply.stopReason === "error" || reply.stopReason === "aborted") throw new Error(`${name}: ${reply.errorMessage || reply.stopReason}`);
 	const text = reply.content
