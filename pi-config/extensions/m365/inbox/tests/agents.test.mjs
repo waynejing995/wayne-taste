@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { PassThrough } from "node:stream";
 import YAML from "yaml";
-import { AgentTailer } from "../agents.ts";
+import { AgentTailer, readEntries } from "../agents.ts";
 import { readAgents } from "../cli/agents.ts";
 
 
@@ -607,5 +607,20 @@ await check("real ssh child reconnects from the advanced byte offset", () => wit
 		if (oldLog === undefined) delete process.env.AGENT_TEST_LOG; else process.env.AGENT_TEST_LOG = oldLog;
 	}
 }, { backoffMs: 25 }));
+
+await check("readEntries uses the supplied rules text and directory", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-read-entries-"));
+	const saved = process.env.WAYNE_INBOX_DIR;
+	process.env.WAYNE_INBOX_DIR = dir;
+	try {
+		fs.writeFileSync(path.join(dir, "rules.yaml"), YAML.stringify({ agent_watch: [{ name: "other", mux: "tern", pane: "1", host: "local", push: true, generation: "other" }] }));
+		const text = YAML.stringify({ agent_watch: [{ name: "one", mux: "tern", pane: "1", host: "", push: true, generation: "one" }] });
+		deepStrictEqual(readEntries(text, dir).map((entry) => entry.name), ["one"]);
+		equal(readEntries(text, dir)[0].host, "local");
+	} finally {
+		if (saved === undefined) delete process.env.WAYNE_INBOX_DIR; else process.env.WAYNE_INBOX_DIR = saved;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
 
 process.exit(failed === 0 ? 0 : 1);

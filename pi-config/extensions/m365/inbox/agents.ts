@@ -9,6 +9,7 @@
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import YAML from "yaml";
 import { readAgents } from "./cli/agents.ts";
 
 
@@ -112,8 +113,19 @@ function rowSays(ev: Event): string {
 	return ev.text ?? "";
 }
 
-function readEntries(): Entry[] {
-	return readAgents().filter((entry) => entry.push === true).map((entry) => ({ ...entry, host: entry.host || "local" }));
+export function readEntries(text: string, dir: string): Entry[] {
+	const saved = process.env.WAYNE_INBOX_DIR;
+	process.env.WAYNE_INBOX_DIR = dir;
+	try {
+		const parsed = YAML.parse(text) ?? {};
+		const list = parsed.agent_watch ?? [];
+		if (!Array.isArray(list)) throw new Error("agent_watch must be a list");
+		const entries = list as Entry[];
+		if (entries.some((entry) => !entry.generation)) readAgents();
+		return entries.filter((entry) => entry.push === true).map((entry) => ({ ...entry, host: entry.host || "local" }));
+	} finally {
+		if (saved === undefined) delete process.env.WAYNE_INBOX_DIR; else process.env.WAYNE_INBOX_DIR = saved;
+	}
 }
 
 export class AgentTailer {
@@ -279,7 +291,7 @@ export class AgentTailer {
 		this.rulesMtime = mtime;
 		const previous = this.entries;
 		try {
-			this.entries = readEntries();
+			this.entries = readEntries(mtime === null ? "" : fs.readFileSync(this.rulesFile, "utf8"), path.dirname(this.rulesFile));
 			this.clearError("rules");
 		} catch (e) {
 			this.fail("rules", e);
