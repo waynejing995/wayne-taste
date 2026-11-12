@@ -48,6 +48,8 @@ export interface Probe {
 	rmtime: number;
 	rstatus: string;
 	ropen?: string;
+	/** The RESULT has a `Questions` heading: the agent stopped to ask the user. */
+	rquestions?: boolean;
 	now: number;
 	kind?: "jsonl" | "pane";
 	tail?: string;
@@ -166,10 +168,14 @@ export function cardRow(a: AgentEntry, st: SessionState, now: number, status: Ag
 	return { name: a.name, host: a.host || "local", idle_min: idle, status, tail };
 }
 
-/** Anything but working or a done RESULT waits on the user: a blocked pane, a turn ended without RESULT, a partial one. */
+/**
+ * Only a real ask needs the user: a pending ask card or approval (state blocked), or a RESULT blocked with a Questions
+ * section. A turn that ended otherwise -- no RESULT, awaiting review, partial -- is idle, not a question.
+ */
 export function cardStatus(p: Probe): AgentStatus {
 	if (p.rstatus === "done") return "done";
-	if (p.rstatus || p.waiting || ["blocked", "idle", "done"].includes(p.state)) return "waiting on question";
+	if (p.state === "blocked" || (p.rstatus === "blocked" && p.rquestions)) return "waiting on question";
+	if (p.rstatus || p.waiting || ["idle", "done"].includes(p.state)) return "idle";
 	return "working";
 }
 

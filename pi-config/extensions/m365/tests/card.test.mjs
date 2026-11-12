@@ -97,6 +97,13 @@ await check("idle timer turns yellow at 10 min and red at 30, and reads hours pa
 	equal(idleLabel(7.9).label, "idle 7 min");
 });
 
+await check("a working agent quiet under 10 min reads 'working', not 'idle 0 min'; quieter ones keep the timer", () => {
+	const row = (status, idle_min) => JSON.stringify(buildCard({ text: "x", agents: [{ name: "a", host: "local", idle_min, status }] }));
+	ok(row("working", 0).includes('"working"') && !row("working", 0).includes("idle 0 min"));
+	ok(row("working", 12).includes("idle 12 min"));
+	ok(row("done", 0).includes("idle 0 min"));
+});
+
 await check("agents that need the user come first, longest idle first within a status", () => {
 	const rows = [
 		{ name: "a", host: "h", idle_min: 1, status: "working" },
@@ -104,10 +111,11 @@ await check("agents that need the user come first, longest idle first within a s
 		{ name: "c", host: "h", idle_min: 2, status: "waiting on question" },
 		{ name: "d", host: "h", idle_min: 40, status: "probe failed" },
 		{ name: "e", host: "h", idle_min: 9, status: "waiting on question" },
+		{ name: "f", host: "h", idle_min: 30, status: "idle" },
 	];
-	deepStrictEqual(sortAgents(rows).map((r) => r.name), ["e", "c", "d", "b", "a"]);
+	deepStrictEqual(sortAgents(rows).map((r) => r.name), ["e", "c", "d", "f", "b", "a"]);
 	const text = cardText(buildCard({ text: "", agents: rows }));
-	ok(text.includes("3 need you · 2 other"));
+	ok(text.includes("3 need you · 3 other"), "an idle agent is not one that needs you");
 	throws(() => buildCard({ text: "", agents: [{ name: "x", host: "h", idle_min: 1, status: "sleeping" }] }), /unknown status/);
 });
 
@@ -158,11 +166,11 @@ await check("a self card goes through Graph to 48:notes, not chatsvc", async () 
 	equal(seen.at(-1).url, "https://graph.microsoft.com/v1.0/chats/48:notes/messages");
 });
 
-await check("images with a card are refused before anything is read or posted", async () => {
+await check("a missing image beside a card is refused before anything is posted", async () => {
 	const { seen, b } = graphBackend();
 	let err = "";
 	await b.send({ kind: "self" }, "", true, [], ["/nonexistent.png"], buildCard({ text: "x" })).catch((e) => (err = e.message));
-	ok(/not with a card/.test(err), err);
+	ok(/ENOENT/.test(err), err);
 	equal(seen.length, 0);
 });
 

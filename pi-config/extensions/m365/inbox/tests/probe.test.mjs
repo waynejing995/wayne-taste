@@ -15,7 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import YAML from "yaml";
-import { CARD_PROMPT, latestLine, paneLine, probeAgents, runProbe } from "../cli/probe.ts";
+import { CARD_PROMPT, cardStatus, latestLine, paneLine, probeAgents, runProbe } from "../cli/probe.ts";
 
 let failed = 0;
 async function check(label, fn) {
@@ -672,6 +672,49 @@ for (const [text, status] of RESULT_CASES) {
 		}),
 	);
 }
+
+// ---- the progress card's status: only a real ask needs the user ----
+
+const probeOf = (o) => ({ alive: true, agent: "omp", state: "", session: "/s.jsonl", smtime: 0, waiting: false, text: "", rmtime: 0, rstatus: "", now: 0, ...o });
+for (const [label, o, want] of [
+	["a RESULT awaiting review", { rstatus: "awaiting_review", rmtime: 1, waiting: true }, "idle"],
+	["a partial RESULT, turn ended", { rstatus: "partial", rmtime: 1, waiting: true }, "idle"],
+	["a turn that ended with no RESULT", { waiting: true }, "idle"],
+	["herdr idle, no RESULT", { agent: "", session: "", state: "idle" }, "idle"],
+	["a RESULT blocked with no questions", { rstatus: "blocked", rmtime: 1, waiting: true }, "idle"],
+	["a pending ask card", { state: "blocked" }, "waiting on question"],
+	["herdr or hc waiting on an approval", { agent: "", session: "", state: "blocked" }, "waiting on question"],
+	["a RESULT blocked with ## Questions", { rstatus: "blocked", rquestions: true, rmtime: 1, waiting: true }, "waiting on question"],
+	["a done RESULT", { rstatus: "done", rmtime: 1, waiting: true }, "done"],
+	["output still coming", {}, "working"],
+]) {
+	await check(`card status: ${label} is "${want}"`, () => strictEqual(cardStatus(probeOf(o)), want));
+}
+
+for (const [label, text, want] of [
+	["a ## Questions section", "status: blocked\n\n## Questions\n1. which one?\n", true],
+	["a # Questions heading", "status: blocked\n# Questions\n- a\n", true],
+	["no questions section", "status: blocked\nopen: the word Questions in a sentence\n", false],
+]) {
+	await check(`probe.sh reads ${label} in the RESULT as rquestions=${want}`, () =>
+		withFixture(async (f) => {
+			const resultFile = path.join(f.dir, "RESULT.md");
+			fs.writeFileSync(resultFile, text);
+			const r = await f.probeTern(null, "pane\n", { result: resultFile });
+			strictEqual(r.rquestions, want);
+		}),
+	);
+}
+
+await check("an agent idle awaiting review is not counted as needing the user", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "awaiting_review" }));
+		f.watch("beta", (now, want) => ({ ...ompLive(now, want), state: "blocked" }));
+		await f.run();
+		const [card] = f.cards();
+		deepStrictEqual(card.agents.map((r) => [r.name, r.status]), [["alpha", "idle"], ["beta", "waiting on question"]]);
+	}),
+);
 
 console.log(failed === 0 ? "all green" : `${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

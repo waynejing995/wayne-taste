@@ -51,7 +51,7 @@ export interface Link {
 	title: string;
 	url: string;
 }
-export const AGENT_STATUSES = ["waiting on question", "probe failed", "done", "working"] as const;
+export const AGENT_STATUSES = ["waiting on question", "probe failed", "idle", "done", "working"] as const;
 export type AgentStatus = (typeof AGENT_STATUSES)[number];
 export interface AgentRow {
 	name: string;
@@ -78,6 +78,7 @@ type El = Record<string, unknown>;
 const STATUS_ICON: Record<AgentStatus, string> = {
 	"waiting on question": "❓",
 	"probe failed": "⚠️",
+	idle: "💤",
 	done: "✅",
 	working: "⏳",
 };
@@ -92,14 +93,15 @@ export function idleLabel(min: number): { label: string; tone: Tone } {
 	return { label, tone: m < 10 ? "good" : m < 30 ? "warning" : "attention" };
 }
 
-/** Rows that need the user first (a question, a broken probe), then finished, then working; longest idle first within each. */
+/** Rows that need the user first (a question, a broken probe), then idle, finished, working; longest idle first within each. */
 export function sortAgents(rows: readonly AgentRow[]): AgentRow[] {
 	const rank = (s: AgentStatus) => AGENT_STATUSES.indexOf(s);
 	return [...rows].sort((a, b) => rank(a.status) - rank(b.status) || b.idle_min - a.idle_min);
 }
 
 function agentRow(row: AgentRow, i: number): El {
-	const idle = idleLabel(row.idle_min);
+	// A working agent that produced output in the last 10 min is just working; "idle 0 min" reads as stuck.
+	const idle = row.status === "working" && row.idle_min < 10 ? { label: "working", tone: "good" as Tone } : idleLabel(row.idle_min);
 	const tailId = `tail-${i}`;
 	return {
 		type: "Container",
@@ -114,7 +116,7 @@ function agentRow(row: AgentRow, i: number): El {
 					{
 						type: "Column",
 						width: "stretch",
-						items: [text(row.name, { weight: "Bolder" }), text(`${row.host} · ${row.status}${row.tail ? " · tap for tail" : ""}`, { isSubtle: true, size: "Small", spacing: "None" })],
+						items: [text(row.name, { weight: "Bolder" }), text(`${row.host}${idle.label === row.status ? "" : ` · ${row.status}`}${row.tail ? " · tap for tail" : ""}`, { isSubtle: true, size: "Small", spacing: "None" })],
 					},
 					{ type: "Column", width: "auto", verticalContentAlignment: "Center", items: [text(idle.label, { color: TONE_COLOR[idle.tone], weight: "Bolder" })] },
 				],
