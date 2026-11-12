@@ -42,6 +42,8 @@ interface NameState {
 	generation?: string;
 	pid?: number;
 	session?: string;
+	/** The last event's seq in `session`. */
+	seq?: number;
 	status?: string;
 	/** Events that arrived before the name was registered; replayed on registration. */
 	pending?: { host: string; event: Event }[];
@@ -53,6 +55,8 @@ interface NameState {
 	 * sent to it, delivered once the name is registered again. A turn an extension started (an advisor message) is the
 	 * same round going on, so its `result done` repeats the one that retired the name. A new session reporting under
 	 * the name (`superseded`) makes the old session a finished run for good.
+	 * A re-registration while a session is still reporting under the old registration marks that session's last event
+	 * the same way: the round belongs to the registration it started under, so its result never retires the new one.
 	 */
 	retiredAt?: { session: string; seq: number; said?: string; unmarked?: boolean; checked?: boolean; resumed?: boolean; superseded?: boolean };
 	/** What the last card added for this name said (rowSays with type and state); an identical next card is skipped. */
@@ -320,10 +324,13 @@ export class AgentTailer {
 			}
 			const pending = (old?.pending ?? []).filter((item) => item.host === entry.host);
 			if (pending.length < (old?.pending?.length ?? 0)) this.warn(`${entry.name}: dropped events from another host that arrived before registration`);
+			// Only a session that reported under an earlier registration; events held before any registration are its own.
+			const running = old?.generation !== undefined && old.session !== undefined && !old.removed && old.session !== old.retiredAt?.session;
+			const retiredAt = running ? { session: old.session!, seq: old.seq ?? 0 } : old?.retiredAt;
 			this.names[entry.name] = {
 				state: "registered", lastSeen: this.now(), host: entry.host, since: entry.since, generation: entry.generation,
 				...(pending.length > 0 ? { pending } : {}),
-				...(old?.retiredAt ? { retiredAt: old.retiredAt } : {}),
+				...(retiredAt ? { retiredAt } : {}),
 			};
 		}
 		this.syncStreams();
@@ -529,6 +536,7 @@ export class AgentTailer {
 			current.host = host;
 			current.pid = ev.pid;
 			current.session = ev.session;
+			current.seq = ev.seq;
 			if (ev.type !== "hb") {
 				current.state = ev.type;
 				current.status = ev.type === "result" ? ev.result?.status : undefined;

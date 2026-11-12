@@ -164,6 +164,30 @@ await check("a re-registration survives result cleanup", () => withFixture(async
 	equal(f.saved().names.one.status, undefined);
 }));
 
+await check("an old session's first result after a re-registration keeps the replacement", () => withFixture(async (f) => {
+	await f.start([{ ...f.watched(), generation: "old" }]);
+	f.append(f.event("working", 1));
+	await f.tailer.poke();
+	f.writeRules([{ ...f.watched(), generation: "new", since: "2026-11-09 00:01" }]);
+	await f.tailer.poke();
+	f.append(f.event("result", 2, { text: "old round", result: { status: "done", path: "/old" } }));
+	await f.tailer.poke();
+	deepStrictEqual(f.tailer.entries.map((e) => e.generation), ["new"]);
+	deepStrictEqual(f.calls.filter((c) => c[0] === "agent" && c[1] === "rm"), []);
+}));
+
+await check("a follow-up prompt to the old session after a re-registration belongs to the replacement", () => withFixture(async (f) => {
+	await f.start([{ ...f.watched(), generation: "old" }]);
+	f.append(f.event("working", 1));
+	await f.tailer.poke();
+	f.writeRules([{ ...f.watched(), generation: "new", since: "2026-11-09 00:01" }]);
+	await f.tailer.poke();
+	f.append(f.event("working", 2, { prompted: true }));
+	f.append(f.event("result", 3, { text: "follow-up", result: { status: "done", path: "/new" } }));
+	await f.tailer.poke();
+	deepStrictEqual(f.calls.filter((c) => c[0] === "agent" && c[1] === "rm"), [["agent", "rm", "one", "--generation", "new"]]);
+}));
+
 await check("a late result from the session that retired the old registration keeps the re-registration", () => withFixture(async (f) => {
 	const first = { ...f.watched(), generation: "old" };
 	await f.start([first]);
