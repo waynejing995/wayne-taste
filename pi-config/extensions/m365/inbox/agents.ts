@@ -9,7 +9,8 @@
 import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import YAML from "yaml";
+import { readAgents } from "./cli/agents.ts";
+
 
 export interface Deps {
 	dir: string;
@@ -111,11 +112,8 @@ function rowSays(ev: Event): string {
 	return ev.text ?? "";
 }
 
-/** The push entries of rules.yaml. A file that does not parse throws; the caller keeps the previous list. */
-function readEntries(text: string): Entry[] {
-	const list = (YAML.parse(text) ?? {}).agent_watch ?? [];
-	if (!Array.isArray(list)) throw new Error("agent_watch must be a list");
-	return list.filter((e: Entry) => e?.push === true).map((e: Entry) => ({ ...e, host: e.host || "local" }));
+function readEntries(): Entry[] {
+	return readAgents().filter((entry) => entry.push === true).map((entry) => ({ ...entry, host: entry.host || "local" }));
 }
 
 export class AgentTailer {
@@ -281,7 +279,7 @@ export class AgentTailer {
 		this.rulesMtime = mtime;
 		const previous = this.entries;
 		try {
-			this.entries = readEntries(mtime === null ? "" : fs.readFileSync(this.rulesFile, "utf8"));
+			this.entries = readEntries();
 			this.clearError("rules");
 		} catch (e) {
 			this.fail("rules", e);
@@ -479,17 +477,25 @@ export class AgentTailer {
 				retire = true;
 				try {
 					await this.refresh();
+					const replacement = this.names[ev.name];
 					const currentEntry = this.entries.find((item) => item.name === ev.name);
-					if (currentEntry) Object.assign(current, { generation: currentEntry.generation, since: currentEntry.since });
-					if (generation && currentEntry?.generation === generation) await this.inbox(["agent", "rm", ev.name, "--generation", generation]);
+					if (generation && currentEntry?.generation === generation) {
+						await this.inbox(["agent", "rm", ev.name, "--generation", generation]);
+						current.removed = true;
+						current.retiredAt = { session: ev.session, seq: ev.seq, said };
+						delete current.pending;
+					}
 					this.clearError(`rm:${ev.name}`);
+					if (replacement && replacement.generation !== generation) {
+						this.names[ev.name] = replacement;
+						return;
+					}
 				} catch (e) {
 					this.fail(`rm:${ev.name}`, e);
 				}
 			}
 		}
 		const dead = current.state === "dead";
-		// A superseded run's exit says nothing about the session now under this name.
 		const supersededRun = retiredAt?.superseded === true && ev.session === retiredAt.session;
 		if (!supersededRun && !(dead && seen <= current.lastSeen)) {
 			current.lastSeen = seen;

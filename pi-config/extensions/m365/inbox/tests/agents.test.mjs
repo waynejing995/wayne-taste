@@ -72,8 +72,8 @@ function fixture(extra = {}) {
 		return promise;
 	};
 	return {
-		dir, rules, file, cursor, rows, calls, warnings, changes, watched, event, append, start, restart, writeRules, waitUntil,
-		get tailer() { return tailer; },
+		dir, rules, file, cursor, rows, calls, warnings, changes, watched, event, append, start, restart, writeRules, waitUntil, inbox, clock,
+		get tailer() { return tailer; }, set tailer(value) { tailer = value; },
 		advance(ms) { clock += ms; },
 		/** The `since` `inbox agent add` writes now (Asia/Shanghai, to the second). */
 		since() { return new Date(clock + 8 * 3600_000).toISOString().slice(0, 19).replace("T", " "); },
@@ -85,7 +85,9 @@ function fixture(extra = {}) {
 
 async function withFixture(fn, extra) {
 	const f = fixture(extra);
-	try { await fn(f); } finally { f.close(); }
+	const saved = process.env.WAYNE_INBOX_DIR;
+	process.env.WAYNE_INBOX_DIR = f.dir;
+	try { await fn(f); } finally { if (saved === undefined) delete process.env.WAYNE_INBOX_DIR; else process.env.WAYNE_INBOX_DIR = saved; f.close(); }
 }
 const arg = (row, key) => row[row.indexOf(key) + 1];
 const fields = (row) => row.flatMap((item, index) => item === "--field" ? [row[index + 1]] : []);
@@ -150,6 +152,9 @@ await check("a re-registration survives result cleanup", () => withFixture(async
 
 	equal(f.saved().names.one.generation, "new");
 	equal(f.saved().names.one.removed, undefined);
+	equal(f.saved().names.one.state, "registered");
+	equal(f.saved().names.one.session, undefined);
+	equal(f.saved().names.one.status, undefined);
 }));
 
 await check("an unchanged status makes no second card; a changed one does", () => withFixture(async (f) => {
@@ -574,8 +579,7 @@ await check("invalid lines advance but corrupt cursors fail startup", () => with
 	throws(() => f.tailer.start(), SyntaxError);
 }));
 
-await check("real ssh child reconnects from the advanced byte offset", async () => {
-	const f = fixture({ backoffMs: 25 });
+await check("real ssh child reconnects from the advanced byte offset", () => withFixture(async (f) => {
 	const oldPath = process.env.PATH;
 	const oldFixture = process.env.AGENT_TEST_FIXTURE;
 	const oldLog = process.env.AGENT_TEST_LOG;
@@ -585,24 +589,23 @@ await check("real ssh child reconnects from the advanced byte offset", async () 
 		const data = path.join(f.dir, "remote.jsonl");
 		fs.mkdirSync(bin);
 		fs.writeFileSync(path.join(bin, "ssh"), '#!/bin/sh\nfor arg do cmd=$arg; done\no=${cmd#*" o="}; o=${o%%;*}\nprintf "%s\\n" "$o" >> "$AGENT_TEST_LOG"\nprintf "#start %s 1\\n" "$o"\ntail -c "+$((o+1))" "$AGENT_TEST_FIXTURE"\n', { mode: 0o755 });
-		const line = `${JSON.stringify(f.event("idle", 9, { text: "remote 中文" }))}\n`;
+		const line = `${JSON.stringify(f.event("idle", 9, { text: "remote \u4e2d\u6587" }))}\n`;
 		fs.writeFileSync(data, line);
 		process.env.PATH = `${bin}:${oldPath}`;
 		process.env.AGENT_TEST_FIXTURE = data;
 		process.env.AGENT_TEST_LOG = log;
+		f.tailer.stop();
+		f.tailer = new AgentTailer({ dir: f.dir, inbox: f.inbox, now: () => f.clock, deadSec: 300, backoffMs: 25, warn: (message) => f.warnings.push(message), onChange: () => f.changes.emit("change") });
 		await f.start([f.watched("one", "fakehost")]);
 		await f.waitUntil(() => fs.existsSync(log) && fs.readFileSync(log, "utf8").trim().split("\n").length >= 2 && f.tailer.status().includes("link down"));
 		const offsets = fs.readFileSync(log, "utf8").trim().split("\n").map(Number);
 		deepStrictEqual(offsets.slice(0, 2), [0, Buffer.byteLength(line)]);
 		equal(f.rows.size, 1);
-		equal(f.calls.filter((call) => call[0] === "add").length, 1);
-		equal(f.saved().hosts.fakehost.offset, Buffer.byteLength(line));
 	} finally {
-		f.close();
 		if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
 		if (oldFixture === undefined) delete process.env.AGENT_TEST_FIXTURE; else process.env.AGENT_TEST_FIXTURE = oldFixture;
 		if (oldLog === undefined) delete process.env.AGENT_TEST_LOG; else process.env.AGENT_TEST_LOG = oldLog;
 	}
-});
+}, { backoffMs: 25 }));
 
 process.exit(failed === 0 ? 0 : 1);

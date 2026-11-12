@@ -101,7 +101,7 @@ export function parseAction(kind: string, text: string): Action {
 		throw new InboxError('--action for tool must be {"name": "<tool>", "args": {...}}');
 	const args = spec.args ?? {};
 	if (typeof args !== "object" || args === null || Array.isArray(args)) throw new InboxError("tool args must be a JSON object");
-	return { kind, name: spec.name, args: args as Record<string, unknown> };
+	return { kind: "tool", name: spec.name, args: args as Record<string, unknown> };
 }
 
 /** JSON the way Python's json.dumps wrote it (`", "` and `": "`, non-ASCII escaped), so `schedule ls` reads the same. */
