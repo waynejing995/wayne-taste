@@ -161,6 +161,17 @@ const MAX_IMAGES_PER_READ = 4;
 const IMAGES_DIR = path.join(cacheDir, "teams-images");
 /** A picture larger than this is not downloaded: a screenshot is a few MB, so this is not one. */
 const IMAGE_DOWNLOAD_MAX = 20 * 1024 * 1024;
+const IMAGE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+function pruneImages(): void {
+	if (!fs.existsSync(IMAGES_DIR)) return;
+	const cutoff = Date.now() - IMAGE_CACHE_TTL_MS;
+	for (const name of fs.readdirSync(IMAGES_DIR)) {
+		const file = path.join(IMAGES_DIR, name);
+		try {
+			if (fs.statSync(file).mtimeMs < cutoff) fs.rmSync(file, { force: true });
+		} catch { /* removed concurrently */ }
+	}
+}
 /** A picture larger than this is saved but not attached: model APIs refuse images past ~5 MB of base64. */
 const IMAGE_ATTACH_MAX = 3_500_000;
 /**
@@ -175,12 +186,12 @@ const AGENT_FOOTER = `\n\n---\n\n*${AGENT_FOOTER_TEXT}*`;
 /** An image part of a tool result or a custom message, as pi and omp take it. */
 type ImagePart = { type: "image"; data: string; mimeType: string };
 /** Where a picture comes from: an inline image (Backend.image), or a file sent as an attachment (Backend.downloadFile). */
-type PictureSource = { url: string } | { file: string };
+type PictureSource = { url: string; source?: string } | { file: string };
 /** A file named like a picture. Only these are fetched as pictures; the rest stay file lines for teams_download. */
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp)$/i;
 /** A message's pictures, in order: the inline ones, then the files named like pictures. */
 const pictureSources = (m: HistoryMessage): PictureSource[] => [
-	...(m.images ?? []).map((url) => ({ url })),
+	...(m.images ?? []).map((url) => ({ url, ...(m.imageSource ? { source: m.imageSource } : {}) })),
 	...(m.files ?? []).filter((f) => IMAGE_FILE.test(f.name)).map((f) => ({ file: f.url })),
 ];
 
@@ -446,8 +457,8 @@ export default function (pi: ExtensionAPI) {
 	 * A picture from a message. The backend fetches it (it holds the token); the size is capped and the type sniffed
 	 * here, so bytes that are not a picture never reach the model or a viewer as one.
 	 */
-	async function fetchImage(url: string): Promise<{ bytes: Buffer; mime: string }> {
-		return sniffImage(await backend.image(url));
+	async function fetchImage(url: string, source?: string): Promise<{ bytes: Buffer; mime: string }> {
+		return sniffImage(await backend.image(url, source));
 	}
 
 	/** Capped and sniffed: bytes that are not a picture never reach the model or a viewer as one. */
@@ -501,8 +512,9 @@ export default function (pi: ExtensionAPI) {
 				continue;
 			}
 			try {
-				const { bytes, mime } = "file" in source ? await fetchImageFile(source.file) : await fetchImage(source.url);
-				fs.mkdirSync(IMAGES_DIR, { recursive: true });
+				const { bytes, mime } = "file" in source ? await fetchImageFile(source.file) : await fetchImage(source.url, source.source);
+				fs.mkdirSync(IMAGES_DIR, { recursive: true, mode: 0o700 });
+				pruneImages();
 				const file = path.join(IMAGES_DIR, `${createHash("sha256").update(bytes).digest("hex").slice(0, 24)}.${mime.slice(6)}`);
 				fs.writeFileSync(file, bytes, { mode: 0o600 });
 				if (bytes.length > IMAGE_ATTACH_MAX) {
@@ -883,9 +895,9 @@ export default function (pi: ExtensionAPI) {
 			const gate = `${answer} (${model}, ${Date.now() - started} ms)`;
 			return turn ? { turn, delivery: "starts a turn: the policy check found something to act on or reply to.", gate } : { turn, delivery: quiet, gate };
 		} catch (e) {
-			const error = e instanceof Error ? e.message : String(e);
-			watchCtx?.ui.notify(`Teams watch "${label}": policy check failed, so this card starts a turn: ${error}`, "warning");
-			return { turn: true, delivery: `starts a turn: the policy check failed (${error}), so decide from the policy yourself.`, gate: `error: ${error}` };
+			watchCtx?.ui.notify(`Teams watch "${label}": policy check failed, so this card starts a turn`, "warning");
+			console.warn(`[teams] policy check failed for "${label}": ${e instanceof Error ? e.message : String(e)}`);
+			return { turn: true, delivery: "starts a turn: the policy check failed, so decide from the policy yourself.", gate: "error" };
 		}
 	}
 
@@ -944,12 +956,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			runCommands();
 			// decideTurn never throws: a failed gate comes back as a turn.
-			// The pictures are fetched beside the gates: the card carries them as image parts, so the agent sees what was
-			// pasted, not "[image]".
-			const [verdicts, pictures] = await Promise.all([
-				Promise.all(batches.map((b) => decideTurn(b.w.owner.label, b.chatId, b.read.news, b.policy))),
-				Promise.all(batches.map((b) => cardPictures(b.w.owner.label, b.read.news))),
-			]);
+			// Pictures are fetched only for chats that start a turn. Display-only cards carry text, not downloads.
+			const verdicts = await Promise.all(batches.map((b) => decideTurn(b.w.owner.label, b.chatId, b.read.news, b.policy)));
+			const pictures = await Promise.all(batches.map((b, i) => verdicts[i].turn ? cardPictures(b.w.owner.label, b.read.news) : Promise.resolve({ perMessage: [], parts: [], note: "" })));
 			batches.forEach(({ chatId, w, read, policy }, i) => {
 				// Stopped while the gate was asked: the card belongs to no watch now.
 				if (watches.get(chatId) !== w) return;
@@ -1099,8 +1108,8 @@ export default function (pi: ExtensionAPI) {
 			images: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"Local PNG/JPEG/GIF file paths, shown inline under the text (or under the card) in any target. " +
-						"![alt](local path) in `message` does the same.",
+					"Local PNG/JPEG/GIF file paths, shown inline under the text (or under the card) in any target. " +
+					"Only paths in this parameter are read.",
 				}),
 			),
 			card: Type.Optional(
@@ -1157,11 +1166,8 @@ export default function (pi: ExtensionAPI) {
 			),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
-			// A local ![]() in the Markdown is a picture to upload, not a link Teams could follow: cut out of the text,
-			// sent with `images`. Relative paths are the agent's, so they resolve against its working directory.
-			const inline = localImages(params.message);
-			const images = [...(params.images ?? []), ...inline.paths].map((p) => path.resolve(ctx.cwd ?? process.cwd(), p));
-			const message = inline.markdown;
+			const images = (params.images ?? []).map((p) => path.resolve(ctx.cwd ?? process.cwd(), p));
+			const message = params.message;
 			let target: SendTarget;
 			if (params.target === "self") {
 				target = { kind: "self" };
@@ -1270,7 +1276,7 @@ export default function (pi: ExtensionAPI) {
 			// expensive in context and a chat can hold many. A picture that
 			// could not be fetched says so rather than pretending it was not there.
 			if (params.images !== false) {
-				const urls = msgs.flatMap(pictureSources).slice(-MAX_IMAGES_PER_READ);
+				const urls = msgs.flatMap(pictureSources);
 				for (const { line, part } of (await receivePictures(urls)).pictures) {
 					content.push({ type: "text", text: line });
 					if (part) content.push(part);

@@ -29,7 +29,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const { SkypeClient } = await jiti.import(join(ROOT, "teams", "skype.ts"));
 const { GraphBackend } = await jiti.import(join(ROOT, "teams", "graph-backend.ts"));
-const { GraphClient } = await jiti.import(join(ROOT, "core", "graph.ts"));
+const { GraphClient, readBounded } = await jiti.import(join(ROOT, "core", "graph.ts"));
 const { localImages } = await jiti.import(join(ROOT, "teams", "mentions.ts"));
 
 let failed = 0;
@@ -117,12 +117,12 @@ const JWT = `${b64({ alg: "none" })}.${b64({ oid: "OID-1", tid: "TID-1" })}.sig`
 const ME = "Me, Myself";
 
 /** A Graph backend recording every Graph call; `skypeClient` is the self-chat client. */
-function graph(skypeClient) {
+function graph(skypeClient, fetchOverride) {
 	const seen = [];
-	const doFetch = async (url, init) => {
+	const doFetch = fetchOverride ?? (async (url, init) => {
 		seen.push({ url, method: init?.method ?? "GET", headers: init?.headers ?? {}, body: init?.body ? JSON.parse(init.body) : null });
 		return { status: 201, text: async () => "{}", arrayBuffer: async () => PNG.buffer.slice(PNG.byteOffset, PNG.byteOffset + PNG.length) };
-	};
+	});
 	return { seen, b: new GraphBackend(new GraphClient(async () => JWT, doFetch), { whoami: async () => ME, skype: skypeClient }) };
 }
 
@@ -140,6 +140,18 @@ console.log("\n== receive: GraphBackend.image sends each token to its own host =
 	const plain = seen.length;
 	check("plain-http Graph is refused", /not https/.test(await threw(() => b.image("http://graph.microsoft.com/v1.0/chats/c/messages/m/hostedContents/h/$value"))), true);
 	check("plain-http AMS is refused", /not https/.test(await threw(() => b.image("http://us-api.asm.skype.com/v1/objects/x/views/imgo"))), true);
+	let cancelled = false;
+	const huge = graph(undefined, async () => ({
+		status: 200,
+		headers: { get: () => null },
+		body: { getReader: () => ({ read: async () => (cancelled ? { done: true, value: undefined } : { done: false, value: new Uint8Array(1024 * 1024) }), cancel: async () => { cancelled = true; } }) },
+	}));
+	check("an oversized stream is refused before it is buffered", /image over 20 MB/.test(await threw(() => huge.b.image(hosted))), true);
+	check("and the stream is cancelled", cancelled, true);
+	const controller = new AbortController();
+	controller.abort();
+	check("a stalled download times out", /download timed out/.test(await threw(() => readBounded({ status: 200, text: async () => "", arrayBuffer: async () => new ArrayBuffer(0) }, 1, controller.signal))), true);
+	check("and aborts the request", controller.signal.aborted, true);
 	check("and nothing is fetched over http", seen.length, plain);
 }
 
@@ -212,6 +224,7 @@ console.log("\n== send: a Markdown image with a local path is an image to send =
 	);
 	check("no image, no change", localImages("plain *text*"), { markdown: "plain *text*", paths: [] });
 }
+
 
 console.log(failed === 0 ? "\nall ok" : `\nFAIL ${failed}`);
 process.exit(failed === 0 ? 0 : 1);

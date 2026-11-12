@@ -257,7 +257,7 @@ export function attachedCardText(content: unknown): string {
 	try {
 		return cardText(JSON.parse(content));
 	} catch {
-		return "";
+		return "[unreadable attachment]";
 	}
 }
 

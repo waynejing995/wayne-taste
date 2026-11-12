@@ -20,6 +20,7 @@
  * target=self, and the self-chat watch poll.
  */
 import type { SelfHistoryPage, SelfMessage } from "./backend.ts";
+import { readBounded } from "../core/graph.ts";
 import { attachedCardText, CARD_CONTENT_TYPE } from "./card.ts";
 import { escapeHtml, htmlToText } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
@@ -36,8 +37,8 @@ const WALK_PAGE = 50;
 
 type Transport = (
 	url: string,
-	init: { method?: string; headers: Record<string, string>; body?: string | Uint8Array },
-) => Promise<{ status: number; text(): Promise<string>; arrayBuffer?(): Promise<ArrayBuffer> }>;
+	init: { method?: string; headers: Record<string, string>; body?: string | Uint8Array; signal?: AbortSignal },
+) => Promise<{ status: number; text(): Promise<string>; arrayBuffer?(): Promise<ArrayBuffer>; body?: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> } } }>;
 
 /** AMS derives a platform id from the User-Agent and rejects one it cannot parse (Bun's own included). */
 const AMS_USER_AGENT =
@@ -68,7 +69,7 @@ function sentFiles(m: RawSkypeMessage): { name: string; url: string }[] {
 	try {
 		files = JSON.parse(m.properties.files);
 	} catch {
-		return [];
+		return [{ name: "[unreadable attachment]", url: "" }];
 	}
 	return (Array.isArray(files) ? files : []).filter((f) => f.fileName && f.objectUrl).map((f) => ({ name: f.fileName as string, url: f.objectUrl as string }));
 }
@@ -80,7 +81,7 @@ function cardsText(m: RawSkypeMessage): string {
 	try {
 		cards = JSON.parse(m.properties.cards);
 	} catch {
-		return "";
+		return "[unreadable attachment]";
 	}
 	return cards
 		.filter((c) => c.contentType === CARD_CONTENT_TYPE)
@@ -244,7 +245,7 @@ export class SkypeClient {
 				at: m.composetime ?? "",
 				text: flat,
 				md: [htmlToMarkdown(html), card].filter(Boolean).join("\n\n"),
-				...(images.length > 0 ? { images } : {}),
+				...(images.length > 0 ? { images, imageSource: "https://asm.skype.com/" } : {}),
 				...(files.length > 0 ? { files } : {}),
 			});
 		}
@@ -363,13 +364,13 @@ export class SkypeClient {
 		if (!ams || new URL(url).origin !== new URL(ams).origin) {
 			throw new Error(`${new URL(url).host} is not the Teams image host (${ams ? new URL(ams).host : "authsvc named none"}); not sending the token there`);
 		}
+		const signal = AbortSignal.timeout(30_000);
 		const r = await this.skypeFetch(({ skypeToken }) => ({
 			url,
-			init: { headers: { Authorization: `skype_token ${skypeToken}`, Accept: "image/*", "User-Agent": AMS_USER_AGENT } },
+			init: { headers: { Authorization: `skype_token ${skypeToken}`, Accept: "image/*", "User-Agent": AMS_USER_AGENT }, signal },
 		}));
 		if (r.status < 200 || r.status >= 300) throw new Error(`AMS image ${r.status}: ${(await r.text()).slice(0, 200)}`);
-		if (!r.arrayBuffer) throw new Error("transport cannot return bytes");
-		return Buffer.from(await r.arrayBuffer());
+		return readBounded(r, 20 * 1024 * 1024, signal);
 	}
 
 	/**

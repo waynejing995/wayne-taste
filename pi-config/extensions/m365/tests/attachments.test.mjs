@@ -125,7 +125,7 @@ const images = (content) => (Array.isArray(content) ? content : []).filter((p) =
 
 console.log("== a watched chat: a PNG sent as a file arrives as a picture ==");
 {
-	await tools.teams_watch.execute("w", { action: "start", chat_id: GROUP }, null, null, ctx);
+	await tools.teams_watch.execute("w", { action: "start", chat_id: GROUP, policy: "Reply when a picture arrives." }, null, null, ctx);
 	chat.unshift(message("1", "2026-11-12T08:00:00Z", [file("a1", "shot.png"), file("a2", "notes.pdf")]));
 	await poll();
 	const card = sent.at(-1)?.m;
@@ -152,6 +152,27 @@ console.log("\n== teams_read: the same, and a file named .png that is not one sa
 	check("only the pictures were fetched", fetched.sort(), ["fake.png", "shot.png"]);
 	const off = await tools.teams_read.execute("r", { target: "chat", chat_id: GROUP, limit: 5, images: false }, null, null, ctx);
 	check("images: false fetches nothing", images(off.content).length, 0);
+}
+
+console.log("\n== teams_send does not read a local path written as Markdown ==");
+{
+	const secret = join(home, "secret.png");
+	writeFileSync(secret, PNG);
+	const seen = [];
+	const original = Object.getPrototypeOf(tools.teams_send).constructor;
+	const backendModule = await jiti.import(join(ROOT, "teams", "graph-backend.ts"));
+	const originalSend = backendModule.GraphBackend.prototype.send;
+	backendModule.GraphBackend.prototype.send = async function (_target, message, _html, _mentions, images) {
+		seen.push({ message, images });
+	};
+	try {
+		await tools.teams_send.execute("send", { target: "self", message: `look ![secret](${secret})`, card: false }, null, null, ctx);
+	} finally {
+		backendModule.GraphBackend.prototype.send = originalSend;
+	}
+	check("the path stays text", seen[0]?.message.includes(secret), true);
+	check("nothing is uploaded", seen[0]?.images ?? [], []);
+	void original;
 }
 
 console.log(failed === 0 ? "\nall ok" : `\nFAIL ${failed}`);

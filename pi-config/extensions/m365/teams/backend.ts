@@ -51,6 +51,7 @@ export interface SelfMessage {
 	md?: string;
 	/** The AMS addresses of the pictures in it; absent when there are none. Backend.image fetches them. */
 	images?: string[];
+	imageSource?: string;
 	/** Files sent in it: a name and the SharePoint URL behind it (teams_download; pictures are fetched as pictures). */
 	files?: { name: string; url: string }[];
 }
@@ -99,7 +100,7 @@ export interface Backend {
 	 * file, and making Graph invent a temp file to satisfy the signature would be
 	 * the subprocess shape leaking into an interface that no longer has one.
 	 */
-	image(url: string): Promise<Buffer>;
+	image(url: string, source?: string): Promise<Buffer>;
 	people(query: string): Promise<Person[]>;
 	/**
 	 * Fetch a file someone shared, to a local path.

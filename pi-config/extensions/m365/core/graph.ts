@@ -32,10 +32,11 @@ export class GraphError extends Error {
 }
 
 /** The subset of `fetch` this client uses, so tests can supply a stub. */
+type ResponseBody = { status: number; text(): Promise<string>; arrayBuffer?(): Promise<ArrayBuffer>; body?: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> } } };
 type Transport = (
 	url: string,
-	init: { method?: string; headers: Record<string, string>; body?: string },
-) => Promise<{ status: number; text(): Promise<string>; arrayBuffer?(): Promise<ArrayBuffer> }>;
+	init: { method?: string; headers: Record<string, string>; body?: string; signal?: AbortSignal },
+) => Promise<ResponseBody>;
 
 export class GraphClient {
 	constructor(
@@ -143,11 +144,36 @@ export class GraphClient {
 	}
 
 	/** Hosted image contents: bytes, not JSON. */
-	async getBytes(pathOrUrl: string): Promise<Buffer> {
+	async getBytes(pathOrUrl: string, maxBytes = Number.POSITIVE_INFINITY, timeoutMs = 30_000): Promise<Buffer> {
 		const url = this.url(pathOrUrl);
-		const r = await this.doFetch(url, { headers: await this.headers({ Accept: "*/*" }) });
+		const signal = AbortSignal.timeout(timeoutMs);
+		const r = await this.doFetch(url, { headers: await this.headers({ Accept: "*/*" }), signal });
 		if (r.status < 200 || r.status >= 300) this.fail(r.status, await r.text(), url);
-		if (!r.arrayBuffer) throw new Error("transport cannot return bytes");
-		return Buffer.from(await r.arrayBuffer());
+		return readBounded(r, maxBytes, signal);
 	}
+}
+
+export async function readBounded(r: ResponseBody, maxBytes: number, signal?: AbortSignal): Promise<Buffer> {
+	if (signal?.aborted) throw new Error("download timed out");
+	if (r.body) {
+		const reader = r.body.getReader();
+		const chunks: Uint8Array[] = [];
+		let size = 0;
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (!value) continue;
+			size += value.byteLength;
+			if (size > maxBytes) {
+				await reader.cancel();
+				throw new Error(`image over ${Math.floor(maxBytes / (1024 * 1024))} MB`);
+			}
+			chunks.push(value);
+		}
+		return Buffer.concat(chunks, size);
+	}
+	if (!r.arrayBuffer) throw new Error("transport cannot return bytes");
+	const bytes = Buffer.from(await r.arrayBuffer());
+	if (bytes.length > maxBytes) throw new Error(`image over ${Math.floor(maxBytes / (1024 * 1024))} MB`);
+	return bytes;
 }

@@ -29,6 +29,7 @@ import { cursorPages } from "./paging.ts";
 import type { SkypeClient } from "./skype.ts";
 import { fetchMeetingTranscript, type MeetingTranscriptResult } from "./transcript.ts";
 
+const IMAGE_DOWNLOAD_MAX = 20 * 1024 * 1024;
 /** Raw shapes, only the fields used here. */
 interface RawMember {
 	displayName?: string;
@@ -486,11 +487,10 @@ export class GraphBackend implements Backend {
 					mine: Boolean(me) && sender.toLowerCase().includes(me),
 					...(m.from?.user?.id ? { sender_id: m.from.user.id } : {}),
 					text: msgText(m),
-					// Structure kept for the chat pane; `text` stays flat for tools.
 					md: body.contentType === "html" ? htmlToMarkdown(body.content ?? "", m.attachments ?? []) : msgText(m),
 					mentions_me: mentionsMe(m, me),
-					images: msgImages(m),
-					// Absent rather than empty when there are none: every consumer then only has to check one thing.
+					images: msgImages(m).map((src) => new URL(src, `https://graph.microsoft.com/v1.0/chats/${m.chatId}/messages/${m.id}/`).href),
+					imageSource: `https://graph.microsoft.com/v1.0/chats/${m.chatId}/messages/${m.id}/`,
 					...(files.length > 0 ? { files } : {}),
 				};
 			})
@@ -549,13 +549,16 @@ export class GraphBackend implements Backend {
 	 * (the skype token). The address is written by whoever sent the message, so each token goes only to its own
 	 * host and any other address is refused: never the Graph token to wherever an <img> points.
 	 */
-	async image(url: string): Promise<Buffer> {
+	async image(url: string, source?: string): Promise<Buffer> {
 		const u = new URL(url);
 		if (u.protocol !== "https:") throw new Error(`${u.protocol}//${u.host} is not https; not sending a token there`);
-		const host = u.host;
-		if (host === "graph.microsoft.com") return this.graph.getBytes(url);
-		if (host.endsWith(".asm.skype.com")) return this.requireSkype().image(url);
-		throw new Error(`${host} is not a Teams image host; not sending a token there`);
+		if (source) {
+			const owned = new URL(source);
+			if (owned.origin !== u.origin || !u.pathname.startsWith(owned.pathname)) throw new Error(`${u.host} is not the source message; not sending a token there`);
+		}
+		if (u.host === "graph.microsoft.com") return this.graph.getBytes(url, IMAGE_DOWNLOAD_MAX);
+		if (u.host.endsWith(".asm.skype.com")) return this.requireSkype().image(url);
+		throw new Error(`${u.host} is not a Teams image host; not sending a token there`);
 	}
 	async people(query: string): Promise<Person[]> {
 		return searchPeople(this.graph, query);

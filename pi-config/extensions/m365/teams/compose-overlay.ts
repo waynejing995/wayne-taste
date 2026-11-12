@@ -76,6 +76,7 @@ export interface HistoryMessage {
 	me?: string;
 	/** hostedContents URLs. They need the bearer token, so only we can fetch them. */
 	images?: string[];
+	imageSource?: string;
 	/**
 	 * Files shared in this message: a name and the SharePoint URL behind it.
 	 *
