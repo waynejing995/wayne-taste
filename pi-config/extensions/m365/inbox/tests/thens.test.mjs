@@ -73,6 +73,17 @@ await check("an agent's RESULT row added after the then fires it; an older one d
 	ok(thenRows()[0].note.includes("you owe: verify the fix and report [RESULT status: done"), thenRows()[0].note);
 });
 
+await check("agent add arms its plan on the row: the next RESULT fires it and the row stays open until it is done", async () => {
+	await rejects(inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", "999", "--then", "x"]), /no such live id: 999/);
+	strictEqual(await inbox(["agent", "ls"]), "", "a bad row registers nothing");
+	const id = await row();
+	ok((await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "expect PR open; reply Wayne; close row"])).endsWith(`then ${id}.1 waits for agent-result:fixer`));
+	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", "agents:fixer:s1:1", "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
+	await checkThens({ now: T0 });
+	ok(thenRows()[0].note.includes("you owe: expect PR open; reply Wayne; close row"), thenRows()[0].note);
+	await rejects(inbox(["done", id]), /open then-actions/);
+});
+
 await check("at: fires at its minute; gh-run asks gh and fires when the run completed", async () => {
 	const id = await row();
 	await inbox(["then", id, "--when", "at:2026-11-11 10:30", "--", "ping Bob"]);

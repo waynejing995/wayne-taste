@@ -57,7 +57,8 @@ await check("inbox schedule add keeps the comment and section that follow the sc
 	const tail = "# Keep agents header\nagents:\n  \"*\": []\n";
 	writeFileSync(join(dir, "rules.yaml"), `# my rules\nschedule: []\n${tail}`);
 	await inbox(["schedule", "add", "hello", "--every", "5", "--kind", "shell", "--action", '["true"]']);
-	await inbox(["agent", "add", "w1", "--mux", "tmux", "--pane", "s:1"]);
+	const row = (await inbox(["ask", "fix w1", "--key", "w1"])).split(" ")[1];
+	await inbox(["agent", "add", "w1", "--mux", "tmux", "--pane", "s:1", "--row", row, "--then", "check w1's fix and tell Wayne"]);
 	const text = readFileSync(join(dir, "rules.yaml"), "utf8");
 	strictEqual(text.startsWith("# my rules\n# Scheduled jobs."), true, text);
 	strictEqual(text.includes(`  next_fire: `) && text.includes(tail), true, text);

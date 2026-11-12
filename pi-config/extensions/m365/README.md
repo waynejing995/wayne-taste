@@ -65,7 +65,9 @@ at the next tick. A long job never holds back the others: later ticks skip it wh
 
 `inbox then <id> --when <trigger> -- <action>` keeps a promised follow-up on a live row (`pr-merged:`, `gh-run:`,
 `agent-result:`, `at:` triggers): when the trigger happens, a `do` card names what is owed; one reminder after 10
-minutes; `inbox then-done <id> <n>` closes it, and `inbox done` refuses the row while it is open.
+minutes; `inbox then-done <id> <n>` closes it, and `inbox done` refuses the row while it is open. `inbox agent add`
+requires `--row <id> --then <plan>`: the dispatcher's plan for the session's result (expected outcome, whom to reply
+to, what to close) is armed as an `agent-result:<name>` then on that row.
 
 An optional `card-note.md` in the inbox directory is said on every inbox and Teams watch card (the user's own
 standing instructions for the agent that receives them).

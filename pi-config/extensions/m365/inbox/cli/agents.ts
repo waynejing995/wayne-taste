@@ -2,6 +2,7 @@
  * The watched agent sessions: the `agent_watch` list in rules.yaml.
  */
 import { clean, InboxError, stamp, withRulesLock } from "./ledger.ts";
+import { addThen } from "./thens.ts";
 import { AGENT_LIST, readList, writeList } from "./lists.ts";
 
 export const MUXES = ["hc", "herdr", "tern", "tmux"];
@@ -25,9 +26,14 @@ function writeAgents(agents: AgentEntry[]): void {
 	writeList(AGENT_LIST, agents as unknown as Record<string, unknown>[]);
 }
 
-/** Watch one agent session. A second add of the same name replaces it. */
-export function addAgent(a: { name: string; mux: string; pane: string; host?: string; result?: string; goal?: string; push?: boolean }): string {
+/**
+ * Watch one agent session. A second add of the same name replaces it. The dispatcher's plan for the result (what it
+ * expects, whom it tells and how, what it closes) is a then on the live row the session works for, fired by the
+ * session's next RESULT: the result card comes back with the plan, and the row cannot be closed until it is done.
+ */
+export function addAgent(a: { name: string; mux: string; pane: string; row: string; then: string; host?: string; result?: string; goal?: string; push?: boolean }): string {
 	if (!MUXES.includes(a.mux)) throw new InboxError(`--mux must be one of ${MUXES.join(", ")}`);
+	const then = addThen(a.row, `agent-result:${a.name}`, a.then);
 	const entry: AgentEntry = { name: a.name, mux: a.mux, host: a.host || "local", pane: a.pane };
 	if (a.result) entry.result = a.result;
 	if (a.goal) entry.goal = clean(a.goal);
@@ -35,7 +41,7 @@ export function addAgent(a: { name: string; mux: string; pane: string; host?: st
 	// Seconds, not minutes: the push tailer tells a re-registration of the same name by a changed `since`.
 	entry.since = stamp(new Date(), true);
 	withRulesLock(() => writeAgents([...readAgents().filter((e) => e.name !== a.name), entry]));
-	return `watching ${a.name}`;
+	return `watching ${a.name}; ${then}`;
 }
 
 export function removeAgents(names: string[]): string {
