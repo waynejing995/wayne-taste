@@ -841,6 +841,16 @@ await check("the last RESULT block does not inherit an older open line", () =>
 	}),
 );
 
+await check("a later bare Result heading in the body does not hide the RESULT block above it", () =>
+	withFixture(async (f) => {
+		const resultFile = path.join(f.dir, "RESULT.md");
+		fs.writeFileSync(resultFile, "RESULT\nstatus: blocked\nopen: which branch\n\nResult\nThe suite ran green; details below.\n");
+		const r = await f.probeTern(null, "pane\n", { result: resultFile });
+		strictEqual(r.rstatus, "blocked");
+		strictEqual(r.ropen_text, "which branch");
+	}),
+);
+
 await check("a quoted open question survives the probe JSON", () =>
 	withFixture(async (f) => {
 		const resultFile = path.join(f.dir, "RESULT.md");

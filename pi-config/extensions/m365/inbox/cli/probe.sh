@@ -101,7 +101,13 @@ fi
 rmtime=0 rstatus= ropen= ropen_text= rquestions=false
 if [ -n "$result" ] && [ -f "$result" ]; then
   rmtime=$(stat -c %Y "$result")
-  block=$(tr -d '\r' < "$result" | awk 'BEGIN { IGNORECASE = 1 } tolower($0) ~ /^[[:space:]]*result[[:space:]]*$/ { buf = ""; next } { buf = buf $0 "\n" } END { printf "%s", buf }')
+  # The contract block is the last one that carries a status line: a later bare `Result` heading in the body
+  # (prose, not the contract) must not replace it.
+  block=$(tr -d '\r' < "$result" | awk '
+    function keep() { if (tolower(buf) ~ /(^|\n)[ \t]*([-*] )?[*`]*status[*`]*:/) last = buf }
+    tolower($0) ~ /^[[:space:]]*result[[:space:]]*$/ { keep(); buf = ""; next }
+    { buf = buf $0 "\n" }
+    END { keep(); printf "%s", last }')
   # Only the contract's own status template contains `|`. Open text may contain one.
   rstatus=$(printf '%s\n' "$block" | sed -n '/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) .*|/!s/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) *\([a-z_][a-z_]*\).*/\4/p' | tail -1)
   ropen_text=$(printf '%s\n' "$block" | sed -n 's/^ *\([-*] \)\?\(\*\*open\(\*\*:\?\|:\*\*\)\|`open`:\|`open:`\|open:\) *\(.*\)/\4/p' | tail -1)
