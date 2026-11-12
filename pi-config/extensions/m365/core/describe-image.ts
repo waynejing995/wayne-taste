@@ -58,8 +58,8 @@ export async function describeImage(ctx: ExtensionContext, key: string, load: ()
 		],
 	}, { apiKey: auth.apiKey, headers: auth.headers });
 	const text = reply.content
-		.filter((c): c is TextContent => c.type === "text")
-		.map((c) => c.text)
+		.filter((c: { type: string }): c is TextContent => c.type === "text")
+		.map((c: TextContent) => c.text)
 		.join(" ")
 		.replace(/\s+/g, " ")
 		.trim();

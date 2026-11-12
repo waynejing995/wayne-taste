@@ -44,8 +44,8 @@ export async function askSmall(ctx: ExtensionContext, systemPrompt: string, user
 	const name = `${model.provider}/${model.id}`;
 	if (reply.stopReason === "error" || reply.stopReason === "aborted") throw new Error(`${name}: ${reply.errorMessage || reply.stopReason}`);
 	const text = reply.content
-		.filter((c): c is TextContent => c.type === "text")
-		.map((c) => c.text)
+		.filter((c: { type: string }): c is TextContent => c.type === "text")
+		.map((c: TextContent) => c.text)
 		.join("")
 		.trim();
 	return { text, model: name };
