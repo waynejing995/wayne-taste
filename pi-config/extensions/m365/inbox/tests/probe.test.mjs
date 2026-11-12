@@ -7,8 +7,8 @@
  *
  *   node inbox/tests/probe.test.mjs
  */
-import { deepStrictEqual, ok, strictEqual } from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { deepStrictEqual, match, ok, strictEqual } from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -206,10 +206,17 @@ function makeFixture(dir) {
 			f.writeTern(await f.holdPane(session), pane);
 			return runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result }, want);
 		},
+		/** Runs the real probe.sh against one mux command and pane. */
+		async probeMux(mux, pane, command) {
+			const bin = path.join(process.env.HOME, ".local", "bin", mux);
+			fs.mkdirSync(path.dirname(bin), { recursive: true });
+			fs.writeFileSync(bin, `#!/bin/sh\n${command}\n`, { mode: 0o755 });
+			return runProbe({ name: "alpha", mux, pane, host: "local", result: "" }, false);
+		},
 	};
+
 	return f;
 }
-
 /** A fresh temp inbox with a fake omp on PATH; env restored and the directory removed afterwards. */
 async function withFixture(body) {
 	const saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
@@ -234,6 +241,73 @@ async function withFixture(body) {
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 }
+
+const MISSING = {
+	tern: { pane: "99999", command: "echo \"tern process: no block is called \`99999\`\" >&2; exit 1" },
+	hc: { pane: "nope-xyz", command: "echo '{\"error\":{\"kind\":\"not_found\",\"message\":\"no terminal\"}}'; exit 3" },
+	herdr: { pane: "missing-agent", command: "echo '{\"error\":{\"code\":\"agent_not_found\"}}'; exit 1" },
+	tmux: { pane: "%9999", command: "echo \"can't find pane: %9999\" >&2; exit 1" },
+};
+for (const mux of Object.keys(MISSING)) {
+	await check(`a missing ${mux} pane is not alive`, () => withFixture(async (f) => {
+		const r = await f.probeMux(mux, MISSING[mux].pane, MISSING[mux].command);
+		strictEqual(r.alive, false);
+	}));
+}
+await check("a missing mux binary stays a probe error", () => withFixture(async (f) => {
+	fs.mkdirSync(path.join(process.env.HOME, ".local", "bin"), { recursive: true });
+	fs.writeFileSync(path.join(process.env.HOME, ".local", "bin", "tern"), "#!/bin/sh\necho missing >&2\nexit 127\n", { mode: 0o755 });
+	await failsWith(runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result: "" }, false), "probe command failed");
+}));
+
+await check("a stopped daemon stays a probe error", () => withFixture(async (f) => {
+	await failsWith(f.probeMux("herdr", "agent", "echo '{\"error\":{\"code\":\"server_not_running\"}}'; exit 1"), "probe command failed");
+}));
+
+await check("real muxes report only a missing target as not alive", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "probe-real-mux-"));
+	const cleanup = [];
+	const skip = (reason) => console.log(`SKIP real muxes: ${reason}`);
+	try {
+		if (!fs.existsSync("/usr/bin/tmux")) return skip("tmux absent");
+		const socket = path.join(dir, "tmux.sock");
+		cleanup.push(() => spawnSync("tmux", ["-S", socket, "kill-server"]));
+		const started = spawnSync("tmux", ["-S", socket, "-f", "/dev/null", "new-session", "-d", "-s", "probe"]);
+		if (started.status !== 0) return skip(started.stderr.toString());
+		const missingPane = spawnSync("tmux", ["-S", socket, "capture-pane", "-p", "-t", "%999"]);
+		strictEqual(missingPane.status, 1);
+		match(missingPane.stderr.toString(), /can't find pane/);
+		if (!fs.existsSync("/root/.local/bin/hc")) skip("hc absent");
+		else {
+			const terminal = spawn("hc", ["terminal", "sleep", "300"], { stdio: "ignore" });
+			cleanup.push(() => terminal.kill());
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			const missingHc = spawnSync("hc", ["get", `missing-${process.pid}`]);
+			strictEqual(missingHc.status, 3);
+			match(`${missingHc.stdout}\n${missingHc.stderr}`, /"kind":"not_found"/);
+		}
+		for (const [bin, args, pattern] of [["tern", ["process", "99999", "--json"], /no block is called/], ["herdr", ["agent", "get", `missing-${process.pid}`], /agent_not_found/]]) {
+			if (!fs.existsSync(`/root/.local/bin/${bin}`)) { skip(`${bin} absent`); continue; }
+			const home = path.join(dir, "herdr-home");
+			const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, ".config") };
+			delete env.HERDR_CONFIG_PATH;
+			if (bin === "herdr") {
+				fs.mkdirSync(home, { recursive: true });
+				const server = spawn(bin, ["server"], { env, stdio: "ignore" });
+				cleanup.push(() => server.kill());
+				const socket = path.join(home, ".config/herdr/herdr.sock");
+				for (let i = 0; i < 25 && !fs.existsSync(socket); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+			const out = spawnSync(bin, args, { encoding: "utf8", env });
+			ok(out.status !== 0);
+			match(`${out.stdout}\n${out.stderr}`, pattern);
+		}
+	} finally {
+		for (const fn of cleanup.reverse()) fn();
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 
 async function failsWith(promise, text) {
 	try {
@@ -848,7 +922,8 @@ await check("a tmux command failure is a probe error and each command runs once"
 await check("a missing mux command is an operational error", () =>
 	withFixture(async (f) => {
 		const tern = path.join(process.env.HOME, ".local", "bin", "tern");
-		fs.rmSync(tern, { force: true });
+		fs.mkdirSync(path.dirname(tern), { recursive: true });
+		fs.writeFileSync(tern, "#!/bin/sh\necho missing >&2\nexit 127\n", { mode: 0o755 });
 		await failsWith(runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result: "" }, false), "probe command failed");
 	}),
 );

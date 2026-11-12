@@ -14,13 +14,21 @@ run_mux() {
 	mux_output=$(cat "$tmp"; printf x)
 	mux_output=${mux_output%x}
 	rm -f "$tmp"
-	if [ "$mux_status" -ne 0 ]; then
-		mux_error=$mux_output
-		mux_status=2
-	else
-		mux_status=0
-	fi
+	if [ "$mux_status" -eq 127 ]; then mux_error=$mux_output; mux_status=2
+	elif [ "$mux_status" -ne 0 ] && missing_target "$mux" "$mux_output"; then mux_status=1
+	elif [ "$mux_status" -ne 0 ]; then mux_error=$mux_output; mux_status=2
+	else mux_status=0; fi
 	return "$mux_status"
+}
+missing_target() {
+	mux=$1; text=$2
+	case $mux in
+		tern) case $text in *"no block is called"*) return 0 ;; esac ;;
+		hc) case $text in *'"kind":"not_found"'*) return 0 ;; esac ;;
+		herdr) case $text in *agent_not_found*|*pane_not_found*) return 0 ;; esac ;;
+		tmux) case $text in *"can't find pane"*|*".can't find window"*|*".can't find session"*) return 0 ;; esac ;;
+	esac
+	return 1
 }
 capture_mux() {
 	tmp=$(mktemp)
@@ -30,12 +38,8 @@ capture_mux() {
 	value=${value%x}
 	rm -f "$tmp"
 	if [ "$mux_status" -eq 127 ]; then mux_error=$value; mux_status=2
-	elif [ "$mux_status" -ne 0 ]; then
-		case $value in
-			*"not found"*|*"no such"*|*"doesn't exist"*|*"does not exist"*|*"unknown"*) mux_status=1 ;;
-			*) mux_error=$value; mux_status=2 ;;
-		esac
-	fi
+	elif [ "$mux_status" -ne 0 ] && missing_target "$mux" "$value"; then mux_status=1
+	elif [ "$mux_status" -ne 0 ]; then mux_error=$value; mux_status=2; fi
 }
 case $mux in
 tern)
