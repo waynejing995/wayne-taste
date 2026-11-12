@@ -3,7 +3,7 @@
  *
  * Every command returns its stdout text. A data or usage error is an InboxError: `Error: <message>` on stderr, exit 1.
  */
-import { addAgent, listAgents, MUXES, removeAgents } from "./agents.ts";
+import { addAgent, listAgents, MUXES, removeAgentsByName } from "./agents.ts";
 import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
 import { addEvent, doneRows, InboxError, listRows, places, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
 import { probeAgents } from "./probe.ts";
@@ -116,7 +116,7 @@ const COMMANDS: Record<string, Command> = {
 		},
 		run: (p) => addAgent({ name: p.args[0], mux: p.opts.mux!, pane: p.opts.pane!, row: p.opts.row!, then: p.opts.then!, host: p.opts.host, result: p.opts.result, goal: p.opts.goal, push: p.flags.push }),
 	},
-	"agent rm": { help: "Stop watching agent sessions.", args: ["names..."], run: (p) => removeAgents(p.args) },
+	"agent rm": { help: "Stop watching agent sessions.", args: ["names..."], run: (p) => removeAgentsByName(p.args) },
 	"agent ls": { help: "Watched sessions: name, mux, host, pane, result, since, goal, push.", run: () => listAgents() },
 	"agent probe": {
 		help: "Probe every watched session once: record result / gone / stalled / blocked / idle events, send the progress digest when due.",
@@ -292,7 +292,8 @@ export async function inbox(argv: string[]): Promise<string> {
 		throw new InboxError(`No such command '${argv.slice(0, 2).join(" ")}'.\n\n${overview()}`);
 	}
 	const rest = argv.slice(name.split(" ").length);
-	if (rest.includes("--help") && !rest.slice(0, rest.indexOf("--help")).includes("--")) return usage(name, cmd);
+	const specs = cmd.opts ?? {};
+	if (rest.some((word, i) => word === "--help" && !rest.slice(0, i).includes("--") && !(i > 0 && specs[rest[i - 1].slice(2)] && !specs[rest[i - 1].slice(2)].flag))) return usage(name, cmd);
 	return cmd.run(parse(name, cmd, rest));
 }
 

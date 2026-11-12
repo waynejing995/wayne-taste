@@ -3,7 +3,11 @@
  *
  *   node --experimental-strip-types inbox/tests/mail.test.mjs
  */
-import { deepStrictEqual } from "node:assert/strict";
+import { deepStrictEqual, ok } from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createJiti } from "../../tests/host.mjs";
 import { mailSince } from "../mail.ts";
 
 let failed = 0;
@@ -43,6 +47,17 @@ await check("stops at the first page that reaches past the cursor", async () => 
 	const page = async (skip) => (pages++, mails.slice(skip, skip + 3));
 	await mailSince(page, t(8), 3);
 	deepStrictEqual(pages, 1);
+});
+
+await check("a mail subject that looks like an option stays the subject", async () => {
+	const home = mkdtempSync(join(tmpdir(), "inbox-mail-"));
+	process.env.WAYNE_INBOX_DIR = home;
+	writeFileSync(join(home, "rules.yaml"), "outlook:\n  Inbox:\n    - action: do\n");
+	const jiti = createJiti(import.meta.url, { interopDefault: true });
+	const { inbox } = await jiti.import("../cli/main.ts");
+	const argv = ["add", "--source", "outlook", "--place", "Inbox", "--key", "outlook:1", "--subject", "--help", "--note", "sender: preview", "--field", "from=a@example.com"];
+	const out = await inbox(argv);
+	ok(/\d+/.test(out));
 });
 
 console.log(failed === 0 ? "\nall ok" : `\nFAIL ${failed}`);

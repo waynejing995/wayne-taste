@@ -1,6 +1,7 @@
 /**
  * The watched agent sessions: the `agent_watch` list in rules.yaml.
  */
+import { randomUUID } from "node:crypto";
 import { clean, InboxError, stamp, withRulesLock } from "./ledger.ts";
 import { addThen } from "./thens.ts";
 import { AGENT_LIST, readList, writeList } from "./lists.ts";
@@ -16,6 +17,7 @@ export interface AgentEntry {
 	goal?: string;
 	push?: boolean;
 	since?: string;
+	generation: string;
 }
 
 export function readAgents(): AgentEntry[] {
@@ -40,16 +42,22 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 	if (a.push) entry.push = true;
 	// Seconds, not minutes: the push tailer tells a re-registration of the same name by a changed `since`.
 	entry.since = stamp(new Date(), true);
+	entry.generation = randomUUID();
 	withRulesLock(() => writeAgents([...readAgents().filter((e) => e.name !== a.name), entry]));
 	return `watching ${a.name}; ${then}`;
 }
 
-export function removeAgents(entries: { name: string; since?: string }[]): string {
+export function removeAgents(entries: { name: string; generation: string }[]): string {
 	withRulesLock(() => {
 		const agents = readAgents();
-		writeAgents(agents.filter((a) => !entries.some((e) => e.name === a.name && (!e.since || e.since === a.since))));
+		writeAgents(agents.filter((a) => !entries.some((e) => e.name === a.name && e.generation === a.generation)));
 	});
 	return `stopped ${entries.map((e) => e.name).join(" ")}`;
+}
+
+export function removeAgentsByName(names: string[]): string {
+	withRulesLock(() => writeAgents(readAgents().filter((a) => !names.includes(a.name))));
+	return `stopped ${names.join(" ")}`;
 }
 
 /** One tab-separated line per session: name, mux, host, pane, result, since, goal, push. */

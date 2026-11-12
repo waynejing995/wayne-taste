@@ -132,10 +132,10 @@ await check("an unchanged status makes no second card; a changed one does", () =
 await check("ssh gets a validated host after -- and rejects an option-shaped host", () => {
 	const calls = [];
 	return withFixture(async (f) => {
-		f.writeRules([{ name: "one", host: "trace-srdc", mux: "tern", pane: "one", push: true, since: "2026-11-12 00:00" }]);
+		f.writeRules([{ name: "one", host: "user@host-a", mux: "tern", pane: "one", push: true, since: "2026-11-12 00:00" }]);
 		f.tailer.start();
 		await f.tailer.poke();
-		ok(calls[0][1].includes("--") && calls[0][1].at(-2) === "trace-srdc");
+		ok(calls[0][1].includes("--") && calls[0][1].at(-2) === "user@host-a");
 		f.writeRules([{ name: "bad", host: "-oProxyCommand=evil", mux: "tern", pane: "bad", push: true }]);
 		await f.tailer.poke();
 		ok(f.warnings.some((w) => /bad ssh host/.test(w)));

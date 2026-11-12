@@ -527,7 +527,7 @@ export class AgentTailer {
 		stream.stderr = "";
 		let child: ChildProcess;
 		try {
-			if (!/^[A-Za-z0-9._:-]+$/.test(stream.host)) throw new Error(`bad ssh host: ${stream.host}`);
+			if (!/^(?!-)[A-Za-z0-9._@:-]+$/.test(stream.host)) throw new Error(`bad ssh host: ${stream.host}`);
 			child = this.spawn("ssh", [...SSH_OPTS, "--", stream.host, remoteCommand(offset)]);
 		} catch (e) {
 			this.warn(`ssh did not start: ${e instanceof Error ? e.message : String(e)}`);

@@ -13,6 +13,7 @@ import { createJiti } from "../../tests/host.mjs";
 const jiti = createJiti(import.meta.url, { interopDefault: true });
 const { inbox } = await jiti.import("../cli/main.ts");
 const { checkThens, readThens } = await jiti.import("../cli/thens.ts");
+const { readAgents, removeAgents } = await jiti.import("../cli/agents.ts");
 const { readTsv } = await jiti.import("../cli/ledger.ts");
 const { parseStamp } = await jiti.import("../cli/jobs.ts");
 
@@ -90,6 +91,34 @@ await check("adding the same agent again cancels its previous unfired plan", asy
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "second"]);
 	const listed = await inbox(["ls"]);
 	ok(listed.includes("second") && !/then .* waits for .* first/.test(listed));
+});
+
+await check("agent rm removes the registration by name", async () => {
+	const id = await row();
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);
+	ok((await inbox(["agent", "ls"])).startsWith("fixer\t"));
+	await inbox(["agent", "rm", "fixer"]);
+	strictEqual(await inbox(["agent", "ls"]), "");
+});
+
+await check("completion cleanup removes only its generation", async () => {
+	const id = await row();
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);
+	const old = readAgents()[0];
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "second"]);
+	removeAgents([{ name: old.name, generation: old.generation }]);
+	const current = readAgents();
+	strictEqual(current.length, 1);
+	ok(current[0].generation !== old.generation);
+});
+
+await check("adding the same agent on another row cancels its old unfired plan", async () => {
+	const first = await row();
+	const second = await row();
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", first, "--then", "first plan"]);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", second, "--then", "second plan"]);
+	const listed = await inbox(["ls"]);
+	ok(listed.includes("second plan") && !listed.includes("first plan"), listed);
 });
 
 await check("at: fires at its minute; gh-run asks gh and fires when the run completed", async () => {

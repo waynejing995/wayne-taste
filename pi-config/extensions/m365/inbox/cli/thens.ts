@@ -81,7 +81,7 @@ export function addThen(row: string, when: string, action: string, replace = fal
 	if (!live.some((r) => r.id === row)) throw new InboxError(`no such live id: ${row}`);
 	const after = allRows().reduce((max, r) => Math.max(max, Number(r.id)), 0);
 	return withThens((thens, save) => {
-		const prior = replace ? thens.filter((t) => t.row === row && t.when === when && !t.fired && !t.done) : [];
+		const prior = replace ? thens.filter((t) => t.when === when && !t.fired && !t.done) : [];
 		for (const t of prior) Object.assign(t, { done: stamp(), note: "replaced by a new registration" });
 		const n = thens.filter((t) => t.row === row).reduce((max, t) => Math.max(max, t.n), 0) + 1;
 		thens.push({ row, n, when, action, added: stamp(), after });
