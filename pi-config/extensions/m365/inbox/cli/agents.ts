@@ -18,11 +18,12 @@ export interface AgentEntry {
 	push?: boolean;
 	since?: string;
 	generation?: string;
+	migratedGeneration?: string;
 }
 
 function migrateAgents(agents: AgentEntry[]): AgentEntry[] {
 	if (!agents.some((a) => !a.generation)) return agents;
-	const next = agents.map((a) => a.generation ? a : { ...a, generation: randomUUID() });
+	const next = agents.map((a) => a.generation ? a : { ...a, generation: randomUUID(), migratedGeneration: "legacy" });
 	writeList(AGENT_LIST, next as unknown as Record<string, unknown>[]);
 	return next;
 }

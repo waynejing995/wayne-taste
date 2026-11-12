@@ -118,12 +118,12 @@ function makeFixture(dir) {
 		logs: [],
 		children: [],
 		/** Watch `name` with a fake probe; rewrites rules.yaml's agent_watch from every session watched so far. */
-		watch(name, behaviour, push = false) {
+		watch(name, behaviour, push = false, generation = "11111111-1111-4111-8111-111111111111", migrated = false) {
 			f.behaviour[name] = behaviour;
 			if (push) f.push.add(name);
 			else f.push.delete(name);
 			const rows = Object.keys(f.behaviour).map((n) => ({
-				name: n, mux: "tern", pane: "1", host: "local", result: "", ...(f.push.has(n) ? { push: true } : {}),
+				name: n, mux: "tern", pane: "1", host: "local", result: "", generation, ...(migrated ? { migratedGeneration: "legacy" } : {}), ...(f.push.has(n) ? { push: true } : {}),
 			}));
 			fs.writeFileSync(rulesFile, YAML.stringify({ agents: { "*": [{ action: "notify", tag: "agent" }] }, agent_watch: rows }));
 		},
@@ -412,7 +412,28 @@ await check("a legacy probe registration is migrated and removed on completion",
 		delete rules.agent_watch[0].generation;
 		fs.writeFileSync(path.join(f.dir, "rules.yaml"), YAML.stringify(rules));
 		await f.run();
+		ok(!f.ledgerKeys().some((key) => key.startsWith("agents:alpha:gone")), f.ledgerKeys().join(","));
 		deepStrictEqual(f.watchedNames(), []);
+	}),
+);
+
+await check("an archived legacy gone key is not recorded again", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", dead, false, "11111111-1111-4111-8111-111111111111", true);
+		fs.writeFileSync(path.join(f.dir, "archive.tsv"), "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink\n1\tagents:alpha:gone\t\t\t\t\t\t\t\t\t\n");
+		await f.run();
+		ok(!f.ledgerKeys().some((key) => key.startsWith("agents:alpha:gone")), f.ledgerKeys().join(","));
+	}),
+);
+
+await check("a new generation emits gone after an archived legacy key", () =>
+	withFixture(async (f) => {
+		fs.writeFileSync(path.join(f.dir, "archive.tsv"), "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink\n1\tagents:alpha:gone\t\t\t\t\t\t\t\t\t\n");
+		f.watch("alpha", dead, false, "legacy-generation");
+		await f.run();
+		f.watch("alpha", dead);
+		await f.run();
+		ok(f.ledgerKeys().some((key) => key.startsWith("agents:alpha:gone:")), f.ledgerKeys().join(","));
 	}),
 );
 

@@ -35,7 +35,7 @@ import { gunzipSync } from "node:zlib";
 import type { AgentRow, AgentStatus } from "../../teams/card.ts";
 import { readAgents, removeAgents, type AgentEntry } from "./agents.ts";
 import { agentArgv, runProcess } from "./jobs.ts";
-import { addEvent, inboxFile, InboxError } from "./ledger.ts";
+import { addEvent, inboxFile, InboxError, readTsv } from "./ledger.ts";
 
 export interface Probe {
 	alive: boolean;
@@ -268,7 +268,11 @@ async function check(a: AgentEntry, st: SessionState, stallS: number, want: bool
 		// A RESULT rewritten with the same status and open items is not news; mtime alone never makes a card.
 		said = `${p.rstatus}:${p.ropen ?? ""}`;
 		if (said !== st.result_said) events.push({ key: `result:${p.rmtime}`, event: "result", state: p.rstatus, note: `RESULT status: ${p.rstatus}` });
-	} else if (!p.alive) events.push({ key: `gone:${a.generation ?? a.since ?? a.name}`, event: "gone", state: "exited", note: "the pane ended with no RESULT" });
+	} else if (!p.alive) {
+		const legacy = a.migratedGeneration === "legacy";
+		const known = legacy && [...readTsv(inboxFile("ledger.tsv")), ...readTsv(inboxFile("archive.tsv"))].some((row) => row.key === `agents:${a.name}:gone`);
+		if (!known) events.push({ key: `gone:${a.generation ?? a.since ?? a.name}`, event: "gone", state: "exited", note: "the pane ended with no RESULT" });
+	}
 	else if (p.state === "blocked") events.push({ key: `blocked:${st.last_active}`, event: "blocked", state: "waiting", note: `${a.mux}: waiting on an approval or a question` });
 	const quiet = now - st.last_active;
 	const waiting = p.waiting || p.state === "idle" || p.state === "done";
