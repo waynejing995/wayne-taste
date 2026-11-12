@@ -813,6 +813,22 @@ await check("a tmux command failure is a probe error and each command runs once"
 	}),
 );
 
+await check("a missing mux command is an operational error", () =>
+	withFixture(async (f) => {
+		const tern = path.join(process.env.HOME, ".local", "bin", "tern");
+		fs.rmSync(tern, { force: true });
+		await failsWith(runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result: "" }, false), "probe command failed");
+	}),
+);
+
+await check("a daemon error keeps its diagnostic", () =>
+	withFixture(async (f) => {
+		const hc = path.join(f.dir, "bin", "hc");
+		fs.writeFileSync(hc, "#!/bin/sh\necho daemon unavailable >&2\nexit 7\n", { mode: 0o755 });
+		await failsWith(runProbe({ name: "alpha", mux: "hc", pane: "1", host: "local", result: "" }, false), "daemon unavailable");
+	}),
+);
+
 await check("an agent idle awaiting review is not counted as needing the user", () =>
 	withFixture(async (f) => {
 		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "awaiting_review" }));

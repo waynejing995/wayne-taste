@@ -10,17 +10,20 @@ alive=false agent= state= session= text= cap= mux_error=
 run_mux() {
 	tmp=$(mktemp)
 	"$@" >"$tmp" 2>&1
-	status=$?
-	output=$(cat "$tmp"; rm -f "$tmp")
-	if [ "$status" -ne 0 ]; then
-		case $output in
-			*"not found"*|*"no such"*|*"doesn't exist"*|*"does not exist"*|*"unknown"*) return 1 ;;
+	mux_status=$?
+	mux_output=$(cat "$tmp")
+	rm -f "$tmp"
+	if [ "$mux_status" -ne 0 ]; then
+		case $mux_output in
+			*"not found"*|*"no such"*|*"doesn't exist"*|*"does not exist"*|*"unknown"*)
+				[ "$mux_status" -eq 127 ] && mux_error=$mux_output && mux_status=2 || mux_status=1 ;;
+			*) mux_error=$mux_output; mux_status=2 ;;
 		esac
-		mux_error=$output
-		return 2
+	else
+		mux_status=0
 	fi
-	printf '%s' "$output"
-	return 0
+	[ "$mux_status" -eq 0 ] && printf '%s' "$mux_output"
+	return "$mux_status"
 }
 capture_mux() {
 	tmp=$(mktemp)
@@ -56,13 +59,17 @@ herdr)
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 hc)
   # `hc get` exits non-zero for an unknown terminal; a finished one stays listed with state != live.
-  if info=$(run_mux hc get "$pane"); then
-    printf '%s' "$info" | tr -d '\n' | grep -q '"state": *"live"' && alive=true
-  elif [ $? -eq 2 ]; then alive=error; fi
+  run_mux hc get "$pane"
+  info=$mux_output
+  [ "$mux_status" -eq 0 ] && printf '%s' "$info" | tr -d '\n' | grep -q '"state": *"live"' && alive=true
+  [ "$mux_status" -eq 2 ] && alive=error
   state=$(printf '%s' "$info" | tr -d '\n' | sed -n 's/.*"status": *{[^}]*"state": *"\([a-z]*\)".*/\1/p')
   # hc's blocked = waiting on a question; working/done map onto herdr's working/idle.
   [ "$state" = done ] && state=idle
-  if value=$(run_mux hc read "$pane"); then cap=$(printf %s "$value" | tail -c 20000); else [ $? -eq 2 ] && alive=error; cap=; fi
+  first_error=$mux_error
+  run_mux hc read "$pane"
+  [ "$mux_status" -eq 0 ] && cap=$(printf %s "$mux_output" | tail -c 20000) || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
+  mux_error=$(printf '%s\n%s\n' "$first_error" "$mux_error")
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 tmux)
   capture_mux tmux display-message -p -t "$pane" '#{pane_dead}'
