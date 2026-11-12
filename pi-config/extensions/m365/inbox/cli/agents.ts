@@ -20,17 +20,17 @@ export interface AgentEntry {
 	generation?: string;
 }
 
+function migrateAgents(agents: AgentEntry[]): AgentEntry[] {
+	if (!agents.some((a) => !a.generation)) return agents;
+	const next = agents.map((a) => a.generation ? a : { ...a, generation: randomUUID() });
+	writeList(AGENT_LIST, next as unknown as Record<string, unknown>[]);
+	return next;
+}
+
 export function readAgents(): AgentEntry[] {
 	const agents = readList(AGENT_LIST) as unknown as AgentEntry[];
 	if (!agents.some((a) => !a.generation)) return agents;
-	const migrated = agents.map((a) => a.generation ? a : { ...a, generation: randomUUID() });
-	return withRulesLock(() => {
-		const current = readList(AGENT_LIST) as unknown as AgentEntry[];
-		if (!current.some((a) => !a.generation)) return current;
-		const next = current.map((a) => a.generation ? a : { ...a, generation: randomUUID() });
-		writeList(AGENT_LIST, next as unknown as Record<string, unknown>[]);
-		return next;
-	});
+	return withRulesLock(() => migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]));
 }
 
 export function writeAgents(agents: AgentEntry[]): void {
@@ -52,21 +52,25 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 	// Seconds, not minutes: the push tailer tells a re-registration of the same name by a changed `since`.
 	entry.since = stamp(new Date(), true);
 	entry.generation = randomUUID();
-	withRulesLock(() => writeAgents([...readAgents().filter((e) => e.name !== a.name), entry]));
+	withRulesLock(() => writeAgents([...migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]).filter((e) => e.name !== a.name), entry]));
 	return `watching ${a.name}; ${then}`;
 }
 
 export function removeAgents(entries: { name: string; generation?: string }[]): string {
+	const removed: string[] = [];
 	withRulesLock(() => {
-		const agents = readAgents();
-		writeAgents(agents.filter((a) => !entries.some((e) => e.name === a.name && (!e.generation || e.generation === a.generation))));
+		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
+		const matched = entries.filter((e) => e.generation && agents.some((a) => a.name === e.name && a.generation === e.generation));
+		for (const e of entries) if (!matched.includes(e)) console.warn(`agent cleanup skipped ${e.name}: missing or changed generation`);
+		removed.push(...matched.map((e) => e.name));
+		writeAgents(agents.filter((a) => !matched.some((e) => e.name === a.name && e.generation === a.generation)));
 	});
-	return `stopped ${entries.map((e) => e.name).join(" ")}`;
+	return `stopped ${removed.join(" ")}`;
 }
 
 export function removeAgentsByName(names: string[], generation?: string): string {
 	withRulesLock(() => {
-		const agents = readAgents();
+		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
 		if (!generation) {
 			const missing = names.filter((name) => !agents.some((a) => a.name === name));
 			if (missing.length) throw new InboxError(`not watched: ${missing.join(" ")}`);

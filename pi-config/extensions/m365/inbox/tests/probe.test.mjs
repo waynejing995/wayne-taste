@@ -405,6 +405,17 @@ await check("a finished push session gets only a digest line and is not removed"
 	}),
 );
 
+await check("a legacy probe registration is migrated and removed on completion", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", finished);
+		const rules = YAML.parse(fs.readFileSync(path.join(f.dir, "rules.yaml"), "utf8"));
+		delete rules.agent_watch[0].generation;
+		fs.writeFileSync(path.join(f.dir, "rules.yaml"), YAML.stringify(rules));
+		await f.run();
+		deepStrictEqual(f.watchedNames(), []);
+	}),
+);
+
 for (const [label, behaviour] of [
 	["probe", broken],
 	["line", (now, want) => ({ ...ompLive(now, want), tail: "bad" })],

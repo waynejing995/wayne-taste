@@ -277,7 +277,7 @@ export class AgentTailer {
 				return;
 			}
 		}
-		if (mtime === this.rulesMtime) return;
+
 		this.rulesMtime = mtime;
 		const previous = this.entries;
 		try {
@@ -400,7 +400,10 @@ export class AgentTailer {
 			while (stream.lines.length > 0) {
 				const line = stream.lines[0];
 				const event = this.parse(line, stream.host);
-				if (event) await this.apply(event, stream.host);
+				if (event) {
+					await this.refresh();
+					await this.apply(event, stream.host);
+				}
 				cursor.offset += line.length + 1;
 				stream.lines.shift();
 				moved = true;
@@ -476,7 +479,9 @@ export class AgentTailer {
 				retire = true;
 				try {
 					await this.refresh();
-					if (this.entries.some((item) => item.name === ev.name && (!generation || item.generation === generation))) await this.inbox(["agent", "rm", ev.name, ...(generation ? ["--generation", generation] : [])]);
+					const currentEntry = this.entries.find((item) => item.name === ev.name);
+					if (currentEntry) Object.assign(current, { generation: currentEntry.generation, since: currentEntry.since });
+					if (generation && currentEntry?.generation === generation) await this.inbox(["agent", "rm", ev.name, "--generation", generation]);
 					this.clearError(`rm:${ev.name}`);
 				} catch (e) {
 					this.fail(`rm:${ev.name}`, e);
@@ -497,7 +502,7 @@ export class AgentTailer {
 			} else if (dead || current.state === "registered") current.state = "working";
 		}
 		this.names[ev.name] = current;
-		if (retire) {
+		if (retire && current.generation === generation) {
 			current.removed = true;
 			current.retiredAt = { session: ev.session, seq: ev.seq, said };
 			delete current.pending;

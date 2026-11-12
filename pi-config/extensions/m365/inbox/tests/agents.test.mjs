@@ -6,6 +6,8 @@ import * as path from "node:path";
 import { PassThrough } from "node:stream";
 import YAML from "yaml";
 import { AgentTailer } from "../agents.ts";
+import { readAgents } from "../cli/agents.ts";
+
 
 let failed = 0;
 async function check(label, fn) {
@@ -44,6 +46,7 @@ function fixture(extra = {}) {
 			const name = args[2];
 			if (!entries.some((entry) => entry.name === name && (!generation || entry.generation === generation))) throw new Error(`not watched: ${name}`);
 			writeRules(entries.filter((entry) => !(entry.name === name && (!generation || entry.generation === generation))));
+			tailer.entries = entries;
 			return "stopped";
 		}
 		if (failAdd) throw new Error("ledger unavailable");
@@ -109,10 +112,27 @@ await check("idle and done result map output and remove watch", () => withFixtur
 	deepStrictEqual(fields(idle).slice(0, 2), ["event=idle", "state=no-result"]);
 	equal(arg(result, "--note"), "RESULT status: done. Last output: finished");
 	equal(arg(result, "--link"), "/answer");
-	const generation = f.tailer.entries[0].generation;
+	const generation = f.calls.at(-1)?.[4];
 	assert.match(generation, /^[0-9a-f-]{36}$/);
 	deepStrictEqual(f.calls.at(-1), ["agent", "rm", "one", "--generation", generation]);
 	equal(f.saved().names.one.status, "done");
+}));
+
+await check("a legacy push registration is removed on completion", () => withFixture(async (f) => {
+	const legacy = f.watched();
+	delete legacy.generation;
+	f.writeRules([legacy]);
+	const saved = process.env.WAYNE_INBOX_DIR;
+	process.env.WAYNE_INBOX_DIR = f.dir;
+	const migrated = readAgents()[0];
+	if (saved === undefined) delete process.env.WAYNE_INBOX_DIR; else process.env.WAYNE_INBOX_DIR = saved;
+	await f.start([legacy]);
+	f.writeRules([migrated]);
+	f.tailer.entries = [migrated];
+	f.append(f.event("result", 1, { text: "finished", result: { status: "done", path: "/answer" } }));
+	await f.tailer.poke();
+	ok(f.calls.at(-1)?.[4] === migrated.generation);
+	deepStrictEqual(f.tailer.entries, []);
 }));
 await check("a re-registration survives result cleanup", () => withFixture(async (f) => {
 	const first = { ...f.watched(), generation: "old" };
@@ -127,7 +147,9 @@ await check("a re-registration survives result cleanup", () => withFixture(async
 	f.writeRules([next]);
 	release();
 	await running;
-	deepStrictEqual(f.tailer.entries, [next]);
+
+	equal(f.saved().names.one.generation, "new");
+	equal(f.saved().names.one.removed, undefined);
 }));
 
 await check("an unchanged status makes no second card; a changed one does", () => withFixture(async (f) => {

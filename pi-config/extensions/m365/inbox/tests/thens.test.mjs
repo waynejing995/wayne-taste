@@ -119,15 +119,24 @@ await check("completion cleanup removes only its generation", async () => {
 	ok(current[0].generation !== old.generation);
 });
 
-await check("a legacy registration without generation is migrated and removable", async () => {
+await check("completion cleanup without a generation does not remove a re-registration", async () => {
 	const id = await row();
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);
+	const current = readAgents();
+	removeAgents([{ name: "fixer" }]);
+	deepStrictEqual(readAgents(), current);
+});
+
+await check("a legacy registration is migrated during add and rm", async () => {
+	const id = await row();
+	await inbox(["agent", "add", "legacy", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old"]);
 	const old = readAgents()[0];
 	delete old.generation;
 	writeAgents([old]);
-	strictEqual(readAgents()[0].generation !== undefined, true);
-	removeAgents([{ name: "fixer" }]);
-	deepStrictEqual(readAgents(), []);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new"]);
+	ok(readAgents().every((entry) => entry.generation));
+	await inbox(["agent", "rm", "legacy"]);
+	deepStrictEqual(readAgents().map((entry) => entry.name), ["fixer"]);
 });
 
 await check("adding the same agent on another row cancels its old unfired plan", async () => {
