@@ -1764,11 +1764,6 @@ export default function (pi: ExtensionAPI) {
 		}, 0);
 	});
 
-	// omp replaces the session in place on /new, /resume and /fork: a watch belongs to the session that started it.
-	pi.on("session_switch", async () => {
-		stopAllWatches();
-	});
-
 	pi.on("session_shutdown", async () => {
 		if (unreadTimer) clearInterval(unreadTimer);
 		unreadTimer = undefined;
