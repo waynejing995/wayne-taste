@@ -104,7 +104,10 @@ console.log("\n== receive: the AMS download goes with the skype token, to the AM
 	check("a User-Agent AMS accepts", /Mozilla\/5\.0/.test(get?.headers["User-Agent"] ?? ""), true);
 
 	const evil = skype(() => ({ body: PNG }));
-	check("another host is refused", /not a Teams image host/.test(await threw(() => evil.c.image("https://evil.example/v1/objects/x/views/imgo"))), true);
+	check("another host is refused", /not the Teams image host/.test(await threw(() => evil.c.image("https://evil.example/v1/objects/x/views/imgo"))), true);
+	const region = skype(() => ({ status: 200, body: PNG }));
+	check("another AMS region is refused: the token goes only to the host authsvc named", /not the Teams image host \(us-api\.asm\.skype\.com\)/.test(await threw(() => region.c.image("https://eu-api.asm.skype.com/v1/objects/x/views/imgo"))), true);
+	check("nothing was fetched from the other region", region.seen.some((r) => r.url.includes("eu-api")), false);
 	check("and nothing is fetched from it", evil.seen.some((s) => s.url.includes("evil.example")), false);
 
 	const gone = skype((u) => (u === url ? { status: 404, body: { error: "gone" } } : undefined));

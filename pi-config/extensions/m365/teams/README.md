@@ -459,8 +459,8 @@ step on either side:
   self-chat, with a card too: Graph posts carry them as `hostedContents`, and a
   plain self-chat message uploads them to AMS as Teams itself does.
 
-Each token goes only to its own host: a self-chat picture (`*.asm.skype.com`) is
-fetched with the skype token, a Graph `hostedContents` URL with the Graph token,
+Each token goes only to its own host: a self-chat picture is fetched with the
+skype token only from the AMS host authsvc names for this account (one region), a Graph `hostedContents` URL with the Graph token,
 and any other `<img src>` is refused, because the sender of a message chooses
 that address. A picture sent as a file is fetched like `teams_download` does,
 through Graph's `/shares` with the Graph token; only files named
