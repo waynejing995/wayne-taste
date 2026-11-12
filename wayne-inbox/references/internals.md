@@ -97,11 +97,14 @@ The scheduler runs in the plugin, not in systemd: every minute, in the first omp
 To start one, use the `delegate-agent-session` skill: it writes the brief, launches omp in tern, herdr or tmux (local or an ssh host), and registers the session here. Every agent session Wayne or an agent wants followed goes on the `agent_watch` list:
 
 ```bash
-$I agent add <name> [--push] --mux tern|herdr|tmux --pane <tern block id | herdr agent | tmux target> \
-  [--host <ssh host>] --result <deliverable file with the RESULT block> --goal "<one line>"
+$I agent add <name> --mux tern|herdr|tmux --pane <tern block id | herdr agent | tmux target> \
+  [--host <ssh host>] [--result <deliverable file with the RESULT block>] [--goal "<one line>"] \
+  --row <live row id> --then "<plan for its RESULT: expected outcome, whom to reply to and how, what to close>" [--push]
 $I agent ls                              # last column: push
 $I agent rm <name>...
 ```
+
+`--row` and `--then` are required. `--row`/`--then` arm an `agent-result:<name>` then on that row (see thens): the next RESULT fires a card quoting the plan, and `done` of the row refuses until the then is closed. Adding the same name again replaces the registration and cancels its previous unfired then.
 
 An entry is watched one of two ways, decided only by its registration.
 

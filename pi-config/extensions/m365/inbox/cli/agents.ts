@@ -33,7 +33,7 @@ function writeAgents(agents: AgentEntry[]): void {
  */
 export function addAgent(a: { name: string; mux: string; pane: string; row: string; then: string; host?: string; result?: string; goal?: string; push?: boolean }): string {
 	if (!MUXES.includes(a.mux)) throw new InboxError(`--mux must be one of ${MUXES.join(", ")}`);
-	const then = addThen(a.row, `agent-result:${a.name}`, a.then);
+	const then = addThen(a.row, `agent-result:${a.name}`, a.then, true);
 	const entry: AgentEntry = { name: a.name, mux: a.mux, host: a.host || "local", pane: a.pane };
 	if (a.result) entry.result = a.result;
 	if (a.goal) entry.goal = clean(a.goal);
@@ -44,14 +44,12 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 	return `watching ${a.name}; ${then}`;
 }
 
-export function removeAgents(names: string[]): string {
+export function removeAgents(entries: { name: string; since?: string }[]): string {
 	withRulesLock(() => {
 		const agents = readAgents();
-		const missing = names.filter((n) => !agents.some((a) => a.name === n));
-		if (missing.length) throw new InboxError(`not watched: ${missing.join(", ")}`);
-		writeAgents(agents.filter((a) => !names.includes(a.name)));
+		writeAgents(agents.filter((a) => !entries.some((e) => e.name === a.name && (!e.since || e.since === a.since))));
 	});
-	return `stopped ${names.join(" ")}`;
+	return `stopped ${entries.map((e) => e.name).join(" ")}`;
 }
 
 /** One tab-separated line per session: name, mux, host, pane, result, since, goal, push. */

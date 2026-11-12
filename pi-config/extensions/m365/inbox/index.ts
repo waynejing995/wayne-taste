@@ -138,7 +138,7 @@ export default function inbox(pi: ExtensionAPI) {
 			for (const m of fresh) {
 				await inboxCli([
 					"add", "--source", "outlook", "--place", "Inbox", "--key", `outlook:${m.id}`,
-					"--subject", m.subject || "(no subject)", "--note", `${m.from?.name ?? m.from?.address ?? "?"}: ${m.preview.slice(0, 160)}`,
+					"--subject", m.subject || "(no subject)", "--", "--note", `${m.from?.name ?? m.from?.address ?? "?"}: ${m.preview.slice(0, 160)}`,
 					"--field", `from=${m.from?.address?.toLowerCase() ?? ""}`, "--field", `flagged=${m.flagged ? "yes" : "no"}`,
 				]);
 				fs.writeFileSync(MAIL_CURSOR, `${m.received}\n`);

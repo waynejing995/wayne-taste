@@ -82,6 +82,13 @@ function verdict(body) {
 	return result.stdout.split("\n")[0];
 }
 
+
+await check("a null detailsUrl does not abort the check selector", () => {
+	const result = run("jq", ["-r", '(.detailsUrl // "" | capture("/job/(?<id>[0-9]+)").id) // .name'], { input: '{"detailsUrl":null,"name":"job"}' });
+	if (result.status !== 0) throw new Error(result.stderr);
+	equal(result.stdout.trim(), "job");
+});
+
 await check("ready when latest review is clean on head and checks pass", () => {
 	const result = runReady(pr([["2026-11-10T09:00:00Z", CLEAN]]));
 	equal(result.status, 0, result.stdout + result.stderr);

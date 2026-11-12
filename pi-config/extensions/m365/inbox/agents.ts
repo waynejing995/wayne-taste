@@ -77,6 +77,7 @@ const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ServerAliveInterval=30", "-o", "
 
 /** The remote end: create the file, print `#start <offset> <inode>`, then stream from the offset. */
 function remoteCommand(offset: number): string {
+	if (!Number.isSafeInteger(offset) || offset < 0) throw new Error(`bad remote offset: ${offset}`);
 	return `f=\${WAYNE_INBOX_DIR:-$HOME/.wayne/inbox}/agent-events.jsonl; mkdir -p "\${f%/*}"; touch "$f"; o=${offset}; [ "$(stat -c %s "$f")" -lt "$o" ] && o=0; echo "#start $o $(stat -c %i "$f")"; exec tail -c +$((o+1)) -F "$f"`;
 }
 
@@ -526,9 +527,10 @@ export class AgentTailer {
 		stream.stderr = "";
 		let child: ChildProcess;
 		try {
-			child = this.spawn("ssh", [...SSH_OPTS, stream.host, remoteCommand(offset)]);
+			if (!/^[A-Za-z0-9._:-]+$/.test(stream.host)) throw new Error(`bad ssh host: ${stream.host}`);
+			child = this.spawn("ssh", [...SSH_OPTS, "--", stream.host, remoteCommand(offset)]);
 		} catch (e) {
-			this.linkDown.set(stream.host, `ssh did not start: ${e instanceof Error ? e.message : String(e)}`);
+			this.warn(`ssh did not start: ${e instanceof Error ? e.message : String(e)}`);
 			this.onChange();
 			this.reconnect(stream);
 			return;

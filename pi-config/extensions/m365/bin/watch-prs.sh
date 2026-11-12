@@ -66,7 +66,7 @@ for repo in "${repos[@]}"; do
     done
     jq -c '.statusCheckRollup[]? | select(.__typename=="CheckRun" and .status=="COMPLETED")' <<<"$pr" | while read -r c; do
       # One check run = one job; its id is the /job/<id> in detailsUrl (the run id is shared by every job).
-      emit "github:$repo#$n:check:$(jq -r '(.detailsUrl | capture("/job/(?<id>[0-9]+)").id) // .name' <<<"$c")" "$subj" \
+      emit "github:$repo#$n:check:$(jq -r '(.detailsUrl // "" | capture("/job/(?<id>[0-9]+)").id) // .name' <<<"$c")" "$subj" \
         "$(jq -r '.name + " " + .conclusion' <<<"$c"): $title" "$(jq -r .detailsUrl <<<"$c")" \
         "number=$n" "event=check" "state=$(jq -r .conclusion <<<"$c")"
     done

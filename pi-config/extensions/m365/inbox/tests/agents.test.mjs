@@ -1,4 +1,4 @@
-import { deepStrictEqual, equal, match, ok, throws } from "node:assert/strict";
+import { deepStrictEqual, equal, match, ok, rejects, throws } from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -128,6 +128,19 @@ await check("an unchanged status makes no second card; a changed one does", () =
 	deepStrictEqual([...f.rows.keys()], ["agents:one:session:1", "agents:one:session:3", "agents:one:session:4", "agents:one:session:6"]);
 	ok(f.warnings.some((w) => w.includes("seq 2 repeats")), "the skipped card is logged");
 }));
+
+await check("ssh gets a validated host after -- and rejects an option-shaped host", () => {
+	const calls = [];
+	return withFixture(async (f) => {
+		f.writeRules([{ name: "one", host: "trace-srdc", mux: "tern", pane: "one", push: true, since: "2026-11-12 00:00" }]);
+		f.tailer.start();
+		await f.tailer.poke();
+		ok(calls[0][1].includes("--") && calls[0][1].at(-2) === "trace-srdc");
+		f.writeRules([{ name: "bad", host: "-oProxyCommand=evil", mux: "tern", pane: "bad", push: true }]);
+		await f.tailer.poke();
+		ok(f.warnings.some((w) => /bad ssh host/.test(w)));
+	}, { spawn: (cmd, args) => { calls.push([cmd, args]); const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true; return child; } });
+});
 
 await check("duplicate sequence is deduplicated", () => withFixture(async (f) => {
 	await f.start();
@@ -417,9 +430,9 @@ await check("agent-push-smart 2026-11-10, the stream as written (no `prompted`):
 	// `sessionFile` (left out: no rule reads them). Before the fix, 075 became card #394 on re-registration and retired
 	// the name, and 247 was held forever with no card and no warning.
 	const name = "agent-push-smart";
-	const session = "01a1c313-0982-718e-b686-6bf23cddede2";
-	const result = { path: "/root/.wayne/projects/wayne-skills/runs/agent-push-smart/RESULT.md", status: "done" };
-	const real = (seq, type, ts) => ({ v: 1, ts, name, host: "wayne-amd-Super-Server", pid: 4059262, session, seq: 1794274167959000 + seq, type, ...(type === "result" ? { result } : {}) });
+	const session = "00000000-0000-4000-8000-000000000001";
+	const result = { path: "/tmp/demo/RESULT.md", status: "done" };
+	const real = (seq, type, ts) => ({ v: 1, ts, name, host: "example-host", pid: 1001, session, seq: 1794274167959000 + seq, type, ...(type === "result" ? { result } : {}) });
 	const key = (seq) => `agents:${name}:${session}:${1794274167959000 + seq}`;
 	await f.start([f.watched(name, "local", "2026-11-10 09:29:20")]);
 	f.append(real(62, "working", "2026-11-10T02:26:58.181Z"));

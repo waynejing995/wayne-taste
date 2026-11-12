@@ -84,6 +84,14 @@ await check("agent add arms its plan on the row: the next RESULT fires it and th
 	await rejects(inbox(["done", id]), /open then-actions/);
 });
 
+await check("adding the same agent again cancels its previous unfired plan", async () => {
+	const id = await row();
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "second"]);
+	const listed = await inbox(["ls"]);
+	ok(listed.includes("second") && !/then .* waits for .* first/.test(listed));
+});
+
 await check("at: fires at its minute; gh-run asks gh and fires when the run completed", async () => {
 	const id = await row();
 	await inbox(["then", id, "--when", "at:2026-11-11 10:30", "--", "ping Bob"]);

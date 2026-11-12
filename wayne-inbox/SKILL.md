@@ -50,7 +50,7 @@ The `teams-digest` job adds `ask-wayne` and `teams-fact` rows from the watched T
 
 - PR: add its number to the repo's rules in `~/.wayne/inbox/rules.yaml`.
 - PR ready to merge? `pr-ready.sh <owner/repo> <pr>` (the m365 plugin's `bin/`) checks the latest auto-review is on the head and clean, CI passed and GitHub says mergeable; exit 0 = `READY`.
-- Agent session: `delegate-agent-session` launches it with `WAYNE_AGENT_WATCH`/`WAYNE_AGENT_RESULT` and registers it (`$I agent add <name> --push …`), so the session pushes its own `ask`, result, idle, exit and death as `do` cards; `$I agent rm <name>` stops.
+- Agent session: `delegate-agent-session` launches it with `WAYNE_AGENT_WATCH`/`WAYNE_AGENT_RESULT` and registers it (`$I agent add <name> --mux <mux> --pane <pane> --row <row-id> --then <plan> --push …`), so the session pushes its own `ask`, result, idle, exit and death as `do` cards; `$I agent rm <name>` stops.
 - In omp or pi: `/inbox watch` (cards come here), `/inbox stop`, `/inbox status`, `/inbox setup`.
 - Recurring work: `$I schedule add …` (shell, prompt or `teams_read` job; see `references/internals.md`). Jobs run while an omp or pi session with the m365 plugin is open.
 
