@@ -14,12 +14,15 @@ run_mux() {
 	mux_output=$(cat "$tmp"; printf x)
 	mux_output=${mux_output%x}
 	rm -f "$tmp"
-	if [ "$mux_status" -eq 127 ]; then mux_error=$mux_output; mux_status=2
+	if [ "$mux_status" -eq 127 ]; then add_error "$mux_output"; mux_status=2
 	elif [ "$mux_status" -ne 0 ] && missing_target "$mux" "$mux_output"; then mux_status=1
-	elif [ "$mux_status" -ne 0 ]; then mux_error=$mux_output; mux_status=2
+	elif [ "$mux_status" -ne 0 ]; then add_error "$mux_output"; mux_status=2
 	else mux_status=0; fi
 	return "$mux_status"
 }
+# Every failed mux command is kept: a later capture failure must not hide the query's error.
+add_error() { mux_error=${mux_error:+$mux_error
+}$1; }
 missing_target() {
 	mux=$1; text=$2
 	case $mux in
@@ -37,9 +40,9 @@ capture_mux() {
 	value=$(cat "$tmp"; printf x)
 	value=${value%x}
 	rm -f "$tmp"
-	if [ "$mux_status" -eq 127 ]; then mux_error=$value; mux_status=2
+	if [ "$mux_status" -eq 127 ]; then add_error "$value"; mux_status=2
 	elif [ "$mux_status" -ne 0 ] && missing_target "$mux" "$value"; then mux_status=1
-	elif [ "$mux_status" -ne 0 ]; then mux_error=$value; mux_status=2; fi
+	elif [ "$mux_status" -ne 0 ]; then add_error "$value"; mux_status=2; fi
 }
 case $mux in
 tern)
@@ -70,10 +73,8 @@ hc)
   state=$(printf '%s' "$info" | tr -d '\n' | sed -n 's/.*"status": *{[^}]*"state": *"\([a-z]*\)".*/\1/p')
   # hc's blocked = waiting on a question; working/done map onto herdr's working/idle.
   [ "$state" = done ] && state=idle
-  first_error=$mux_error
   run_mux hc read "$pane"
   [ "$mux_status" -eq 0 ] && cap=$(printf %s "$mux_output" | tail -c 20000) || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
-  mux_error=$(printf '%s\n%s\n' "$first_error" "$mux_error")
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 tmux)
   capture_mux tmux display-message -p -t "$pane" '#{pane_dead}'

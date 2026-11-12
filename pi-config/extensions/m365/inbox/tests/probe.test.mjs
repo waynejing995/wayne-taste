@@ -254,6 +254,14 @@ for (const mux of Object.keys(MISSING)) {
 		strictEqual(r.alive, false);
 	}));
 }
+for (const [mux, query] of [["tern", "process"], ["herdr", "get"]]) {
+	await check(`a failing ${mux} ${query} is still reported when the capture fails too`, () => withFixture(async (f) => {
+		const command = `case "$*" in *${query}*) echo "${query} broke" >&2 ;; *) echo "capture broke" >&2 ;; esac; exit 1`;
+		const err = await f.probeMux(mux, "1", command).then(() => null, (e) => String(e.message));
+		ok(err?.includes(`${query} broke`), `first error kept: ${err}`);
+		ok(err?.includes("capture broke"), `second error kept: ${err}`);
+	}));
+}
 await check("a missing mux binary stays a probe error", () => withFixture(async (f) => {
 	fs.mkdirSync(path.join(process.env.HOME, ".local", "bin"), { recursive: true });
 	fs.writeFileSync(path.join(process.env.HOME, ".local", "bin", "tern"), "#!/bin/sh\necho missing >&2\nexit 127\n", { mode: 0o755 });
