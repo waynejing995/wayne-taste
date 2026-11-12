@@ -261,6 +261,13 @@ for (const [what, line] of [["window", "can't find window: 9"], ["session", "can
 		strictEqual(r.alive, false);
 	}));
 }
+for (const [mux, query, capture] of [["tmux", "display-message", "can't find window: 9"], ["tern", "process", "tern capture: no block is called `1`"], ["herdr", "get", "{\\\"error\\\":{\\\"code\\\":\\\"agent_not_found\\\"}}"]]) {
+	await check(`a ${mux} pane that goes away between ${query} and the capture is not alive`, () => withFixture(async (f) => {
+		const ok = mux === "tmux" ? "echo 0" : mux === "tern" ? "echo '{\"foreground\": {\"pid\": 1}}'" : "echo '{\"agent_status\": \"working\"}'";
+		const r = await f.probeMux(mux, "1", `case "$*" in *${query}*) ${ok}; exit 0 ;; *) echo "${capture}" >&2; exit 1 ;; esac`);
+		strictEqual(r.alive, false);
+	}));
+}
 await check("a stopped tmux server stays a probe error", () => withFixture(async (f) => {
 	await failsWith(f.probeMux("tmux", "%1", "echo 'no server running on /tmp/tmux-0/default' >&2; exit 1"), "no server running");
 }));

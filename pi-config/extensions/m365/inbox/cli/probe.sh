@@ -23,6 +23,11 @@ run_mux() {
 # Every failed mux command is kept: a later capture failure must not hide the query's error.
 add_error() { mux_error=${mux_error:+$mux_error
 }$1; }
+# A capture that fails: an operational error stays an error; a target gone since the query means not alive.
+capture_failed() {
+	if [ "$mux_status" -eq 2 ]; then alive=error
+	elif [ "$alive" != error ]; then alive=false; fi
+}
 missing_target() {
 	mux=$1; text=$2
 	case $mux in
@@ -56,13 +61,13 @@ tern)
     if [ -n "$s" ]; then session=$s agent=$(cat /proc/$p/comm 2>/dev/null); break; fi
     [ -z "$agent" ] && agent=$(cat /proc/$p/comm 2>/dev/null)
   done
-  capture_mux tern capture "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
+  capture_mux tern capture "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { capture_failed; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 herdr)
   if run_mux herdr agent get "$pane"; then info=$mux_output alive=true
   elif [ $? -eq 2 ]; then alive=error; fi
   state=$(printf '%s' "$info" | tr -d '\n' | sed -n 's/.*"agent_status": *"\([a-z]*\)".*/\1/p')
-  capture_mux herdr agent read "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
+  capture_mux herdr agent read "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { capture_failed; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 hc)
   # `hc get` exits non-zero for an unknown terminal; a finished one stays listed with state != live.
@@ -74,14 +79,14 @@ hc)
   # hc's blocked = waiting on a question; working/done map onto herdr's working/idle.
   [ "$state" = done ] && state=idle
   run_mux hc read "$pane"
-  [ "$mux_status" -eq 0 ] && cap=$(printf %s "$mux_output" | tail -c 20000) || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
+  [ "$mux_status" -eq 0 ] && cap=$(printf %s "$mux_output" | tail -c 20000) || { capture_failed; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 tmux)
   capture_mux tmux display-message -p -t "$pane" '#{pane_dead}'
   if [ "$mux_status" -eq 0 ]; then printf %s "$value" | grep -qx 0 && alive=true
   elif [ "$mux_status" -eq 2 ]; then alive=error; fi
   agent=$(run_mux tmux display-message -p -t "$pane" '#{pane_current_command}' >/dev/null || true; printf '%s' "$mux_output")
-  capture_mux tmux capture-pane -p -t "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
+  capture_mux tmux capture-pane -p -t "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { capture_failed; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 esac
 [ "$alive" = error ] && { printf 'probe command failed: %s\n' "$mux_error" >&2; exit 1; }
