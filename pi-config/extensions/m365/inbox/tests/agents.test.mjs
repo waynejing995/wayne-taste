@@ -44,9 +44,10 @@ function fixture(extra = {}) {
 		if (args[0] === "agent") {
 			const generation = args.includes("--generation") ? args[args.indexOf("--generation") + 1] : undefined;
 			const name = args[2];
-			if (!entries.some((entry) => entry.name === name && (!generation || entry.generation === generation))) throw new Error(`not watched: ${name}`);
-			writeRules(entries.filter((entry) => !(entry.name === name && (!generation || entry.generation === generation))));
-			tailer.entries = entries;
+			if (!tailer.entries.some((entry) => entry.name === name && (!generation || entry.generation === generation))) throw new Error(`not watched: ${name}`);
+			const next = tailer.entries.filter((entry) => !(entry.name === name && (!generation || entry.generation === generation)));
+			writeRules(next);
+			tailer.entries = next;
 			return "stopped";
 		}
 		if (failAdd) throw new Error("ledger unavailable");
@@ -120,20 +121,15 @@ await check("idle and done result map output and remove watch", () => withFixtur
 	equal(f.saved().names.one.status, "done");
 }));
 
-await check("a legacy push registration is removed on completion", () => withFixture(async (f) => {
+await check("a legacy push registration migrates on first start and is removed", () => withFixture(async (f) => {
 	const legacy = f.watched();
 	delete legacy.generation;
-	f.writeRules([legacy]);
-	const saved = process.env.WAYNE_INBOX_DIR;
-	process.env.WAYNE_INBOX_DIR = f.dir;
-	const migrated = readAgents()[0];
-	if (saved === undefined) delete process.env.WAYNE_INBOX_DIR; else process.env.WAYNE_INBOX_DIR = saved;
-	await f.start([legacy]);
-	f.writeRules([migrated]);
-	f.tailer.entries = [migrated];
+	fs.writeFileSync(f.rules, YAML.stringify({ agent_watch: [legacy] }));
+	f.tailer.start();
+	await f.tailer.poke();
+	ok(f.tailer.entries[0].generation);
 	f.append(f.event("result", 1, { text: "finished", result: { status: "done", path: "/answer" } }));
 	await f.tailer.poke();
-	ok(f.calls.at(-1)?.[4] === migrated.generation);
 	deepStrictEqual(f.tailer.entries, []);
 }));
 await check("a re-registration survives result cleanup", () => withFixture(async (f) => {

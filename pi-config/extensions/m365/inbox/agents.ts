@@ -121,8 +121,8 @@ export function readEntries(text: string, dir: string): Entry[] {
 		const list = parsed.agent_watch ?? [];
 		if (!Array.isArray(list)) throw new Error("agent_watch must be a list");
 		const entries = list as Entry[];
-		if (entries.some((entry) => !entry.generation)) readAgents();
-		return entries.filter((entry) => entry.push === true).map((entry) => ({ ...entry, host: entry.host || "local" }));
+		const migrated = entries.some((entry) => !entry.generation) ? readAgents() : entries;
+		return migrated.filter((entry) => entry.push === true).map((entry) => ({ ...entry, host: entry.host || "local" }));
 	} finally {
 		if (saved === undefined) delete process.env.WAYNE_INBOX_DIR; else process.env.WAYNE_INBOX_DIR = saved;
 	}
@@ -305,7 +305,11 @@ export class AgentTailer {
 		}
 		for (const entry of this.entries) {
 			const old = this.names[entry.name];
-			if (old && old.since === entry.since && (entry.generation ?? old.generation) === old.generation) continue;
+			if (old && old.since === entry.since && old.generation === entry.generation) continue;
+			if (old && old.since === entry.since && !old.generation && entry.generation) {
+				old.generation = entry.generation;
+				continue;
+			}
 			const pending = (old?.pending ?? []).filter((item) => item.host === entry.host);
 			if (pending.length < (old?.pending?.length ?? 0)) this.warn(`${entry.name}: dropped events from another host that arrived before registration`);
 			this.names[entry.name] = {

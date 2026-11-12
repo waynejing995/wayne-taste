@@ -809,7 +809,7 @@ await check("a capture command failure is a probe error and each command runs on
 		const tern = path.join(process.env.HOME, ".local", "bin", "tern");
 		fs.mkdirSync(path.dirname(tern), { recursive: true });
 		fs.writeFileSync(tern, `#!/bin/sh\necho x >> '${count}'\ncase "$1" in\nprocess) echo '{"foreground": {"pid": 1}}' ;;\ncapture) echo capture exploded >&2; exit 7 ;;\nesac\n`, { mode: 0o755 });
-		await failsWith(runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result: "" }, false), "probe command failed");
+		await failsWith(runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result: "" }, false), "capture exploded");
 		strictEqual((fs.readFileSync(count, "utf8").match(/x/g) ?? []).length, 2);
 	}),
 );
