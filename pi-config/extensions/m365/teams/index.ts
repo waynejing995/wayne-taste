@@ -32,6 +32,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { TextContent } from "@earendil-works/pi-ai";
 /** Local `StringEnum` helper — `Type.Unsafe({type:"string", enum})` so tool schemas
   * use a flat form providers can handle (not `anyOf/const`). Identical to the
   * pi-ai export it replaces; stays here so the extension loads without that dep. */
@@ -1371,7 +1372,7 @@ export default function (pi: ExtensionAPI) {
 				Type.Number({ description: "Refuse anything larger, in MB. Default 256." }),
 			),
 		}),
-		async execute(_id, params) {
+		async execute(_id, params): Promise<{ content: [{ type: "text"; text: string }]; details: { path?: string; size?: number } }> {
 			try {
 				const r = await backend.downloadFile(params.url, params.path, {
 					maxBytes: params.max_mb ? Math.round(params.max_mb * 1024 * 1024) : undefined,
@@ -1423,7 +1424,7 @@ export default function (pi: ExtensionAPI) {
 				}),
 			),
 		}),
-		async execute(_id, params) {
+		async execute(_id, params): Promise<{ content: [{ type: "text"; text: string }]; details: { count?: number; title?: string; startedAt?: string; duration?: string; entries?: number; speakers?: string[]; fallbackWarning?: string; path?: string } }> {
 			if (!params.chat_id && !params.chat) {
 				throw new Error("teams_transcript requires 'chat_id' (preferred) or 'chat'");
 			}
@@ -1705,6 +1706,11 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// ── Lifecycle ───────────────────────────────────────────────────────────
+	// omp replaces the session in place on /new, /resume and /fork and says so with session_switch; pi has no such
+	// event (it shuts the old session down instead), so its declarations lack it. A watch belongs to the session that
+	// started it, so both events end every watch and drop the queued cards.
+	const onSessionSwitch = (pi.on as unknown as (event: "session_switch", handler: () => Promise<void> | void) => void).bind(pi);
+	onSessionSwitch("session_switch", () => stopAllWatches());
 
 	pi.on("session_start", async (_event, ctx) => {
 		statusCtx = ctx;
@@ -1721,13 +1727,7 @@ export default function (pi: ExtensionAPI) {
 		if (msg.role === "custom" && msg.customType === "teams-watch" && msg.details?.ids) logCard("delivered", msg.details);
 		if (event.message.role !== "assistant") return;
 		const content = event.message.content;
-		lastAssistantText =
-			typeof content === "string"
-				? content
-				: (content ?? [])
-						.filter((p: { type: string }) => p.type === "text")
-						.map((p: { text: string }) => p.text)
-						.join("\n");
+		lastAssistantText = content.filter((p): p is TextContent => p.type === "text").map((p) => p.text).join("\n");
 	});
 
 	/**
