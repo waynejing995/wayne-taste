@@ -242,6 +242,18 @@ await check("a failed rules write rolls the plan back: the old watch keeps its p
 	deepStrictEqual(readThens(), before, "its plan is still armed and no new plan was left behind");
 });
 
+await check("a failed plan save puts the old registration back", async () => {
+	const id = await row();
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan one"]);
+	const before = readThens();
+	const watched = readAgents();
+	mkdirSync(join(home, "thens.json.tmp"));
+	await rejects(() => inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "plan two"]));
+	rmSync(join(home, "thens.json.tmp"), { recursive: true });
+	deepStrictEqual(readAgents(), watched, "the old registration is back");
+	deepStrictEqual(readThens(), before, "the plans are unchanged");
+});
+
 await check("re-adding a legacy registration cancels its old automatic plan", async () => {
 	const id = await row();
 	// A then added by hand in an earlier minute, then the automatic plan an older inbox armed with its registration.

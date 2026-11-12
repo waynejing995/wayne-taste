@@ -3,7 +3,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { clean, InboxError, stamp, withRulesLock } from "./ledger.ts";
-import { armThen } from "./thens.ts";
+import { addThen } from "./thens.ts";
 import { AGENT_LIST, readList, writeList } from "./lists.ts";
 
 export const MUXES = ["hc", "herdr", "tern", "tmux"];
@@ -58,15 +58,12 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
 		const old = agents.find((e) => e.name === a.name);
 		const legacy = old?.migratedGeneration === "legacy" && old.since ? { replacesLegacySince: old.since } : {};
-		const then = armThen(a.row, `agent-result:${a.name}`, a.then, { generation: entry.generation!, replaces: old?.generation, ...legacy });
-		try {
+		// The registration and its plan change together: see addThen's `commit`.
+		const then = addThen(a.row, `agent-result:${a.name}`, a.then, { generation: entry.generation!, replaces: old?.generation, ...legacy }, () => {
 			writeAgents([...agents.filter((e) => e.name !== a.name), entry]);
-		} catch (e) {
-			// The old registration is still the one watched: give it back its plan.
-			then.undo();
-			throw e;
-		}
-		return `watching ${a.name}; ${then.message}`;
+			return () => writeAgents(agents);
+		});
+		return `watching ${a.name}; ${then}`;
 	});
 }
 
