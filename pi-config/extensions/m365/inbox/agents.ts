@@ -23,7 +23,7 @@ export interface Deps {
 	warn?: (msg: string) => void;
 }
 
-interface Entry { name: string; host: string; mux: string; since?: string; goal?: string; result?: string; push?: boolean }
+interface Entry { name: string; host: string; mux: string; since?: string; generation?: string; goal?: string; result?: string; push?: boolean }
 interface Event {
 	v: number; ts: string; name: string; pid: number; session: string; seq: number; type: string; text?: string;
 	/** On `working`: false when no prompt started the turn (an extension's message did). Absent from older reporters. */
@@ -36,6 +36,7 @@ interface NameState {
 	lastSeen: number;
 	host: string;
 	since?: string;
+	generation?: string;
 	pid?: number;
 	session?: string;
 	status?: string;
@@ -294,12 +295,11 @@ export class AgentTailer {
 		}
 		for (const entry of this.entries) {
 			const old = this.names[entry.name];
-			if (old && old.since === entry.since) continue;
-			// A new registration starts clean. Pending events from another host are not this session's: say so.
+			if (old && old.since === entry.since && (entry.generation ?? old.generation) === old.generation) continue;
 			const pending = (old?.pending ?? []).filter((item) => item.host === entry.host);
 			if (pending.length < (old?.pending?.length ?? 0)) this.warn(`${entry.name}: dropped events from another host that arrived before registration`);
 			this.names[entry.name] = {
-				state: "registered", lastSeen: this.now(), host: entry.host, since: entry.since,
+				state: "registered", lastSeen: this.now(), host: entry.host, since: entry.since, generation: entry.generation,
 				...(pending.length > 0 ? { pending } : {}),
 				...(old?.retiredAt ? { retiredAt: old.retiredAt } : {}),
 			};
@@ -468,13 +468,15 @@ export class AgentTailer {
 		let retire = false;
 		const repeat = said !== undefined && said === current.lastCard;
 		if (repeat && live && !finished) this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} repeats the last card; not added`);
+		const generation = live?.generation;
 		if (live && row && !finished && !repeat) {
 			await this.add(live, `agents:${ev.name}:${ev.session}:${ev.seq}`, ev.type, row.state, row.note, ev.result?.path ?? "");
 			current.lastCard = said;
 			if (ev.type === "result" && row.state === "done") {
 				retire = true;
 				try {
-					await this.inbox(["agent", "rm", ev.name]);
+					await this.refresh();
+					if (generation && this.entries.some((item) => item.name === ev.name && item.generation === generation)) await this.inbox(["agent", "rm", ev.name, "--generation", generation]);
 					this.clearError(`rm:${ev.name}`);
 				} catch (e) {
 					this.fail(`rm:${ev.name}`, e);

@@ -101,6 +101,13 @@ await check("agent rm removes the registration by name", async () => {
 	strictEqual(await inbox(["agent", "ls"]), "");
 });
 
+await check("agent rm rejects a missing name without removing others", async () => {
+	const id = await row();
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);
+	await rejects(() => inbox(["agent", "rm", "fixer", "missing"]), /not watched: missing/);
+	ok((await inbox(["agent", "ls"])).startsWith("fixer\t"));
+});
+
 await check("completion cleanup removes only its generation", async () => {
 	const id = await row();
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);

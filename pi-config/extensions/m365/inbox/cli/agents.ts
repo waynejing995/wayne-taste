@@ -55,10 +55,18 @@ export function removeAgents(entries: { name: string; generation: string }[]): s
 	return `stopped ${entries.map((e) => e.name).join(" ")}`;
 }
 
-export function removeAgentsByName(names: string[]): string {
-	withRulesLock(() => writeAgents(readAgents().filter((a) => !names.includes(a.name))));
+export function removeAgentsByName(names: string[], generation?: string): string {
+	withRulesLock(() => {
+		const agents = readAgents();
+		if (!generation) {
+			const missing = names.filter((name) => !agents.some((a) => a.name === name));
+			if (missing.length) throw new InboxError(`not watched: ${missing.join(" ")}`);
+		}
+		writeAgents(agents.filter((a) => !(names.includes(a.name) && (!generation || a.generation === generation))));
+	});
 	return `stopped ${names.join(" ")}`;
 }
+
 
 /** One tab-separated line per session: name, mux, host, pane, result, since, goal, push. */
 export function listAgents(): string {

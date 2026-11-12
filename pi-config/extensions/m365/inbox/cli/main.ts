@@ -116,7 +116,7 @@ const COMMANDS: Record<string, Command> = {
 		},
 		run: (p) => addAgent({ name: p.args[0], mux: p.opts.mux!, pane: p.opts.pane!, row: p.opts.row!, then: p.opts.then!, host: p.opts.host, result: p.opts.result, goal: p.opts.goal, push: p.flags.push }),
 	},
-	"agent rm": { help: "Stop watching agent sessions.", args: ["names..."], run: (p) => removeAgentsByName(p.args) },
+	"agent rm": { help: "Stop watching agent sessions.", args: ["names..."], opts: { generation: { help: "remove only this registration generation" } }, run: (p) => removeAgentsByName(p.args, p.opts.generation) },
 	"agent ls": { help: "Watched sessions: name, mux, host, pane, result, since, goal, push.", run: () => listAgents() },
 	"agent probe": {
 		help: "Probe every watched session once: record result / gone / stalled / blocked / idle events, send the progress digest when due.",
