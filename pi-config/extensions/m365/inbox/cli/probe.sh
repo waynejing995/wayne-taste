@@ -6,10 +6,26 @@
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
 mux=$1 pane=$2 result=$3 want=$4
 # `cap` is the one capture per run. `printf x` keeps its trailing newlines, so the hash matches the old pipe.
-alive=false agent= state= session= text= cap=
+alive=false agent= state= session= text= cap= mux_error=
+run_mux() {
+	output=$( "$@" 2>&1 )
+	status=$?
+	marker=$(printf x; "$@" >/dev/null 2>&1)
+	output=${output%"${marker#x}"}
+	if [ "$status" -ne 0 ]; then
+		case $output in
+			*"not found"*|*"no such"*|*"doesn't exist"*|*"does not exist"*|*"unknown"*) return 1 ;;
+		esac
+		mux_error=$output
+		return 2
+	fi
+	printf '%s' "$output"
+	return 0
+}
 case $mux in
 tern)
-  info=$(tern process "$pane" --json 2>/dev/null) && alive=true
+  if info=$(run_mux tern process "$pane" --json); then alive=true
+  elif [ $? -eq 2 ]; then alive=error; fi
   pid=$(printf '%s' "$info" | sed -n 's/.*"foreground": *{ *"pid": *\([0-9]*\).*/\1/p' | head -1)
   [ -z "$pid" ] && pid=$(printf '%s' "$info" | tr -d '\n' | sed -n 's/.*"foreground": *{[^}]*"pid": *\([0-9]*\).*/\1/p')
   # `bash -lc "omp …"` (how goal sessions are launched) leaves bash in front and omp as its child.
@@ -18,27 +34,32 @@ tern)
     if [ -n "$s" ]; then session=$s agent=$(cat /proc/$p/comm 2>/dev/null); break; fi
     [ -z "$agent" ] && agent=$(cat /proc/$p/comm 2>/dev/null)
   done
-  cap=$(tern capture "$pane" 2>/dev/null; printf x); cap=${cap%x}
+  if cap=$(run_mux tern capture "$pane"; printf x); then cap=${cap%x}; else [ $? -eq 2 ] && alive=error; cap=; fi
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 herdr)
-  info=$(herdr agent get "$pane" 2>/dev/null) && alive=true
+  if info=$(run_mux herdr agent get "$pane"); then alive=true
+  elif [ $? -eq 2 ]; then alive=error; fi
   state=$(printf '%s' "$info" | tr -d '\n' | sed -n 's/.*"agent_status": *"\([a-z]*\)".*/\1/p')
-  cap=$(herdr agent read "$pane" 2>/dev/null; printf x); cap=${cap%x}
+  if cap=$(run_mux herdr agent read "$pane"; printf x); then cap=${cap%x}; else [ $? -eq 2 ] && alive=error; cap=; fi
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 hc)
   # `hc get` exits non-zero for an unknown terminal; a finished one stays listed with state != live.
-  info=$(hc get "$pane" 2>/dev/null) && printf '%s' "$info" | tr -d '\n' | grep -q '"state": *"live"' && alive=true
+  if info=$(run_mux hc get "$pane"); then
+    printf '%s' "$info" | tr -d '\n' | grep -q '"state": *"live"' && alive=true
+  elif [ $? -eq 2 ]; then alive=error; fi
   state=$(printf '%s' "$info" | tr -d '\n' | sed -n 's/.*"status": *{[^}]*"state": *"\([a-z]*\)".*/\1/p')
   # hc's blocked = waiting on a question; working/done map onto herdr's working/idle.
   [ "$state" = done ] && state=idle
-  cap=$(hc read "$pane" 2>/dev/null | tail -c 20000; printf x); cap=${cap%x}
+  if cap=$(run_mux hc read "$pane" | tail -c 20000; printf x); then cap=${cap%x}; else [ $? -eq 2 ] && alive=error; cap=; fi
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 tmux)
-  tmux display-message -p -t "$pane" '#{pane_dead}' 2>/dev/null | grep -qx 0 && alive=true
-  agent=$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null)
-  cap=$(tmux capture-pane -p -t "$pane" 2>/dev/null; printf x); cap=${cap%x}
+  if run_mux tmux display-message -p -t "$pane" '#{pane_dead}' | grep -qx 0; then alive=true
+  elif [ $? -eq 2 ]; then alive=error; fi
+  agent=$(run_mux tmux display-message -p -t "$pane" '#{pane_current_command}' || true)
+  if cap=$(run_mux tmux capture-pane -p -t "$pane"; printf x); then cap=${cap%x}; else [ $? -eq 2 ] && alive=error; cap=; fi
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 esac
+[ "$alive" = error ] && { printf 'probe command failed: %s\n' "$mux_error" >&2; exit 1; }
 smtime=0 waiting=false
 if [ -n "$session" ]; then
   smtime=$(stat -c %Y "$session" 2>/dev/null || echo 0)
@@ -55,13 +76,12 @@ fi
 rmtime=0 rstatus= ropen= ropen_text= rquestions=false
 if [ -n "$result" ] && [ -f "$result" ]; then
   rmtime=$(stat -c %Y "$result")
+  # Only the newest RESULT block counts. An older block's open line must not mix into it.
+  block=$(awk 'BEGIN { IGNORECASE = 1 } tolower($0) ~ /^[[:space:]]*result[[:space:]]*$/ { buf = ""; next } { buf = buf $0 "\n" } END { printf "%s", buf }' "$result")
   # A line holding `|` is the contract's own template (`status: done | partial | blocked`), never a status.
-  rstatus=$(sed -n '/|/!s/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) *\([a-z_][a-z_]*\).*/\4/p' "$result" | tail -1)
-  # The open items, hashed: the same status and open line rewritten is not news.
-  ropen_text=$(sed -n '/|/!s/^ *\([-*] \)\?\(\*\*open\(\*\*:\?\|:\*\*\)\|`open`:\|`open:`\|open:\) *\(.*\)/\4/p' "$result" | tail -1)
+  rstatus=$(printf '%s\n' "$block" | sed -n '/|/!s/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) *\([a-z_][a-z_]*\).*/\4/p' | tail -1)
+  ropen_text=$(printf '%s\n' "$block" | sed -n '/|/!s/^ *\([-*] \)\?\(\*\*open\(\*\*:\?\|:\*\*\)\|`open`:\|`open:`\|open:\) *\(.*\)/\4/p' | tail -1)
   ropen=$(printf '%s' "$ropen_text" | md5sum | cut -c1-16)
-  # A `Questions` heading is the agent asking the user; a blocked RESULT without one is not a question.
-  grep -qiE '^#{1,4} *questions *$' "$result" && rquestions=true
 fi
 extra=
 if [ "$want" = 1 ]; then
@@ -73,5 +93,6 @@ if [ "$want" = 1 ]; then
   else kind=pane; tail64=$(printf '%s' "$cap" | gzip -c | base64 -w0); fi
   extra=",\"kind\":\"$kind\",\"tail\":\"$tail64\""
 fi
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rstatus":"%s","ropen":"%s","ropen_text":"%s","rquestions":%s,"now":%s%s}\n' \
-  "$alive" "$agent" "$state" "$session" "$smtime" "$waiting" "$text" "$rmtime" "$rstatus" "$ropen" "$ropen_text" "$rquestions" "$(date +%s)" "$extra"
+  "$alive" "$(json_escape "$agent")" "$(json_escape "$state")" "$(json_escape "$session")" "$smtime" "$waiting" "$text" "$rmtime" "$(json_escape "$rstatus")" "$ropen" "$(json_escape "$ropen_text")" "$rquestions" "$(date +%s)" "$extra"

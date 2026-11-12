@@ -102,7 +102,10 @@ export async function runProbe(a: AgentEntry, want = false): Promise<Probe> {
 	const args = [a.mux, String(a.pane), result, want ? "1" : ""];
 	const argv = local
 		? ["bash", "-c", SCRIPT, "probe", ...args]
-		: ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, `bash -c ${quote(SCRIPT)} probe ${args.map(quote).join(" ")}`];
+		: /^(?!-)[A-Za-z0-9._@:-]+$/.test(host)
+			? ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host, `bash -c ${quote(SCRIPT)} probe ${args.map(quote).join(" ")}`]
+			: null;
+	if (!argv) throw new InboxError(`bad ssh host: ${host}`);
 	const out = await runProcess(argv, PROBE_TIMEOUT_S, `probe on ${host}`);
 	const line = out.split("\n").at(-1) ?? "";
 	if (!line.startsWith("{")) throw new InboxError(`probe on ${host} printed no JSON: ${out.slice(0, 200)}`);
@@ -169,12 +172,14 @@ export function cardRow(a: AgentEntry, st: SessionState, now: number, status: Ag
 }
 
 /**
- * Only a real ask needs the user: a pending ask card or approval (state blocked), or a RESULT blocked with a Questions
- * section. A turn that ended otherwise -- no RESULT, awaiting review, partial -- is idle, not a question.
+ * Only a real ask needs the user: a pending ask card or approval (state blocked), or a RESULT blocked with a
+ * non-empty open line. Empty values such as none and 无 are not questions. A turn that ended otherwise is idle.
  */
 export function cardStatus(p: Probe): AgentStatus {
+	const open = p.ropen_text?.trim().toLowerCase().replace(/[.。]+$/u, "") ?? "";
+	const question = Boolean(open) && !["none", "n/a", "na", "null", "nil", "-", "no", "无", "没有", "无问题"].includes(open);
 	if (p.rstatus === "done") return "done";
-	if (p.state === "blocked" || (p.rstatus === "blocked" && Boolean(p.ropen_text?.trim()) && p.ropen_text.trim().toLowerCase() !== "none")) return "waiting on question";
+	if (p.state === "blocked" || (p.rstatus === "blocked" && question)) return "waiting on question";
 	if (p.rstatus || p.waiting || ["idle", "done"].includes(p.state)) return "idle";
 	return "working";
 }
@@ -346,7 +351,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 			for (const e of r.events) {
 				log(`${a.name}: ${e.event} ${e.state} -> ${record(a, e)}`);
 				if (e.event === "result") st.result_said = r.said;
-				if (e.event === "result" && e.state === "done") finished.push({ name: a.name, since: a.since });
+				if (e.event === "result" && e.state === "done") finished.push({ name: a.name, generation: a.generation });
 			}
 		} catch (e) {
 			fail(a.name, e);
@@ -374,7 +379,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 	fs.renameSync(`${stateFile}.tmp`, stateFile);
 	if (finished.length) {
 		removeAgents(finished);
-		log(`done, no longer watched: ${finished.join(" ")}`);
+		log(`done, no longer watched: ${finished.map((f) => f.name).join(" ")}`);
 	}
 	if (errors.length) throw new InboxError([...out, ...errors].join("\n"));
 	return out.join("\n");

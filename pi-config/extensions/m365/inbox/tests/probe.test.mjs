@@ -601,7 +601,7 @@ await check("a default probe has no tail and hashes the pane as before", () =>
 		const r = await f.probeTern(null, pane);
 		strictEqual(r.alive, true);
 		ok(!("tail" in r) && !("kind" in r));
-		strictEqual(r.text, md5(Buffer.from(pane)));
+		strictEqual(r.text, md5(Buffer.from(pane.trimEnd())));
 	}),
 );
 
@@ -640,7 +640,7 @@ await check("want tails the pane when no session is held", () =>
 	withFixture(async (f) => {
 		const r = await f.probeTern(null, "pane one\npane two\n", { want: true });
 		strictEqual(r.kind, "pane");
-		strictEqual(decodeTail(r), "pane one\npane two\n");
+		strictEqual(decodeTail(r), "pane one\npane two");
 	}),
 );
 
@@ -685,6 +685,8 @@ for (const [label, o, want] of [
 	["a pending ask card", { state: "blocked" }, "waiting on question"],
 	["herdr or hc waiting on an approval", { agent: "", session: "", state: "blocked" }, "waiting on question"],
 	["a RESULT blocked with an open question", { rstatus: "blocked", ropen_text: "which branch", rmtime: 1, waiting: true }, "waiting on question"],
+	["a RESULT blocked with open none", { rstatus: "blocked", ropen_text: "none", rmtime: 1 }, "idle"],
+	["a RESULT blocked with open 无", { rstatus: "blocked", ropen_text: "无", rmtime: 1 }, "idle"],
 	["a done RESULT", { rstatus: "done", rmtime: 1, waiting: true }, "done"],
 	["output still coming", {}, "working"],
 ]) {
@@ -704,6 +706,62 @@ for (const [label, text, want] of [
 		}),
 	);
 }
+
+await check("the last RESULT block does not inherit an older open line", () =>
+	withFixture(async (f) => {
+		const resultFile = path.join(f.dir, "RESULT.md");
+		fs.writeFileSync(resultFile, "RESULT\nstatus: blocked\nopen: old question\n\nRESULT\nstatus: done\ncommits: none\n");
+		const r = await f.probeTern(null, "pane\n", { result: resultFile });
+		strictEqual(r.rstatus, "done");
+		strictEqual(r.ropen_text, "");
+	}),
+);
+
+await check("a quoted open question survives the probe JSON", () =>
+	withFixture(async (f) => {
+		const resultFile = path.join(f.dir, "RESULT.md");
+		fs.writeFileSync(resultFile, "RESULT\nstatus: blocked\nopen: say \"which\" branch\n");
+		const r = await f.probeTern(null, "pane\n", { result: resultFile });
+		strictEqual(r.ropen_text, 'say "which" branch');
+	}),
+);
+
+await check("the task-prompt RESULT template is read only from its last block", () =>
+	withFixture(async (f) => {
+		const template = fs.readFileSync(path.resolve(import.meta.dirname, "../../../../../_shared/task-prompt.md"), "utf8");
+		const block = template.slice(template.indexOf("RESULT\nstatus: done | partial | blocked"));
+		const filled = `${block}\n\n${block
+			.replace("status: done | partial | blocked", "status: blocked")
+			.replace("commits: <shas, or none>", "commits: none")
+			.replace("artifact: <url vN, or none>", "artifact: none")
+			.replace("verified: <what you ran and saw>", "verified: probe")
+			.replace("open: <questions for Wayne, or none>", "open: which branch")}`;
+		const resultFile = path.join(f.dir, "RESULT.md");
+		fs.writeFileSync(resultFile, filled);
+		const r = await f.probeTern(null, "pane\n", { result: resultFile });
+		strictEqual(r.rstatus, "blocked");
+		strictEqual(r.ropen_text, "which branch");
+		strictEqual(cardStatus(r), "waiting on question");
+	}),
+);
+
+await check("open text containing quotes stays valid JSON", () =>
+	withFixture(async (f) => {
+		const resultFile = path.join(f.dir, "RESULT.md");
+		fs.writeFileSync(resultFile, "RESULT\nstatus: blocked\nopen: say \"which\\branch\"\n");
+		const r = await f.probeTern(null, "pane\n", { result: resultFile });
+		strictEqual(r.ropen_text, "say \"which\\branch\"");
+	}),
+);
+
+await check("a mux command failure is an error, not a dead pane", () =>
+	withFixture(async (f) => {
+		const tern = path.join(process.env.HOME, ".local", "bin", "tern");
+		fs.mkdirSync(path.dirname(tern), { recursive: true });
+		fs.writeFileSync(tern, "#!/bin/sh\necho tern exploded >&2\nexit 7\n", { mode: 0o755 });
+		await failsWith(runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result: "" }, false), "probe command failed");
+	}),
+);
 
 await check("an agent idle awaiting review is not counted as needing the user", () =>
 	withFixture(async (f) => {
