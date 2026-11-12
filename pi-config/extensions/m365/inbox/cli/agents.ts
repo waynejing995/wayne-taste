@@ -57,9 +57,8 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 	return withRulesLock(() => {
 		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
 		const old = agents.find((e) => e.name === a.name);
-		const legacy = old?.migratedGeneration === "legacy" && old.since ? { replacesLegacySince: old.since } : {};
 		// The registration and its plan change together: see addThen's `commit`.
-		const then = addThen(a.row, `agent-result:${a.name}`, a.then, { generation: entry.generation!, replaces: old?.generation, ...legacy }, () => {
+		const then = addThen(a.row, `agent-result:${a.name}`, a.then, { generation: entry.generation!, replaces: old?.generation, replacesLegacy: old?.migratedGeneration === "legacy" }, () => {
 			writeAgents([...agents.filter((e) => e.name !== a.name), entry]);
 			return () => writeAgents(agents);
 		});
