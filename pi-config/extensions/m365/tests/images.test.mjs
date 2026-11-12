@@ -30,7 +30,6 @@ const jiti = createJiti(import.meta.url, {
 const { SkypeClient } = await jiti.import(join(ROOT, "teams", "skype.ts"));
 const { GraphBackend } = await jiti.import(join(ROOT, "teams", "graph-backend.ts"));
 const { GraphClient, readBounded } = await jiti.import(join(ROOT, "core", "graph.ts"));
-const { localImages } = await jiti.import(join(ROOT, "teams", "mentions.ts"));
 
 let failed = 0;
 const check = (label, got, want) => {
@@ -212,18 +211,6 @@ console.log("\n== send: a bad file refuses the whole message ==");
 	check("posts nothing", seen.length, 0);
 }
 
-console.log("\n== send: a Markdown image with a local path is an image to send ==");
-{
-	const md = `look ![shot](${dir}/a.png) and ![](./b.jpg)\n\n\`![not](/etc/passwd)\` and ![web](https://example.com/x.png)`;
-	const got = localImages(md);
-	check("local paths collected, in order", got.paths, [`${dir}/a.png`, "./b.jpg"]);
-	check(
-		"cut from the text; code and web images untouched",
-		got.markdown,
-		"look  and \n\n`![not](/etc/passwd)` and ![web](https://example.com/x.png)",
-	);
-	check("no image, no change", localImages("plain *text*"), { markdown: "plain *text*", paths: [] });
-}
 
 
 console.log(failed === 0 ? "\nall ok" : `\nFAIL ${failed}`);

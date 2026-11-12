@@ -52,7 +52,7 @@ export async function downloadShared(
 	if (size > maxBytes)
 		throw new Error(`${name} is too large: ${size} bytes, limit ${maxBytes}. Pass a bigger maxBytes if you mean it.`);
 
-	const bytes = await graph.getBytes(`/shares/${shareId(url)}/driveItem/content`);
+	const bytes = await graph.getBytes(`/shares/${shareId(url)}/driveItem/content`, maxBytes);
 	// A half-written log that looks complete is worse than an error: it gets
 	// read, and the missing half is never noticed.
 	if (size > 0 && bytes.length !== size)

@@ -62,30 +62,39 @@ export interface RawSkypeMessage {
 	properties?: { cards?: string; files?: string };
 }
 
-/** The files a chatsvc message carries, as the Graph backend names them; [] for none or unreadable JSON. */
+/** The files a chatsvc message carries, as the Graph backend names them. */
 function sentFiles(m: RawSkypeMessage): { name: string; url: string }[] {
 	if (!m.properties?.files) return [];
-	let files: { fileName?: string; objectUrl?: string }[];
+	let files: unknown;
 	try {
 		files = JSON.parse(m.properties.files);
+		if (!Array.isArray(files)) return [{ name: "[unreadable attachment]", url: "" }];
 	} catch {
 		return [{ name: "[unreadable attachment]", url: "" }];
 	}
-	return (Array.isArray(files) ? files : []).filter((f) => f.fileName && f.objectUrl).map((f) => ({ name: f.fileName as string, url: f.objectUrl as string }));
+	return files.flatMap((f) => {
+		if (!f || typeof f !== "object") return [{ name: "[unreadable attachment]", url: "" }];
+		const file = f as { fileName?: unknown; objectUrl?: unknown };
+		return typeof file.fileName === "string" && file.fileName && typeof file.objectUrl === "string" && file.objectUrl ? [{ name: file.fileName, url: file.objectUrl }] : [];
+	});
 }
 
-/** The text of the Adaptive Cards a chatsvc message carries, one per line; "" for none or unreadable JSON. */
+/** The text of the Adaptive Cards a chatsvc message carries, one per line. */
 function cardsText(m: RawSkypeMessage): string {
 	if (!m.properties?.cards) return "";
-	let cards: { contentType?: string; content?: unknown }[];
+	let cards: unknown;
 	try {
 		cards = JSON.parse(m.properties.cards);
+		if (!Array.isArray(cards)) return "[unreadable attachment]";
 	} catch {
 		return "[unreadable attachment]";
 	}
 	return cards
-		.filter((c) => c.contentType === CARD_CONTENT_TYPE)
-		.map((c) => attachedCardText(c.content))
+		.map((c) => {
+			if (!c || typeof c !== "object") return "[unreadable attachment]";
+			const card = c as { contentType?: unknown; content?: unknown };
+			return card.contentType === CARD_CONTENT_TYPE ? attachedCardText(card.content) : "";
+		})
 		.filter(Boolean)
 		.join("\n");
 }
@@ -222,32 +231,37 @@ export class SkypeClient {
 	}
 
 	/** Messages as the pane shows them: control frames and empties dropped, newer than `sinceId` when given, oldest first. */
-	private project(raw: RawSkypeMessage[], sinceId: string): SelfMessage[] {
+	private async project(raw: RawSkypeMessage[], sinceId: string): Promise<SelfMessage[]> {
+		const { ams } = await this.authorize();
 		const out: SelfMessage[] = [];
 		for (const m of raw) {
-			const id = String(m.id ?? "");
-			if (/^\d+$/.test(sinceId) && /^\d+$/.test(id) && Number(id) <= Number(sinceId)) continue;
-			// Typing indicators and other control frames are not messages.
-			if ((m.messagetype ?? "").startsWith("Control/")) continue;
-			const html = m.content ?? "";
-			// A card's content is an empty span pointing at it: the card is the text.
-			const card = cardsText(m);
-			const files = sentFiles(m);
-			const flat = [htmlToText(html), card].filter(Boolean).join("\n");
-			// A file-only note has no text, and is still a message.
-			if (!flat && files.length === 0) continue;
-			// The self-chat used to skip Markdown conversion entirely, so code
-			// blocks I sent myself came back flat while every other chat rendered.
-			// htmlToText reads a picture as "[image]"; its address is what lets the extension fetch it (see image()).
-			const images = [...html.matchAll(/<img[^>]+src="([^"]+)"/g)].map((x) => x[1].replaceAll("&amp;", "&"));
-			out.push({
-				id,
-				at: m.composetime ?? "",
-				text: flat,
-				md: [htmlToMarkdown(html), card].filter(Boolean).join("\n\n"),
-				...(images.length > 0 ? { images, imageSource: "https://asm.skype.com/" } : {}),
-				...(files.length > 0 ? { files } : {}),
-			});
+			try {
+				const id = String(m.id ?? "");
+				if (/^\d+$/.test(sinceId) && /^\d+$/.test(id) && Number(id) <= Number(sinceId)) continue;
+				// Typing indicators and other control frames are not messages.
+				if ((m.messagetype ?? "").startsWith("Control/")) continue;
+				const html = m.content ?? "";
+				// A card's content is an empty span pointing at it: the card is the text.
+				const card = cardsText(m);
+				const files = sentFiles(m);
+				const flat = [htmlToText(html), card].filter(Boolean).join("\n");
+				// A file-only note has no text, and is still a message.
+				if (!flat && files.length === 0) continue;
+				// The self-chat used to skip Markdown conversion entirely, so code
+				// blocks I sent myself came back flat while every other chat rendered.
+				// htmlToText reads a picture as "[image]"; its address is what lets the extension fetch it (see image()).
+				const images = [...html.matchAll(/<img[^>]+src="([^"]+)"/g)].map((x) => x[1].replaceAll("&amp;", "&"));
+				out.push({
+					id,
+					at: m.composetime ?? "",
+					text: flat,
+					md: [htmlToMarkdown(html), card].filter(Boolean).join("\n\n"),
+					...(images.length > 0 ? { images, ...(ams ? { imageSource: new URL(ams).origin + "/" } : {}) } : {}),
+					...(files.length > 0 ? { files } : {}),
+				});
+			} catch {
+				out.push({ id: String(m.id ?? ""), at: m.composetime ?? "", text: "[unreadable attachment]", md: "[unreadable attachment]" });
+			}
 		}
 		out.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
 		return out;
@@ -287,7 +301,7 @@ export class SkypeClient {
 		let older: string | undefined;
 		const first = await this.fetchPage(pageSize, cursor);
 		for await (const page of cursorPages(first, (p) => p.older, (c) => this.fetchPage(pageSize, c))) {
-			messages = this.project(page.raw, "");
+			messages = await this.project(page.raw, "");
 			older = page.older;
 			if (messages.length > 0) break;
 		}

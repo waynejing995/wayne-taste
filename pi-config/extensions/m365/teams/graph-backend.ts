@@ -228,6 +228,7 @@ export function msgText(m: RawMessage): string {
 	const body = m.body ?? {};
 	const text = body.contentType === "html" ? htmlToText(body.content ?? "") : (body.content ?? "").trim();
 	// A card's body is only the <attachment> tag pointing at it, so the card is the message's text.
+	if (m.attachments !== undefined && !Array.isArray(m.attachments)) return `${text}\n[unreadable attachment]`.trim();
 	const cards = (m.attachments ?? []).filter((a) => a.contentType === CARD_CONTENT_TYPE).map((a) => attachedCardText(a.content));
 	return [text, ...cards].filter(Boolean).join("\n");
 }
@@ -473,26 +474,31 @@ export class GraphBackend implements Backend {
 	}
 
 	/** Graph messages as the panes show them: system events dropped, oldest first. */
-	private project(raw: RawMessage[], myName: string): HistoryMessage[] {
+	private project(raw: RawMessage[], myName: string, chatId: string): HistoryMessage[] {
 		const me = myName.toLowerCase();
 		return raw
-			.filter((m) => !isEmptyEvent(m))
-			.map((m): HistoryMessage => {
-				const sender = msgSender(m);
-				const body = m.body ?? {};
-				const files = msgFiles(m);
-				return {
-					sender,
-					at: m.createdDateTime ?? "",
-					mine: Boolean(me) && sender.toLowerCase().includes(me),
-					...(m.from?.user?.id ? { sender_id: m.from.user.id } : {}),
-					text: msgText(m),
-					md: body.contentType === "html" ? htmlToMarkdown(body.content ?? "", m.attachments ?? []) : msgText(m),
-					mentions_me: mentionsMe(m, me),
-					images: msgImages(m).map((src) => new URL(src, `https://graph.microsoft.com/v1.0/chats/${m.chatId}/messages/${m.id}/`).href),
-					imageSource: `https://graph.microsoft.com/v1.0/chats/${m.chatId}/messages/${m.id}/`,
-					...(files.length > 0 ? { files } : {}),
-				};
+			.flatMap((m): HistoryMessage[] => {
+				try {
+					if (isEmptyEvent(m)) return [];
+					const sender = msgSender(m);
+					const body = m.body ?? {};
+					const files = msgFiles(m);
+					const messageUrl = `https://graph.microsoft.com/v1.0/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(m.id ?? "")}/`;
+					return [{
+						sender,
+						at: m.createdDateTime ?? "",
+						mine: Boolean(me) && sender.toLowerCase().includes(me),
+						...(m.from?.user?.id ? { sender_id: m.from.user.id } : {}),
+						text: msgText(m),
+						md: body.contentType === "html" ? htmlToMarkdown(body.content ?? "", m.attachments ?? []) : msgText(m),
+						mentions_me: mentionsMe(m, me),
+						images: msgImages(m).map((src) => src.startsWith("../") ? new URL(src.slice(3), messageUrl).href : new URL(src, messageUrl).href),
+						imageSource: messageUrl,
+						...(files.length > 0 ? { files } : {}),
+					}];
+				} catch {
+					return [{ sender: "(system)", at: m.createdDateTime ?? "", mine: false, text: "[unreadable attachment]", md: "[unreadable attachment]", mentions_me: false, images: [] }];
+				}
 			})
 			.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 	}
@@ -508,7 +514,7 @@ export class GraphBackend implements Backend {
 		const chat = await this.resolveChat(addr);
 		const raw = await this.graph.getAll<RawMessage>(`/chats/${chat.id}/messages?$top=${MESSAGE_PAGE}`, { max: top });
 		const myName = await this.myName();
-		return { messages: this.project(raw.slice(0, top), myName), me: myName, chat: chat.label, display: chat.display };
+		return { messages: this.project(raw.slice(0, top), myName, chat.id), me: myName, chat: chat.label, display: chat.display };
 	}
 
 	/** One page of a conversation's messages as Graph gives them: the raw messages, and the link to the page before. */
@@ -524,11 +530,12 @@ export class GraphBackend implements Backend {
 	 */
 	async historyPage(addr: ChatAddr, cursor?: string): Promise<ChatHistoryPage> {
 		const myName = await this.myName();
-		const start = cursor ?? `/chats/${(await this.resolveChat(addr)).id}/messages?$top=${HISTORY_MESSAGES}`;
+		const chat = await this.resolveChat(addr);
+		const start = cursor ?? `/chats/${chat.id}/messages?$top=${HISTORY_MESSAGES}`;
 		let messages: HistoryMessage[] = [];
 		let older: string | undefined;
 		for await (const page of cursorPages(await this.messagesPage(start), (p) => p.older, (c) => this.messagesPage(c))) {
-			messages = this.project(page.raw, myName);
+			messages = this.project(page.raw, myName, chat.id);
 			older = page.older;
 			if (messages.length > 0) break;
 		}

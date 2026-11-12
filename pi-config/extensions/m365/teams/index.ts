@@ -55,7 +55,7 @@ import { HISTORY_MESSAGES, openComposeOverlay } from "./compose-overlay.ts";
 import { AGENT_STATUSES, AGENT_FOOTER_TEXT, buildCard, cardMentions, isAgentSend } from "./card.ts";
 import { findChat, GraphBackend } from "./graph-backend.ts";
 import { escapeHtml } from "./html.ts";
-import { localImages, type Mention, renderWithMentions } from "./mentions.ts";
+import { type Mention, renderWithMentions } from "./mentions.ts";
 import { cursorPages } from "./paging.ts";
 import { claim, describeOwner, listOwners, type WatchLease, type WatchOwner } from "./watch.ts";
 import { forgetWatch, rememberInterval, rememberWatch } from "./watch-list.ts";

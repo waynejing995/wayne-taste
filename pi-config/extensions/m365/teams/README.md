@@ -67,7 +67,7 @@ click per refresh-token lifetime is a bad trade. Nothing here ever reads it.
 | Surface | What it does |
 |---|---|
 | Status bar | `Teams: 3 unread` — chats holding unread activity, polled every 10 min |
-| `teams_send` tool | The agent sends a Teams message when you tell it to. self / chat / channel. **It says what you asked, worded naturally, at the size you asked for** — rephrasing is fine; padding it with summaries and background you never mentioned is not. A chat or channel send is an Adaptive Card by default; see [Cards](#cards). To notify someone it writes `@[Name](email)`; see [@mentions](#mentions). `images` (local PNG/JPEG/GIF paths), or `![alt](/local/path.png)` in the message, shows pictures inline under the text or the card, in any target; see [Pictures to and from the agent](#pictures-to-and-from-the-agent) |
+| `teams_send` tool | The agent sends a Teams message when you tell it to. self / chat / channel. **It says what you asked, worded naturally, at the size you asked for** — rephrasing is fine; padding it with summaries and background you never mentioned is not. A chat or channel send is an Adaptive Card by default; see [Cards](#cards). To notify someone it writes `@[Name](email)`; see [@mentions](#mentions). `images` takes local PNG/JPEG/GIF paths and shows them inline under the text or the card, in any target; a Markdown image stays text. See [Pictures to and from the agent](#pictures-to-and-from-the-agent) |
 | `teams_read` tool | The agent reads the last 20 messages of a chat or the self-chat (`limit` up to 200). A shared file becomes two lines: the name, and the url `teams_download` needs |
 | `teams_download` tool | Fetches a file someone shared, to a local path. Size-capped (256 MB default) |
 | `teams_transcript` tool | Reads the speaker-attributed transcript of a recorded meeting (`19:meeting_...@thread.v2`), or lists its recorded sessions (`list: true`, `date: "YYYY-MM-DD"` picks one). If the speaker-attributed Stream JSON is unavailable it falls back to WebVTT, which can lose speakers; the result then carries a `fallbackWarning` |
@@ -452,10 +452,10 @@ step on either side:
   `~/.cache/pi/teams-images/` (mode 0600, named by content hash).
 - **`teams_read`** attaches the newest pictures (up to 4) the same way, each with
   its saved path; older ones say `not fetched: only the newest`.
-- **Sending.** `teams_send` takes local PNG/JPEG/GIF paths in `images`, or
-  `![alt](/local/path.png)` in `message` (a relative path resolves against the
-  agent's working directory; a web URL in `![]()` stays a link, and one inside
-  code stays text). They show inline under the text, in any chat, channel or the
+- **Sending.** `teams_send` takes local PNG/JPEG/GIF paths only in `images`.
+  A Markdown image in `message`, including `![alt](/local/path.png)`, stays
+  text and is not read. Web URLs in `![]()` stay links.
+  They show inline under the text, in any chat, channel or the
   self-chat, with a card too: Graph posts carry them as `hostedContents`, and a
   plain self-chat message uploads them to AMS as Teams itself does.
 

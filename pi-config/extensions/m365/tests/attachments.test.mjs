@@ -52,6 +52,8 @@ const FILES = "https://contoso.sharepoint.com/personal/lin_contoso_test/Document
 const shares = {
 	[`${FILES}/shot.png`]: { item: { name: "shot.png", size: PNG.length, file: { mimeType: "image/png" } }, bytes: PNG },
 	[`${FILES}/fake.png`]: { item: { name: "fake.png", size: 7, file: { mimeType: "image/png" } }, bytes: Buffer.from("TOKEN=x") },
+	// driveItem says 16 bytes; the content is endless. Only the byte stream can catch it.
+	[`${FILES}/liar.png`]: { item: { name: "liar.png", size: 16, file: { mimeType: "image/png" } }, endless: true },
 	[`${FILES}/notes.pdf`]: { item: { name: "notes.pdf", size: 3, file: { mimeType: "application/pdf" } }, bytes: Buffer.from("pdf") },
 };
 const byShare = Object.fromEntries(Object.entries(shares).map(([url, s]) => [shareId(url), { url, ...s }]));
@@ -68,6 +70,11 @@ const message = (id, at, attachments) => ({
 });
 const file = (id, name) => ({ id, contentType: "reference", name, contentUrl: `${FILES}/${name}` });
 
+let liarRead = 0;
+let liarCancelled = false;
+const assert_never = () => {
+	throw new Error("the endless share was buffered whole");
+};
 /** Every share fetched, by its file name. */
 const fetched = [];
 const reply = (status, body) => {
@@ -83,6 +90,12 @@ globalThis.fetch = async (url) => {
 		const s = byShare[m[1]];
 		if (!m[2]) return reply(200, s.item);
 		fetched.push(s.item.name);
+		if (s.endless) {
+			// 1 MiB chunks, made only as they are read: what was pulled is what a download buffered.
+			const chunk = Buffer.concat([PNG, Buffer.alloc(1024 * 1024 - PNG.length)]);
+			const body = new ReadableStream({ pull: (c) => ((liarRead += chunk.length), c.enqueue(chunk)), cancel: () => void (liarCancelled = true) });
+			return { status: 200, body: { getReader: () => body.getReader() }, text: async () => "", arrayBuffer: async () => assert_never() };
+		}
 		return reply(200, s.bytes);
 	}
 	return reply(404, { error: { code: "itemNotFound", message: u } });
@@ -152,6 +165,17 @@ console.log("\n== teams_read: the same, and a file named .png that is not one sa
 	check("only the pictures were fetched", fetched.sort(), ["fake.png", "shot.png"]);
 	const off = await tools.teams_read.execute("r", { target: "chat", chat_id: GROUP, limit: 5, images: false }, null, null, ctx);
 	check("images: false fetches nothing", images(off.content).length, 0);
+}
+
+console.log("\n== a picture file whose size Graph under-reports is cut off while it streams ==");
+{
+	chat.unshift(message("3", "2026-11-12T08:10:00Z", [file("c1", "liar.png")]));
+	const r = await tools.teams_read.execute("r", { target: "chat", chat_id: GROUP, limit: 1 }, null, null, ctx);
+	const text = texts(r.content);
+	check("it says the download failed, over the cap", /\[image 1: download failed: [^\]]*over 20 MB/.test(text), true);
+	check("the stream was cancelled", liarCancelled, true);
+	check("no more than the cap plus one chunk was read", liarRead <= 21 * 1024 * 1024 + 1024 * 1024, true);
+	check("no image part", images(r.content).length, 0);
 }
 
 console.log("\n== teams_send does not read a local path written as Markdown ==");

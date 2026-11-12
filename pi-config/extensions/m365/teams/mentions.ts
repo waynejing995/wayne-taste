@@ -73,27 +73,4 @@ export function fillMentions<T extends Mention>(
 	});
 }
 
-/**
- * The local pictures a Markdown message shows, cut out of it: `![alt](/path/shot.png)` is a file to send inline, not
- * a link Teams could follow. Web (`http:`, `https:`) and `data:` images stay as written, and so does anything the
- * Markdown parser reads as code. Paths are returned in order, as written; the send reads and checks the files.
- */
-export function localImages(markdown: string): { markdown: string; paths: string[] } {
-	const md = new Marked({ gfm: true, breaks: true, async: false });
-	const cuts: { at: number; raw: string; href: string }[] = [];
-	// Walked in document order. A code token moves the cursor past itself, so an image written inside code is never
-	// matched by a later search; an image whose raw text is not found (quoted, its ">" stripped) is left as it is.
-	let cursor = 0;
-	md.walkTokens(md.lexer(markdown), (t) => {
-		if (t.type !== "image" && t.type !== "code" && t.type !== "codespan") return;
-		const at = markdown.indexOf(t.raw, cursor);
-		if (at < 0) return;
-		cursor = at + t.raw.length;
-		const href = t.type === "image" ? (t as { href: string }).href : "";
-		if (href && !/^(https?|data):/i.test(href)) cuts.push({ at, raw: t.raw, href });
-	});
-	let out = markdown;
-	for (const c of cuts.toReversed()) out = out.slice(0, c.at) + out.slice(c.at + c.raw.length);
-	return { markdown: out, paths: cuts.map((c) => c.href) };
-}
 
