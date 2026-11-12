@@ -482,17 +482,26 @@ export class GraphBackend implements Backend {
 					if (isEmptyEvent(m)) return [];
 					const sender = msgSender(m);
 					const body = m.body ?? {};
-					const files = msgFiles(m);
+					let files: HistoryFile[] = [];
+					let images: string[] = [];
+					let attachmentError = "";
+					try {
+						files = msgFiles(m);
+						images = msgImages(m);
+					} catch {
+						attachmentError = "\n[unreadable attachment]";
+					}
+					const text = `${msgText(m)}${attachmentError}`;
 					const messageUrl = `https://graph.microsoft.com/v1.0/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(m.id ?? "")}/`;
 					return [{
 						sender,
 						at: m.createdDateTime ?? "",
 						mine: Boolean(me) && sender.toLowerCase().includes(me),
 						...(m.from?.user?.id ? { sender_id: m.from.user.id } : {}),
-						text: msgText(m),
-						md: body.contentType === "html" ? htmlToMarkdown(body.content ?? "", m.attachments ?? []) : msgText(m),
+						text,
+						md: body.contentType === "html" ? `${htmlToMarkdown(body.content ?? "", m.attachments ?? [])}${attachmentError}` : text,
 						mentions_me: mentionsMe(m, me),
-						images: msgImages(m).map((src) => src.startsWith("../") ? new URL(src.slice(3), messageUrl).href : new URL(src, messageUrl).href),
+						images: images.map((src) => src.startsWith("../") ? new URL(src.slice(3), messageUrl).href : new URL(src, messageUrl).href),
 						imageSource: messageUrl,
 						...(files.length > 0 ? { files } : {}),
 					}];

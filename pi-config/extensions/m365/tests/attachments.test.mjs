@@ -178,6 +178,18 @@ console.log("\n== a picture file whose size Graph under-reports is cut off while
 	check("no image part", images(r.content).length, 0);
 }
 
+console.log("\n== one bad attachment keeps the message text ==");
+{
+	const bad = message("4", "2026-11-12T08:11:00Z", [file("bad", "note.txt")]);
+	bad.body = { contentType: "text", content: "the text remains" };
+	bad.attachments = { map() { throw new Error("bad attachment"); } };
+	chat.unshift(bad);
+	const r = await tools.teams_read.execute("r", { target: "chat", chat_id: GROUP, limit: 1 }, null, null, ctx);
+	const text = texts(r.content);
+	check("the message text survives", text.includes("the text remains"), true);
+	check("the attachment is marked unreadable", text.includes("[unreadable attachment]"), true);
+}
+
 console.log("\n== teams_send does not read a local path written as Markdown ==");
 {
 	const secret = join(home, "secret.png");

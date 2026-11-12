@@ -981,7 +981,7 @@ export default function (pi: ExtensionAPI) {
 	// ── Reading messages ─────────────────────────────────────────────────
 
 	/** A self-chat message as a history line. My own notes, so always mine. */
-	const selfLine = (m: SelfMessage): HistoryMessage => ({ sender: "me", at: m.at, text: m.text, md: m.md, mine: true, ...(m.images ? { images: m.images } : {}), ...(m.files ? { files: m.files } : {}) });
+	const selfLine = (m: SelfMessage): HistoryMessage => ({ sender: "me", at: m.at, text: m.text, md: m.md, mine: true, ...(m.images ? { images: m.images } : {}), ...(m.imageSource ? { imageSource: m.imageSource } : {}), ...(m.files ? { files: m.files } : {}) });
 
 	/** One page of a conversation for the pane: the newest, or the page before `cursor`. Oldest first. */
 	async function loadHistoryPage(target: SendTarget, cursor?: string): Promise<HistoryPage> {
@@ -1073,9 +1073,9 @@ export default function (pi: ExtensionAPI) {
 			"becomes a real Teams mention, so the person is notified. Get the address from teams_people " +
 			"first and never guess it: an address the directory does not know fails the whole send, and " +
 			"nothing is posted. " +
-			"To show a picture (a screenshot, a rendered UI), pass local PNG/JPEG/GIF paths in `images`, or write " +
-			"![alt](/local/path.png) in `message`: either way the file is uploaded and shown inline under the text, " +
-			"in any chat, channel or the self-chat, with a card too. A web image URL in ![]() stays a link. " +
+			"To show a picture (a screenshot, a rendered UI), pass local PNG/JPEG/GIF paths in `images`. " +
+			"The files are uploaded and shown inline under the text, in any chat, channel or the self-chat, " +
+			"with a card too. A Markdown image in `message` stays text and is not read or uploaded. " +
 			"Card: a chat or channel send goes out as an Adaptive Card with an agent badge: `title` on top, " +
 			"`message` as its text, and any of `facts` (status rows), `decision` (a question with its context and " +
 			"numbered options, each with its consequence, one marked recommended with the reason), `links` (buttons), " +
