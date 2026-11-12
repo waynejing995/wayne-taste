@@ -763,6 +763,56 @@ await check("a mux command failure is an error, not a dead pane", () =>
 	}),
 );
 
+await check("an open value containing a tab stays valid JSON", () =>
+	withFixture(async (f) => {
+		const resultFile = path.join(f.dir, "RESULT.md");
+		fs.writeFileSync(resultFile, "RESULT\nstatus: blocked\nopen: left\tright\n");
+		const r = await f.probeTern(null, "pane\n", { result: resultFile });
+		strictEqual(r.ropen_text, "left\tright");
+	}),
+);
+
+await check("an open value containing a pipe stays a question", () =>
+	withFixture(async (f) => {
+		const resultFile = path.join(f.dir, "RESULT.md");
+		fs.writeFileSync(resultFile, "RESULT\nstatus: blocked\nopen: choose A | B\n");
+		const r = await f.probeTern(null, "pane\n", { result: resultFile });
+		strictEqual(r.ropen_text, "choose A | B");
+		strictEqual(cardStatus(r), "waiting on question");
+	}),
+);
+
+await check("a CRLF RESULT stays valid JSON", () =>
+	withFixture(async (f) => {
+		const resultFile = path.join(f.dir, "RESULT.md");
+		fs.writeFileSync(resultFile, "RESULT\r\nstatus: blocked\r\nopen: which branch\r\n");
+		const r = await f.probeTern(null, "pane\n", { result: resultFile });
+		strictEqual(r.rstatus, "blocked");
+		strictEqual(r.ropen_text, "which branch");
+	}),
+);
+
+await check("a capture command failure is a probe error and each command runs once", () =>
+	withFixture(async (f) => {
+		const count = path.join(f.dir, "count");
+		const tern = path.join(process.env.HOME, ".local", "bin", "tern");
+		fs.mkdirSync(path.dirname(tern), { recursive: true });
+		fs.writeFileSync(tern, `#!/bin/sh\necho x >> '${count}'\ncase "$1" in\nprocess) echo '{"foreground": {"pid": 1}}' ;;\ncapture) echo capture exploded >&2; exit 7 ;;\nesac\n`, { mode: 0o755 });
+		await failsWith(runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result: "" }, false), "probe command failed");
+		strictEqual((fs.readFileSync(count, "utf8").match(/x/g) ?? []).length, 2);
+	}),
+);
+
+await check("a tmux command failure is a probe error and each command runs once", () =>
+	withFixture(async (f) => {
+		const count = path.join(f.dir, "count");
+		const tmux = path.join(f.dir, "bin", "tmux");
+		fs.writeFileSync(tmux, `#!/bin/sh\necho x >> '${count}'\necho tmux exploded >&2\nexit 7\n`, { mode: 0o755 });
+		await failsWith(runProbe({ name: "alpha", mux: "tmux", pane: "1", host: "local", result: "" }, false), "probe command failed");
+		strictEqual((fs.readFileSync(count, "utf8").match(/x/g) ?? []).length, 3);
+	}),
+);
+
 await check("an agent idle awaiting review is not counted as needing the user", () =>
 	withFixture(async (f) => {
 		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "awaiting_review" }));

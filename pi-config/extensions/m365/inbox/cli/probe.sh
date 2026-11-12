@@ -8,10 +8,10 @@ mux=$1 pane=$2 result=$3 want=$4
 # `cap` is the one capture per run. `printf x` keeps its trailing newlines, so the hash matches the old pipe.
 alive=false agent= state= session= text= cap= mux_error=
 run_mux() {
-	output=$( "$@" 2>&1 )
+	tmp=$(mktemp)
+	"$@" >"$tmp" 2>&1
 	status=$?
-	marker=$(printf x; "$@" >/dev/null 2>&1)
-	output=${output%"${marker#x}"}
+	output=$(cat "$tmp"; rm -f "$tmp")
 	if [ "$status" -ne 0 ]; then
 		case $output in
 			*"not found"*|*"no such"*|*"doesn't exist"*|*"does not exist"*|*"unknown"*) return 1 ;;
@@ -21,6 +21,18 @@ run_mux() {
 	fi
 	printf '%s' "$output"
 	return 0
+}
+capture_mux() {
+	tmp=$(mktemp)
+	"$@" >"$tmp" 2>&1
+	mux_status=$?
+	value=$(cat "$tmp"; rm -f "$tmp")
+	if [ "$mux_status" -ne 0 ]; then
+		case $value in
+			*"not found"*|*"no such"*|*"doesn't exist"*|*"does not exist"*|*"unknown"*) mux_status=1 ;;
+			*) mux_error=$value; mux_status=2 ;;
+		esac
+	fi
 }
 case $mux in
 tern)
@@ -34,13 +46,13 @@ tern)
     if [ -n "$s" ]; then session=$s agent=$(cat /proc/$p/comm 2>/dev/null); break; fi
     [ -z "$agent" ] && agent=$(cat /proc/$p/comm 2>/dev/null)
   done
-  if cap=$(run_mux tern capture "$pane"; printf x); then cap=${cap%x}; else [ $? -eq 2 ] && alive=error; cap=; fi
+  capture_mux tern capture "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 herdr)
   if info=$(run_mux herdr agent get "$pane"); then alive=true
   elif [ $? -eq 2 ]; then alive=error; fi
   state=$(printf '%s' "$info" | tr -d '\n' | sed -n 's/.*"agent_status": *"\([a-z]*\)".*/\1/p')
-  if cap=$(run_mux herdr agent read "$pane"; printf x); then cap=${cap%x}; else [ $? -eq 2 ] && alive=error; cap=; fi
+  capture_mux herdr agent read "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 hc)
   # `hc get` exits non-zero for an unknown terminal; a finished one stays listed with state != live.
@@ -50,13 +62,14 @@ hc)
   state=$(printf '%s' "$info" | tr -d '\n' | sed -n 's/.*"status": *{[^}]*"state": *"\([a-z]*\)".*/\1/p')
   # hc's blocked = waiting on a question; working/done map onto herdr's working/idle.
   [ "$state" = done ] && state=idle
-  if cap=$(run_mux hc read "$pane" | tail -c 20000; printf x); then cap=${cap%x}; else [ $? -eq 2 ] && alive=error; cap=; fi
+  if value=$(run_mux hc read "$pane"); then cap=$(printf %s "$value" | tail -c 20000); else [ $? -eq 2 ] && alive=error; cap=; fi
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 tmux)
-  if run_mux tmux display-message -p -t "$pane" '#{pane_dead}' | grep -qx 0; then alive=true
-  elif [ $? -eq 2 ]; then alive=error; fi
+  capture_mux tmux display-message -p -t "$pane" '#{pane_dead}'
+  if [ "$mux_status" -eq 0 ]; then printf %s "$value" | grep -qx 0 && alive=true
+  elif [ "$mux_status" -eq 2 ]; then alive=error; fi
   agent=$(run_mux tmux display-message -p -t "$pane" '#{pane_current_command}' || true)
-  if cap=$(run_mux tmux capture-pane -p -t "$pane"; printf x); then cap=${cap%x}; else [ $? -eq 2 ] && alive=error; cap=; fi
+  capture_mux tmux capture-pane -p -t "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 esac
 [ "$alive" = error ] && { printf 'probe command failed: %s\n' "$mux_error" >&2; exit 1; }
@@ -76,11 +89,10 @@ fi
 rmtime=0 rstatus= ropen= ropen_text= rquestions=false
 if [ -n "$result" ] && [ -f "$result" ]; then
   rmtime=$(stat -c %Y "$result")
-  # Only the newest RESULT block counts. An older block's open line must not mix into it.
-  block=$(awk 'BEGIN { IGNORECASE = 1 } tolower($0) ~ /^[[:space:]]*result[[:space:]]*$/ { buf = ""; next } { buf = buf $0 "\n" } END { printf "%s", buf }' "$result")
-  # A line holding `|` is the contract's own template (`status: done | partial | blocked`), never a status.
-  rstatus=$(printf '%s\n' "$block" | sed -n '/|/!s/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) *\([a-z_][a-z_]*\).*/\4/p' | tail -1)
-  ropen_text=$(printf '%s\n' "$block" | sed -n '/|/!s/^ *\([-*] \)\?\(\*\*open\(\*\*:\?\|:\*\*\)\|`open`:\|`open:`\|open:\) *\(.*\)/\4/p' | tail -1)
+  block=$(tr -d '\r' < "$result" | awk 'BEGIN { IGNORECASE = 1 } tolower($0) ~ /^[[:space:]]*result[[:space:]]*$/ { buf = ""; next } { buf = buf $0 "\n" } END { printf "%s", buf }')
+  # Only the contract's own status template contains `|`. Open text may contain one.
+  rstatus=$(printf '%s\n' "$block" | sed -n '/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) .*|/!s/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) *\([a-z_][a-z_]*\).*/\4/p' | tail -1)
+  ropen_text=$(printf '%s\n' "$block" | sed -n 's/^ *\([-*] \)\?\(\*\*open\(\*\*:\?\|:\*\*\)\|`open`:\|`open:`\|open:\) *\(.*\)/\4/p' | tail -1)
   ropen=$(printf '%s' "$ropen_text" | md5sum | cut -c1-16)
 fi
 extra=
@@ -93,6 +105,6 @@ if [ "$want" = 1 ]; then
   else kind=pane; tail64=$(printf '%s' "$cap" | gzip -c | base64 -w0); fi
   extra=",\"kind\":\"$kind\",\"tail\":\"$tail64\""
 fi
-json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+b64() { printf %s "$1" | base64 -w0; }
 printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rstatus":"%s","ropen":"%s","ropen_text":"%s","rquestions":%s,"now":%s%s}\n' \
-  "$alive" "$(json_escape "$agent")" "$(json_escape "$state")" "$(json_escape "$session")" "$smtime" "$waiting" "$text" "$rmtime" "$(json_escape "$rstatus")" "$ropen" "$(json_escape "$ropen_text")" "$rquestions" "$(date +%s)" "$extra"
+  "$alive" "$(b64 "$agent")" "$(b64 "$state")" "$(b64 "$session")" "$smtime" "$waiting" "$text" "$rmtime" "$(b64 "$rstatus")" "$ropen" "$(b64 "$ropen_text")" "$rquestions" "$(date +%s)" "$extra"

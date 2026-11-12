@@ -109,7 +109,12 @@ export async function runProbe(a: AgentEntry, want = false): Promise<Probe> {
 	const out = await runProcess(argv, PROBE_TIMEOUT_S, `probe on ${host}`);
 	const line = out.split("\n").at(-1) ?? "";
 	if (!line.startsWith("{")) throw new InboxError(`probe on ${host} printed no JSON: ${out.slice(0, 200)}`);
-	return JSON.parse(line) as Probe;
+	const probe = JSON.parse(line) as Probe;
+	for (const key of ["agent", "state", "session", "rstatus", "ropen_text"] as const) {
+		const value = probe[key];
+		if (typeof value === "string") probe[key] = Buffer.from(value, "base64").toString("utf8");
+	}
+	return probe;
 }
 
 /** Whitespace collapsed to single spaces, the newest CLIP characters, with a leading … when cut. */
