@@ -268,7 +268,7 @@ async function check(a: AgentEntry, st: SessionState, stallS: number, want: bool
 		// A RESULT rewritten with the same status and open items is not news; mtime alone never makes a card.
 		said = `${p.rstatus}:${p.ropen ?? ""}`;
 		if (said !== st.result_said) events.push({ key: `result:${p.rmtime}`, event: "result", state: p.rstatus, note: `RESULT status: ${p.rstatus}` });
-	} else if (!p.alive) events.push({ key: `gone:${a.since ?? a.name}`, event: "gone", state: "exited", note: "the pane ended with no RESULT" });
+	} else if (!p.alive) events.push({ key: `gone:${a.generation ?? a.since ?? a.name}`, event: "gone", state: "exited", note: "the pane ended with no RESULT" });
 	else if (p.state === "blocked") events.push({ key: `blocked:${st.last_active}`, event: "blocked", state: "waiting", note: `${a.mux}: waiting on an approval or a question` });
 	const quiet = now - st.last_active;
 	const waiting = p.waiting || p.state === "idle" || p.state === "done";
@@ -306,7 +306,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 	const last = (state[DIGEST] as { at?: number } | undefined)?.at;
 	const digestDue = !o.noDigest && (last === undefined || now - last >= o.digestMin * 60);
 	const sessions = (name: string) => (state[name] ??= {}) as SessionState;
-	const finished: { name: string; since?: string }[] = [];
+	const finished: { name: string; generation?: string }[] = [];
 	const lines: [string, Entry][] = [];
 	const errors: string[] = [];
 	const fail = (name: string, e: unknown) => errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);

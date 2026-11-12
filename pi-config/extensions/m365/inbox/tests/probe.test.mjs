@@ -840,6 +840,45 @@ await check("a daemon error keeps its diagnostic", () =>
 	}),
 );
 
+await check("a live hc pane returns JSON without command output", () =>
+	withFixture(async (f) => {
+		const hc = path.join(f.dir, "bin", "hc");
+		fs.writeFileSync(hc, "#!/bin/sh\ncase \"$1\" in\nget) echo '{\"state\":\"live\"}' ;;\nread) echo pane text ;;\nesac\n", { mode: 0o755 });
+		const r = await runProbe({ name: "alpha", mux: "hc", pane: "1", host: "local", result: "" }, false);
+		strictEqual(r.alive, true);
+	}),
+);
+
+await check("a missing tmux binary is an operational error", () =>
+	withFixture(async (f) => {
+		const bin = path.join(f.dir, "bin");
+		fs.rmSync(path.join(bin, "tmux"), { force: true });
+		await failsWith(runProbe({ name: "alpha", mux: "tmux", pane: "1", host: "local", result: "" }, false), "probe command failed");
+	}),
+);
+
+await check("a failing tern process query is an operational error", () =>
+	withFixture(async (f) => {
+		const tern = path.join(process.env.HOME, ".local", "bin", "tern");
+		fs.mkdirSync(path.dirname(tern), { recursive: true });
+		fs.writeFileSync(tern, "#!/bin/sh\ncase \"$1\" in\nprocess) echo process exploded >&2; exit 7 ;;\nesac\n", { mode: 0o755 });
+		await failsWith(runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result: "" }, false), "probe command failed");
+	}),
+);
+
+await check("same-second registrations record separate gone events", () =>
+	withFixture(async (f) => {
+		f.behaviour.alpha = () => ({ alive: false, agent: "", state: "", session: "", smtime: 0, waiting: false, text: "", rmtime: 0, rstatus: "", now: f.now });
+		f.behaviour.beta = f.behaviour.alpha;
+		const rows = ["alpha", "beta"].map((name, i) => ({ name, mux: "tern", pane: "1", host: "local", result: "", since: "2026-11-12 20:00:00", generation: `g${i}` }));
+		fs.writeFileSync(path.join(f.dir, "rules.yaml"), YAML.stringify({ agents: { "*": [{ action: "notify", tag: "agent" }] }, agent_watch: rows }));
+		const out = await probeAgents({ stallMin: 30, digestMin: 30, noDigest: true, now: () => f.now * 1000, probe: async (a) => f.behaviour[a.name]() });
+		const keys = fs.readFileSync(path.join(f.dir, "ledger.tsv"), "utf8").split("\n").filter((line) => line.includes("gone"));
+		strictEqual(new Set(keys).size, 2);
+
+	}),
+);
+
 await check("an agent idle awaiting review is not counted as needing the user", () =>
 	withFixture(async (f) => {
 		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "awaiting_review" }));

@@ -22,7 +22,7 @@ run_mux() {
 	else
 		mux_status=0
 	fi
-	[ "$mux_status" -eq 0 ] && printf '%s' "$mux_output"
+
 	return "$mux_status"
 }
 capture_mux() {
@@ -39,7 +39,7 @@ capture_mux() {
 }
 case $mux in
 tern)
-  if info=$(run_mux tern process "$pane" --json); then alive=true
+  if run_mux tern process "$pane" --json; then info=$mux_output alive=true
   elif [ $? -eq 2 ]; then alive=error; fi
   pid=$(printf '%s' "$info" | sed -n 's/.*"foreground": *{ *"pid": *\([0-9]*\).*/\1/p' | head -1)
   [ -z "$pid" ] && pid=$(printf '%s' "$info" | tr -d '\n' | sed -n 's/.*"foreground": *{[^}]*"pid": *\([0-9]*\).*/\1/p')
@@ -52,7 +52,7 @@ tern)
   capture_mux tern capture "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 herdr)
-  if info=$(run_mux herdr agent get "$pane"); then alive=true
+  if run_mux herdr agent get "$pane"; then info=$mux_output alive=true
   elif [ $? -eq 2 ]; then alive=error; fi
   state=$(printf '%s' "$info" | tr -d '\n' | sed -n 's/.*"agent_status": *"\([a-z]*\)".*/\1/p')
   capture_mux herdr agent read "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
@@ -75,7 +75,7 @@ tmux)
   capture_mux tmux display-message -p -t "$pane" '#{pane_dead}'
   if [ "$mux_status" -eq 0 ]; then printf %s "$value" | grep -qx 0 && alive=true
   elif [ "$mux_status" -eq 2 ]; then alive=error; fi
-  agent=$(run_mux tmux display-message -p -t "$pane" '#{pane_current_command}' || true)
+  agent=$(run_mux tmux display-message -p -t "$pane" '#{pane_current_command}' >/dev/null || true; printf '%s' "$mux_output")
   capture_mux tmux capture-pane -p -t "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { [ "$mux_status" -eq 2 ] && alive=error; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 esac
