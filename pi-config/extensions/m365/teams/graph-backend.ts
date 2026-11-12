@@ -266,7 +266,7 @@ export function msgImages(m: RawMessage): string[] {
  */
 export function isEmptyEvent(m: RawMessage): boolean {
 	if (m.messageType && m.messageType !== "message") return true;
-	if (attachmentList(m).length > 0) return false;
+	if (attachmentList(m).length > 0 || attachmentError(m)) return false;
 	return !msgText(m);
 }
 
