@@ -1485,7 +1485,12 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 				}
 			}
 
-			const component: Component & Focusable & { dispose?(): void; readonly nativeOverlay: tn.OverlayProps } = {
+			const component: Component & Focusable & {
+				dispose?(): void;
+				readonly nativeOverlay: tn.OverlayProps;
+				describe(cx: tn.DescribeContext): tn.NativeNode | null;
+				handleNativeEvent(event: tn.NativeUiEvent): void;
+			} = {
 				get nativeOverlay() {
 					return tn.overlayProps("teams", titleText());
 				},

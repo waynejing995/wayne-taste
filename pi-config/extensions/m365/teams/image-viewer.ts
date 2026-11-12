@@ -47,7 +47,7 @@ export async function showImage(
 				const rows = tui.terminal?.rows ?? 24;
 				const key = `${width}x${rows}`;
 				if (!image || builtFor !== key) {
-					image = new Image(loaded.base64, loaded.mime, theme, {
+					image = new Image(loaded.base64, loaded.mime, { fallbackColor: (s: string) => theme.fg("muted", s) }, {
 						maxWidthCells: Math.max(4, width - 2),
 						// Leave room for the header, the footer and the editor pi keeps below a custom component.
 						maxHeightCells: Math.max(4, rows - 6),

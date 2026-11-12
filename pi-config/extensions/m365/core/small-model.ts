@@ -7,7 +7,7 @@
  * Credentials come from the registry and the call from pi-ai's completeSimple: both hosts have those two.
  */
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { completeSimple } from "@earendil-works/pi-ai";
+import { completeSimple, type TextContent } from "@earendil-works/pi-ai";
 
 const TINY_ROLE = "@tiny";
 /** omp's own tiny-model classifiers allow this much, so a model that reasons anyway still reaches its answer. */
@@ -42,8 +42,8 @@ export async function askSmall(ctx: ExtensionContext, systemPrompt: string, user
 	const name = `${model.provider}/${model.id}`;
 	if (reply.stopReason === "error" || reply.stopReason === "aborted") throw new Error(`${name}: ${reply.errorMessage || reply.stopReason}`);
 	const text = reply.content
-		.filter((c: { type: string }) => c.type === "text")
-		.map((c: { text: string }) => c.text)
+		.filter((c): c is TextContent => c.type === "text")
+		.map((c) => c.text)
 		.join("")
 		.trim();
 	return { text, model: name };

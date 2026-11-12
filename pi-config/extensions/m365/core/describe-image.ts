@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { completeSimple } from "@earendil-works/pi-ai";
+import { completeSimple, type TextContent } from "@earendil-works/pi-ai";
 
 /** A picture as bytes in base64 and its MIME type. */
 export interface LoadedImage {
@@ -58,8 +58,8 @@ export async function describeImage(ctx: ExtensionContext, key: string, load: ()
 		],
 	}, { apiKey: auth.apiKey, headers: auth.headers });
 	const text = reply.content
-		.filter((c: { type: string }) => c.type === "text")
-		.map((c: { text: string }) => c.text)
+		.filter((c): c is TextContent => c.type === "text")
+		.map((c) => c.text)
 		.join(" ")
 		.replace(/\s+/g, " ")
 		.trim();
