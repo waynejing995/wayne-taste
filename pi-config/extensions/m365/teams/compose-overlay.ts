@@ -133,13 +133,16 @@ export interface ComposeDeps {
 	markRead: (chatId: string) => Promise<void>;
 	/** Search the people I interact with, for someone not in the chat list. */
 	searchPeople: (query: string) => Promise<Person[]>;
-	/** Download and read one hostedContents image. Cached by the script. */
-	loadImage: (url: string) => Promise<LoadedImage>;
+	/** Download and read one hostedContents image. `source` is the message that owns it. */
+	loadImage: (url: string, source?: string) => Promise<LoadedImage>;
 	/** Model-written description of a picture, cached. Called automatically. */
-	altText: (url: string) => Promise<string>;
+	altText: (url: string, source?: string) => Promise<string>;
 }
 
 const SELF_LABEL = "Self-chat (48:notes)";
+
+/** One picture is one URL inside one message: the same URL from another message is another picture. */
+const altKey = (url: string, source?: string) => `${source ?? ""}\0${url}`;
 const FORMATS = ["md → html", "raw html", "plain text"] as const;
 /** A chat takes two lines in the list: its name and time, then its preview. */
 const CHAT_LINES = 2;
@@ -542,19 +545,19 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 			}
 
 			function resolveAltText() {
-				for (const { url } of imageRefs()) {
-					if (alt.has(url)) continue;
-					alt.set(url, "");
+				for (const { url, source } of imageRefs()) {
+					if (alt.has(altKey(url, source))) continue;
+					alt.set(altKey(url, source), "");
 					void deps
-						.altText(url)
+						.altText(url, source)
 						.then((text) => {
-							alt.set(url, text);
+							alt.set(altKey(url, source), text);
 							altRev++;
 							rerender();
 						})
 						.catch((e) => {
 							// Visible, not silent: an undescribed picture should say so.
-							alt.set(url, `(could not be described: ${e})`);
+							alt.set(altKey(url, source), `(could not be described: ${e})`);
 							altRev++;
 							rerender();
 						});
@@ -649,10 +652,10 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 			}
 
 			/** Every image in the open conversation, oldest first. */
-			function imageRefs(): { url: string; sender: string; at: string }[] {
-				const out: { url: string; sender: string; at: string }[] = [];
+			function imageRefs(): { url: string; source?: string; sender: string; at: string }[] {
+				const out: { url: string; source?: string; sender: string; at: string }[] = [];
 				for (const m of history) {
-					for (const url of m.images ?? []) out.push({ url, sender: m.mine ? "me" : m.sender, at: m.at });
+					for (const url of m.images ?? []) out.push({ url, ...(m.imageSource ? { source: m.imageSource } : {}), sender: m.mine ? "me" : m.sender, at: m.at });
 				}
 				return out;
 			}
@@ -678,7 +681,7 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 
 				let loaded: LoadedImage;
 				try {
-					loaded = await deps.loadImage(ref.url);
+					loaded = await deps.loadImage(ref.url, ref.source);
 				} catch (e) {
 					fail(`could not load image: ${e}`);
 					return rerender();
@@ -1193,7 +1196,7 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 					});
 					const source = (m.images ?? []).reduce((acc, url) => {
 						n++;
-						const described = alt.get(url);
+						const described = alt.get(altKey(url, m.imageSource));
 						return acc.replace("[image]", described ? `[image ${n}: ${described}]` : `[image ${n}: describing…]`);
 					}, withMentions);
 
@@ -1301,7 +1304,7 @@ export function openComposeOverlay(ctx: ExtensionContext, deps: ComposeDeps): Pr
 					const body = (m.files ?? []).reduce((acc, f) => acc.split(`\u{1f4ce} [${f.name}](${f.url})`).join("").trim(), m.md ?? m.text);
 					const source = (m.images ?? []).reduce((acc, url) => {
 						n++;
-						const described = alt.get(url);
+						const described = alt.get(altKey(url, m.imageSource));
 						return acc.replace("[image]", described ? `[image ${n}: ${described}]` : `[image ${n}: describing…]`);
 					}, body);
 					const parts: tn.NativeNode[] = [tn.text(head, { wrap: "none", truncate: "end" }, "head")];

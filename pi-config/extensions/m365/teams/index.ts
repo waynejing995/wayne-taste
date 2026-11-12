@@ -491,8 +491,8 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	async function loadImage(url: string): Promise<LoadedImage> {
-		const { bytes, mime } = await fetchImage(url);
+	async function loadImage(url: string, source?: string): Promise<LoadedImage> {
+		const { bytes, mime } = await fetchImage(url, source);
 		return { base64: bytes.toString("base64"), mime };
 	}
 
@@ -1036,7 +1036,7 @@ export default function (pi: ExtensionAPI) {
 			refreshUnread: () => pollUnread(ctx),
 			searchPeople,
 			loadImage,
-			altText: (url) => describeImage(ctx, url, () => loadImage(url)),
+			altText: (url, source) => describeImage(ctx, url, () => loadImage(url, source), source ?? ""),
 			markRead: async (chatId) => {
 				await backend.markRead(chatId);
 				// Teams itself now reports this chat as read, so pruning the

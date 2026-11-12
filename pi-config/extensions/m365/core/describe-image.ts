@@ -25,9 +25,9 @@ const CACHE_DIR = path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir()
  * One or two lines describing the picture `load` returns. `key` names the picture (a URL, a content hash):
  * a key seen before answers from the cache without loading anything.
  */
-export async function describeImage(ctx: ExtensionContext, key: string, load: () => Promise<LoadedImage>): Promise<string> {
+export async function describeImage(ctx: ExtensionContext, key: string, load: () => Promise<LoadedImage>, source = ""): Promise<string> {
 	fs.mkdirSync(CACHE_DIR, { recursive: true });
-	const file = path.join(CACHE_DIR, `${createHash("sha256").update(key).digest("hex").slice(0, 32)}.txt`);
+	const file = path.join(CACHE_DIR, `${createHash("sha256").update(`${source}\0${key}`).digest("hex").slice(0, 32)}.txt`);
 	if (fs.existsSync(file)) return fs.readFileSync(file, "utf8");
 
 	const model = ctx.model;
