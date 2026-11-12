@@ -206,6 +206,16 @@ export function findChat<T extends { label: string; display?: string }>(chats: T
 }
 
 /** Ported from msg_sender: a message can come from a person, an app, or neither. */
+function attachmentList(m: RawMessage): RawAttachment[] {
+	return Array.isArray(m.attachments) ? m.attachments.filter((a): a is RawAttachment => Boolean(a) && typeof a === "object") : [];
+}
+
+function attachmentError(m: RawMessage): string {
+	if (m.attachments === undefined) return "";
+	if (!Array.isArray(m.attachments)) return "\n[unreadable attachment]";
+	return m.attachments.some((a) => !a || typeof a !== "object") ? "\n[unreadable attachment]" : "";
+}
+
 export function msgSender(m: RawMessage): string {
 	const user = m.from?.user;
 	if (user?.displayName) return user.displayName;
@@ -228,8 +238,7 @@ export function msgText(m: RawMessage): string {
 	const body = m.body ?? {};
 	const text = body.contentType === "html" ? htmlToText(body.content ?? "") : (body.content ?? "").trim();
 	// A card's body is only the <attachment> tag pointing at it, so the card is the message's text.
-	if (m.attachments !== undefined && !Array.isArray(m.attachments)) return `${text}\n[unreadable attachment]`.trim();
-	const cards = (m.attachments ?? []).filter((a) => a.contentType === CARD_CONTENT_TYPE).map((a) => attachedCardText(a.content));
+	const cards = attachmentList(m).filter((a) => a.contentType === CARD_CONTENT_TYPE).map((a) => attachedCardText(a.content));
 	return [text, ...cards].filter(Boolean).join("\n");
 }
 
@@ -256,7 +265,7 @@ export function msgImages(m: RawMessage): string[] {
  */
 export function isEmptyEvent(m: RawMessage): boolean {
 	if (m.messageType && m.messageType !== "message") return true;
-	if ((m.attachments ?? []).length > 0) return false;
+	if (attachmentList(m).length > 0) return false;
 	return !msgText(m);
 }
 
@@ -267,7 +276,7 @@ export function isEmptyEvent(m: RawMessage): boolean {
  * <attachment>, and offering its (absent) URL to a downloader would be a lie.
  */
 export function msgFiles(m: RawMessage): { name: string; url: string }[] {
-	return (m.attachments ?? [])
+	return attachmentList(m)
 		.filter((a) => Boolean(a.contentUrl))
 		.map((a) => ({ name: a.name || "attachment", url: a.contentUrl as string }));
 }
@@ -482,26 +491,29 @@ export class GraphBackend implements Backend {
 					if (isEmptyEvent(m)) return [];
 					const sender = msgSender(m);
 					const body = m.body ?? {};
-					let files: HistoryFile[] = [];
-					let images: string[] = [];
-					let attachmentError = "";
-					try {
-						files = msgFiles(m);
-						images = msgImages(m);
-					} catch {
-						attachmentError = "\n[unreadable attachment]";
-					}
-					const text = `${msgText(m)}${attachmentError}`;
+					const files = msgFiles(m);
+					const images = msgImages(m);
+					const badAttachment = attachmentError(m);
+					const text = `${msgText(m)}${badAttachment}`;
 					const messageUrl = `https://graph.microsoft.com/v1.0/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(m.id ?? "")}/`;
+					const resolved: string[] = [];
+					let imageError = "";
+					for (const src of images) {
+						try {
+							resolved.push(src.startsWith("../") ? new URL(src.slice(3), messageUrl).href : new URL(src, messageUrl).href);
+						} catch {
+							imageError = "\n[unreadable attachment]";
+						}
+					}
 					return [{
 						sender,
 						at: m.createdDateTime ?? "",
 						mine: Boolean(me) && sender.toLowerCase().includes(me),
 						...(m.from?.user?.id ? { sender_id: m.from.user.id } : {}),
-						text,
-						md: body.contentType === "html" ? `${htmlToMarkdown(body.content ?? "", m.attachments ?? [])}${attachmentError}` : text,
+						text: `${text}${imageError}`,
+						md: body.contentType === "html" ? `${htmlToMarkdown(body.content ?? "", attachmentList(m))}${badAttachment}${imageError}` : `${text}${imageError}`,
 						mentions_me: mentionsMe(m, me),
-						images: images.map((src) => src.startsWith("../") ? new URL(src.slice(3), messageUrl).href : new URL(src, messageUrl).href),
+						images: resolved,
 						imageSource: messageUrl,
 						...(files.length > 0 ? { files } : {}),
 					}];
