@@ -13,7 +13,7 @@ import { createJiti } from "../../tests/host.mjs";
 const jiti = createJiti(import.meta.url, { interopDefault: true });
 const { inbox } = await jiti.import("../cli/main.ts");
 const { checkThens, readThens } = await jiti.import("../cli/thens.ts");
-const { readAgents, removeAgents } = await jiti.import("../cli/agents.ts");
+const { readAgents, removeAgents, writeAgents } = await jiti.import("../cli/agents.ts");
 const { readTsv } = await jiti.import("../cli/ledger.ts");
 const { parseStamp } = await jiti.import("../cli/jobs.ts");
 
@@ -117,6 +117,17 @@ await check("completion cleanup removes only its generation", async () => {
 	const current = readAgents();
 	strictEqual(current.length, 1);
 	ok(current[0].generation !== old.generation);
+});
+
+await check("a legacy registration without generation is migrated and removable", async () => {
+	const id = await row();
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);
+	const old = readAgents()[0];
+	delete old.generation;
+	writeAgents([old]);
+	strictEqual(readAgents()[0].generation !== undefined, true);
+	removeAgents([{ name: "fixer" }]);
+	deepStrictEqual(readAgents(), []);
 });
 
 await check("adding the same agent on another row cancels its old unfired plan", async () => {

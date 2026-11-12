@@ -17,14 +17,23 @@ export interface AgentEntry {
 	goal?: string;
 	push?: boolean;
 	since?: string;
-	generation: string;
+	generation?: string;
 }
 
 export function readAgents(): AgentEntry[] {
-	return readList(AGENT_LIST) as unknown as AgentEntry[];
+	const agents = readList(AGENT_LIST) as unknown as AgentEntry[];
+	if (!agents.some((a) => !a.generation)) return agents;
+	const migrated = agents.map((a) => a.generation ? a : { ...a, generation: randomUUID() });
+	return withRulesLock(() => {
+		const current = readList(AGENT_LIST) as unknown as AgentEntry[];
+		if (!current.some((a) => !a.generation)) return current;
+		const next = current.map((a) => a.generation ? a : { ...a, generation: randomUUID() });
+		writeList(AGENT_LIST, next as unknown as Record<string, unknown>[]);
+		return next;
+	});
 }
 
-function writeAgents(agents: AgentEntry[]): void {
+export function writeAgents(agents: AgentEntry[]): void {
 	writeList(AGENT_LIST, agents as unknown as Record<string, unknown>[]);
 }
 
@@ -47,10 +56,10 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 	return `watching ${a.name}; ${then}`;
 }
 
-export function removeAgents(entries: { name: string; generation: string }[]): string {
+export function removeAgents(entries: { name: string; generation?: string }[]): string {
 	withRulesLock(() => {
 		const agents = readAgents();
-		writeAgents(agents.filter((a) => !entries.some((e) => e.name === a.name && e.generation === a.generation)));
+		writeAgents(agents.filter((a) => !entries.some((e) => e.name === a.name && (!e.generation || e.generation === a.generation))));
 	});
 	return `stopped ${entries.map((e) => e.name).join(" ")}`;
 }

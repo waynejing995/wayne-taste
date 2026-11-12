@@ -476,7 +476,7 @@ export class AgentTailer {
 				retire = true;
 				try {
 					await this.refresh();
-					if (generation && this.entries.some((item) => item.name === ev.name && item.generation === generation)) await this.inbox(["agent", "rm", ev.name, "--generation", generation]);
+					if (this.entries.some((item) => item.name === ev.name && (!generation || item.generation === generation))) await this.inbox(["agent", "rm", ev.name, ...(generation ? ["--generation", generation] : [])]);
 					this.clearError(`rm:${ev.name}`);
 				} catch (e) {
 					this.fail(`rm:${ev.name}`, e);
