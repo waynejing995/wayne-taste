@@ -214,5 +214,12 @@ await check("then rejects a bad trigger and a row that is not live", async () =>
 	await rejects(() => inbox(["then", "999", "--when", "at:2026-11-11 10:00", "--", "x"]), /no such live id: 999/);
 });
 
+await check("a busy rules lock fails agent add before its plan is armed", async () => {
+	const id = await row();
+	writeFileSync(join(home, "rules.yaml.lock"), "");
+	await rejects(() => inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan"]), /held by another writer/);
+	deepStrictEqual(readThens(), [], "no plan armed for a registration that was not written");
+});
+
 console.log(failed === 0 ? "all green" : `${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

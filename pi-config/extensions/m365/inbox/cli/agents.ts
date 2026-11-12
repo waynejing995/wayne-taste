@@ -45,7 +45,6 @@ export function writeAgents(agents: AgentEntry[]): void {
  */
 export function addAgent(a: { name: string; mux: string; pane: string; row: string; then: string; host?: string; result?: string; goal?: string; push?: boolean }): string {
 	if (!MUXES.includes(a.mux)) throw new InboxError(`--mux must be one of ${MUXES.join(", ")}`);
-	const then = addThen(a.row, `agent-result:${a.name}`, a.then, true);
 	const entry: AgentEntry = { name: a.name, mux: a.mux, host: a.host || "local", pane: a.pane };
 	if (a.result) entry.result = a.result;
 	if (a.goal) entry.goal = clean(a.goal);
@@ -53,8 +52,13 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 	// Seconds, not minutes: the push tailer tells a re-registration of the same name by a changed `since`.
 	entry.since = stamp(new Date(), true);
 	entry.generation = randomUUID();
-	withRulesLock(() => writeAgents([...migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]).filter((e) => e.name !== a.name), entry]));
-	return `watching ${a.name}; ${then}`;
+	// Under the rules lock, so the plan is armed only for the registration that is written.
+	return withRulesLock(() => {
+		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
+		const then = addThen(a.row, `agent-result:${a.name}`, a.then, true);
+		writeAgents([...agents.filter((e) => e.name !== a.name), entry]);
+		return `watching ${a.name}; ${then}`;
+	});
 }
 
 export function removeAgents(entries: { name: string; generation?: string }[]): string {
