@@ -15,6 +15,7 @@ import { readAgents } from "./cli/agents.ts";
 
 export interface Deps {
 	dir: string;
+	readRules?: typeof fs.readFileSync;
 	inbox: (args: string[]) => Promise<string>;
 	spawn?: typeof spawnProcess;
 	now?: () => number;
@@ -147,11 +148,13 @@ export class AgentTailer {
 	private hosts: Record<string, Cursor> = {};
 	private names: Record<string, NameState> = {};
 	private remotes = new Map<string, Stream>();
+	private readonly deps: Deps;
 	private connectedSince = new Map<string, number>();
 	private linkDown = new Map<string, string>();
 	private errors = new Map<string, string>();
 
 	constructor(deps: Deps) {
+		this.deps = deps;
 		this.eventsFile = path.join(deps.dir, "agent-events.jsonl");
 		this.cursorFile = path.join(deps.dir, "cursors", "agent-events.json");
 		this.rulesFile = path.join(deps.dir, "rules.yaml");
@@ -163,6 +166,11 @@ export class AgentTailer {
 		this.onChange = deps.onChange ?? (() => {});
 		this.warn = deps.warn ?? ((msg) => console.warn(`[inbox agents] ${msg}`));
 		this.local = { host: "local", lines: [], partial: Buffer.alloc(0), blocked: false, backoff: this.backoffMs, started: false, stderr: "" };
+	}
+
+	/** Test seam: replace the rules reader without copying private state. */
+	setRulesReader(readRules: Deps["readRules"]): void {
+		this.deps.readRules = readRules;
 	}
 
 	start(): void {
@@ -277,7 +285,7 @@ export class AgentTailer {
 		fs.renameSync(tmp, this.cursorFile);
 	}
 
-	private async refresh(): Promise<void> {
+	private async refresh(force = false): Promise<void> {
 		let mtime: number | null = null;
 		try {
 			mtime = fs.statSync(this.rulesFile).mtimeMs;
@@ -287,11 +295,11 @@ export class AgentTailer {
 				return;
 			}
 		}
-
+		if (!force && mtime !== null && mtime === this.rulesMtime) return;
 		this.rulesMtime = mtime;
 		const previous = this.entries;
 		try {
-			this.entries = readEntries(mtime === null ? "" : fs.readFileSync(this.rulesFile, "utf8"), path.dirname(this.rulesFile));
+			this.entries = readEntries(mtime === null ? "" : (this.deps.readRules ?? fs.readFileSync)(this.rulesFile, "utf8"), path.dirname(this.rulesFile));
 			this.clearError("rules");
 		} catch (e) {
 			this.fail("rules", e);
@@ -492,7 +500,7 @@ export class AgentTailer {
 			if (ev.type === "result" && row.state === "done") {
 				retire = true;
 				try {
-					await this.refresh();
+					await this.refresh(true);
 					const replacement = this.names[ev.name];
 					const currentEntry = this.entries.find((item) => item.name === ev.name);
 					if (generation && currentEntry?.generation === generation) {

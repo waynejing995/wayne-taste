@@ -28,6 +28,7 @@ function fixture(extra = {}) {
 	const rows = new Map();
 	const calls = [];
 	const warnings = [];
+	let changeCount = 0;
 	const changes = new EventEmitter();
 	let clock = Date.parse("2026-11-09T00:00:00.000Z");
 	let stamp = Date.now() / 1000;
@@ -56,7 +57,7 @@ function fixture(extra = {}) {
 		rows.set(key, [...args]);
 		return `do ${rows.size} tag`;
 	};
-	const opts = { dir, inbox, now: () => clock, deadSec: 300, warn: (message) => warnings.push(message), onChange: () => changes.emit("change"), ...extra };
+	const opts = { dir, inbox, now: () => clock, deadSec: 300, warn: (message) => warnings.push(message), onChange: () => { changeCount += 1; changes.emit("change"); }, ...extra };
 	let tailer = new AgentTailer(opts);
 	const watched = (name = "one", host = "local", since = "2026-11-09 00:00", generation = "11111111-1111-4111-8111-111111111111") => ({ name, host, since, generation, mux: "tern", pane: name, push: true });
 	const event = (type, seq, overrides = {}) => ({ v: 1, ts: new Date(clock).toISOString(), name: "one", host: "localhost", pid: 17, session: "session", seq, type, ...overrides });
@@ -73,7 +74,7 @@ function fixture(extra = {}) {
 		return promise;
 	};
 	return {
-		dir, rules, file, cursor, rows, calls, warnings, changes, watched, event, append, start, restart, writeRules, waitUntil, inbox, clock,
+		dir, rules, file, cursor, rows, calls, warnings, changes, watched, event, append, start, restart, writeRules, waitUntil, inbox, clock, opts,
 		get tailer() { return tailer; }, set tailer(value) { tailer = value; },
 		advance(ms) { clock += ms; },
 		/** The `since` `inbox agent add` writes now (Asia/Shanghai, to the second). */
@@ -81,6 +82,7 @@ function fixture(extra = {}) {
 		fail(value) { failAdd = value; },
 		saved() { return JSON.parse(fs.readFileSync(cursor, "utf8")); },
 		close() { tailer.stop(); fs.rmSync(dir, { recursive: true, force: true }); },
+		changeCount() { return changeCount; },
 	};
 }
 
@@ -92,6 +94,15 @@ async function withFixture(fn, extra) {
 }
 const arg = (row, key) => row[row.indexOf(key) + 1];
 const fields = (row) => row.flatMap((item, index) => item === "--field" ? [row[index + 1]] : []);
+
+await check("unchanged rules do not refresh again", () => withFixture(async (f) => {
+	await f.start();
+	const before = f.changeCount();
+	f.append(f.event("idle", 1, { text: "one" }));
+	f.append(f.event("idle", 2, { text: "two" }));
+	await f.tailer.poke();
+	equal(f.changeCount(), before);
+}));
 
 await check("ask maps question, options, goal and fields", () => withFixture(async (f) => {
 	await f.start([{ ...f.watched(), goal: "ship safely", result: "/result" }]);
@@ -313,7 +324,24 @@ await check("events before registration survive restart and replay", () => withF
 	await f.tailer.poke();
 	equal(f.rows.size, 1);
 	match(arg([...f.rows.values()][0], "--note"), /early/);
+
 	equal(f.saved().names.one.pending, undefined);
+}));
+
+await check("unchanged rules are not reread", () => withFixture(async (f) => {
+	await f.start();
+	let reads = 0;
+	const readRules = fs.readFileSync;
+	f.tailer.setRulesReader((...args) => { reads += 1; return readRules(...args); });
+	await f.tailer.poke();
+	await f.tailer.poke();
+	equal(reads, 0);
+	f.advance(1_000);
+	f.writeRules([f.watched("one", "local", "2026-11-09 00:01")]);
+	const later = Date.now() / 1000 + 5;
+	fs.utimesSync(path.join(f.dir, "rules.yaml"), later, later);
+	await f.tailer.poke();
+	equal(reads, 1);
 }));
 
 await check("a pending done result replayed on registration retires the session cleanly", () => withFixture(async (f) => {
