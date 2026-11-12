@@ -582,7 +582,8 @@ export class GraphBackend implements Backend {
 		if (u.protocol !== "https:") throw new Error(`${u.protocol}//${u.host} is not https; not sending a token there`);
 		if (source) {
 			const owned = new URL(source);
-			if (owned.origin !== u.origin || !u.pathname.startsWith(owned.pathname)) throw new Error(`${u.host} is not the source message; not sending a token there`);
+			const samePath = decodeURIComponent(u.pathname).startsWith(decodeURIComponent(owned.pathname));
+			if (owned.origin !== u.origin || !samePath) throw new Error(`${u.host} is not the source message; not sending a token there`);
 		}
 		if (u.host === "graph.microsoft.com") return this.graph.getBytes(url, IMAGE_DOWNLOAD_MAX);
 		if (u.host.endsWith(".asm.skype.com")) return this.requireSkype().image(url);
