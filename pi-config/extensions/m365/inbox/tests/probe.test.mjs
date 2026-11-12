@@ -254,6 +254,16 @@ for (const mux of Object.keys(MISSING)) {
 		strictEqual(r.alive, false);
 	}));
 }
+// Real tmux 3.4 output for a gone window or session (no leading dot), and for a stopped server.
+for (const [what, line] of [["window", "can't find window: 9"], ["session", "can't find session: nosess"]]) {
+	await check(`a missing tmux ${what} is not alive`, () => withFixture(async (f) => {
+		const r = await f.probeMux("tmux", "nosess:9", `echo "${line}" >&2; exit 1`);
+		strictEqual(r.alive, false);
+	}));
+}
+await check("a stopped tmux server stays a probe error", () => withFixture(async (f) => {
+	await failsWith(f.probeMux("tmux", "%1", "echo 'no server running on /tmp/tmux-0/default' >&2; exit 1"), "no server running");
+}));
 for (const [mux, query] of [["tern", "process"], ["herdr", "get"]]) {
 	await check(`a failing ${mux} ${query} is still reported when the capture fails too`, () => withFixture(async (f) => {
 		const command = `case "$*" in *${query}*) echo "${query} broke" >&2 ;; *) echo "capture broke" >&2 ;; esac; exit 1`;

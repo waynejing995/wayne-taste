@@ -29,7 +29,7 @@ missing_target() {
 		tern) case $text in *"no block is called"*) return 0 ;; esac ;;
 		hc) case $text in *'"kind":"not_found"'*) return 0 ;; esac ;;
 		herdr) case $text in *agent_not_found*|*pane_not_found*) return 0 ;; esac ;;
-		tmux) case $text in *"can't find pane"*|*".can't find window"*|*".can't find session"*) return 0 ;; esac ;;
+		tmux) case $text in *"can't find pane"*|*"can't find window"*|*"can't find session"*) return 0 ;; esac ;;
 	esac
 	return 1
 }
