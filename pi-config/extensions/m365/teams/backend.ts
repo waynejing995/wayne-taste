@@ -49,6 +49,10 @@ export interface SelfMessage {
 	text: string;
 	/** Markdown form. The pane renders this; `text` is the flat fallback. */
 	md?: string;
+	/** The AMS addresses of the pictures in it; absent when there are none. Backend.image fetches them. */
+	images?: string[];
+	/** Files sent in it: a name and the SharePoint URL behind it (teams_download; pictures are fetched as pictures). */
+	files?: { name: string; url: string }[];
 }
 
 /** Where to read a chat from. `id` is preferred: resolving a name walks the whole chat list. */
@@ -113,7 +117,7 @@ export interface Backend {
 	/**
 	 * `mentions` are the @mentions cut from the Markdown (mentions.ts). Only the
 	 * graph backend can resolve them to people, so the script backend refuses.
-	 * `images` are local image files shown under the text; the self-chat only for now.
+	 * `images` are local PNG/JPEG/GIF files shown inline under the text, in any chat, with or without a card.
 	 * `card` is an Adaptive Card (card.ts) posted after `message`, which then holds only the mentions.
 	 */
 	send(target: SendTarget, message: string, html: boolean, mentions?: Mention[], images?: string[], card?: Record<string, unknown>): Promise<void>;

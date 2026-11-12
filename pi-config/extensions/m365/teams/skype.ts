@@ -37,7 +37,7 @@ const WALK_PAGE = 50;
 type Transport = (
 	url: string,
 	init: { method?: string; headers: Record<string, string>; body?: string | Uint8Array },
-) => Promise<{ status: number; text(): Promise<string> }>;
+) => Promise<{ status: number; text(): Promise<string>; arrayBuffer?(): Promise<ArrayBuffer> }>;
 
 /** AMS derives a platform id from the User-Agent and rejects one it cannot parse (Bun's own included). */
 const AMS_USER_AGENT =
@@ -56,8 +56,21 @@ export interface RawSkypeMessage {
 	composetime?: string;
 	content?: string;
 	messagetype?: string;
-	/** `cards` is a JSON string: [{cardClientId, contentType, content}], what a Graph card send stores. */
-	properties?: { cards?: string };
+	/** `cards` is a JSON string: [{cardClientId, contentType, content}], what a Graph card send stores. `files` is
+	 * one too: [{fileName, objectUrl, …}], the files sent in it, each a share on the sender's OneDrive. */
+	properties?: { cards?: string; files?: string };
+}
+
+/** The files a chatsvc message carries, as the Graph backend names them; [] for none or unreadable JSON. */
+function sentFiles(m: RawSkypeMessage): { name: string; url: string }[] {
+	if (!m.properties?.files) return [];
+	let files: { fileName?: string; objectUrl?: string }[];
+	try {
+		files = JSON.parse(m.properties.files);
+	} catch {
+		return [];
+	}
+	return (Array.isArray(files) ? files : []).filter((f) => f.fileName && f.objectUrl).map((f) => ({ name: f.fileName as string, url: f.objectUrl as string }));
 }
 
 /** The text of the Adaptive Cards a chatsvc message carries, one per line; "" for none or unreadable JSON. */
@@ -128,7 +141,7 @@ export class SkypeClient {
 			url: string;
 			init: { method?: string; headers: Record<string, string>; body?: string | Uint8Array };
 		},
-	): Promise<{ status: number; text(): Promise<string> }> {
+	): Promise<{ status: number; text(): Promise<string>; arrayBuffer?(): Promise<ArrayBuffer> }> {
 		const once = async () => {
 			const { url, init } = build(await this.authorize());
 			return this.doFetch(url, init);
@@ -218,11 +231,22 @@ export class SkypeClient {
 			const html = m.content ?? "";
 			// A card's content is an empty span pointing at it: the card is the text.
 			const card = cardsText(m);
+			const files = sentFiles(m);
 			const flat = [htmlToText(html), card].filter(Boolean).join("\n");
-			if (!flat) continue;
+			// A file-only note has no text, and is still a message.
+			if (!flat && files.length === 0) continue;
 			// The self-chat used to skip Markdown conversion entirely, so code
 			// blocks I sent myself came back flat while every other chat rendered.
-			out.push({ id, at: m.composetime ?? "", text: flat, md: [htmlToMarkdown(html), card].filter(Boolean).join("\n\n") });
+			// htmlToText reads a picture as "[image]"; its address is what lets the extension fetch it (see image()).
+			const images = [...html.matchAll(/<img[^>]+src="([^"]+)"/g)].map((x) => x[1].replaceAll("&amp;", "&"));
+			out.push({
+				id,
+				at: m.composetime ?? "",
+				text: flat,
+				md: [htmlToMarkdown(html), card].filter(Boolean).join("\n\n"),
+				...(images.length > 0 ? { images } : {}),
+				...(files.length > 0 ? { files } : {}),
+			});
 		}
 		out.sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
 		return out;
@@ -327,6 +351,25 @@ export class SkypeClient {
 			},
 		}));
 		if (r.status < 200 || r.status >= 300) throw new Error(`chatsvc send ${r.status}: ${(await r.text()).slice(0, 200)}`);
+	}
+
+	/**
+	 * A picture someone pasted into the self-chat: an AMS object, fetched with the skype token the way Teams fetches
+	 * it (`Authorization: skype_token`, a browser User-Agent; X-Skypetoken is refused there). The address comes from
+	 * a message, so the token goes only to the AMS host authsvc named, never wherever an <img> points.
+	 */
+	async image(url: string): Promise<Buffer> {
+		const { ams } = await this.authorize();
+		if (!ams || new URL(url).origin !== new URL(ams).origin) {
+			throw new Error(`${new URL(url).host} is not the Teams image host (${ams ? new URL(ams).host : "authsvc named none"}); not sending the token there`);
+		}
+		const r = await this.skypeFetch(({ skypeToken }) => ({
+			url,
+			init: { headers: { Authorization: `skype_token ${skypeToken}`, Accept: "image/*", "User-Agent": AMS_USER_AGENT } },
+		}));
+		if (r.status < 200 || r.status >= 300) throw new Error(`AMS image ${r.status}: ${(await r.text()).slice(0, 200)}`);
+		if (!r.arrayBuffer) throw new Error("transport cannot return bytes");
+		return Buffer.from(await r.arrayBuffer());
 	}
 
 	/**

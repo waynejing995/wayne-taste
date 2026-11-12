@@ -56,6 +56,10 @@ const check = (label, got, want) => {
 const GROUP = `19:delivery-${process.pid}@thread.v2`;
 const notes = [{ id: "100", at: "2026-11-06T11:00:00Z", text: "before the watch" }];
 const group = [{ sender: "Lin", at: "2026-11-06T11:00:00Z", mine: false, text: "before the watch" }];
+const AMS = "https://us-api.asm.skype.com/v1/objects";
+const PNG_BYTES = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+/** Every url the script was asked to download. */
+const imageAsks = [];
 const exec = async (_cmd, argv) => {
 	const args = argv.slice(argv.findIndex((a) => a.endsWith(".py")) + 1);
 	const json = (o) => ({ stdout: JSON.stringify(o), stderr: "", code: 0 });
@@ -64,6 +68,16 @@ const exec = async (_cmd, argv) => {
 		return json({ messages: notes.filter((n) => Number(n.id) > since) });
 	}
 	if (args[0] === "chats" && args.includes("--list")) return json({ chats: [{ id: GROUP, label: "Release Sync", display: "Release Sync", chat_type: "group" }] });
+	if (args[0] === "image") {
+		const url = args[args.indexOf("--url") + 1];
+		imageAsks.push(url);
+		const kind = url.split("/").at(-3);
+		if (kind === "broken") return { stdout: "", stderr: "boom", code: 1 };
+		const file = join(home, `${kind}.bin`);
+		const big = (n) => Buffer.concat([PNG_BYTES, Buffer.alloc(n)]);
+		writeFileSync(file, { ok: PNG_BYTES, text: Buffer.from("TOKEN=x"), huge: big(21 * 1024 * 1024), big: big(6 * 1024 * 1024) }[kind]);
+		return json({ path: file });
+	}
 	if (args[0] === "chats") return json({ messages: group });
 	return json({ unread_chats: 0, items: [] });
 };
@@ -253,6 +267,40 @@ check("a held group message: queued, flushed, delivered", steps("2026-11-06T11:0
 check("a card dropped with its session: queued, dropped", steps("2026-11-06T11:10:00Z"), ["queued", "dropped"]);
 check("a flush says how it went in", ["101", "2026-11-06T11:02:00Z", "2026-11-06T11:04:00Z"].map((id) => entry("flushed", id)?.how), ["steer", "display", "turn"]);
 check("a queued card says what the gate did", [entry("queued", "2026-11-06T11:02:00Z")?.gate, entry("queued", "2026-11-06T11:04:00Z")?.gate?.split(" ")[0]], ["no policy", "YES"]);
+
+console.log("\n== a note with a picture: the card carries the picture itself, and where it was saved ==");
+{
+	idle = true;
+	await watch({ action: "start", chat_id: "48:notes" });
+	await poll();
+	const before = sent.length;
+	notes.push({ id: "200", at: "2026-11-06T12:00:00Z", text: "[image]\nwhy is this need-me", images: [`${AMS}/ok/views/imgo`] });
+	await poll();
+	const card = sent[before]?.m;
+	const parts = Array.isArray(card?.content) ? card.content : [];
+	const text = parts.filter((p) => p.type === "text").map((p) => p.text).join("\n");
+	check("one card, as text and image parts", [sent.length - before, parts.map((p) => p.type)], [1, ["text", "image"]]);
+	check("the image part is the picture", [parts[1]?.mimeType, parts[1]?.data], ["image/png", PNG_BYTES.toString("base64")]);
+	const saved = text.match(/image 1 saved: (\S+)\]/)?.[1] ?? "";
+	check("a local path line, inside the untrusted block", /<untrusted-teams-content>[\s\S]*image 1 saved: [\s\S]*<\/untrusted-teams-content>/.test(text), true);
+	check("the file there is the picture", saved ? readFileSync(saved).equals(PNG_BYTES) : false, true);
+	check("the backend was asked for that url", imageAsks.at(-1), `${AMS}/ok/views/imgo`);
+
+	console.log("\n== pictures that cannot be fetched, are not pictures, or are too big: said in the card, and warned ==");
+	const n = sent.length;
+	notes.push({ id: "201", at: "2026-11-06T12:01:00Z", text: "[image]", images: ["broken", "text", "huge", "big"].map((k) => `${AMS}/${k}/views/imgo`) });
+	await poll();
+	const failedCard = sent[n]?.m;
+	const failedParts = Array.isArray(failedCard?.content) ? failedCard.content : [{ type: "text", text: failedCard?.content ?? "" }];
+	const failedText = failedParts.map((p) => p.text ?? "").join("\n");
+	check("the card still goes in", sent.length - n, 1);
+	check("a failed download is a line, not silence", /\[image 1: download failed: [^\]]*exit 1/.test(failedText), true);
+	check("a file that is not a picture is refused", /\[image 2: download failed: not a PNG, JPEG, GIF or WebP image\]/.test(failedText), true);
+	check("a picture past the download cap is refused", /\[image 3: download failed: \d+ bytes, more than \d+\]/.test(failedText), true);
+	check("one too big to attach is saved, and says so", /\[image 4 saved: \S+ — \d+ bytes, too large to attach; open the file\]/.test(failedText), true);
+	check("no image parts for any of them", failedParts.some((p) => p.type === "image"), false);
+	check("each failure warned", notices.filter((x) => x.level === "warning" && /download failed/.test(x.text)).length, 3);
+}
 
 console.log(failed === 0 ? "\nall ok" : `\nFAIL ${failed}`);
 process.exit(failed === 0 ? 0 : 1);

@@ -67,7 +67,7 @@ click per refresh-token lifetime is a bad trade. Nothing here ever reads it.
 | Surface | What it does |
 |---|---|
 | Status bar | `Teams: 3 unread` — chats holding unread activity, polled every 10 min |
-| `teams_send` tool | The agent sends a Teams message when you tell it to. self / chat / channel. **It says what you asked, worded naturally, at the size you asked for** — rephrasing is fine; padding it with summaries and background you never mentioned is not. A chat or channel send is an Adaptive Card by default; see [Cards](#cards). To notify someone it writes `@[Name](email)`; see [@mentions](#mentions). `images` (local paths) shows pictures under the text — self-chat only, text messages only: each is uploaded to Teams' AMS store, readable by the self-chat, and referenced the way Teams itself posts an image |
+| `teams_send` tool | The agent sends a Teams message when you tell it to. self / chat / channel. **It says what you asked, worded naturally, at the size you asked for** — rephrasing is fine; padding it with summaries and background you never mentioned is not. A chat or channel send is an Adaptive Card by default; see [Cards](#cards). To notify someone it writes `@[Name](email)`; see [@mentions](#mentions). `images` (local PNG/JPEG/GIF paths), or `![alt](/local/path.png)` in the message, shows pictures inline under the text or the card, in any target; see [Pictures to and from the agent](#pictures-to-and-from-the-agent) |
 | `teams_read` tool | The agent reads the last 20 messages of a chat or the self-chat (`limit` up to 200). A shared file becomes two lines: the name, and the url `teams_download` needs |
 | `teams_download` tool | Fetches a file someone shared, to a local path. Size-capped (256 MB default) |
 | `teams_transcript` tool | Reads the speaker-attributed transcript of a recorded meeting (`19:meeting_...@thread.v2`), or lists its recorded sessions (`list: true`, `date: "YYYY-MM-DD"` picks one). If the speaker-attributed Stream JSON is unavailable it falls back to WebVTT, which can lose speakers; the result then carries a `fallbackWarning` |
@@ -373,7 +373,7 @@ model the same rule, so the default and the guidance agree.
 | `message` | The whole message, not a one-line summary (bold, italic, links and lists render; headings, tables and code blocks do not — send those with `card: false`) |
 | `facts` | Rows `{name, value, tone?}`, one per key value (PR, sha, run id, ticket, times); `tone` `good`/`warning`/`attention` colours the value |
 | `decision` | `{question, context?, options: [{label, consequence?}], recommended?, reason?}`: the question, what readers need to know to choose, numbered options each with what happens if taken, the recommended one highlighted with its reason. Two options at least; `recommended` is a 0-based index |
-| `agents` | Progress rows `{name, host, idle_min, status, tail?}`: `status` is `waiting on question`, `probe failed`, `done` or `working`; rows needing you come first; the idle timer is green under 10 min, yellow under 30, red after; `tail` opens on a tap |
+| `agents` | Progress rows `{name, host, idle_min, status, tail?}`: `status` is `waiting on question` (a real ask: a pending ask card or approval, or a RESULT blocked with a `## Questions` section), `probe failed`, `idle` (the turn ended: no RESULT, awaiting review, partial — not counted in “need you”), `done` or `working`; rows needing you come first; the idle timer is green under 10 min, yellow under 30, red after; `tail` opens on a tap |
 | `links` | `{title, url}` buttons (`Action.OpenUrl`, https only — the only action Graph accepts without a bot) |
 | `details` | Markdown behind a **Details** button: the long parts (cause, evidence, logs, next steps), so the top stays short |
 
@@ -440,8 +440,35 @@ No keystroke: it is there when the conversation is. Descriptions are cached by
 image URL under `~/.cache/pi/teams-alt`, so a chat is described once. A failure
 is written into the line rather than leaving a silent bare marker.
 
-`teams_read` also attaches the pictures themselves (up to 4, newest first), so
-the agent can answer questions about them directly.
+### Pictures to and from the agent
+
+The agent sees pictures as images, not as an `[image]` marker, with no extra
+step on either side:
+
+- **Watch cards.** A watched message with a picture (pasted into the self-chat,
+  hosted in a Graph chat, or sent as a `.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`
+  file) arrives with the picture attached as an image part,
+  and a line `[image N saved: <path>]` inside the untrusted block. Files go to
+  `~/.cache/pi/teams-images/` (mode 0600, named by content hash).
+- **`teams_read`** attaches the newest pictures (up to 4) the same way, each with
+  its saved path; older ones say `not fetched: only the newest`.
+- **Sending.** `teams_send` takes local PNG/JPEG/GIF paths in `images`, or
+  `![alt](/local/path.png)` in `message` (a relative path resolves against the
+  agent's working directory; a web URL in `![]()` stays a link, and one inside
+  code stays text). They show inline under the text, in any chat, channel or the
+  self-chat, with a card too: Graph posts carry them as `hostedContents`, and a
+  plain self-chat message uploads them to AMS as Teams itself does.
+
+Each token goes only to its own host: a self-chat picture (`*.asm.skype.com`) is
+fetched with the skype token, a Graph `hostedContents` URL with the Graph token,
+and any other `<img src>` is refused, because the sender of a message chooses
+that address. A picture sent as a file is fetched like `teams_download` does,
+through Graph's `/shares` with the Graph token; only files named
+`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp` are fetched, and the rest stay file lines.
+A download over 20 MB, or bytes that are not PNG/JPEG/GIF/WebP,
+are refused; one over 3.5 MB is saved but not attached. Every failure is a line
+in the card (`[image N: download failed: <reason>]`) and a warning, never a bare
+marker.
 
 ### Seeing the picture itself
 

@@ -544,9 +544,18 @@ export class GraphBackend implements Backend {
 	selfHistoryPage(cursor?: string): Promise<SelfHistoryPage> {
 		return this.requireSkype().selfPage(cursor, HISTORY_MESSAGES);
 	}
-	/** hostedContents needs the bearer, so it cannot be a plain <img src>. */
+	/**
+	 * A picture in a message: hostedContents on Graph (the Graph bearer), or an AMS object pasted into the self-chat
+	 * (the skype token). The address is written by whoever sent the message, so each token goes only to its own
+	 * host and any other address is refused: never the Graph token to wherever an <img> points.
+	 */
 	async image(url: string): Promise<Buffer> {
-		return this.graph.getBytes(url);
+		const u = new URL(url);
+		if (u.protocol !== "https:") throw new Error(`${u.protocol}//${u.host} is not https; not sending a token there`);
+		const host = u.host;
+		if (host === "graph.microsoft.com") return this.graph.getBytes(url);
+		if (host.endsWith(".asm.skype.com")) return this.requireSkype().image(url);
+		throw new Error(`${host} is not a Teams image host; not sending a token there`);
 	}
 	async people(query: string): Promise<Person[]> {
 		return searchPeople(this.graph, query);
@@ -596,8 +605,7 @@ export class GraphBackend implements Backend {
 		card?: Record<string, unknown>,
 	): Promise<void> {
 		if (mentions.length > 0 && !html) throw new Error("an @mention can only be sent as html");
-		if (images.length > 0 && (target.kind !== "self" || card))
-			throw new Error("images can only be sent to the self-chat for now (target='self'), and not with a card");
+		if (images.length > 0 && !html) throw new Error("an image can only be sent as html");
 		// Read before anything is uploaded or posted: one bad file refuses the whole message. The paths come from the
 		// model, so only regular PNG/JPEG/GIF files totalling at most IMAGE_MAX_BYTES are read and sent: never a
 		// device, a secret, a huge file. A non-regular path is refused before it is opened, and the opened descriptor
@@ -622,9 +630,15 @@ export class GraphBackend implements Backend {
 					off += n;
 				}
 				const head = bytes.subarray(0, 8).toString("latin1");
-				if (!(head.startsWith("\x89PNG\r\n\x1a\n") || head.startsWith("\xff\xd8\xff") || head.startsWith("GIF8")))
-					throw new Error(`image ${p} is not a PNG, JPEG or GIF file`);
-				return { name: path.basename(p), bytes };
+				const type = head.startsWith("\x89PNG\r\n\x1a\n")
+					? "image/png"
+					: head.startsWith("\xff\xd8\xff")
+						? "image/jpeg"
+						: head.startsWith("GIF8")
+							? "image/gif"
+							: "";
+				if (!type) throw new Error(`image ${p} is not a PNG, JPEG or GIF file`);
+				return { name: path.basename(p), bytes, type };
 			} finally {
 				fs.closeSync(fd);
 			}
@@ -647,9 +661,12 @@ export class GraphBackend implements Backend {
 		// plain text containing "<" disappear as markup.
 		// With a card, `message` holds only what notifies (the mentions); the card follows it as an attachment the
 		// body points at, the shape Graph's own card example posts. Graph posts cards to the self-chat too.
+		// Pictures go inline as hostedContents: each `<img>` points at a temporary id the post carries the bytes under,
+		// and Teams stores them with the message.
 		const attachmentId = card ? crypto.randomUUID().replaceAll("-", "") : "";
 		const content =
 			fillMentions(message, resolved, (m, i) => `<at id="${i}">${escapeHtml(m.name)}</at>`) +
+			files.map((f, i) => `<p><img src="../hostedContents/${i + 1}/$value" alt="${escapeHtml(f.name)}"></p>`).join("") +
 			(card ? `<attachment id="${attachmentId}"></attachment>` : "");
 		const graphMentions = resolved.map((m, i) => ({
 			id: i,
@@ -660,6 +677,15 @@ export class GraphBackend implements Backend {
 		const body = {
 			body: { contentType: html ? "html" : "text", content },
 			...(graphMentions.length > 0 ? { mentions: graphMentions } : {}),
+			...(files.length > 0
+				? {
+						hostedContents: files.map((f, i) => ({
+							"@microsoft.graph.temporaryId": String(i + 1),
+							contentBytes: f.bytes.toString("base64"),
+							contentType: f.type,
+						})),
+					}
+				: {}),
 			...(card ? { attachments: [{ id: attachmentId, contentType: CARD_CONTENT_TYPE, content: JSON.stringify(card) }] } : {}),
 		};
 
