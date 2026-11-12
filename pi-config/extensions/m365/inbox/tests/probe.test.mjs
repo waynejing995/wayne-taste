@@ -612,7 +612,7 @@ await check("a default probe has no tail and hashes the pane as before", () =>
 		const r = await f.probeTern(null, pane);
 		strictEqual(r.alive, true);
 		ok(!("tail" in r) && !("kind" in r));
-		strictEqual(r.text, md5(Buffer.from(pane.trimEnd())));
+		strictEqual(r.text, md5(Buffer.from(pane)));
 	}),
 );
 
@@ -651,7 +651,7 @@ await check("want tails the pane when no session is held", () =>
 	withFixture(async (f) => {
 		const r = await f.probeTern(null, "pane one\npane two\n", { want: true });
 		strictEqual(r.kind, "pane");
-		strictEqual(decodeTail(r), "pane one\npane two");
+		strictEqual(decodeTail(r), "pane one\npane two\n");
 	}),
 );
 
@@ -878,6 +878,15 @@ await check("same-second registrations record separate gone events", () =>
 
 	}),
 );
+
+await check("real tern capture keeps trailing newlines and status", () => withFixture(async (f) => {
+	const tern = path.join(process.env.HOME, ".local", "bin", "tern");
+	fs.mkdirSync(path.dirname(tern), { recursive: true });
+	fs.writeFileSync(tern, "#!/bin/sh\ncase \"$1\" in\nprocess) printf '{\\\"foreground\\\":{\\\"pid\\\":1}}\\n\\n' ;;\ncapture) printf 'pane\\n\\n' ;;\nesac\n", { mode: 0o755 });
+	const r = await runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result: "" }, true);
+	strictEqual(r.alive, true);
+	strictEqual(decodeTail(r).endsWith("pane\n\n"), true);
+}));
 
 await check("an agent idle awaiting review is not counted as needing the user", () =>
 	withFixture(async (f) => {

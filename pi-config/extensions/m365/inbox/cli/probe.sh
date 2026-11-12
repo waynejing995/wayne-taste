@@ -11,26 +11,26 @@ run_mux() {
 	tmp=$(mktemp)
 	"$@" >"$tmp" 2>&1
 	mux_status=$?
-	mux_output=$(cat "$tmp")
+	mux_output=$(cat "$tmp"; printf x)
+	mux_output=${mux_output%x}
 	rm -f "$tmp"
 	if [ "$mux_status" -ne 0 ]; then
-		case $mux_output in
-			*"not found"*|*"no such"*|*"doesn't exist"*|*"does not exist"*|*"unknown"*)
-				[ "$mux_status" -eq 127 ] && mux_error=$mux_output && mux_status=2 || mux_status=1 ;;
-			*) mux_error=$mux_output; mux_status=2 ;;
-		esac
+		mux_error=$mux_output
+		mux_status=2
 	else
 		mux_status=0
 	fi
-
 	return "$mux_status"
 }
 capture_mux() {
 	tmp=$(mktemp)
 	"$@" >"$tmp" 2>&1
 	mux_status=$?
-	value=$(cat "$tmp"; rm -f "$tmp")
-	if [ "$mux_status" -ne 0 ]; then
+	value=$(cat "$tmp"; printf x)
+	value=${value%x}
+	rm -f "$tmp"
+	if [ "$mux_status" -eq 127 ]; then mux_error=$value; mux_status=2
+	elif [ "$mux_status" -ne 0 ]; then
 		case $value in
 			*"not found"*|*"no such"*|*"doesn't exist"*|*"does not exist"*|*"unknown"*) mux_status=1 ;;
 			*) mux_error=$value; mux_status=2 ;;
