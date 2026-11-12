@@ -211,5 +211,22 @@ console.log("\n== teams_send does not read a local path written as Markdown ==")
 	void original;
 }
 
+console.log("\n== teams_send lists uploaded image paths ==");
+{
+	const image = join(home, "shot.png");
+	writeFileSync(image, PNG);
+	const backendModule = await jiti.import(join(ROOT, "teams", "graph-backend.ts"));
+	const originalSend = backendModule.GraphBackend.prototype.send;
+	backendModule.GraphBackend.prototype.send = async () => {};
+	try {
+		const plain = await tools.teams_send.execute("send", { target: "self", message: "look", images: [image], card: false }, null, null, ctx);
+		check("plain result lists the absolute path", texts(plain.content).includes(image), true);
+		const card = await tools.teams_send.execute("send", { target: "self", message: "look", images: [image], card: true }, null, null, ctx);
+		check("card result lists the absolute path", texts(card.content).includes(image), true);
+	} finally {
+		backendModule.GraphBackend.prototype.send = originalSend;
+	}
+}
+
 console.log(failed === 0 ? "\nall ok" : `\nFAIL ${failed}`);
 process.exit(failed === 0 ? 0 : 1);

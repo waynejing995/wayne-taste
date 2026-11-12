@@ -64,6 +64,7 @@ export async function resolveMentions(graph: GraphClient, mentions: readonly Men
 	return out;
 }
 
+interface RawAttachment { id?: string | number; contentType?: string; name?: string; contentUrl?: string; content?: string }
 interface RawMessage {
 	id?: string;
 	createdDateTime?: string;
@@ -71,7 +72,7 @@ interface RawMessage {
 	from?: { user?: { id?: string; displayName?: string }; application?: { displayName?: string } } | null;
 	body?: { contentType?: string; content?: string };
 	mentions?: { mentioned?: { user?: { displayName?: string } }; mentionText?: string }[];
-	attachments?: { id?: string | number; contentType?: string; name?: string; contentUrl?: string; content?: string }[];
+	attachments?: RawAttachment[];
 }
 
 interface RawChat {
@@ -580,13 +581,14 @@ export class GraphBackend implements Backend {
 	async image(url: string, source?: string): Promise<Buffer> {
 		const u = new URL(url);
 		if (u.protocol !== "https:") throw new Error(`${u.protocol}//${u.host} is not https; not sending a token there`);
-		if (source) {
+		const asm = u.hostname.endsWith(".asm.skype.com");
+		if (source && !asm) {
 			const owned = new URL(source);
 			const samePath = decodeURIComponent(u.pathname).startsWith(decodeURIComponent(owned.pathname));
 			if (owned.origin !== u.origin || !samePath) throw new Error(`${u.host} is not the source message; not sending a token there`);
 		}
 		if (u.host === "graph.microsoft.com") return this.graph.getBytes(url, IMAGE_DOWNLOAD_MAX);
-		if (u.host.endsWith(".asm.skype.com")) return this.requireSkype().image(url);
+		if (asm) return this.requireSkype().image(url);
 		throw new Error(`${u.host} is not a Teams image host; not sending a token there`);
 	}
 	async people(query: string): Promise<Person[]> {

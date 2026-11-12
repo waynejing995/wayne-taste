@@ -552,7 +552,8 @@ export default function (pi: ExtensionAPI) {
 		card?: Record<string, unknown>,
 	): Promise<string> {
 		await backend.send(target, message, html, mentions, images, card);
-		return `Sent ${card ? "a card " : ""}to ${describeTarget(target)}.`;
+		const uploaded = images.length ? ` Uploaded: ${images.join(", ")}.` : "";
+		return `Sent ${card ? "a card " : ""}to ${describeTarget(target)}.${uploaded}`;
 	}
 
 	// ── Markdown → Teams HTML ───────────────────────────────────────────────

@@ -374,9 +374,9 @@ export class SkypeClient {
 	 * a message, so the token goes only to the AMS host authsvc named, never wherever an <img> points.
 	 */
 	async image(url: string): Promise<Buffer> {
-		const { ams } = await this.authorize();
-		if (!ams || new URL(url).origin !== new URL(ams).origin) {
-			throw new Error(`${new URL(url).host} is not the Teams image host (${ams ? new URL(ams).host : "authsvc named none"}); not sending the token there`);
+		const u = new URL(url);
+		if (u.protocol !== "https:" || !u.hostname.endsWith(".asm.skype.com")) {
+			throw new Error(`${u.host} is not a Teams image host; not sending the token there`);
 		}
 		const signal = AbortSignal.timeout(30_000);
 		const r = await this.skypeFetch(({ skypeToken }) => ({
