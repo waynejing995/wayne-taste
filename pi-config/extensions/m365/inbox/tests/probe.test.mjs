@@ -684,7 +684,7 @@ for (const [label, o, want] of [
 	["a RESULT blocked with no questions", { rstatus: "blocked", rmtime: 1, waiting: true }, "idle"],
 	["a pending ask card", { state: "blocked" }, "waiting on question"],
 	["herdr or hc waiting on an approval", { agent: "", session: "", state: "blocked" }, "waiting on question"],
-	["a RESULT blocked with ## Questions", { rstatus: "blocked", rquestions: true, rmtime: 1, waiting: true }, "waiting on question"],
+	["a RESULT blocked with an open question", { rstatus: "blocked", ropen_text: "which branch", rmtime: 1, waiting: true }, "waiting on question"],
 	["a done RESULT", { rstatus: "done", rmtime: 1, waiting: true }, "done"],
 	["output still coming", {}, "working"],
 ]) {
@@ -692,16 +692,15 @@ for (const [label, o, want] of [
 }
 
 for (const [label, text, want] of [
-	["a ## Questions section", "status: blocked\n\n## Questions\n1. which one?\n", true],
-	["a # Questions heading", "status: blocked\n# Questions\n- a\n", true],
-	["no questions section", "status: blocked\nopen: the word Questions in a sentence\n", false],
+	["an open question", "status: blocked\nopen: which branch\n", "which branch"],
+	["no open question", "status: blocked\nopen: none\n", "none"],
 ]) {
-	await check(`probe.sh reads ${label} in the RESULT as rquestions=${want}`, () =>
+	await check(`probe.sh reads ${label} in the RESULT as ropen_text=${want}`, () =>
 		withFixture(async (f) => {
 			const resultFile = path.join(f.dir, "RESULT.md");
 			fs.writeFileSync(resultFile, text);
 			const r = await f.probeTern(null, "pane\n", { result: resultFile });
-			strictEqual(r.rquestions, want);
+			strictEqual(r.ropen_text, want);
 		}),
 	);
 }

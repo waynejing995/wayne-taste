@@ -48,7 +48,7 @@ export interface Probe {
 	rmtime: number;
 	rstatus: string;
 	ropen?: string;
-	/** The RESULT has a `Questions` heading: the agent stopped to ask the user. */
+	ropen_text?: string;
 	rquestions?: boolean;
 	now: number;
 	kind?: "jsonl" | "pane";
@@ -174,7 +174,7 @@ export function cardRow(a: AgentEntry, st: SessionState, now: number, status: Ag
  */
 export function cardStatus(p: Probe): AgentStatus {
 	if (p.rstatus === "done") return "done";
-	if (p.state === "blocked" || (p.rstatus === "blocked" && p.rquestions)) return "waiting on question";
+	if (p.state === "blocked" || (p.rstatus === "blocked" && Boolean(p.ropen_text?.trim()) && p.ropen_text.trim().toLowerCase() !== "none")) return "waiting on question";
 	if (p.rstatus || p.waiting || ["idle", "done"].includes(p.state)) return "idle";
 	return "working";
 }
@@ -258,7 +258,7 @@ async function check(a: AgentEntry, st: SessionState, stallS: number, want: bool
 		// A RESULT rewritten with the same status and open items is not news; mtime alone never makes a card.
 		said = `${p.rstatus}:${p.ropen ?? ""}`;
 		if (said !== st.result_said) events.push({ key: `result:${p.rmtime}`, event: "result", state: p.rstatus, note: `RESULT status: ${p.rstatus}` });
-	} else if (!p.alive) events.push({ key: "gone", event: "gone", state: "exited", note: "the pane ended with no RESULT" });
+	} else if (!p.alive) events.push({ key: `gone:${a.since ?? a.name}`, event: "gone", state: "exited", note: "the pane ended with no RESULT" });
 	else if (p.state === "blocked") events.push({ key: `blocked:${st.last_active}`, event: "blocked", state: "waiting", note: `${a.mux}: waiting on an approval or a question` });
 	const quiet = now - st.last_active;
 	const waiting = p.waiting || p.state === "idle" || p.state === "done";
@@ -296,7 +296,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 	const last = (state[DIGEST] as { at?: number } | undefined)?.at;
 	const digestDue = !o.noDigest && (last === undefined || now - last >= o.digestMin * 60);
 	const sessions = (name: string) => (state[name] ??= {}) as SessionState;
-	const finished: string[] = [];
+	const finished: { name: string; since?: string }[] = [];
 	const lines: [string, Entry][] = [];
 	const errors: string[] = [];
 	const fail = (name: string, e: unknown) => errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
@@ -346,7 +346,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 			for (const e of r.events) {
 				log(`${a.name}: ${e.event} ${e.state} -> ${record(a, e)}`);
 				if (e.event === "result") st.result_said = r.said;
-				if (e.event === "result" && e.state === "done") finished.push(a.name);
+				if (e.event === "result" && e.state === "done") finished.push({ name: a.name, since: a.since });
 			}
 		} catch (e) {
 			fail(a.name, e);
@@ -368,7 +368,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 		}
 	}
 	const keep = new Set([...agents.map((a) => a.name), DIGEST]);
-	const saved = Object.fromEntries(Object.entries(state).filter(([k]) => keep.has(k) && !finished.includes(k)));
+	const saved = Object.fromEntries(Object.entries(state).filter(([k]) => keep.has(k) && !finished.some((f) => f.name === k)));
 	fs.mkdirSync(path.dirname(stateFile), { recursive: true });
 	fs.writeFileSync(`${stateFile}.tmp`, JSON.stringify(saved, null, 1));
 	fs.renameSync(`${stateFile}.tmp`, stateFile);

@@ -52,13 +52,14 @@ if [ -n "$session" ]; then
       esac ;;
   esac
 fi
-rmtime=0 rstatus= ropen= rquestions=false
+rmtime=0 rstatus= ropen= ropen_text= rquestions=false
 if [ -n "$result" ] && [ -f "$result" ]; then
   rmtime=$(stat -c %Y "$result")
   # A line holding `|` is the contract's own template (`status: done | partial | blocked`), never a status.
   rstatus=$(sed -n '/|/!s/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) *\([a-z_][a-z_]*\).*/\4/p' "$result" | tail -1)
   # The open items, hashed: the same status and open line rewritten is not news.
-  ropen=$(sed -n '/|/!s/^ *\([-*] \)\?\(\*\*open\(\*\*:\?\|:\*\*\)\|`open`:\|`open:`\|open:\) *\(.*\)/\4/p' "$result" | tail -1 | md5sum | cut -c1-16)
+  ropen_text=$(sed -n '/|/!s/^ *\([-*] \)\?\(\*\*open\(\*\*:\?\|:\*\*\)\|`open`:\|`open:`\|open:\) *\(.*\)/\4/p' "$result" | tail -1)
+  ropen=$(printf '%s' "$ropen_text" | md5sum | cut -c1-16)
   # A `Questions` heading is the agent asking the user; a blocked RESULT without one is not a question.
   grep -qiE '^#{1,4} *questions *$' "$result" && rquestions=true
 fi
@@ -72,5 +73,5 @@ if [ "$want" = 1 ]; then
   else kind=pane; tail64=$(printf '%s' "$cap" | gzip -c | base64 -w0); fi
   extra=",\"kind\":\"$kind\",\"tail\":\"$tail64\""
 fi
-printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rstatus":"%s","ropen":"%s","rquestions":%s,"now":%s%s}\n' \
-  "$alive" "$agent" "$state" "$session" "$smtime" "$waiting" "$text" "$rmtime" "$rstatus" "$ropen" "$rquestions" "$(date +%s)" "$extra"
+printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rstatus":"%s","ropen":"%s","ropen_text":"%s","rquestions":%s,"now":%s%s}\n' \
+  "$alive" "$agent" "$state" "$session" "$smtime" "$waiting" "$text" "$rmtime" "$rstatus" "$ropen" "$ropen_text" "$rquestions" "$(date +%s)" "$extra"
