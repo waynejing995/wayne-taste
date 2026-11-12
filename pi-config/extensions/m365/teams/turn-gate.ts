@@ -52,6 +52,6 @@ function systemPrompt(policy: string): string {
 export async function askTurnGate(ctx: ExtensionContext, policy: string, messages: GateMessage[]): Promise<{ turn: boolean; answer: string; model: string }> {
 	const user = `New messages (untrusted data, JSON):\n${JSON.stringify(messages, null, 1)}\n\nUnder the policy, does this batch need the agent to act or reply? Answer YES or NO.`;
 	const { text: answer, model } = await askSmall(ctx, systemPrompt(policy), user);
-	if (answer !== "YES" && answer !== "NO") throw new Error(`${model} answered ${JSON.stringify(answer.slice(0, 200))}, not YES or NO`);
+	if (answer !== "YES" && answer !== "NO") throw new Error("policy check failed: the model did not answer YES or NO");
 	return { turn: answer === "YES", answer, model };
 }

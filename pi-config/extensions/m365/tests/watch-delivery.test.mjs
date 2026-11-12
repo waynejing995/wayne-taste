@@ -227,12 +227,12 @@ gateAnswers(fauxAssistantMessage("", { stopReason: "error", errorMessage: "gatew
 group.push({ sender: "Lin", at: "2026-11-06T11:08:00Z", mine: false, text: "group-error" });
 await poll();
 check("an error starts a turn", [sent.length, groupCard(), sent.at(-1)?.o], [9, true, { triggerTurn: true }]);
-check("and warns", notices.some((n) => n.level === "warning" && n.text.includes("gateway 503")), true);
+	check("and warns", notices.some((n) => n.level === "warning" && n.text.includes("policy check failed") && !n.text.includes("gateway 503")), true);
 gateAnswers(fauxAssistantMessage("Sure, YES."));
 group.push({ sender: "Lin", at: "2026-11-06T11:09:00Z", mine: false, text: "group-offformat" });
 await poll();
 check("an answer that is not exactly YES or NO starts a turn", [sent.length, groupCard(), sent.at(-1)?.o], [10, true, { triggerTurn: true }]);
-check("and warns", notices.some((n) => n.level === "warning" && n.text.includes("not YES or NO")), true);
+	check("and warns", notices.some((n) => n.level === "warning" && n.text.includes("policy check failed") && !n.text.includes("Sure, YES")), true);
 
 console.log("\n== a hung gate on one chat never holds back my omp: command from another ==");
 let releaseGate;
