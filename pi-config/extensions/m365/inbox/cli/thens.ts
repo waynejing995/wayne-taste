@@ -78,6 +78,14 @@ const label = (t: Then) => `${t.row}.${t.n}`;
  * cancels that registration's unfired plan. A then added by hand is never cancelled this way.
  */
 export function addThen(row: string, when: string, action: string, agent?: { generation: string; replaces?: string }): string {
+	return armThen(row, when, action, agent).message;
+}
+
+/**
+ * addThen, plus `undo`: puts back the plan it cancelled and drops the one it added. `agent add` calls it when the
+ * registration it armed the plan for could not be written.
+ */
+export function armThen(row: string, when: string, action: string, agent?: { generation: string; replaces?: string }): { message: string; undo: () => void } {
 	if (!TRIGGERS.some(([re]) => re.test(when)))
 		throw new InboxError(`bad trigger '${when}': expected one of ${TRIGGERS.map(([, h]) => h).join(", ")}`);
 	// Date() rolls an impossible time over (13th month, 99:00) instead of failing; the round trip catches it.
@@ -88,11 +96,19 @@ export function addThen(row: string, when: string, action: string, agent?: { gen
 	const after = allRows().reduce((max, r) => Math.max(max, Number(r.id)), 0);
 	return withThens((thens, save) => {
 		const prior = agent?.replaces ? thens.filter((t) => t.when === when && t.generation === agent.replaces && !t.fired && !t.done) : [];
+		const cancelled = prior.map(label);
 		for (const t of prior) Object.assign(t, { done: stamp(), note: "replaced by a new registration" });
 		const n = thens.filter((t) => t.row === row).reduce((max, t) => Math.max(max, t.n), 0) + 1;
 		thens.push({ row, n, when, action, added: stamp(), after, ...(agent ? { generation: agent.generation } : {}) });
 		save();
-		return `then ${row}.${n} waits for ${when}`;
+		const undo = () =>
+			withThens((all, saveAll) => {
+				const added = all.findIndex((t) => t.row === row && t.n === n);
+				if (added >= 0) all.splice(added, 1);
+				for (const t of all) if (cancelled.includes(label(t))) { delete t.done; delete t.note; }
+				saveAll();
+			});
+		return { message: `then ${row}.${n} waits for ${when}`, undo };
 	});
 }
 

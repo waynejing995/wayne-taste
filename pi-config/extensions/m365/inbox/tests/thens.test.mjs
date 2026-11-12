@@ -5,7 +5,7 @@
  *   node inbox/tests/thens.test.mjs
  */
 import { deepStrictEqual, ok, rejects, strictEqual } from "node:assert/strict";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJiti } from "../../tests/host.mjs";
@@ -228,6 +228,18 @@ await check("agent add keeps a then someone added by hand for the same agent", a
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan two"]);
 	const open = readThens().filter((t) => !t.done).map((t) => t.action);
 	deepStrictEqual(open, ["verify the fix by hand", "plan two"]);
+});
+
+await check("a failed rules write rolls the plan back: the old watch keeps its plan", async () => {
+	const id = await row();
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan one"]);
+	const before = readThens();
+	const watched = readAgents();
+	mkdirSync(join(home, `rules.yaml.${process.pid}.tmp`));
+	await rejects(() => inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "plan two"]));
+	rmSync(join(home, `rules.yaml.${process.pid}.tmp`), { recursive: true });
+	deepStrictEqual(readAgents(), watched, "the old registration stays");
+	deepStrictEqual(readThens(), before, "its plan is still armed and no new plan was left behind");
 });
 
 console.log(failed === 0 ? "all green" : `${failed} failed`);
