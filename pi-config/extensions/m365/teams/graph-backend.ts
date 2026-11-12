@@ -30,6 +30,7 @@ import type { SkypeClient } from "./skype.ts";
 import { fetchMeetingTranscript, type MeetingTranscriptResult } from "./transcript.ts";
 
 const IMAGE_DOWNLOAD_MAX = 20 * 1024 * 1024;
+const IMAGE_TIMEOUT_MS = 30_000;
 /** Raw shapes, only the fields used here. */
 interface RawMember {
 	displayName?: string;
@@ -587,7 +588,7 @@ export class GraphBackend implements Backend {
 			const samePath = decodeURIComponent(u.pathname).startsWith(decodeURIComponent(owned.pathname));
 			if (owned.origin !== u.origin || !samePath) throw new Error(`${u.host} is not the source message; not sending a token there`);
 		}
-		if (u.host === "graph.microsoft.com") return this.graph.getBytes(url, IMAGE_DOWNLOAD_MAX);
+		if (u.host === "graph.microsoft.com") return this.graph.getBytes(url, IMAGE_DOWNLOAD_MAX, IMAGE_TIMEOUT_MS);
 		if (asm) return this.requireSkype().image(url);
 		throw new Error(`${u.host} is not a Teams image host; not sending a token there`);
 	}

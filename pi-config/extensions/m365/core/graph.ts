@@ -143,10 +143,13 @@ export class GraphClient {
 		return this.parse(text, r.status) as T;
 	}
 
-	/** Hosted image contents: bytes, not JSON. */
-	async getBytes(pathOrUrl: string, maxBytes = Number.POSITIVE_INFINITY, timeoutMs = 30_000): Promise<Buffer> {
+	/**
+	 * Bytes, not JSON. `timeoutMs` bounds the whole download; leave it out for files and mail, which may be large and
+	 * slow but are fetched on purpose.
+	 */
+	async getBytes(pathOrUrl: string, maxBytes = Number.POSITIVE_INFINITY, timeoutMs?: number): Promise<Buffer> {
 		const url = this.url(pathOrUrl);
-		const signal = AbortSignal.timeout(timeoutMs);
+		const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs);
 		const r = await this.doFetch(url, { headers: await this.headers({ Accept: "*/*" }), signal });
 		if (r.status < 200 || r.status >= 300) this.fail(r.status, await r.text(), url);
 		return readBounded(r, maxBytes, signal);

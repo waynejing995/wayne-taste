@@ -213,5 +213,21 @@ console.log("\n== send: a bad file refuses the whole message ==");
 
 
 
+console.log("\n== a share or mail download has no total time limit; a picture keeps its 30 s limit ==");
+{
+	const { downloadShared } = await jiti.import(join(ROOT, "core", "shares.ts"));
+	const signals = {};
+	const graph = new GraphClient(async () => "T", async (url, init) => {
+		if (url.endsWith("/driveItem")) return { status: 200, text: async () => JSON.stringify({ name: "big.log", size: 4, file: {} }) };
+		signals[url.includes("/shares/") ? "share" : "image"] = init?.signal;
+		return { status: 200, text: async () => "", arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer };
+	});
+	const dir = mkdtempSync(join(tmpdir(), "share-"));
+	await downloadShared(graph, "https://contoso.sharepoint.com/big.log", { dir });
+	await graph.getBytes("https://graph.microsoft.com/v1.0/chats/c/messages/1/hostedContents/1/$value", 1024, 30_000);
+	check("the share download carries no timeout signal", signals.share, undefined);
+	check("the picture download still carries one", signals.image instanceof AbortSignal, true);
+}
+
 console.log(failed === 0 ? "\nall ok" : `\nFAIL ${failed}`);
 process.exit(failed === 0 ? 0 : 1);
