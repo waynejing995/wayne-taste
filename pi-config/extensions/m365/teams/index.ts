@@ -35,8 +35,8 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 /** Local `StringEnum` helper — `Type.Unsafe({type:"string", enum})` so tool schemas
   * use a flat form providers can handle (not `anyOf/const`). Identical to the
   * pi-ai export it replaces; stays here so the extension loads without that dep. */
-function StringEnum(values: string[], options?: { description?: string; default?: string }) {
-    return Type.Unsafe({ type: "string", enum: values, ...options });
+function StringEnum<const V extends readonly string[]>(values: V, options?: { description?: string; default?: string }) {
+    return Type.Unsafe<V[number]>({ type: "string", enum: values, ...options });
 }
 import { marked } from "marked";
 import { Type } from "typebox";
