@@ -5,7 +5,7 @@
  *   node inbox/tests/thens.test.mjs
  */
 import { deepStrictEqual, ok, rejects, strictEqual } from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJiti } from "../../tests/host.mjs";
@@ -254,61 +254,24 @@ await check("a failed plan save puts the old registration back", async () => {
 	deepStrictEqual(readThens(), before, "the plans are unchanged");
 });
 
-// What an older inbox wrote: no generation on the registration or on the plan it armed.
-const makeLegacy = (thensFile, { since } = {}) => {
-	const [old] = readAgents();
-	delete old.generation;
-	if (since === null) delete old.since;
-	else if (since) old.since = since;
-	writeAgents([old]);
-	writeFileSync(thensFile, JSON.stringify(readThens().map(({ generation, ...t }) => t)));
-};
-
-for (const [label, setup] of [
-	["a hand-added plan in the same minute", { sameMinute: true }],
-	["an automatic plan armed in another minute", { since: "2026-11-01 08:59:30" }],
-	["a registration without since", { since: null }],
-]) {
-	await check(`re-adding a legacy registration with ${label} is refused, nothing changes`, async () => {
-		const id = await row();
-		const thensFile = join(home, "thens.json");
-		await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old plan"]);
-		if (setup.sameMinute) await inbox(["then", id, "--when", "agent-result:fixer", "--", "verify by hand"]);
-		makeLegacy(thensFile, setup);
-		const watched = readAgents();
-		const before = readFileSync(thensFile, "utf8");
-		await rejects(
-			() => inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new plan"]),
-			(e) => /cannot tell which/.test(e.message) && /old plan/.test(e.message) && (!setup.sameMinute || /verify by hand/.test(e.message)),
-		);
-		deepStrictEqual(readAgents(), watched, "the old registration stays");
-		strictEqual(readFileSync(thensFile, "utf8"), before, "no plan is cancelled or added");
-	});
-}
-
-await check("a refused legacy re-registration goes through after the old plan is closed and the watch removed", async () => {
+await check("re-adding a legacy registration keeps and reports its unmarked plans, automatic or by hand", async () => {
 	const id = await row();
 	const thensFile = join(home, "thens.json");
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old plan"]);
 	await inbox(["then", id, "--when", "agent-result:fixer", "--", "verify by hand"]);
-	makeLegacy(thensFile);
-	const old = readThens().find((t) => t.action === "old plan");
-	await inbox(["then-done", old.row, String(old.n), "--note", "replaced"]);
-	await inbox(["agent", "rm", "fixer"]);
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new plan"]);
-	deepStrictEqual(readThens().filter((t) => !t.done).map((t) => t.action), ["verify by hand", "new plan"]);
-});
-
-await check("a legacy registration with no open plan is re-added", async () => {
-	const id = await row();
-	const thensFile = join(home, "thens.json");
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old plan"]);
-	makeLegacy(thensFile);
-	const old = readThens().find((t) => t.action === "old plan");
-	await inbox(["then-done", old.row, String(old.n)]);
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new plan"]);
-	deepStrictEqual(readThens().filter((t) => !t.done).map((t) => t.action), ["new plan"]);
+	// What an older inbox wrote: no generation on the registration or on the plan it armed, the same minute as the hand then.
+	const [old] = readAgents();
+	delete old.generation;
+	writeAgents([old]);
+	const minute = old.since.slice(0, 16);
+	writeFileSync(thensFile, JSON.stringify(readThens().map(({ generation, ...t }) => ({ ...t, added: minute }))));
+	const out = await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new plan"]);
+	deepStrictEqual(readThens().filter((t) => !t.done).map((t) => t.action), ["old plan", "verify by hand", "new plan"]);
+	ok(/kept \(ambiguous legacy\): .*: old plan; .*: verify by hand/.test(out), out);
 	strictEqual(readAgents()[0].pane, "s:2");
+	const again = await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:3", "--row", id, "--then", "newer plan"]);
+	ok(!again.includes("ambiguous"), again);
+	deepStrictEqual(readThens().filter((t) => !t.done).map((t) => t.action), ["old plan", "verify by hand", "newer plan"]);
 });
 
 console.log(failed === 0 ? "all green" : `${failed} failed`);

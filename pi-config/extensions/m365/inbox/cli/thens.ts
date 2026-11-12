@@ -78,8 +78,8 @@ const label = (t: Then) => `${t.row}.${t.n}`;
  * cancels that registration's unfired plan. A then added by hand is never cancelled this way.
  *
  * A registration from before generations (`replacesLegacy`) armed its plan with no generation, exactly like a then
- * added by hand, so nothing tells them apart. While such an unfired plan is open the re-registration is refused and
- * the plans are listed: the caller closes the old registration's plan and removes the watch, then adds again.
+ * added by hand, so nothing tells them apart: every such open then is kept and listed as ambiguous for the caller to
+ * close with `then-done`.
  */
 type AgentPlan = { generation: string; replaces?: string; replacesLegacy?: boolean };
 const open = (t: Then, when: string) => t.when === when && !t.fired && !t.done;
@@ -99,14 +99,7 @@ export function addThen(row: string, when: string, action: string, agent?: Agent
 	if (!live.some((r) => r.id === row)) throw new InboxError(`no such live id: ${row}`);
 	const after = allRows().reduce((max, r) => Math.max(max, Number(r.id)), 0);
 	return withThens((thens, save) => {
-		if (agent?.replacesLegacy) {
-			const unknown = thens.filter((t) => open(t, when) && t.generation === undefined);
-			if (unknown.length)
-				throw new InboxError(
-					`cannot tell which open ${when} plan belongs to the old registration: ${unknown.map((t) => `${label(t)}: ${t.action}`).join("; ")}. ` +
-						"Close the old registration's plan with `inbox then-done <row-id> <n>`, run `inbox agent rm` for it, then add again. Nothing was changed.",
-				);
-		}
+		const ambiguous = agent?.replacesLegacy ? thens.filter((t) => open(t, when) && t.generation === undefined) : [];
 		const prior = agent?.replaces ? thens.filter((t) => open(t, when) && t.generation === agent.replaces) : [];
 		for (const t of prior) Object.assign(t, { done: stamp(), note: "replaced by a new registration" });
 		const n = thens.filter((t) => t.row === row).reduce((max, t) => Math.max(max, t.n), 0) + 1;
@@ -118,7 +111,8 @@ export function addThen(row: string, when: string, action: string, agent?: Agent
 			undo?.();
 			throw e;
 		}
-		return `then ${row}.${n} waits for ${when}`;
+		const kept = ambiguous.length ? `; kept (ambiguous legacy): ${ambiguous.map((t) => `${label(t)}: ${t.action}`).join("; ")}` : "";
+		return `then ${row}.${n} waits for ${when}${kept}`;
 	});
 }
 

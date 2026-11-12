@@ -104,7 +104,7 @@ $I agent ls                              # last column: push
 $I agent rm <name>...
 ```
 
-`--row` and `--then` are required. `--row`/`--then` arm an `agent-result:<name>` then on that row (see thens): the next RESULT fires a card quoting the plan, and `done` of the row refuses until the then is closed. Adding the same name again replaces the registration and cancels its previous unfired then.
+`--row` and `--then` are required. `--row`/`--then` arm an `agent-result:<name>` then on that row (see thens): the next RESULT fires a card quoting the plan, and `done` of the row refuses until the then is closed. Adding the same name again replaces the registration and cancels the unfired then that registration armed (matched by its generation; a then added by hand is never cancelled). A registration from an inbox older than generations left its then unmarked, indistinguishable from one added by hand: such open thens are kept and listed in the output as `kept (ambiguous legacy)`; close the stale one with `then-done`.
 
 An entry is watched one of two ways, decided only by its registration.
 
