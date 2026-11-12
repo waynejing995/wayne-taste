@@ -76,8 +76,20 @@ const label = (t: Then) => `${t.row}.${t.n}`;
 /**
  * `agent` marks a registration's plan: its generation is stored, and `replaces` (the generation it supersedes)
  * cancels that registration's unfired plan. A then added by hand is never cancelled this way.
+ *
+ * A registration from before generations (`replacesLegacySince`: its `since`) has a plan with no generation. That
+ * plan was armed by the same `agent add`, in the minute of its `since`; it is the one cancelled. A then added by hand
+ * in another minute is kept.
  */
-export function addThen(row: string, when: string, action: string, agent?: { generation: string; replaces?: string }): string {
+type AgentPlan = { generation: string; replaces?: string; replacesLegacySince?: string };
+const replaced = (t: Then, when: string, agent: AgentPlan) =>
+	t.when === when &&
+	!t.fired &&
+	!t.done &&
+	((agent.replaces !== undefined && t.generation === agent.replaces) ||
+		(agent.replacesLegacySince !== undefined && t.generation === undefined && t.added === agent.replacesLegacySince.slice(0, 16)));
+
+export function addThen(row: string, when: string, action: string, agent?: AgentPlan): string {
 	return armThen(row, when, action, agent).message;
 }
 
@@ -85,7 +97,7 @@ export function addThen(row: string, when: string, action: string, agent?: { gen
  * addThen, plus `undo`: puts back the plan it cancelled and drops the one it added. `agent add` calls it when the
  * registration it armed the plan for could not be written.
  */
-export function armThen(row: string, when: string, action: string, agent?: { generation: string; replaces?: string }): { message: string; undo: () => void } {
+export function armThen(row: string, when: string, action: string, agent?: AgentPlan): { message: string; undo: () => void } {
 	if (!TRIGGERS.some(([re]) => re.test(when)))
 		throw new InboxError(`bad trigger '${when}': expected one of ${TRIGGERS.map(([, h]) => h).join(", ")}`);
 	// Date() rolls an impossible time over (13th month, 99:00) instead of failing; the round trip catches it.
@@ -95,7 +107,7 @@ export function armThen(row: string, when: string, action: string, agent?: { gen
 	if (!live.some((r) => r.id === row)) throw new InboxError(`no such live id: ${row}`);
 	const after = allRows().reduce((max, r) => Math.max(max, Number(r.id)), 0);
 	return withThens((thens, save) => {
-		const prior = agent?.replaces ? thens.filter((t) => t.when === when && t.generation === agent.replaces && !t.fired && !t.done) : [];
+		const prior = agent ? thens.filter((t) => replaced(t, when, agent)) : [];
 		const cancelled = prior.map(label);
 		for (const t of prior) Object.assign(t, { done: stamp(), note: "replaced by a new registration" });
 		const n = thens.filter((t) => t.row === row).reduce((max, t) => Math.max(max, t.n), 0) + 1;

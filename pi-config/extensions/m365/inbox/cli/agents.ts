@@ -56,8 +56,9 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 	// same name cannot cancel a plan it did not replace.
 	return withRulesLock(() => {
 		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
-		const replaces = agents.find((e) => e.name === a.name)?.generation;
-		const then = armThen(a.row, `agent-result:${a.name}`, a.then, { generation: entry.generation!, replaces });
+		const old = agents.find((e) => e.name === a.name);
+		const legacy = old?.migratedGeneration === "legacy" && old.since ? { replacesLegacySince: old.since } : {};
+		const then = armThen(a.row, `agent-result:${a.name}`, a.then, { generation: entry.generation!, replaces: old?.generation, ...legacy });
 		try {
 			writeAgents([...agents.filter((e) => e.name !== a.name), entry]);
 		} catch (e) {

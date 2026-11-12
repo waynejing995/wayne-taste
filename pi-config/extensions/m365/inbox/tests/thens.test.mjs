@@ -242,5 +242,21 @@ await check("a failed rules write rolls the plan back: the old watch keeps its p
 	deepStrictEqual(readThens(), before, "its plan is still armed and no new plan was left behind");
 });
 
+await check("re-adding a legacy registration cancels its old automatic plan", async () => {
+	const id = await row();
+	// A then added by hand in an earlier minute, then the automatic plan an older inbox armed with its registration.
+	await inbox(["then", id, "--when", "agent-result:fixer", "--", "verify by hand"]);
+	const thensFile = join(home, "thens.json");
+	writeFileSync(thensFile, JSON.stringify(readThens().map((t) => ({ ...t, added: "2026-11-01 09:00" }))));
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old plan"]);
+	// What an older inbox wrote: no generation on the registration or on its plan.
+	const [old] = readAgents();
+	delete old.generation;
+	writeAgents([old]);
+	writeFileSync(thensFile, JSON.stringify(readThens().map(({ generation, ...t }) => t)));
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new plan"]);
+	deepStrictEqual(readThens().filter((t) => !t.done).map((t) => t.action), ["verify by hand", "new plan"]);
+});
+
 console.log(failed === 0 ? "all green" : `${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
