@@ -1,2 +1,8 @@
 # Installed by pi-config/sync.sh and omp-config/sync.sh; runtime deps, not committed.
 node_modules/
+
+# Local-only, deliberately unpublished: anonymised real Teams payloads and the tests that read them.
+tests/fixtures/teams/
+tests/bot-cards.test.mjs
+tests/forward.test.mjs
+tests/reactions.test.mjs
