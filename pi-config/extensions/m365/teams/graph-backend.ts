@@ -514,61 +514,75 @@ export class GraphBackend implements Backend {
 	/** Originals of forwarded messages by originalKey, read once per process: a forwarded card is only there. Never
 	 * handed out whole: lookupForwards gives each forwarder only the ones it may show. */
 	private readonly originals = new Map<string, Original>();
-	/** Chat members' user ids by chat, read once per process: who may quote a chat's messages elsewhere. */
-	private readonly chatMembers = new Map<string, ReadonlySet<string>>();
-
-	/** What the forwards in `raw` (messages of `chatId`) need read: their senders' names and forwarded cards' originals. */
-	private forwardContext(raw: readonly RawMessage[], chatId: string): Promise<ForwardContext> {
-		return this.lookupForwards(forwardNeed(raw.map((m) => ({ parts: msgParts(m), forwarder: forwarderOf(m) }))), chatId);
+	/** What the forwards in `raw` need read: their senders' names and forwarded cards' originals. */
+	private forwardContext(raw: readonly RawMessage[]): Promise<ForwardContext> {
+		return this.lookupForwards(forwardNeed(raw.map((m) => ({ parts: msgParts(m), forwarder: forwarderOf(m) }))));
 	}
 
 	/**
-	 * Names and originals for the forwards in `chatId`, from Graph; the self-chat (chatsvc) asks through this too.
+	 * Names and originals for a page's forwards, from Graph; the self-chat (chatsvc) asks through this too.
 	 *
 	 * A forward reference is written by whoever sent the forward, so it can name any chat and message the reader can see,
-	 * with any sender and time it likes. The original is read and shown only when the forwarder could see it too: they
-	 * are a member of the original's chat, they are me (my self-chat, my own forwards), or the original is in this chat.
-	 * Anything else, a failed membership lookup included, stays the stub and is logged. Cached originals go through the
-	 * same check, per forwarder.
+	 * with any sender and time it likes. The original is shown only when the forwarder could see it themselves: a forward
+	 * I sent (any chat), or one by a current member of the original's chat whose visible history reaches back to the
+	 * original's own createdDateTime. The member list is read fresh for each page, so a member removed since cannot
+	 * quote anything; the rule holds for the current chat and for cached originals alike. Anything else, a failed lookup
+	 * included, stays the stub and is logged.
 	 */
-	private async lookupForwards(need: ForwardNeed, chatId: string): Promise<ForwardContext> {
+	private async lookupForwards(need: ForwardNeed): Promise<ForwardContext> {
 		const me = need.originals.length > 0 ? tokenClaim(await this.graph.rawToken(), "oid") : "";
-		const allowed = (
+		// One member list per original chat for this page, never kept past it.
+		const rosters = new Map<string, Promise<ReadonlyMap<string, string> | undefined>>();
+		const roster = (chat: string) => {
+			let r = rosters.get(chat);
+			if (!r) rosters.set(chat, (r = this.visibleHistory(chat)));
+			return r;
+		};
+		const why = (r: ForwardRef, reason: string) => console.warn(`[teams] forwarded message ${r.messageId} from ${r.conversationId} not shown: ${reason}`);
+		const checked = (
 			await Promise.all(
 				need.originals.map(async (r) => {
-					if (r.forwarder === me || r.conversationId === chatId) return r;
-					if (r.forwarder && (await this.isMember(r.conversationId, r.forwarder))) return r;
-					console.warn(`[teams] forwarded message ${r.messageId} from ${r.conversationId} not shown: its forwarder ${r.forwarder || "(not a person)"} is not a member of that chat`);
-					return undefined;
+					if (r.forwarder && r.forwarder === me) return { r, since: undefined };
+					if (!r.forwarder) return void why(r, "its forwarder is not a person");
+					const members = await roster(r.conversationId);
+					if (!members) return void why(r, "that chat's members could not be read");
+					const since = members.get(r.forwarder);
+					if (since === undefined) return void why(r, `its forwarder ${r.forwarder} is not a member of that chat`);
+					return { r, since };
 				}),
 			)
-		).filter((r): r is ForwardRef => r !== undefined);
-		const [names] = await Promise.all([this.namesOf(need.senderIds), this.originalsOf(allowed)]);
+		).filter((c): c is { r: ForwardRef; since: string | undefined } => c !== undefined);
+		const [names] = await Promise.all([this.namesOf(need.senderIds), this.originalsOf(checked.map((c) => c.r))]);
 		const by = new Map<string, Map<string, Original>>();
-		for (const r of allowed) {
+		for (const { r, since } of checked) {
 			const key = originalKey(r.conversationId, r.messageId);
 			const o = this.originals.get(key);
 			if (!o) continue;
+			// Graph's own createdDateTime of the original against the forwarder's history: a new member's history starts
+			// when they joined (or wherever the adder set it).
+			if (since !== undefined && !(Date.parse(o.at) >= Date.parse(since))) {
+				why(r, `it predates the history its forwarder ${r.forwarder} can see (from ${since})`);
+				continue;
+			}
 			if (!by.has(r.forwarder)) by.set(r.forwarder, new Map());
 			by.get(r.forwarder)?.set(key, o);
 		}
 		return { names, originalsFor: (forwarder) => by.get(forwarder) ?? new Map() };
 	}
 
-	/** Whether `userId` is a member of `chatId`. A failed lookup is logged and counts as no: the forward stays a stub. */
-	private async isMember(chatId: string, userId: string): Promise<boolean> {
-		let members = this.chatMembers.get(chatId);
-		if (!members) {
-			try {
-				const list = await this.graph.getAll<{ userId?: string }>(`/chats/${encodeURIComponent(chatId)}/members`);
-				members = new Set(list.flatMap((m) => (m.userId ? [m.userId] : [])));
-				this.chatMembers.set(chatId, members);
-			} catch (e) {
-				console.warn(`[teams] members of ${chatId} not read: ${e instanceof Error ? e.message : String(e)}`);
-				return false;
-			}
+	/**
+	 * A chat's current members by user id, each with the start of the history they can see (Graph's
+	 * visibleHistoryStartDateTime; 0001-01-01 is all of it). A member Graph lists without one is left out: unknown counts
+	 * as unseen. A failed read is logged and gives undefined.
+	 */
+	private async visibleHistory(chatId: string): Promise<ReadonlyMap<string, string> | undefined> {
+		try {
+			const list = await this.graph.getAll<{ userId?: string; visibleHistoryStartDateTime?: string }>(`/chats/${encodeURIComponent(chatId)}/members`);
+			return new Map(list.flatMap((m) => (m.userId && m.visibleHistoryStartDateTime && !Number.isNaN(Date.parse(m.visibleHistoryStartDateTime)) ? [[m.userId, m.visibleHistoryStartDateTime] as const] : [])));
+		} catch (e) {
+			console.warn(`[teams] members of ${chatId} not read: ${e instanceof Error ? e.message : String(e)}`);
+			return undefined;
 		}
-		return members.has(userId);
 	}
 
 	/**
@@ -584,6 +598,7 @@ export class GraphBackend implements Backend {
 					const body = o.body ?? {};
 					this.originals.set(key, {
 						sender: msgSender(o) === "(system)" ? "" : msgSender(o),
+						at: o.createdDateTime ?? "",
 						html: body.contentType === "html" ? (body.content ?? "") : `<p>${escapeHtml(body.content ?? "")}</p>`,
 						attachments: attachmentList(o),
 					});
@@ -669,7 +684,7 @@ export class GraphBackend implements Backend {
 		const raw = await this.graph.getAll<RawMessage>(`/chats/${chat.id}/messages?$top=${MESSAGE_PAGE}`, { max: top });
 		const myName = await this.myName();
 		const kept = raw.slice(0, top);
-		return { messages: this.project(kept, myName, chat.id, await this.forwardContext(kept, chat.id)), me: myName, chat: chat.label, display: chat.display };
+		return { messages: this.project(kept, myName, chat.id, await this.forwardContext(kept)), me: myName, chat: chat.label, display: chat.display };
 	}
 
 	/** One page of a conversation's messages as Graph gives them: the raw messages, and the link to the page before. */
@@ -690,7 +705,7 @@ export class GraphBackend implements Backend {
 		let messages: HistoryMessage[] = [];
 		let older: string | undefined;
 		for await (const page of cursorPages(await this.messagesPage(start), (p) => p.older, (c) => this.messagesPage(c))) {
-			messages = this.project(page.raw, myName, chat.id, await this.forwardContext(page.raw, chat.id));
+			messages = this.project(page.raw, myName, chat.id, await this.forwardContext(page.raw));
 			older = page.older;
 			if (messages.length > 0) break;
 		}
@@ -699,12 +714,12 @@ export class GraphBackend implements Backend {
 
 	/** 48:notes is chatsvc, not Graph. See skype.ts. */
 	selfMessages(sinceId: string, top: number): Promise<SelfMessage[]> {
-		return this.requireSkype().selfMessages(sinceId, top, (need) => this.lookupForwards(need, "48:notes"));
+		return this.requireSkype().selfMessages(sinceId, top, (need) => this.lookupForwards(need));
 	}
 
 	/** One page of the self-chat for the pane: the newest, then the page before `cursor`. See SkypeClient.selfPage. */
 	selfHistoryPage(cursor?: string): Promise<SelfHistoryPage> {
-		return this.requireSkype().selfPage(cursor, HISTORY_MESSAGES, (need) => this.lookupForwards(need, "48:notes"));
+		return this.requireSkype().selfPage(cursor, HISTORY_MESSAGES, (need) => this.lookupForwards(need));
 	}
 	/**
 	 * A picture in a message: hostedContents on Graph (the Graph bearer), or an AMS object pasted into the self-chat

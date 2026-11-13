@@ -51,6 +51,8 @@ export interface Forward {
 /** An original message a forward points at, as the backend read it. */
 export interface Original {
 	sender: string;
+	/** The original's createdDateTime as its own chat's server gives it: checked against the forwarder's visible history. */
+	at: string;
 	html: string;
 	attachments: FwdAttachment[];
 }
