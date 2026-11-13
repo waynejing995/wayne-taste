@@ -97,9 +97,8 @@ standing instructions for the agent that receives them).
 `mcp/server.ts` is a stdio MCP server, run with [bun](https://bun.sh) (Node's type stripping cannot load the Teams
 core). It serves the same tool objects omp registers, from `teams/core.ts` and `outlook/tools.ts`: every `teams_*`
 and `outlook_*` tool, plus `inbox_ls`, `inbox_ask`, `inbox_done`, `inbox_set`, `inbox_fact` and `inbox_facts`, which
-run `bin/inbox`, and `inbox_watch` (see Channel). No UI: no overlays, status bar or commands. `inbox_fact` takes an optional `kind` (endpoint, cred,
-decision, owed, info), passed as `--kind` only when given. `inbox_facts` wraps `inbox facts [--grep]`, which the
-FactsFile branch adds: until it lands, the tool returns the CLI's own error.
+run `bin/inbox`, and `inbox_watch` (see Channel). No UI: no overlays, status bar or commands. `inbox_fact` wraps
+`inbox fact` and, like it, requires a `kind` (endpoint, cred, decision, owed, info); `inbox_facts` wraps `inbox facts [--grep]`.
 
 - **Sign-in** is omp's: the server reads the token cache `/teams init` wrote (`~/.cache/pi/teams-auth/`) and
   refuses to start without it (`run /teams init in omp`). There is no second login.

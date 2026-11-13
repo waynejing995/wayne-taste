@@ -5,6 +5,7 @@
 import { execFile } from "node:child_process";
 import { Type } from "typebox";
 import type { ToolDef } from "../core/tool.ts";
+import { FACT_KINDS } from "../inbox/cli/facts.ts";
 import { LAUNCHER } from "../inbox/delivery.ts";
 
 const STATES = ["open", "claimed"];
@@ -26,12 +27,9 @@ function options(opts: Record<string, string | undefined>): string[] {
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: {} });
 
-/** The kinds `inbox fact --kind` takes. */
-const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
-
-/** `inbox fact` argv; `--kind` only when the caller gave one. */
-export function factArgv(p: { text: string; key: string; source?: string; note?: string; link?: string; kind?: string }): string[] {
-	return ["fact", p.text, ...options({ key: p.key, source: p.source, note: p.note, link: p.link, kind: p.kind })];
+/** `inbox fact` argv: the CLI requires `--kind` and has no `--link`. */
+export function factArgv(p: { text: string; key: string; kind: string; source?: string; note?: string }): string[] {
+	return ["fact", p.text, ...options({ key: p.key, kind: p.kind, source: p.source, note: p.note })];
 }
 
 const recorded = {
@@ -71,8 +69,11 @@ export const inboxTools: ToolDef[] = [
 		label: "Inbox Fact",
 		description: "Record a standing fact: something that stays true and later work should know (an endpoint, where a credential lives, a decision, something owed).",
 		parameters: Type.Object({
-			...recorded,
-			kind: Type.Optional(Type.Union(FACT_KINDS.map((k) => Type.Literal(k)), { description: "What sort of fact it is" })),
+			text: recorded.text,
+			key: recorded.key,
+			kind: Type.Union(FACT_KINDS.map((k) => Type.Literal(k)), { description: "What sort of fact it is" }),
+			source: recorded.source,
+			note: Type.Optional(Type.String({ description: "chat, who, and time" })),
 		}),
 		async execute(_id, p) {
 			return text(await inbox(factArgv(p)));

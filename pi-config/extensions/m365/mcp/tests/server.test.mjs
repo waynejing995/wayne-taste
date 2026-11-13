@@ -92,11 +92,21 @@ rules([]);
 	check("the footer names the client from initialize", () => deepStrictEqual(agentFooterText(), "sent by test agent"));
 	const fact = tools.find((t) => t.name === "inbox_fact");
 	check("inbox_fact offers the fact kinds", () => deepStrictEqual(fact.inputSchema.properties.kind.anyOf.map((k) => k.const), ["endpoint", "cred", "decision", "owed", "info"]));
-	check("inbox_fact passes --kind only when given", () =>
-		deepStrictEqual(
-			[factArgv({ text: "Deploys need a ticket", key: "f1", kind: "decision" }), factArgv({ text: "x", key: "f2" })],
-			[["fact", "Deploys need a ticket", "--key", "f1", "--kind", "decision"], ["fact", "x", "--key", "f2"]],
-		),
+	check("inbox_fact requires a kind, as `inbox fact` does", () => deepStrictEqual([fact.inputSchema.required.includes("kind"), "link" in fact.inputSchema.properties], [true, false]));
+	check("inbox_fact passes --kind", () =>
+		deepStrictEqual(factArgv({ text: "Deploys need a ticket", key: "f1", kind: "decision" }), ["fact", "Deploys need a ticket", "--key", "f1", "--kind", "decision"]),
+	);
+	const read = tools.find((t) => t.name === "teams_read");
+	const chats = tools.find((t) => t.name === "teams_chats");
+	check("teams_read takes a since/until window and teams_chats active_since over MCP", () =>
+		deepStrictEqual(["since" in read.inputSchema.properties, "until" in read.inputSchema.properties, "active_since" in chats.inputSchema.properties], [true, true, true]),
+	);
+
+	// A fact round trip through the inbox CLI: inbox_fact writes facts.md, inbox_facts lists it.
+	const put = await client.callTool({ name: "inbox_fact", arguments: { text: "Deploys need a ticket", key: "deploy-ticket", kind: "decision", note: "test" } });
+	const listed = await client.callTool({ name: "inbox_facts", arguments: { grep: "deploy-ticket" } });
+	check("inbox_fact records a fact inbox_facts lists", () =>
+		deepStrictEqual([put.isError ?? false, text(listed).includes("## [decision:deploy-ticket]"), text(listed).includes("Deploys need a ticket")], [false, true, true]),
 	);
 
 	// A round trip through the inbox CLI: ask records a row, ls lists it, done archives it.
