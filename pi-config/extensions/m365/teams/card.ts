@@ -297,11 +297,13 @@ export function attachedCardText(content: unknown): string {
 }
 
 /**
- * The agent's own send, read back as text: a text send's footer or a card's last line. Images a send carries come
+ * The agent's own send, read back as text: a text send's footer or a card's last line, not quoted. Images a send carries come
  * after the footer and read back as "[name]", and the footer is italic, so both are cut before the check.
  */
 export function isAgentSend(text: string): boolean {
-	return text.trim().replace(/(\s*\[[^\]\n]*\])+$/, "").replace(/\*+$/, "").endsWith(AGENT_FOOTER_TEXT);
+	const end = text.trim().replace(/(\s*\[[^\]\n]*\])+$/, "").replace(/\*+$/, "");
+	// A forward of the agent's send ends in its footer too, quoted ("> sent by pi agent"): that one a person sent.
+	return end.endsWith(AGENT_FOOTER_TEXT) && !/^>/.test(end.slice(end.lastIndexOf("\n") + 1));
 }
 
 /**

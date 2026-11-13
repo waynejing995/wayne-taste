@@ -22,6 +22,7 @@
  * lists, links, blockquotes, <pre>, <hr>, whitespace -- stays library-owned.
  */
 import TurndownService from "turndown";
+import { FORWARD_ATTACHMENT, forwardHeader, forwardParts, quote } from "./forward.ts";
 import { htmlToText } from "./html.ts";
 
 interface Attachment {
@@ -32,9 +33,9 @@ interface Attachment {
 	content?: string | Record<string, unknown>;
 }
 
-/** The sender of a reply/forward, which may be a person or a bot. */
+/** The sender of a reply, which may be a person or a bot. */
 function attSender(d: Record<string, unknown>): string {
-	const who = (d.messageSender ?? d.originalMessageSender ?? {}) as Record<string, unknown>;
+	const who = (d.messageSender ?? {}) as Record<string, unknown>;
 	const user = (who.user ?? {}) as { displayName?: string };
 	const app = (who.application ?? {}) as { displayName?: string };
 	// No name rather than a leaked identity type: Graph omits displayName for
@@ -45,10 +46,11 @@ function attSender(d: Record<string, unknown>): string {
 /**
  * A Teams <attachment> is rarely a file.
  *
- * In practice it is a reply or a forward: contentUrl is empty and the real
- * content sits in `content` as JSON. Rendering only the filename would drop the
- * quoted message entirely, which is why replies used to appear in the pane as
- * context-free one-liners.
+ * In practice it is a reply: contentUrl is empty and the real content sits in
+ * `content` as JSON. Rendering only the filename would drop the quoted message
+ * entirely, which is why replies used to appear in the pane as context-free
+ * one-liners. A forward is an attachment too; htmlToMarkdown quotes it whole
+ * (forward.ts) before any attachment rule sees it.
  */
 export function attachmentMarkdown(att: Attachment): string {
 	// One attachment that cannot be read is marked where it sits; the message's
@@ -65,27 +67,18 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 
 function renderAttachment(att: Attachment): string {
 	const ctype = att.contentType ?? "";
-	if (ctype !== "messageReference" && ctype !== "forwardedMessageReference") {
+	if (ctype !== "messageReference") {
 		if (att.contentUrl) return `\u{1f4ce} [${att.name || "attachment"}](${att.contentUrl})`;
 		return `\u{1f4ce} [${att.name || ctype || "attachment"}]`;
 	}
-	// A reply or a forward is its JSON content. Malformed JSON throws to attachmentMarkdown's marker;
-	// JSON "null", a number or a list is not a reply or a forward either.
+	// A reply is its JSON content. Malformed JSON throws to attachmentMarkdown's marker;
+	// JSON "null", a number or a list is not a reply either.
 	const parsed: unknown = typeof att.content === "string" ? JSON.parse(att.content) : att.content;
 	if (!isPlainObject(parsed)) return "[unreadable attachment]";
-	const body = parsed;
-
-	if (ctype === "messageReference") {
-		const quoted = htmlToText(String(body.messagePreview ?? "")).trim();
-		const who = attSender(body);
-		const head = who ? `> \u21a9 replying to **${who}**` : "> \u21a9 replying to an earlier message";
-		return head + (quoted ? `: ${quoted}` : "");
-	}
-	const quoted = htmlToText(String(body.originalMessageContent ?? "")).trim();
-	const first = quoted ? quoted.split("\n")[0].slice(0, 200) : "";
-	const who = attSender(body);
-	const head = who ? `> \u2937 forwarded from **${who}**` : "> \u2937 forwarded message";
-	return head + (first ? `: ${first}` : "");
+	const quoted = htmlToText(String(parsed.messagePreview ?? "")).trim();
+	const who = attSender(parsed);
+	const head = who ? `> \u21a9 replying to **${who}**` : "> \u21a9 replying to an earlier message";
+	return head + (quoted ? `: ${quoted}` : "");
 }
 
 /**
@@ -260,9 +253,24 @@ function build(attachments: Attachment[]): TurndownService {
  *
  * Separate from htmlToText(): that one flattens for digests and tools, this one
  * keeps the structure a chat pane can show.
+ *
+ * A forward (forward.ts) is a quoted block: its header, then the original converted like any message. `names` maps
+ * a forward's sender id to the name it is shown with; `context` is chatsvc's originalMessageContext.
  */
-export function htmlToMarkdown(html: string, attachments: Attachment[] = []): string {
+export function htmlToMarkdown(html: string, attachments: Attachment[] = [], names: ReadonlyMap<string, string> = new Map(), context?: unknown): string {
 	if (!html) return "";
+	return forwardParts(html, attachments, context)
+		.map((p) => {
+			if (!("forward" in p)) return convert(p.html, attachments);
+			// The original's own attachments (a card it carried) render inside the quote; the forwards do not nest.
+			const body = htmlToMarkdown(p.forward.html, attachments.filter((x) => x.contentType !== FORWARD_ATTACHMENT), names);
+			return quote([forwardHeader(p.forward, names, true), body].filter(Boolean).join("\n\n"));
+		})
+		.filter(Boolean)
+		.join("\n\n");
+}
+
+function convert(html: string, attachments: Attachment[]): string {
 	let md = build(attachments).turndown(standardiseTeamsTags(html));
 	md = md.replace(/\u00a0/g, " ");
 	md = md.replace(/^[ \t]+$/gm, "");
