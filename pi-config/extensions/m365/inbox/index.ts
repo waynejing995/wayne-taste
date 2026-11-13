@@ -26,13 +26,12 @@
  * Every inbox command runs in this process through cli/main.ts, the same code the `bin/inbox` launcher runs.
  */
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as auth from "../core/auth.ts";
-import { card, parseLedger, statusCard, type Row } from "./card.ts";
+import { card, statusCard, type Row } from "./card.ts";
 import { inbox as inboxCli } from "./cli/main.ts";
-import { BIN_DIR, widgetLines } from "./cli/jobs.ts";
+import { widgetLines } from "./cli/jobs.ts";
 import { initInbox, isSetUp } from "./cli/setup.ts";
 import { checkThens, openThenLines } from "./cli/thens.ts";
 import { AgentTailer } from "./agents.ts";
@@ -42,39 +41,13 @@ import { Mailbox } from "../outlook/mailbox.ts";
 import { mailSince } from "./mail.ts";
 import { claim, describeOwner, type WatchLease } from "../teams/watch.ts";
 import { renderSchedule, runSessionJobs } from "./schedule.ts";
+import { DIR, LAUNCHER, LEASE_ID, LEDGER, PUSHED, readCursor, readRows, writeCursor } from "./delivery.ts";
 
-const DIR = process.env.WAYNE_INBOX_DIR ?? path.join(os.homedir(), ".wayne", "inbox");
-const LEDGER = path.join(DIR, "ledger.tsv");
-const CURSOR = path.join(DIR, "cursors", "session-push.id");
-/** The lease name: one deliverer per inbox directory, machine and user, whatever chat the Teams watch holds. */
-const LEASE_ID = `wayne-inbox:${DIR}`;
 /** The scheduler's lease: one job runner per inbox directory, machine and user. */
 const SCHED_ID = `wayne-inbox-schedule:${DIR}`;
-/** The launcher the agent runs for `inbox set` / `inbox done`, named on every card. */
-const LAUNCHER = path.join(BIN_DIR, "inbox");
 const MAIL_CURSOR = path.join(DIR, "cursors", "outlook-inbox.since");
 const BACKSTOP_MS = 60_000;
 const MAIL_PAGE = 50;
-const PUSHED = new Set(["notify", "do"]);
-
-function readRows(): Row[] {
-	return fs.existsSync(LEDGER) ? parseLedger(fs.readFileSync(LEDGER, "utf8")) : [];
-}
-
-function readCursor(): number | null {
-	if (!fs.existsSync(CURSOR)) return null;
-	const n = Number(fs.readFileSync(CURSOR, "utf8").trim());
-	if (!Number.isInteger(n) || n < 0) throw new Error(`${CURSOR} does not hold a row id`);
-	return n;
-}
-
-function writeCursor(id: number): void {
-	fs.mkdirSync(path.dirname(CURSOR), { recursive: true });
-	const tmp = `${CURSOR}.tmp`;
-	fs.writeFileSync(tmp, `${id}\n`);
-	fs.renameSync(tmp, CURSOR);
-}
-
 
 export default function inbox(pi: ExtensionAPI) {
 	const mailbox = new Mailbox(new GraphClient(() => auth.getToken({ scopes: auth.GRAPH_SCOPES })));

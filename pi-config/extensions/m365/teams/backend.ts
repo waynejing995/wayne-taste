@@ -21,7 +21,7 @@
 import * as fs from "node:fs";
 import type { DownloadedFile } from "../core/shares.ts";
 import type { Person } from "../core/people.ts";
-import { type ChatRef, type ChatsPage, type HistoryMessage, HISTORY_MESSAGES, type SendTarget } from "./compose-overlay.ts";
+import { type ChatRef, type ChatsPage, type HistoryMessage, HISTORY_MESSAGES, type SendTarget } from "./types.ts";
 import type { Mention } from "./mentions.ts";
 import type { ReactionCount } from "./reactions.ts";
 import type { MeetingTranscriptResult } from "./transcript.ts";

@@ -20,7 +20,7 @@ import { GraphError, type GraphClient } from "../core/graph.ts";
 import { colleagueId, type Person, searchPeople } from "../core/people.ts";
 import { type DownloadedFile, downloadShared } from "../core/shares.ts";
 import type { Backend, ChatAddr, ChatHistoryPage, SelfHistoryPage, SelfMessage, UnreadItem, UnreadPayload } from "./backend.ts";
-import { HISTORY_MESSAGES, type ChatRef, type ChatsPage, type HistoryMessage, type SendTarget } from "./compose-overlay.ts";
+import { HISTORY_MESSAGES, type ChatRef, type ChatsPage, type HistoryMessage, type SendTarget } from "./types.ts";
 import { attachedCardText, CARD_CONTENT_TYPE, isCardType } from "./card.ts";
 import { type ForwardContext, type ForwardNeed, type ForwardRef, forwardedAttachmentIds, forwardNeed, forwardParts, NO_FORWARD_CONTEXT, type Original, originalKey, partImages, partsText, type Part } from "./forward.ts";
 import { escapeHtml, htmlToText } from "./html.ts";

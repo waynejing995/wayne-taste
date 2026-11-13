@@ -9,7 +9,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { askSmall } from "../core/small-model.ts";
 import { setStatusPart } from "../core/status-row.ts";
-import { readTeams, teamsReader } from "../teams/index.ts";
+import { readTeams, teamsReader } from "../teams/core.ts";
 import { readJobs, runDue, widgetLines, type Verdict } from "./cli/jobs.ts";
 
 const OUTPUT_CAP = 4000;
