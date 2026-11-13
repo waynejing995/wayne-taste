@@ -30,7 +30,8 @@ export function receiptInstructions(): string {
 	return [
 		`End your reply with the receipt: one line of JSON, nothing after it, for example ${example}`,
 		`Fields: ${fields}. If a teams_read or inbox command fails, retry it once; if it still fails, set "complete" to false and name the chat in "failed".`,
-		"When omp elides the middle of a teams_read result (`Showing lines 1-H and T-N of N; ... elided. Read artifact://N for full output`), read every elided line before you go on, with the `read` tool: `read artifact://N:A-B` (as many reads as it takes, from H+1 to T-1). Reading the artifact through bash (sed, grep, cat) does not count: the run is checked against `read` calls only.",
+		"When omp elides the middle of a teams_read result (`Showing lines 1-H and T-N of N; ... elided. Read artifact://N for full output`), read every elided line before you go on, with the `read` tool: `read artifact://N:A-B` (as many reads as it takes, from H+1 to T-1). Reading the artifact through bash (sed, grep, cat) does not count: the run is checked against `read` calls only. The same holds when omp elides the middle of the teams_chats list.",
+		"Run each `inbox ask` or `inbox fact` in its own bash call, one command per call, so each result can be checked. A fact the guard refuses as a credential value is dropped on purpose; do not retry it.",
 	].join("\n");
 }
 
@@ -117,7 +118,7 @@ function artifactReads(all: Call[], id: string): [number, number][] {
 	return out;
 }
 
-/** The elided middle of a read that no artifact read covered, as a reason; undefined when nothing is missing. */
+/** The elided middle of a tool result that no artifact read covered, as a reason; undefined when nothing is missing. */
 function unreadMiddle(read: Call, all: Call[]): string | undefined {
 	const t = (read.details?.meta as { truncation?: Truncation } | undefined)?.truncation;
 	if (t?.direction !== "middle" || !t.headRange || !t.tailRange) return undefined;
@@ -127,7 +128,26 @@ function unreadMiddle(read: Call, all: Call[]): string | undefined {
 	let next = from;
 	for (const [a, b] of artifactReads(all, id).sort((x, y) => x[0] - y[0])) if (a <= next && b >= next) next = b + 1;
 	if (next > to) return undefined;
-	return `lines ${from}-${to} of the teams_read output were elided by omp and lines ${next}-${to} never read from artifact://${id}`;
+	return `lines ${from}-${to} of the ${read.name} output were elided by omp and lines ${next}-${to} never read from artifact://${id}`;
+}
+
+/** The text of every `read artifact://ID...` result for the artifact a truncated call spilled to. */
+function artifactText(call: Call, all: Call[]): string {
+	const id = (call.details?.meta as { truncation?: Truncation } | undefined)?.truncation?.artifactId;
+	if (id === undefined) return "";
+	const path = new RegExp(`^artifact://${id}(?::|$)`);
+	return all.filter((c) => c.name === "read" && c.ok && path.test(String(c.args.path ?? ""))).map((c) => c.text).join("\n");
+}
+
+const INBOX_WRITE = /\binbox\s+(ask|fact)\b/;
+
+/** The chat an inbox write names in its --note ("chat, who, time"), and the key it writes. */
+function writeTarget(command: string): { chat: string; key: string } {
+	const opt = (name: string) => {
+		const m = new RegExp(`--${name}\\s+(?:"([^"]*)"|'([^']*)'|(\\S+))`).exec(command);
+		return m?.[1] ?? m?.[2] ?? m?.[3] ?? "";
+	};
+	return { chat: opt("note").split(",")[0].trim() || "unknown chat", key: opt("key") };
 }
 
 const CHAT_LINE = /^- (.*)  \[[^\]]*\]  id: (\S+)$/;
@@ -142,13 +162,16 @@ export function checkDigest(stdout: string, since: string, until: string): Diges
 	const lists = all.filter((c) => c.name === "teams_chats" && c.ok && covers(c.args.active_since, boundary));
 	if (!lists.length) throw new InboxError(`teams digest never listed the chats active since ${since}`);
 	const wanted = new Map<string, string>([[SELF.id, SELF.name]]);
-	for (const list of lists)
-		for (const line of list.text.split("\n")) {
+	const failed = new Map<string, string>();
+	for (const list of lists) {
+		const gap = unreadMiddle(list, all);
+		if (gap) failed.set("chat list", gap);
+		for (const line of `${list.text}\n${artifactText(list, all)}`.split("\n")) {
 			const m = CHAT_LINE.exec(line);
 			if (m) wanted.set(m[2], m[1]);
 		}
+	}
 	const reads = all.filter((c) => c.name === "teams_read");
-	const failed = new Map<string, string>();
 	for (const [id, name] of wanted) {
 		const mine = reads.filter((c) => (c.args.target === "self" ? SELF.id : c.args.chat_id) === id || (!c.args.chat_id && c.args.chat === name));
 		const read = mine.filter((c) => c.ok && covers(c.args.since, boundary) && reaches(c.args.until, end));
@@ -157,11 +180,20 @@ export function checkDigest(stdout: string, since: string, until: string): Diges
 		const err = mine.find((c) => !c.ok);
 		failed.set(name, gaps[0] ?? (err ? `teams_read failed: ${err.text.slice(0, 120)}` : mine.length ? `teams_read did not read since ${since} until ${until}` : "never read"));
 	}
-	for (const c of all.filter((c) => c.name === "bash" && !c.ok && /\binbox\s+(ask|fact)\b/.test(String(c.args.command ?? "")))) {
-		const note = /--note\s+(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(String(c.args.command));
-		const chat = (note?.[1] ?? note?.[2] ?? note?.[3] ?? "").split(",")[0].trim() || "unknown chat";
+	// Each inbox write runs in its own bash call, so its result is its own. A write that failed counts unless a later
+	// call wrote the same key; one the guard refused as a credential value is dropped on purpose, not a gap.
+	const writes = all.filter((c) => c.name === "bash" && INBOX_WRITE.test(String(c.args.command ?? "")));
+	writes.forEach((c, i) => {
+		const command = String(c.args.command ?? "");
+		const { chat, key } = writeTarget(command);
+		if ((command.match(/\binbox\s+(ask|fact)\b/g) ?? []).length > 1) {
+			failed.set(chat, failed.get(chat) ?? "one bash call ran several inbox writes; run one inbox command per bash call so each result can be checked");
+			return;
+		}
+		if (c.ok || /never its value/.test(c.text)) return;
+		if (key && writes.slice(i + 1).some((later) => later.ok && writeTarget(String(later.args.command ?? "")).key === key)) return;
 		failed.set(chat, failed.get(chat) ?? `inbox write failed: ${c.text.slice(0, 120)}`);
-	}
+	});
 	const text = finalText(evs);
 	const receipt = parseReceipt(text);
 	for (const f of receipt.failed) if (!failed.has(f.chat)) failed.set(f.chat, f.reason);

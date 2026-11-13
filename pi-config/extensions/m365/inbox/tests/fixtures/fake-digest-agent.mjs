@@ -35,7 +35,11 @@ function call(toolName, args, text, isError = false, details) {
 const failed = [];
 let findings = 0;
 if (since) {
-	call("teams_chats", { active_since: since }, "2 chat(s)\n- Ops  [group]  id: 19:ops@thread.v2\n- Lin  [oneOnOne]  id: 19:lin@unq.gbl.spaces");
+	if (mode === "listelided" || mode === "listelidedskip") {
+		const truncation = { direction: "middle", totalLines: 3, headRange: { start: 1, end: 1 }, tailRange: { start: 3, end: 3 }, elidedLines: 1, artifactId: "1" };
+		call("teams_chats", { active_since: since }, "2 chat(s)\n[Showing lines 1-1 and 3-3 of 3; 1 middle lines elided. Read artifact://1 for full output]\n- Lin  [oneOnOne]  id: 19:lin@unq.gbl.spaces", false, { meta: { truncation } });
+		if (mode === "listelided") call("read", { path: "artifact://1:2-2" }, "- Ops  [group]  id: 19:ops@thread.v2");
+	} else call("teams_chats", { active_since: since }, "2 chat(s)\n- Ops  [group]  id: 19:ops@thread.v2\n- Lin  [oneOnOne]  id: 19:lin@unq.gbl.spaces");
 	if (mode === "elided" || mode === "elidedskip") {
 		const truncation = { direction: "middle", totalLines: 1000, headRange: { start: 1, end: 40 }, tailRange: { start: 961, end: 1000 }, elidedLines: 920, artifactId: "0" };
 		call("teams_read", { target: "self", ...window, images: false }, "self-chat (48:notes) — 300 message(s)\n[Showing lines 1-40 and 961-1000 of 1000; 920 middle lines elided. Read artifact://0 for full output]", false, { meta: { truncation } });
@@ -53,15 +57,27 @@ if (since) {
 	} else if (mode !== "lie") call("teams_read", { chat_id: "19:ops@thread.v2", ...window, images: false }, "[11-10 11:00] lin: build server is build.example.com");
 	call("teams_read", { chat_id: "19:lin@unq.gbl.spaces", ...window, images: false }, "(no messages)");
 	const args = ["fact", "--kind", "endpoint", "--key", "build-server", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "The build server is build.example.com."];
-	if (mode === "factfail") args[2] = "bogus";
-	const command = `inbox ${args.map((a) => (/^[\w.,:-]+$/.test(a) ? a : `'${a}'`)).join(" ")}`;
-	try {
-		call("bash", { command }, execFileSync("inbox", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
-		findings++;
-	} catch (e) {
-		call("bash", { command }, String(e.stderr || e.message), true);
-		failed.push({ chat: "Ops", reason: "inbox fact failed" });
+	const quote = (list) => `inbox ${list.map((a) => (/^[\w.,:-]+$/.test(a) ? a : `'${a}'`)).join(" ")}`;
+	const write = (list, command = quote(list)) => {
+		try {
+			call("bash", { command }, execFileSync("inbox", list, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+			return true;
+		} catch (e) {
+			call("bash", { command }, String(e.stderr || e.message), true);
+			return false;
+		}
+	};
+	if (mode === "factfail" || mode === "factretry") {
+		const bad = [...args];
+		bad[2] = "bogus";
+		if (!write(bad) && mode === "factfail") failed.push({ chat: "Ops", reason: "inbox fact failed" });
 	}
+	if (mode === "credreject") write(["fact", "--kind", "cred", "--key", "ops-db", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "password: hunter2"]);
+	if (mode === "multiwrite") {
+		execFileSync("inbox", args, { stdio: "ignore" });
+		call("bash", { command: `${quote(args)}; inbox ask --key q1 --note 'Ops, lin, 11-10 11:00' -- 'Who owns it?'` }, "added endpoint:build-server\nnotify 9 ask-wayne");
+		findings++;
+	} else if (mode !== "factfail" && write(args)) findings++;
 }
 const example = /for example (\{.*\})/.exec(prompt)?.[1];
 let last;

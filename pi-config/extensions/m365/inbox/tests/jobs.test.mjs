@@ -201,12 +201,26 @@ await check("a digest read whose middle omp elided passes once the agent reads t
 	}
 });
 
+for (const mode of ["listelided", "factretry", "credreject"])
+	await check(`a digest run in mode ${mode} is complete and moves the boundary`, async () => {
+		try {
+			digestJob("2026-11-10 12:00", {}, mode);
+			const line = (await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0];
+			ok(line.startsWith("ok teams-digest"), `${line}\n${rows().map((r) => `${r.subject} | ${r.note}`).join("\n")}`);
+			strictEqual(digest().last_ok, "2026-11-10 12:00");
+		} finally {
+			restoreAgent();
+		}
+	});
+
 for (const [mode, chat, reason] of [
 	["readfail", "Ops", /teams_read failed/],
 	["lie", "Ops", /never read/],
 	["factfail", "Ops", /inbox write failed/],
 	["exit", "all chats", /exited 1/],
 	["elidedskip", "self-chat", /lines 41-960 .*elided/],
+	["listelidedskip", "chat list", /teams_chats output were elided/],
+	["multiwrite", "Ops", /one inbox command per bash call/],
 ])
 	await check(`a digest run in mode ${mode} keeps the old boundary and names ${chat} in a do row`, async () => {
 		try {
