@@ -4,7 +4,7 @@
  * Writes share the ledger lock and land through a temp file renamed over facts.md.
  */
 import * as fs from "node:fs";
-import { clean, doneRows, inboxFile, listRows, readTsv, stamp, withLedger, withLock, type Row } from "./ledger.ts";
+import { clean, finishRows, inboxFile, listRows, readTsv, stamp, withLedger, withLock, type Row } from "./ledger.ts";
 import { InboxError } from "./ledger.ts";
 
 export const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
@@ -16,6 +16,7 @@ export interface Fact {
 	text: string;
 	source: string;
 	since: string;
+	updated: string;
 	superseded: string[];
 }
 
@@ -33,12 +34,14 @@ function parse(text: string): Fact[] {
 		const source = lines.find((line) => line.startsWith("source: "));
 		const since = lines.find((line) => line.startsWith("since: "));
 		if (!source || !since) throw new InboxError(`facts.md entry ${heading.trim()} lacks source or since`);
+		const updated = lines.find((line) => line.startsWith("updated: "));
 		facts.push({
 			kind: match[1],
 			key: match[2],
-			text: lines.filter((line) => !line.startsWith("source: ") && !line.startsWith("since: ") && !line.startsWith("superseded: ")).join("\n").trim(),
+			text: lines.filter((line) => !line.startsWith("source: ") && !line.startsWith("since: ") && !line.startsWith("updated: ") && !line.startsWith("superseded: ")).join("\n").trim(),
 			source: source.slice(8),
 			since: since.slice(7),
+			updated: updated?.slice(9) || since.slice(7),
 			superseded: lines.filter((line) => line.startsWith("superseded: ")).map((line) => line.slice(12)),
 		});
 	}
@@ -54,6 +57,7 @@ function render(facts: Fact[]): string {
 		"",
 		`source: ${fact.source}`,
 		`since: ${fact.since}`,
+		`updated: ${fact.updated}`,
 		...fact.superseded.map((text) => `superseded: ${text}`),
 		"",
 	].join("\n")).join("\n");
@@ -102,7 +106,7 @@ export function upsertFact(kind: string, key: string, text: string, source: stri
 		if (facts.some((fact) => [fact.key, fact.text, fact.source].some((value) => SECRET.test(value)))) throw new InboxError("a fact names where the credential lives, never its value");
 		const history = (old?.superseded ?? []).filter((text) => !SECRET.test(text));
 		if (old && old.text !== cleanText) history.unshift(old.text);
-		const next: Fact = { kind: cleanKind, key: cleanKey, text: cleanText, source: cleanSource, since: old?.since ?? at.slice(0, 10), superseded: history };
+		const next: Fact = { kind: cleanKind, key: cleanKey, text: cleanText, source: cleanSource, since: old?.since ?? at.slice(0, 10), updated: at, superseded: history };
 		saveFacts(old ? facts.map((fact) => fact === old ? next : fact) : [...facts, next]);
 		if (old && old.text === cleanText) return `unchanged ${cleanKind}:${cleanKey}`;
 		return old ? `updated ${cleanKind}:${cleanKey}` : `added ${cleanKind}:${cleanKey}`;
@@ -142,40 +146,42 @@ function factKey(row: Row): string {
 
 /** Move open teams-fact rows into facts.md. Newest repeated key wins; archived facts stay archived. */
 export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).split("\n").slice(1).filter(Boolean).map((line) => Object.fromEntries(line.split("\t").map((cell, i) => [["id", "key", "subject", "first_seen", "source", "tag", "action", "state", "owner", "note", "link"][i], cell])) as Row)): { written: number; closed: string[] } {
-	const facts = rows.filter((row) => row.tag === "teams-fact" && row.state !== "done");
-	const newest = new Map<string, Row>();
-	for (const row of facts) {
-		const key = factKey(row);
-		const old = newest.get(key);
-		if (!old || row.first_seen > old.first_seen || (row.first_seen === old.first_seen && Number(row.id) > Number(old.id))) newest.set(key, row);
-	}
-	const existing = readFacts();
-	const redacted: string[] = [];
-	for (const row of newest.values()) {
-		const key = factKey(row);
-		const current = existing.find((fact) => fact.key === key);
-		if (current && current.since > row.first_seen.slice(0, 10)) continue;
-		if (SECRET.test(`${key} ${row.subject} ${row.source} ${row.note}`)) {
-			redacted.push(row.id);
-			continue;
+	return withLedger((liveRows, save) => {
+		const facts = rows.filter((row) => row.tag === "teams-fact" && row.state !== "done");
+		const newest = new Map<string, Row>();
+		for (const row of facts) {
+			const key = factKey(row);
+			const old = newest.get(key);
+			if (!old || row.first_seen > old.first_seen || (row.first_seen === old.first_seen && Number(row.id) > Number(old.id))) newest.set(key, row);
 		}
-		upsertFact(mappedKind(row), key, row.subject, [row.source, row.note, row.first_seen].filter(Boolean).join(" "), row.first_seen);
-	}
-	if (redacted.length) {
-		withLedger((rows, save) => {
-			for (const row of rows.filter((row) => redacted.includes(row.id))) {
-				row.subject = "[redacted: credential value]";
-				row.note = "redacted because the row held a credential value";
+		const existing = readFacts();
+		const redacted: string[] = [];
+		const next = [...existing];
+		for (const row of newest.values()) {
+			const key = factKey(row);
+			const current = next.find((fact) => fact.key === key);
+			if (current && (current.updated || current.since) >= row.first_seen) continue;
+			if (SECRET.test(`${key} ${row.subject} ${row.source} ${row.note}`)) {
+				redacted.push(row.id);
+				continue;
 			}
-			save(rows);
-		});
-		doneRows(redacted);
-	}
-	const cleanIds = facts.map((row) => row.id).filter((id) => !redacted.includes(id));
-	if (cleanIds.length) doneRows(cleanIds, "moved to facts.md");
-	return { written: newest.size - redacted.length, closed: facts.map((row) => row.id) };
+			const kind = current?.kind ?? mappedKind(row);
+			const source = [row.source, row.note, row.first_seen].filter(Boolean).join(" ");
+			const fact: Fact = { kind, key, text: clean(row.subject), source: clean(source), since: current?.since ?? row.first_seen.slice(0, 10), updated: row.first_seen, superseded: current && current.text !== row.subject ? [current.text, ...current.superseded] : current?.superseded ?? [] };
+			if (current) next[next.indexOf(current)] = fact;
+			else next.push(fact);
+		}
+		saveFacts(next.filter((fact) => !SECRET.test(`${fact.key} ${fact.text} ${fact.source} ${fact.superseded.join(" ")}`)));
+		for (const row of liveRows.filter((row) => redacted.includes(row.id))) {
+			row.subject = "[redacted: credential value]";
+			row.note = "redacted because the row held a credential value";
+		}
+		finishRows(liveRows, redacted, undefined, save);
+		const cleanIds = facts.map((row) => row.id).filter((id) => !redacted.includes(id));
+		finishRows(liveRows.filter((row) => !redacted.includes(row.id)), cleanIds, "moved to facts.md", save);
+		return { written: newest.size - redacted.length, closed: facts.map((row) => row.id) };
+	});
 }
-
 /** Read rows directly for the migration script, including a copied inbox directory. */
 export function migrateFile(dir = inboxFile()): { written: number; closed: string[] } {
 	const rows = readTsv(`${dir}/ledger.tsv`).filter((row) => row.tag === "teams-fact");

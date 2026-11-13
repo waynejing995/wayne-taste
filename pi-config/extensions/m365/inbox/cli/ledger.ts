@@ -177,6 +177,7 @@ export function withLock<T>(lock: string, waitMs: number, fn: () => T): T {
 	}
 }
 
+
 /** The rules.yaml lock: the same file the Teams watch list takes, so one writer edits rules.yaml at a time. */
 export function withRulesLock<T>(fn: () => T): T {
 	return withLock(inboxFile("rules.yaml.lock"), 2000, fn);
@@ -184,12 +185,23 @@ export function withRulesLock<T>(fn: () => T): T {
 
 /** ledger.tsv's rows under the ledger lock. `save` writes them back. Waits past the stale age, so a dead holder never blocks. */
 export function withLedger<T>(fn: (rows: Row[], save: (rows: Row[]) => void) => T): T {
-	return withLock(inboxFile("ledger.tsv.lock"), LOCK_STALE_MS + 2000, () => {
+	return withLock(inboxFile("ledger.tsv.lock"), Number(process.env.INBOX_LOCK_WAIT_MS ?? LOCK_STALE_MS + 2000), () => {
 		const file = inboxFile("ledger.tsv");
 		return fn(readTsv(file), (rows) => writeTsv(file, rows));
 	});
 }
 
+/** Finish selected ledger rows under the caller's existing ledger lock. */
+export function finishRows(rows: Row[], ids: string[], note: string | undefined, save: (rows: Row[]) => void): void {
+	const finished = rows.filter((row) => ids.includes(row.id));
+	for (const row of finished) {
+		row.state = "done";
+		if (note !== undefined) row.note = clean(note);
+	}
+	const archive = inboxFile("archive.tsv");
+	writeTsv(archive, [...readTsv(archive), ...finished]);
+	save(rows.filter((row) => !ids.includes(row.id)));
+}
 /** Adds one row unless its key is already live or archived. Returns `seen <id>` or the new id. */
 function insert(row: Omit<Row, "id">): { id: string; seen: boolean; tag: string } {
 	return withLedger((rows, save) => {

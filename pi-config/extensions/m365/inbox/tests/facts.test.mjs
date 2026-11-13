@@ -3,7 +3,7 @@
  *
  * Synthetic facts only. No live inbox data.
  */
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ok, strictEqual, rejects } from "node:assert/strict";
@@ -171,6 +171,34 @@ await check("an identical fact refreshes its source without history", async () =
 	const [fact] = readFacts();
 	strictEqual(fact.source, "Ops Bo");
 	strictEqual(fact.superseded.length, 0);
+});
+
+await check("migration keeps a newer same-day fact and one kind", async () => {
+	const { mkdirSync, writeFileSync: writeText } = await import("node:fs");
+	await inbox(["fact", "--kind", "decision", "--key", "release-window", "--source", "digest", "--", "Release after 19:00"]);
+	const facts = join(process.env.WAYNE_INBOX_DIR, "facts.md");
+	writeText(facts, readFileSync(facts, "utf8").replace(/since: [^\n]+/, "since: 2026-11-13\nupdated: 2026-11-13 12:00"));
+	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
+	const row = "8\tteams-fact:release-window\tRelease after 09:00\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\twayne\t\t";
+	writeText(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n${row}\n`);
+	const { migrateFacts } = await jiti.import("../cli/facts.ts");
+	const { readTsv } = await jiti.import("../cli/ledger.ts");
+	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+	strictEqual(readFacts()[0].text, "Release after 19:00");
+	strictEqual(readFacts()[0].superseded.length, 0);
+	writeText(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n${row}\n9\tteams-fact:release-window\t[info:release-window] older mapping\t2026-11-13 08:00\tdigest\tteams-fact\tlog\topen\twayne\t\t\n`);
+	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+	strictEqual(readFacts().map((fact) => `${fact.kind}:${fact.key}`).join(","), "decision:release-window");
+	const before = readFileSync(facts, "utf8");
+	const lock = join(process.env.WAYNE_INBOX_DIR, "ledger.tsv.lock");
+	mkdirSync(lock);
+	utimesSync(lock, new Date(), new Date());
+	process.env.INBOX_LOCK_WAIT_MS = "0";
+	try { migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))); ok(false, "migration ignored the held lock"); }
+	catch (error) { ok(error instanceof Error && /held by another writer/.test(error.message), error instanceof Error ? error.message : error); }
+	finally { delete process.env.INBOX_LOCK_WAIT_MS; }
+	rmSync(lock, { recursive: true });
+	strictEqual(readFileSync(facts, "utf8"), before);
 });
 
 if (failed) process.exit(1);
