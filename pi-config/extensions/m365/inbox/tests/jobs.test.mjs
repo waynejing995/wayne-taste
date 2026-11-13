@@ -4,6 +4,7 @@
  *   node inbox/tests/jobs.test.mjs
  */
 import { deepStrictEqual, ok, rejects, strictEqual } from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -15,6 +16,7 @@ const jiti = createJiti(import.meta.url, { interopDefault: true });
 const { inbox } = await jiti.import("../cli/main.ts");
 const jobs = await jiti.import("../cli/jobs.ts");
 const { readTsv, stamp } = await jiti.import("../cli/ledger.ts");
+const { receiptInstructions } = await jiti.import("../cli/digest.ts");
 
 // A prompt job's agent: prints its prompt, so the job's output is the prompt text.
 const bin = mkdtempSync(join(tmpdir(), "inbox-agent-"));
@@ -213,6 +215,34 @@ await check("a digest prompt without {{receipt}} fails and names the gap", async
 		ok((await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0].startsWith("fail teams-digest"));
 		strictEqual(digest().last_ok, "2026-11-10 10:00");
 		ok(gapRows().some((r) => r.subject.includes("all chats") && r.note.includes("no receipt")));
+	} finally {
+		restoreAgent();
+	}
+});
+
+for (const [label, args] of [
+	["DISPATCHED", ["--output", "prompt card sent", "--verdict", "DISPATCHED"]],
+	["SKIP", ["--output", "nothing new", "--verdict", "SKIP"]],
+	["no receipt", ["--output", "teams digest: 0 findings"]],
+])
+	await check(`schedule finish ${label} on the digest keeps its boundary`, async () => {
+		try {
+			digestJob(stamp(new Date(Date.now() - 60_000)), { backfill_since: "2026-11-03 10:00" });
+			await run("schedule", "finish", "teams-digest", ...args);
+			strictEqual(digest().last_ok, "2026-11-10 10:00");
+			strictEqual(digest().backfill_since, "2026-11-03 10:00");
+		} finally {
+			restoreAgent();
+		}
+	});
+
+await check("schedule finish with the digest's checked event stream moves its boundary", async () => {
+	try {
+		digestJob(stamp(new Date(Date.now() - 60_000)));
+		const prompt = TEMPLATE_DIGEST.action.text.replaceAll("{{since}}", "2026-11-10 10:00").replaceAll("{{receipt}}", receiptInstructions());
+		const stream = execFileSync(FAKE_DIGEST, ["-p", "--mode", "json", prompt], { encoding: "utf8", env: { ...process.env, PATH: `${join(dirname(fileURLToPath(import.meta.url)), "..", "..", "bin")}:${process.env.PATH}` } });
+		ok((await run("schedule", "finish", "teams-digest", "--output", stream)).startsWith("ok teams-digest"));
+		ok(digest().last_ok > "2026-11-10 10:00");
 	} finally {
 		restoreAgent();
 	}

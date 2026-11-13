@@ -372,7 +372,8 @@ function record(job: Job, fire: string, out: Outcome): string {
 function advance(job: Job, at: Date, out: Outcome): void {
 	job.next_fire = stamp(nextFire(job, at));
 	job.last = { status: out.status, at: stamp(at), detail: out.detail.slice(0, 200) };
-	if (out.status !== "fail") job.last_ok = stamp(at);
+	// A digest's last_ok is the start of the last run that read every chat; a dispatch, skip or failure keeps it.
+	if (job.name === DIGEST ? out.verified : out.status !== "fail") job.last_ok = stamp(at);
 	job.fires = Number(job.fires ?? 0) + 1;
 }
 
@@ -464,7 +465,14 @@ export function finishFire(name: string, f: { output: string; verdict?: string; 
 	else if (f.verdict === "FAIL") out = { action: "notify", status: "fail", detail: summary || f.output, text: f.output };
 	else if (f.verdict === "DISPATCHED") out = { action: "do", status: "dispatched", detail: summary || "prompt card sent", text: f.output };
 	else if (f.verdict === "SKIP") out = { action: "log", status: "skip", detail: summary || "judge skipped", text: f.output };
-	else if (summary) out = { action: "notify", status: "ok", detail: summary, text: `${summary}\n${f.output}` };
+	else if (name === DIGEST) {
+		// The output must be the run's `--mode json` stream, checked like the runner's own run.
+		try {
+			out = digestOutcome(f.output, boundary(job));
+		} catch (e) {
+			out = failed(e);
+		}
+	} else if (summary) out = { action: "notify", status: "ok", detail: summary, text: `${summary}\n${f.output}` };
 	else out = { action: "notify", status: "ok", detail: f.output, text: f.output };
 	const line = settle(name, fire, at, out);
 	return `${out.status} ${name} ${fire}: ${line}`;
