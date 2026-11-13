@@ -18,6 +18,8 @@ export interface AgentEntry {
 	push?: boolean;
 	since?: string;
 	generation?: string;
+	/** Added with `--generation`: the reporter stamps this id on every event, and only those events are this registration's. */
+	stamped?: boolean;
 	migratedGeneration?: string;
 }
 
@@ -43,15 +45,18 @@ export function writeAgents(agents: AgentEntry[]): void {
  * expects, whom it tells and how, what it closes) is a then on the live row the session works for, fired by the
  * session's next RESULT: the result card comes back with the plan, and the row cannot be closed until it is done.
  */
-export function addAgent(a: { name: string; mux: string; pane: string; row: string; then: string; host?: string; result?: string; goal?: string; push?: boolean }): string {
+export function addAgent(a: { name: string; mux: string; pane: string; row: string; then: string; host?: string; result?: string; goal?: string; push?: boolean; generation?: string }): string {
 	if (!MUXES.includes(a.mux)) throw new InboxError(`--mux must be one of ${MUXES.join(", ")}`);
+	if (a.generation !== undefined && !/^[A-Za-z0-9-]{8,64}$/.test(a.generation)) throw new InboxError(`--generation must be 8-64 letters, digits or dashes, as WAYNE_AGENT_GENERATION was`);
 	const entry: AgentEntry = { name: a.name, mux: a.mux, host: a.host || "local", pane: a.pane };
 	if (a.result) entry.result = a.result;
 	if (a.goal) entry.goal = clean(a.goal);
 	if (a.push) entry.push = true;
 	// Seconds, not minutes: the push tailer tells a re-registration of the same name by a changed `since`.
 	entry.since = stamp(new Date(), true);
-	entry.generation = randomUUID();
+	// The launch's own id when the session was started with WAYNE_AGENT_GENERATION: its events carry it.
+	entry.generation = a.generation ?? randomUUID();
+	if (a.generation) entry.stamped = true;
 	// Under the rules lock, so the plan is armed only for the registration that is written, and a racing add of the
 	// same name cannot cancel a plan it did not replace.
 	return withRulesLock(() => {

@@ -16,6 +16,7 @@ const { checkThens, readThens } = await jiti.import("../cli/thens.ts");
 const { readAgents, removeAgents, writeAgents } = await jiti.import("../cli/agents.ts");
 const { readTsv } = await jiti.import("../cli/ledger.ts");
 const { parseStamp } = await jiti.import("../cli/jobs.ts");
+const { AgentTailer } = await jiti.import("../agents.ts");
 
 const RULES = `github:
   acme/app:
@@ -98,6 +99,36 @@ await check("an agent's plan fires only on a RESULT of its own registration", as
 	await result(current, 2);
 	await checkThens({ now: T0 });
 	ok(thenRows()[0].note.includes("you owe: new plan [RESULT status: done (row #"), thenRows()[0].note);
+});
+
+await check("agent add --generation records the launch's id, and a re-add of that launch replaces its own plan", async () => {
+	const id = await row();
+	await rejects(inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan", "--generation", "-oProxy"]), /--generation must be/);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan one", "--generation", "launch-0001"]);
+	deepStrictEqual(readAgents().map((a) => [a.generation, a.stamped]), [["launch-0001", true]]);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan two", "--generation", "launch-0001"]);
+	deepStrictEqual(readThens().filter((t) => !t.done).map((t) => [t.action, t.generation]), [["plan two", "launch-0001"]]);
+});
+
+await check("a replaced launch's late RESULT neither fires the replacement's plan nor removes it; its own RESULT does both", async () => {
+	const id = await row();
+	const add = (generation, plan) => inbox(["agent", "add", "fixer", "--push", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", plan, "--generation", generation]);
+	await add("launch-old-01", "old plan");
+	await add("launch-new-01", "new plan");
+	const warnings = [];
+	const tailer = new AgentTailer({ dir: home, inbox, warn: (w) => warnings.push(w) });
+	const event = (generation, seq) => JSON.stringify({ v: 1, ts: new Date().toISOString(), name: "fixer", generation, pid: 1, session: "s", seq, type: "result", text: "done", result: { status: "done", path: "/r" } });
+	writeFileSync(join(home, "agent-events.jsonl"), `${event("launch-old-01", 1)}\n`);
+	tailer.start();
+	await tailer.poke();
+	deepStrictEqual(await checkThens({ now: T0 }), [], "the old launch's RESULT fires nothing");
+	deepStrictEqual(readAgents().map((a) => a.generation), ["launch-new-01"], "and removes nothing");
+	writeFileSync(join(home, "agent-events.jsonl"), `${event("launch-old-01", 1)}\n${event("launch-new-01", 2)}\n`);
+	await tailer.poke();
+	tailer.stop();
+	await checkThens({ now: T0 });
+	ok(thenRows()[0].note.includes("you owe: new plan [RESULT status: done"), thenRows()[0].note);
+	deepStrictEqual(readAgents(), [], "its own result retires it");
 });
 
 await check("adding the same agent again cancels its previous unfired plan", async () => {

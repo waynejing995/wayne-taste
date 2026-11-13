@@ -188,6 +188,26 @@ await check("a follow-up prompt to the old session after a re-registration belon
 	deepStrictEqual(f.calls.filter((c) => c[0] === "agent" && c[1] === "rm"), [["agent", "rm", "one", "--generation", "new"]]);
 }));
 
+await check("a late result from a replaced launch neither records a row nor removes the replacement", () => withFixture(async (f) => {
+	// The inbox never saw the old launch report before it was replaced: only the event's own generation says whose it is.
+	await f.start([{ ...f.watched(), generation: "launch-new" }]);
+	f.append(f.event("result", 1, { generation: "launch-old", text: "old round", result: { status: "done", path: "/old" } }));
+	await f.tailer.poke();
+	deepStrictEqual(f.tailer.entries.map((e) => e.generation), ["launch-new"]);
+	deepStrictEqual(f.calls.filter((c) => c[0] === "agent"), [], "the replacement is not removed");
+	deepStrictEqual([...f.rows.keys()], [], "no row, so no plan of the replacement fires");
+}));
+
+await check("a stamped registration ignores events with no generation; its own events still count", () => withFixture(async (f) => {
+	await f.start([{ ...f.watched(), generation: "launch-new", stamped: true }]);
+	f.append(f.event("result", 1, { text: "legacy reporter", result: { status: "done", path: "/old" } }));
+	f.append(f.event("result", 2, { generation: "launch-new", text: "mine", result: { status: "done", path: "/new" } }));
+	await f.tailer.poke();
+	deepStrictEqual([...f.rows.keys()], ["agents:one:launch-new:session:2"]);
+	deepStrictEqual(f.calls.filter((c) => c[0] === "agent"), [["agent", "rm", "one", "--generation", "launch-new"]]);
+	ok(f.warnings.some((w) => /no generation/.test(w)), f.warnings.join("\n"));
+}));
+
 await check("a late result from the session that retired the old registration keeps the re-registration", () => withFixture(async (f) => {
 	const first = { ...f.watched(), generation: "old" };
 	await f.start([first]);

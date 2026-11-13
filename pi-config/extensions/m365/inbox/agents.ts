@@ -26,9 +26,12 @@ export interface Deps {
 	warn?: (msg: string) => void;
 }
 
-interface Entry { name: string; host: string; mux: string; since?: string; generation?: string; goal?: string; result?: string; push?: boolean }
+/** `stamped`: added with `--generation`, the id its launch's reporter stamps on every event (WAYNE_AGENT_GENERATION). */
+interface Entry { name: string; host: string; mux: string; since?: string; generation?: string; stamped?: boolean; goal?: string; result?: string; push?: boolean }
 interface Event {
 	v: number; ts: string; name: string; pid: number; session: string; seq: number; type: string; text?: string;
+	/** The launch it belongs to, from WAYNE_AGENT_GENERATION. Absent from reporters launched without one. */
+	generation?: string;
 	/** On `working`: false when no prompt started the turn (an extension's message did). Absent from older reporters. */
 	prompted?: boolean;
 	ask?: { kind: string; question: string; options?: string[] };
@@ -116,6 +119,23 @@ function rowSays(ev: Event): string {
 	if (ev.type === "ask") return `${ev.ask?.question ?? ev.text ?? ""}\n${(ev.ask?.options ?? []).join("\n")}`;
 	if (ev.type === "result") return ev.result?.open ?? "";
 	return ev.text ?? "";
+}
+
+/**
+ * Whose event is it? A registration added with `--generation` owns only the events its launch stamped with that id;
+ * one added without (a session launched before generations) owns only events stamped with none. So an event with no
+ * generation never reaches a stamped registration, and a replaced launch's late event never reaches its replacement.
+ */
+function owns(entry: Entry, ev: Event): boolean {
+	return entry.stamped ? ev.generation === entry.generation : ev.generation === undefined;
+}
+
+function hold(state: NameState, host: string, ev: Event, warn: (msg: string) => void): void {
+	(state.pending ??= []).push({ host, event: ev });
+	if (state.pending.length > PENDING_MAX) {
+		state.pending.shift();
+		warn(`${ev.name}: more than ${PENDING_MAX} events held; dropped the oldest`);
+	}
 }
 
 export function readEntries(text: string, dir: string): Entry[] {
@@ -322,8 +342,10 @@ export class AgentTailer {
 				old.generation = entry.generation;
 				continue;
 			}
-			const pending = (old?.pending ?? []).filter((item) => item.host === entry.host);
-			if (pending.length < (old?.pending?.length ?? 0)) this.warn(`${entry.name}: dropped events from another host that arrived before registration`);
+			const sameHost = (old?.pending ?? []).filter((item) => item.host === entry.host);
+			if (sameHost.length < (old?.pending?.length ?? 0)) this.warn(`${entry.name}: dropped events from another host that arrived before registration`);
+			const pending = sameHost.filter((item) => owns(entry, item.event));
+			if (pending.length < sameHost.length) this.warn(`${entry.name}: dropped ${sameHost.length - pending.length} held events of another launch than registration ${entry.generation}`);
 			// Only a session that reported under an earlier registration; events held before any registration are its own.
 			const running = old?.generation !== undefined && old.session !== undefined && !old.removed && old.session !== old.retiredAt?.session;
 			const retiredAt = running ? { session: old.session!, seq: old.seq ?? 0 } : old?.retiredAt;
@@ -470,6 +492,15 @@ export class AgentTailer {
 		const entry = this.entries.find((item) => item.name === ev.name);
 		if (entry && entry.host !== host) return;
 		const seen = Date.parse(ev.ts) || this.now();
+		if (entry && !owns(entry, ev)) {
+			// Another launch's event: never this registration's row, removal or state. It may be a newer launch reporting
+			// before its own `agent add`, so it is held; a registration it does not belong to drops it (refresh).
+			const state: NameState = this.names[ev.name] ?? { state: "registered", lastSeen: seen, host, since: entry.since, generation: entry.generation };
+			if (!held) this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} from ${ev.generation ? `launch ${ev.generation}` : "a reporter with no generation"} is not registration ${entry.generation}; held until a registration it belongs to`);
+			hold(state, host, ev, this.warn);
+			this.names[ev.name] = state;
+			return;
+		}
 		const current: NameState = this.names[ev.name] ?? { state: "registered", lastSeen: seen, host };
 		const row = rowFor(ev);
 		// No repeats: a card saying what the last card for this name said (same question, same RESULT status and open items,
@@ -550,11 +581,7 @@ export class AgentTailer {
 			delete current.pending;
 		} else if (!live && ev.type !== "hb" && !finished) {
 			// Not registered (yet, or again after retiring): kept until the name is registered, then recorded in order.
-			(current.pending ??= []).push({ host, event: ev });
-			if (current.pending.length > PENDING_MAX) {
-				current.pending.shift();
-				this.warn(`${ev.name}: more than ${PENDING_MAX} events before registration; dropped the oldest`);
-			}
+			hold(current, host, ev, this.warn);
 		}
 	}
 
