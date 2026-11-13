@@ -50,7 +50,7 @@ Until step 2 a session shows one warning naming `/inbox setup`; no job runs and 
 
 `bin/inbox` runs `inbox/cli/` on plain node (`bin/strip-types.mjs` strips the types at load: no build step, and
 unlike `--experimental-strip-types` it works under `node_modules`, where omp links the plugin). `bin/inbox --help`
-lists the commands: `ls`, `add`, `set`, `done`, `ask`, `fact`, `facts`, `places`, `then`, `then-done`, `agent add|rm|ls|probe`,
+lists the commands: `ls`, `add`, `set`, `done`, `ask`, `fact`, `places`, `then`, `then-done`, `agent add|rm|ls|probe`,
 `schedule add|ls|rm|enable|disable|run|pending|show|exec|finish|widget`, `setup`. The plugin calls the same code
 in-process.
 

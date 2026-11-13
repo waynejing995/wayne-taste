@@ -77,15 +77,6 @@ const until = async (pred, ms = 5000) => {
 	const done = await client.callTool({ name: "inbox_done", arguments: { ids: ["1"], note: "test" } });
 	check("inbox_done archives it", () => deepStrictEqual(done.isError ?? false, false));
 
-	// fact -> facts through the real CLI: the recorded fact is listed back, and --grep (case-insensitive) filters.
-	const fact = await client.callTool({ name: "inbox_fact", arguments: { text: "Deploys need a ticket", key: "f1" } });
-	const facts = await client.callTool({ name: "inbox_facts", arguments: { grep: "TICKET" } });
-	const none = await client.callTool({ name: "inbox_facts", arguments: { grep: "no such fact" } });
-	check("inbox_fact records a fact and inbox_facts lists it", () =>
-		deepStrictEqual([fact.isError ?? false, facts.isError ?? false, /Deploys need a ticket/.test(facts.content[0]?.text ?? "")], [false, false, true]),
-	);
-	check("inbox_facts --grep leaves out facts that do not match", () => deepStrictEqual([none.isError ?? false, /Deploys/.test(none.content[0]?.text ?? "")], [false, false]));
-
 	const bad = await client.callTool({ name: "inbox_set", arguments: { ids: [] } });
 	check("arguments are validated against the schema", () => deepStrictEqual([bad.isError, /invalid arguments for inbox_set: \/ids/.test(bad.content[0].text)], [true, true]));
 
