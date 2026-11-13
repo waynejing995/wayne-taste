@@ -183,7 +183,7 @@ export function withRulesLock<T>(fn: () => T): T {
 }
 
 /** ledger.tsv's rows under the ledger lock. `save` writes them back. Waits past the stale age, so a dead holder never blocks. */
-function withLedger<T>(fn: (rows: Row[], save: (rows: Row[]) => void) => T): T {
+export function withLedger<T>(fn: (rows: Row[], save: (rows: Row[]) => void) => T): T {
 	return withLock(inboxFile("ledger.tsv.lock"), LOCK_STALE_MS + 2000, () => {
 		const file = inboxFile("ledger.tsv");
 		return fn(readTsv(file), (rows) => writeTsv(file, rows));

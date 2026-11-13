@@ -4,11 +4,11 @@
  * Writes share the ledger lock and land through a temp file renamed over facts.md.
  */
 import * as fs from "node:fs";
-import { clean, doneRows, inboxFile, listRows, readTsv, stamp, withLock, type Row } from "./ledger.ts";
+import { clean, doneRows, inboxFile, listRows, readTsv, stamp, withLedger, withLock, type Row } from "./ledger.ts";
 import { InboxError } from "./ledger.ts";
 
 export const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
-const SECRET = /(?:password|passwd|secret|token|api[-_ ]?key)(?:\s*[:=]\s*|\s+)(?!(?:lives|is|are|stored|kept)\b)[A-Za-z0-9_./+=-]{8,}/i;
+const SECRET = /(?:(?:password|passwd|pw|secret|token|api[-_ ]?key)(?:\s*[:=]|\s+(?:is|was)?|-)\s*(?!in\b|stored\b|kept\b|owned\b|goes\b|lives\b|are\b)(?!\b[A-Za-z]+\b)(?=\S*\d|\S*[^A-Za-z\s])\S{4,}|Bearer\s+[A-Za-z0-9_-]{8,}|\b(?:ghp|sk)[_-][A-Za-z0-9_-]{8,}|\bxox[bp]-[A-Za-z0-9-]{8,})/i;
 
 export interface Fact {
 	kind: string;
@@ -87,7 +87,7 @@ function checkFact(kind: string, key: string, text: string, source: string): voi
 	if (!KEY_RE.test(key)) throw new InboxError("--key must be lowercase words, digits, dots, underscores, or dashes");
 	checkLine("text", text);
 	checkLine("source", source);
-	if (kind === "cred" && SECRET.test(text)) throw new InboxError("a cred fact names where the credential lives, never its value");
+	if ([key, text, source].some((value) => SECRET.test(value))) throw new InboxError("a fact names where the credential lives, never its value");
 }
 
 /** Insert or replace one fact. The replaced text stays as `superseded:`. */
@@ -99,7 +99,10 @@ export function upsertFact(kind: string, key: string, text: string, source: stri
 	checkFact(cleanKind, cleanKey, cleanText, cleanSource);
 	return mutate((facts) => {
 		const old = facts.find((fact) => fact.kind === cleanKind && fact.key === cleanKey);
-		const next: Fact = { kind: cleanKind, key: cleanKey, text: cleanText, source: cleanSource, since: old?.since ?? at.slice(0, 10), superseded: old ? [old.text, ...old.superseded] : [] };
+		if (facts.some((fact) => [fact.key, fact.text, fact.source].some((value) => SECRET.test(value)))) throw new InboxError("a fact names where the credential lives, never its value");
+		const history = (old?.superseded ?? []).filter((text) => !SECRET.test(text));
+		if (old && !SECRET.test(old.text)) history.unshift(old.text);
+		const next: Fact = { kind: cleanKind, key: cleanKey, text: cleanText, source: cleanSource, since: old?.since ?? at.slice(0, 10), superseded: history };
 		saveFacts(old ? facts.map((fact) => fact === old ? next : fact) : [...facts, next]);
 		return old ? `updated ${cleanKind}:${cleanKey}` : `added ${cleanKind}:${cleanKey}`;
 	});
@@ -146,15 +149,30 @@ export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).sp
 		if (!old || row.first_seen > old.first_seen || (row.first_seen === old.first_seen && Number(row.id) > Number(old.id))) newest.set(key, row);
 	}
 	const existing = readFacts();
+	const redacted: string[] = [];
 	for (const row of newest.values()) {
 		const key = factKey(row);
 		const current = existing.find((fact) => fact.key === key);
 		if (current && current.since > row.first_seen.slice(0, 10)) continue;
+		if (SECRET.test(`${key} ${row.subject} ${row.source} ${row.note}`)) {
+			redacted.push(row.id);
+			continue;
+		}
 		upsertFact(mappedKind(row), key, row.subject, [row.source, row.note, row.first_seen].filter(Boolean).join(" "), row.first_seen);
 	}
-	const ids = facts.map((row) => row.id);
-	if (ids.length) doneRows(ids, "moved to facts.md");
-	return { written: newest.size, closed: ids };
+	if (redacted.length) {
+		withLedger((rows, save) => {
+			for (const row of rows.filter((row) => redacted.includes(row.id))) {
+				row.subject = "[redacted: credential value]";
+				row.note = "redacted because the row held a credential value";
+			}
+			save(rows);
+		});
+		doneRows(redacted);
+	}
+	const cleanIds = facts.map((row) => row.id).filter((id) => !redacted.includes(id));
+	if (cleanIds.length) doneRows(cleanIds, "moved to facts.md");
+	return { written: newest.size - redacted.length, closed: facts.map((row) => row.id) };
 }
 
 /** Read rows directly for the migration script, including a copied inbox directory. */

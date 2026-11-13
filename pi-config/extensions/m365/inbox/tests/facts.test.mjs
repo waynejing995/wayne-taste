@@ -140,4 +140,29 @@ await check("malformed keys and metadata-shaped text are rejected or round-trip"
 	}
 });
 
+await check("secrets are rejected in every field and scrubbed from history", async () => {
+	const accepted = ["CI token lives in the release vault", "the password is in the team vault", "the API key is stored in 1Password under ci-bot", "token rotation is owned by Ops", "password reset goes through the IT portal"];
+	for (const text of accepted) await inbox(["fact", "--kind", "info", "--key", `pointer-${accepted.indexOf(text)}`, "--", text]);
+	const rejected = ["the password is hunter2X", "pw is s3cr3t!", "password: hunter2", "token=abc123", "Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature", "api key: sk-live-1234567890abcdef", "ghp_1234567890abcdefghij", "xoxb-1234567890-abcdefghij"];
+	for (const text of rejected) await rejects(() => inbox(["fact", "--kind", "decision", "--key", "release-window", "--", text]), /never its value/);
+	await rejects(() => inbox(["fact", "--kind", "info", "--key", "token-abc123456789", "--", "rotation owner"]), /never its value/);
+	await rejects(() => inbox(["fact", "--kind", "info", "--key", "owner", "--source", "password: hunter2", "--", "rotation owner"]), /never its value/);
+	const leaked = "## [info:old-secret]\n\npassword: hunter2\n\nsource: digest\nsince: 2026-11-13\n\n";
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), leaked);
+	await rejects(() => inbox(["fact", "--kind", "info", "--key", "safe-note", "--source", "digest", "--", "plain status"]), /never its value/);
+	strictEqual(readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8"), leaked);
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:old-secret]\n\nplain status\n\nsource: digest\nsince: 2026-11-13\nsuperseded: token=abc123\n\n");
+	await inbox(["fact", "--kind", "info", "--key", "old-secret", "--source", "digest", "--", "plain status"]);
+	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("token=abc123"));
+	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n7\tteams-fact:leaked\tthe password is hunter2X\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\twayne\t\t\n`);
+	const { migrateFacts } = await jiti.import("../cli/facts.ts");
+	const { readTsv } = await jiti.import("../cli/ledger.ts");
+	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+	ok(!readFacts().some((fact) => fact.key === "leaked"));
+	const archived = readTsv(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"))[0];
+	strictEqual(archived.subject, "[redacted: credential value]");
+	ok(archived.note.includes("credential value"));
+});
+
 if (failed) process.exit(1);
