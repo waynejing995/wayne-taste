@@ -27,9 +27,9 @@ function options(opts: Record<string, string | undefined>): string[] {
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: {} });
 
-/** `inbox fact` argv: the CLI requires `--kind` and has no `--link`. */
+/** `inbox fact` argv: the CLI requires `--kind` and has no `--link`; `--` keeps text that starts with `-` from reading as an option. */
 export function factArgv(p: { text: string; key: string; kind: string; source?: string; note?: string }): string[] {
-	return ["fact", p.text, ...options({ key: p.key, kind: p.kind, source: p.source, note: p.note })];
+	return ["fact", ...options({ key: p.key, kind: p.kind, source: p.source, note: p.note }), "--", p.text];
 }
 
 const recorded = {
@@ -86,6 +86,15 @@ export const inboxTools: ToolDef[] = [
 		parameters: Type.Object({ grep: Type.Optional(Type.String({ description: "Only facts that contain this" })) }),
 		async execute(_id, p) {
 			return text(await inbox(["facts", ...options({ grep: p.grep })]));
+		},
+	},
+	{
+		name: "inbox_fact_drop",
+		label: "Inbox Fact Drop",
+		description: "Remove one standing fact by key, or by kind:key, as `inbox fact-drop` does.",
+		parameters: Type.Object({ key: Type.String({ description: "The fact's key, or kind:key" }) }),
+		async execute(_id, p) {
+			return text(await inbox(["fact-drop", "--", p.key]));
 		},
 	},
 	{

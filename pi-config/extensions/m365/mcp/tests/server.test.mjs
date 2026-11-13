@@ -85,7 +85,7 @@ rules([]);
 	);
 	check("lists ten outlook_* tools", () => deepStrictEqual(names.filter((n) => n.startsWith("outlook_")).length, 10));
 	check("lists the inbox tools", () =>
-		deepStrictEqual(names.filter((n) => n.startsWith("inbox_")).sort(), ["inbox_ask", "inbox_done", "inbox_fact", "inbox_facts", "inbox_ls", "inbox_set", "inbox_watch"]),
+		deepStrictEqual(names.filter((n) => n.startsWith("inbox_")).sort(), ["inbox_ask", "inbox_done", "inbox_fact", "inbox_fact_drop", "inbox_facts", "inbox_ls", "inbox_set", "inbox_watch"]),
 	);
 	check("every tool has an object input schema", () => deepStrictEqual(tools.filter((t) => t.inputSchema?.type !== "object").map((t) => t.name), []));
 	check("claude/channel is always declared", () => deepStrictEqual(client.getServerCapabilities()?.experimental, { "claude/channel": {} }));
@@ -94,7 +94,7 @@ rules([]);
 	check("inbox_fact offers the fact kinds", () => deepStrictEqual(fact.inputSchema.properties.kind.anyOf.map((k) => k.const), ["endpoint", "cred", "decision", "owed", "info"]));
 	check("inbox_fact requires a kind, as `inbox fact` does", () => deepStrictEqual([fact.inputSchema.required.includes("kind"), "link" in fact.inputSchema.properties], [true, false]));
 	check("inbox_fact passes --kind", () =>
-		deepStrictEqual(factArgv({ text: "Deploys need a ticket", key: "f1", kind: "decision" }), ["fact", "Deploys need a ticket", "--key", "f1", "--kind", "decision"]),
+		deepStrictEqual(factArgv({ text: "Deploys need a ticket", key: "f1", kind: "decision" }), ["fact", "--key", "f1", "--kind", "decision", "--", "Deploys need a ticket"]),
 	);
 	const read = tools.find((t) => t.name === "teams_read");
 	const chats = tools.find((t) => t.name === "teams_chats");
@@ -108,6 +108,12 @@ rules([]);
 	check("inbox_fact records a fact inbox_facts lists", () =>
 		deepStrictEqual([put.isError ?? false, text(listed).includes("## [decision:deploy-ticket]"), text(listed).includes("Deploys need a ticket")], [false, true, true]),
 	);
+	const dashed = await client.callTool({ name: "inbox_fact", arguments: { text: "--help is what the CLI prints", key: "dash-text", kind: "info" } });
+	const dashedList = await client.callTool({ name: "inbox_facts", arguments: { grep: "dash-text" } });
+	check("inbox_fact stores text that starts with --", () => deepStrictEqual([dashed.isError ?? false, text(dashedList).includes("--help is what the CLI prints")], [false, true]));
+	const dropped = await client.callTool({ name: "inbox_fact_drop", arguments: { key: "dash-text" } });
+	const afterDrop = await client.callTool({ name: "inbox_facts", arguments: { grep: "dash-text" } });
+	check("inbox_fact_drop removes a fact, as inbox fact-drop does", () => deepStrictEqual([dropped.isError ?? false, text(dropped), text(afterDrop).includes("dash-text")], [false, "dropped info:dash-text", false]));
 
 	// A round trip through the inbox CLI: ask records a row, ls lists it, done archives it.
 	const asked = await client.callTool({ name: "inbox_ask", arguments: { text: "Ship it?", key: "t1" } });
