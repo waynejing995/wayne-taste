@@ -116,17 +116,24 @@ export function createServer(): Server {
 
 	const noPush = () => `${server.getClientVersion()?.name ?? "this client"} cannot receive pushed events (it neither advertises claude/channel nor is Claude Code)`;
 	const text = (t: string): ToolResult => ({ content: [{ type: "text", text: t }], details: {} });
+	/** Said on every watch tool: the server cannot see whether Claude Code registered the channel. */
+	const LIVE_ONLY =
+		" Over MCP this works only in an interactive Claude Code session started with " +
+		"--dangerously-load-development-channels server:m365: anywhere else (claude -p, a session without the flag, " +
+		"or an org policy that disables channels) Claude Code drops the cards silently, so start a watch only when the user asks in such a session.";
 
 	// A watch here delivers only through the channel; without one its cards would go nowhere.
 	const watchTool = tools.find((t) => t.name === "teams_watch")!;
 	const watchExecute = watchTool.execute.bind(watchTool);
+	watchTool.description += ` With action='start' and no chat_id or chat, the chats saved in rules.yaml are resumed, the self-chat included; one another session holds is skipped and named.${LIVE_ONLY}`;
 	watchTool.execute = async (id, params, signal, onUpdate, ctx) => {
-		const action = (params as { action?: string }).action;
-		if (action === "start" && !pushEvent) throw new Error(`teams_watch start is refused: ${noPush()}.`);
+		const p = params as { action?: string; chat_id?: string; chat?: string };
+		if (p.action === "start" && !channel) throw new Error(`teams_watch start is refused: ${noPush()}.`);
+		if (p.action === "start" && channel && !p.chat_id && !p.chat) return text(await channel.resume());
 		const result = await watchExecute(id, params, signal, onUpdate, ctx);
-		if (action !== "list" || !channel?.held.length) return result;
+		if (p.action !== "list" || !channel?.held.length) return result;
 		const held = channel.held.map((h) => `- ${h.label}  id: ${h.chatId}\n  held by ${describeOwner(h.owner)}`).join("\n");
-		return { ...result, content: [...result.content, { type: "text", text: `Saved watches skipped at start (another session holds them):\n${held}` }] };
+		return { ...result, content: [...result.content, { type: "text", text: `Saved watches skipped by the last resume (another session holds them):\n${held}` }] };
 	};
 
 	tools.push({
@@ -135,7 +142,7 @@ export function createServer(): Server {
 		description:
 			"Push the user's inbox cards into this session, as omp's /inbox watch does: start takes the inbox lease when " +
 			"no other session holds it (otherwise it says who does, and takes nothing), stop releases it, status says " +
-			"who delivers the inbox. Start only when the user asks.",
+			`who delivers the inbox. Start only when the user asks.${LIVE_ONLY}`,
 		parameters: Type.Object({ action: Type.Union([Type.Literal("start"), Type.Literal("stop"), Type.Literal("status")], { description: "What to do" }) }),
 		async execute(_id, params) {
 			const action = (params as { action: "start" | "stop" | "status" }).action;

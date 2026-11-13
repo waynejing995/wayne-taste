@@ -154,7 +154,7 @@ rules([]);
 	check("an image without a file is saved and named by its path", () => deepStrictEqual([saved.map((c) => c.type), !!path && existsSync(path)], [["text", "text", "image"], true]));
 }
 
-// ── Saved watches: resumed at start, the self-chat included; a held chat is skipped, never taken ─────────────────
+// ── Saved watches: nothing at start; teams_watch start with no chat resumes them, a held chat skipped, never taken ──
 {
 	rules([
 		{ chat: "self-chat", id: "48:notes" },
@@ -164,29 +164,39 @@ rules([]);
 	const busy = await holdAs("19:busy@thread.v2", 999991);
 	const started = [];
 	const teams = { startWatch: async (_ctx, chatId) => (started.push(chatId), `Watching ${chatId}`), setWatchInterval: () => "", stopAllWatches: () => {} };
-	const channel = startChannel({ teams, context: {}, push: async () => {} });
+	const pushed = [];
+	const channel = startChannel({ teams, context: {}, push: async (e) => void pushed.push(e.kind) });
 	await sleep(300);
-	check("the saved chats are resumed, the self-chat included", () => deepStrictEqual(started.sort(), ["19:team@thread.v2", "48:notes"]));
+	const leaseAtStart = await ownerOf(LEASE_ID);
+	check("a started channel claims nothing: no watch, no inbox lease, no event", () => deepStrictEqual([started, leaseAtStart, pushed], [[], undefined, []]));
+	const summary = await channel.resume();
+	check("resume starts the saved chats, the self-chat included", () => deepStrictEqual(started.sort(), ["19:team@thread.v2", "48:notes"]));
 	check("a chat another session holds is skipped and named with its holder", () =>
-		deepStrictEqual(
-			channel.held.map((h) => [h.chatId, h.owner.pid]),
-			[["19:busy@thread.v2", 999991]],
-		),
+		deepStrictEqual([channel.held.map((h) => [h.chatId, h.owner.pid]), /Skipped "Busy": held by pid 999991/.test(summary)], [[["19:busy@thread.v2", 999991]], true]),
 	);
 	const still = (await ownerOf("19:busy@thread.v2"))?.pid;
 	const inboxFree = (await ownerOf(LEASE_ID)) === undefined;
-	check("its lock stays with its holder, and a start takes no inbox lease", () => deepStrictEqual([still, inboxFree], [999991, true]));
+	check("its lock stays with its holder, and a resume takes no inbox lease", () => deepStrictEqual([still, inboxFree], [999991, true]));
 	channel.stop();
 
-	// Through the server: a Claude Code client's teams_watch list names the skipped chat and who holds it.
+	// Through the server: a Claude Code client claims nothing on connect; teams_watch start {} resumes, list names the held chat.
 	rules([{ chat: "Busy", id: "19:busy@thread.v2" }]);
-	const { client, server } = await connect("claude-code");
-	let list;
-	for (const end = Date.now() + 5000; Date.now() < end; await sleep(100)) {
-		list = await client.callTool({ name: "teams_watch", arguments: { action: "list" } });
-		if (/held by/.test(text(list))) break;
-	}
-	check("teams_watch list shows the skipped chat as held by its pid", () => deepStrictEqual(/Busy.*held by pid 999991/s.test(text(list)), true));
+	const { client, server, events } = await connect("claude-code");
+	await sleep(300);
+	const owners = (await listOwners()).filter((o) => o.pid === process.pid);
+	check("a Claude Code client connecting claims nothing and gets no event", () => deepStrictEqual([owners, events.filter((e) => e.method === "notifications/claude/channel")], [[], []]));
+	const resumed = await client.callTool({ name: "teams_watch", arguments: { action: "start" } });
+	const list = await client.callTool({ name: "teams_watch", arguments: { action: "list" } });
+	check("teams_watch start with no chat resumes the saved list, and list shows the held chat by pid", () =>
+		deepStrictEqual([resumed.isError ?? false, /Skipped "Busy"/.test(text(resumed)), /Busy.*held by pid 999991/s.test(text(list))], [false, true, true]),
+	);
+	const { tools } = await client.listTools();
+	check("teams_watch and inbox_watch say they work only in an interactive dev-channel session", () =>
+		deepStrictEqual(
+			["teams_watch", "inbox_watch"].map((n) => /--dangerously-load-development-channels server:m365/.test(tools.find((t) => t.name === n).description)),
+			[true, true],
+		),
+	);
 	await server.close();
 	busy.close();
 	rules([]);

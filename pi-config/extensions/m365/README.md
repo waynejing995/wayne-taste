@@ -97,13 +97,16 @@ FactsFile branch adds: until it lands, the tool returns the CLI's own error.
   - `inbox`: new `notify`/`do` ledger rows, after `inbox_watch start`.
   - `notice`: what the channel resumed or skipped.
 
-  Watching is on when you turn it on:
-  - At start the server resumes the chats saved in `rules.yaml` (`teams_watch`), the self-chat included; the list is
-    read, never rewritten here. A chat another session holds (a running omp) is skipped, never taken: its name and
-    holder go to stderr, and `teams_watch list` shows it as held by that pid.
-  - Any other chat: `teams_watch start`, the self-chat too when you ask for it.
-  - The inbox: `inbox_watch start|stop|status`, omp's `/inbox watch` with the same lease and cursor. If another
-    session holds the lease, it says who and takes nothing.
+  Nothing is watched until you ask. Claude Code sends the same handshake whether or not it registered the channel,
+  and a `claude -p` run or a session without the dev-channel flag drops every event silently, so the server cannot
+  tell a live channel from a dead one and claims nothing when it starts. Ask, in an interactive session started with
+  `--dangerously-load-development-channels server:m365`:
+  - `teams_watch start` with no chat: resume the chats saved in `rules.yaml` (`teams_watch`), the self-chat included;
+    the list is read, never rewritten here. A chat another session holds (a running omp) is skipped, never taken:
+    the reply and stderr name it and its holder, and `teams_watch list` shows it as held by that pid.
+  - `teams_watch start` with a chat: that chat, the self-chat too when you ask for it.
+  - `inbox_watch start|stop|status`: omp's `/inbox watch` with the same lease and cursor. If another session holds
+    the lease, it says who and takes nothing.
 
   The server's instructions tell Claude to reply with `teams_send` and carry the untrusted-content rules of the
   omp cards. A client that cannot take pushes (Codex, Cursor) gets the tools; `teams_watch start` and
@@ -129,9 +132,6 @@ Claude Code shows the pushed events:
 claude --dangerously-load-development-channels server:m365
 ```
 
-**Codex**: `~/.codex/config.toml`:
-
-```toml
 **Turn gate** (Claude Code only): a channel event arrives as a prompt, so Claude Code's `UserPromptSubmit` hooks see
 it. `mcp/claude-code-hooks.json` is a `type: "prompt"` hook that does omp's turn gate there: a `kind="card"` event
 from a chat with a policy goes ahead only when, under that policy, a message needs the agent; otherwise the turn is
@@ -145,6 +145,9 @@ jq --slurpfile h <wayne-skills>/pi-config/extensions/m365/mcp/claude-code-hooks.
   '.hooks.UserPromptSubmit += $h[0].hooks.UserPromptSubmit' .claude/settings.json > /tmp/s.json && mv /tmp/s.json .claude/settings.json
 ```
 
+**Codex**: `~/.codex/config.toml`:
+
+```toml
 [mcp_servers.m365]
 command = "bun"
 args = ["<wayne-skills>/pi-config/extensions/m365/mcp/server.ts"]

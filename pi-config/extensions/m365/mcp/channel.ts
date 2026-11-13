@@ -2,11 +2,13 @@
  * Claude Code's channel: the Teams watch and the inbox cards pushed into the session as
  * `notifications/claude/channel` events, the way omp adds teams-watch and inbox cards to its conversation.
  *
- * The channel starts when a client that can take pushes connects. It resumes the chats saved in
- * ~/.wayne/inbox/rules.yaml (teams_watch), the self-chat included; the list is read, never rewritten here. A chat whose
- * per-chat lock another session holds (a running omp) is skipped, never taken: its name and holder go to stderr and to
- * `held`, which teams_watch list shows. Any other chat is watched only on a teams_watch start call, and the inbox only
- * on an inbox_watch start call, which takes omp's /inbox watch lease when it is free and otherwise says who holds it.
+ * Nothing is claimed when the server starts. Claude Code sends the same handshake whether or not it registered the
+ * channel (a `claude -p` run, or a session started without --dangerously-load-development-channels, drops every event
+ * silently), and it never acknowledges an event, so the server cannot tell a live channel from a dead one. A watch or
+ * the inbox is claimed only when the user asks in a session that shows the events: `teams_watch start` with a chat,
+ * `teams_watch start` with none to resume the chats saved in ~/.wayne/inbox/rules.yaml (self-chat included; the list
+ * is read, never rewritten here), and `inbox_watch start`. A saved chat whose per-chat lock another session holds (a
+ * running omp) is skipped, never taken: its name and holder go to stderr and to `held`, which teams_watch list shows.
  * Cursors, card text and the per-chat lock are the Teams core's.
  */
 import * as fs from "node:fs";
@@ -45,8 +47,10 @@ export interface HeldChat {
 }
 
 export interface Channel {
-	/** Saved chats skipped at start; filled while the resume runs. */
+	/** Saved chats the last resume skipped, because another session holds their lock. */
 	held: HeldChat[];
+	/** teams_watch start with no chat: start the saved chats this session can take; says what it started and skipped. */
+	resume(): Promise<string>;
 	/** inbox_watch: omp's /inbox watch, same lease, cursor and card. */
 	inbox: { start(): Promise<string>; stop(): string; status(): Promise<string> };
 	/** Stops every source and releases every lock. */
@@ -63,46 +67,46 @@ export const CHANNEL_INSTRUCTIONS = [
 ].join("\n\n");
 
 /**
- * Starts the channel and resumes the saved watches. Once stopped, nothing more is claimed, pushed or written: a start
- * or send still in flight finishes into nothing, so the session that takes the chats or the inbox next owns them alone.
+ * The channel, claiming nothing yet. Once stopped, nothing more is claimed, pushed or written: a start or send still in
+ * flight finishes into nothing, so the session that takes the chats or the inbox next owns them alone.
  */
 export function startChannel(opts: { teams: TeamsWatches; context: ToolContext; push: Push }): Channel {
 	const { teams, context, push } = opts;
 	const stopped = new AbortController();
 	const { signal } = stopped;
 	const held: HeldChat[] = [];
-	const notice = (text: string, meta: Record<string, string> = {}) => {
-		console.error(`[m365] channel: ${text}`);
-		if (!signal.aborted) logFailure(push({ kind: "notice", content: text, meta: { sender: "m365", ...meta } }));
-	};
 
-	void (async () => {
-		try {
-			const saved = savedWatches();
-			if (saved.chats.length === 0) return;
-			if (saved.interval_sec !== undefined) teams.setWatchInterval(saved.interval_sec, false);
-			const owners = await listOwners();
-			for (const w of saved.chats) {
-				if (signal.aborted) return;
-				const owner = owners.find((o) => o.chatId === w.chat_id && o.pid !== process.pid);
-				if (owner) {
-					held.push({ chatId: w.chat_id, label: w.chat, owner });
-					console.error(`[m365] channel: skipped "${w.chat}" (${w.chat_id}): held by ${describeOwner(owner)}`);
-					continue;
-				}
-				try {
-					const started = await teams.startWatch(context, w.chat_id, undefined, w.policy, false);
-					// Stopped while that watch was starting: it was not running yet when the watches were stopped.
-					if (signal.aborted) return teams.stopAllWatches();
-					notice(started, { chat_id: w.chat_id, policy: w.policy });
-				} catch (e) {
-					notice(`Skipped "${w.chat}": ${e instanceof Error ? e.message : e}`, { chat_id: w.chat_id, policy: w.policy });
-				}
+	async function resume(): Promise<string> {
+		const saved = savedWatches();
+		if (saved.chats.length === 0) return "No watch is saved in the teams_watch section of rules.yaml.";
+		if (saved.interval_sec !== undefined) teams.setWatchInterval(saved.interval_sec, false);
+		const owners = await listOwners();
+		held.length = 0;
+		const lines: string[] = [];
+		for (const w of saved.chats) {
+			if (signal.aborted) throw new Error("the channel stopped; nothing is watched");
+			const owner = owners.find((o) => o.chatId === w.chat_id && o.pid !== process.pid);
+			if (owner) {
+				held.push({ chatId: w.chat_id, label: w.chat, owner });
+				console.error(`[m365] channel: skipped "${w.chat}" (${w.chat_id}): held by ${describeOwner(owner)}`);
+				lines.push(`Skipped "${w.chat}": held by ${describeOwner(owner)}.`);
+				continue;
 			}
-		} catch (e) {
-			console.error(`[m365] channel: the saved watches were not resumed: ${e instanceof Error ? e.message : e}`);
+			try {
+				const started = await teams.startWatch(context, w.chat_id, undefined, w.policy, false);
+				// Stopped while that watch was starting: it was not running yet when the watches were stopped.
+				if (signal.aborted) {
+					teams.stopAllWatches();
+					throw new Error("the channel stopped; nothing is watched");
+				}
+				lines.push(started);
+			} catch (e) {
+				if (signal.aborted) throw e;
+				lines.push(`Skipped "${w.chat}": ${e instanceof Error ? e.message : e}`);
+			}
 		}
-	})();
+		return lines.join("\n");
+	}
 
 	let stopInbox: (() => void) | undefined;
 	let inboxStarting = false;
@@ -133,6 +137,7 @@ export function startChannel(opts: { teams: TeamsWatches; context: ToolContext; 
 
 	return {
 		held,
+		resume,
 		inbox,
 		stop() {
 			if (signal.aborted) return;
