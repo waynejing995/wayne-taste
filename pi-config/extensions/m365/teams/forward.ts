@@ -51,6 +51,9 @@ export interface Forward {
 /** An original message a forward points at, as the backend read it. */
 export interface Original {
 	sender: string;
+	/** Who sent it (a person's or a bot's id) and when, ISO: checked against what the forward itself says. */
+	senderId: string;
+	at: string;
 	html: string;
 	attachments: FwdAttachment[];
 }
@@ -154,10 +157,24 @@ function needsOriginal(f: Forward): boolean {
 	return Boolean(f.conversationId && f.messageId) && (CARD_STUB.test(f.html) || !f.html.trim() || (!f.sender && Boolean(f.appId)));
 }
 
+/**
+ * Whether `o` is the message the forward quotes. The reference is written by whoever sent the forward, so it could
+ * name any message the reader can see in any chat: only one whose sender and time both match the forward's own is used.
+ */
+function matches(f: Forward, o: Original): boolean {
+	const sender = f.senderId || f.appId;
+	const at = Date.parse(f.at);
+	return Boolean(sender) && sender === o.senderId && !Number.isNaN(at) && at === Date.parse(o.at);
+}
+
 /** The forward with what its original gives: the sender's name, and for a card stub the card and its body. */
 function withOriginal(f: Forward, originals: ReadonlyMap<string, Original>): Forward {
 	const o = needsOriginal(f) ? originals.get(originalKey(f.conversationId, f.messageId)) : undefined;
 	if (!o) return f;
+	if (!matches(f, o)) {
+		console.warn(`[teams] forwarded message ${f.messageId} in ${f.conversationId} does not match the forward's sender and time; showing the forward as sent`);
+		return f;
+	}
 	const stub = CARD_STUB.test(f.html) || !f.html.trim();
 	return { ...f, sender: f.sender || o.sender, ...(stub ? { html: o.html, attachments: o.attachments } : {}) };
 }

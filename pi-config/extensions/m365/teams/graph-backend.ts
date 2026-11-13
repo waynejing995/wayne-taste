@@ -72,7 +72,7 @@ interface RawMessage {
 	id?: string;
 	createdDateTime?: string;
 	messageType?: string;
-	from?: { user?: { id?: string; displayName?: string }; application?: { displayName?: string } } | null;
+	from?: { user?: { id?: string; displayName?: string }; application?: { id?: string; displayName?: string } } | null;
 	body?: { contentType?: string; content?: string };
 	mentions?: { mentioned?: { user?: { displayName?: string } }; mentionText?: string }[];
 	attachments?: RawAttachment[];
@@ -533,6 +533,8 @@ export class GraphBackend implements Backend {
 					const body = o.body ?? {};
 					this.originals.set(key, {
 						sender: msgSender(o) === "(system)" ? "" : msgSender(o),
+						senderId: o.from?.user?.id ?? o.from?.application?.id ?? "",
+						at: o.createdDateTime ?? "",
 						html: body.contentType === "html" ? (body.content ?? "") : `<p>${escapeHtml(body.content ?? "")}</p>`,
 						attachments: attachmentList(o),
 					});
