@@ -317,6 +317,23 @@ const fakeTeams = { startWatch: async () => "", setWatchInterval: () => "", stop
 	await sleep(500);
 	const leaked = await ownerOf(LEASE_ID);
 	check("a channel stopped while inbox_watch starts takes no inbox lease and pushes nothing", () => deepStrictEqual([leaked, late, /stopped/.test(String(outcome))], [undefined, [], true]));
+
+	// inbox_watch stop while its own start is still claiming: the claim must not land afterwards, and nothing is pushed.
+	const pushedLate = [];
+	const live = startChannel({ teams: fakeTeams, context: {}, push: async (event) => void pushedLate.push(event.kind) });
+	const pendingStart = live.inbox.start().catch((e) => e.message);
+	const stopReply = live.inbox.stop();
+	const startOutcome = await pendingStart;
+	await sleep(500);
+	const leakedByStop = await ownerOf(LEASE_ID);
+	const statusAfter = await live.inbox.status();
+	check("inbox_watch stop cancels a start still claiming: no inbox lease, no push", () =>
+		deepStrictEqual(
+			[leakedByStop, pushedLate, /before it took the inbox/.test(stopReply), /stopped while it was starting/.test(String(startOutcome)), /Nobody watches/.test(statusAfter)],
+			[undefined, [], true, true, true],
+		),
+	);
+	live.stop();
 }
 
 rmSync(tmp, { recursive: true, force: true });

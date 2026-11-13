@@ -108,28 +108,32 @@ export function startChannel(opts: { teams: TeamsWatches; context: ToolContext; 
 		return lines.join("\n");
 	}
 
-	let stopInbox: (() => void) | undefined;
-	let inboxStarting = false;
+	/** The current inbox_watch start: aborting it cancels a claim still pending as well as a running watch. */
+	let inboxRun: { abort: AbortController; started: boolean } | undefined;
 	const inbox = {
 		async start(): Promise<string> {
 			if (signal.aborted) throw new Error("the channel stopped; nothing is watched");
-			if (stopInbox || inboxStarting) return "Inbox cards are already pushed to this session.";
-			inboxStarting = true;
+			if (inboxRun) return inboxRun.started ? "Inbox cards are already pushed to this session." : "inbox_watch is already starting.";
+			const run = { abort: new AbortController(), started: false };
+			inboxRun = run;
 			try {
-				stopInbox = await watchInbox(push, signal);
-			} finally {
-				inboxStarting = false;
+				await watchInbox(push, AbortSignal.any([signal, run.abort.signal]));
+			} catch (e) {
+				if (inboxRun === run) inboxRun = undefined;
+				throw e;
 			}
+			run.started = true;
 			return `Inbox cards: new notify/do rows in ${DIR} are pushed here.`;
 		},
 		stop(): string {
-			if (!stopInbox) return "This session does not watch the inbox.";
-			stopInbox();
-			stopInbox = undefined;
-			return "Stopped pushing inbox cards; the lease is free for another session.";
+			const run = inboxRun;
+			if (!run) return "This session does not watch the inbox.";
+			inboxRun = undefined;
+			run.abort.abort();
+			return run.started ? "Stopped pushing inbox cards; the lease is free for another session." : "Stopped inbox_watch before it took the inbox; nothing is held.";
 		},
 		async status(): Promise<string> {
-			if (stopInbox) return `Inbox cards from ${DIR} are pushed to this session.`;
+			if (inboxRun?.started) return `Inbox cards from ${DIR} are pushed to this session.`;
 			const owner = (await listOwners()).find((o) => o.chatId === LEASE_ID);
 			return owner ? `The inbox is held by ${describeOwner(owner)}; this session does not watch it.` : "Nobody watches the inbox; inbox_watch start takes it.";
 		},
@@ -142,7 +146,7 @@ export function startChannel(opts: { teams: TeamsWatches; context: ToolContext; 
 		stop() {
 			if (signal.aborted) return;
 			stopped.abort();
-			stopInbox = undefined;
+			inboxRun = undefined;
 			teams.stopAllWatches();
 		},
 	};
@@ -156,20 +160,18 @@ export function logFailure(sent: Promise<void>): void {
 /**
  * Inbox cards, when no other session delivers them. Mirrors omp's /inbox watch: same lease, same cursor, same card.
  * The cursor moves only after the card was sent, so a failed send leaves its rows for the next scan (or for omp).
- * Throws, holding nothing, when the inbox is not set up, another session holds the lease, or `channel` fired while
- * claiming. Returns the stop; `channel` firing stops it too.
+ * Throws, holding nothing, when the inbox is not set up, another session holds the lease, or `signal` fired while
+ * claiming. `signal` (the channel's stop or this start's own) stops the watch and releases the lease.
  */
-async function watchInbox(push: Push, channel: AbortSignal): Promise<() => void> {
+async function watchInbox(push: Push, signal: AbortSignal): Promise<void> {
 	if (!isSetUp()) throw new Error(`Inbox cards not started: ${DIR} is not set up (run /inbox setup in omp).`);
 	const claimed = await claim({ chatId: LEASE_ID, label: "wayne inbox", pid: process.pid, sessionId: `mcp-${process.pid}`, cwd: process.cwd(), since: new Date().toISOString() });
 	if ("owner" in claimed) throw new Error(`Inbox cards not started: the inbox is already delivered to another session (${describeOwner(claimed.owner)}).`);
 	const { lease } = claimed;
-	if (channel.aborted) {
+	if (signal.aborted) {
 		lease.close();
-		throw new Error("the channel stopped while inbox_watch was starting; the inbox is not watched");
+		throw new Error("inbox_watch was stopped while it was starting; the inbox is not watched");
 	}
-	const own = new AbortController();
-	const signal = AbortSignal.any([channel, own.signal]);
 	initInbox();
 	const scanOnce = async () => {
 		try {
@@ -217,5 +219,4 @@ async function watchInbox(push: Push, channel: AbortSignal): Promise<() => void>
 		{ once: true },
 	);
 	scan();
-	return () => own.abort();
 }
