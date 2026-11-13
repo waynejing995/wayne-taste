@@ -501,8 +501,10 @@ export class AgentTailer {
 			// Another launch's event: never this registration's row, removal or state. It may be a newer launch reporting
 			// before its own `agent add`, so it is held; a registration it does not belong to drops it (refresh).
 			const state: NameState = this.names[ev.name] ?? { state: "registered", lastSeen: seen, host, since: entry.since, generation: entry.generation };
-			if (!held) this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} from ${ev.generation ? `launch ${ev.generation}` : "a reporter with no generation"} is not registration ${entry.generation}; held until a registration it belongs to`);
-			hold(state, host, ev, this.warn);
+			if (!held && ev.type !== "hb") this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} from ${ev.generation ? `launch ${ev.generation}` : "a reporter with no generation"} is not registration ${entry.generation}; held until a registration it belongs to`);
+			// A heartbeat says nothing to hold (as for an unregistered name); held, a replaced launch's heartbeats would
+			// fill the queue and push out a newer launch's early events.
+			if (ev.type !== "hb") hold(state, host, ev, this.warn);
 			this.names[ev.name] = state;
 			return;
 		}

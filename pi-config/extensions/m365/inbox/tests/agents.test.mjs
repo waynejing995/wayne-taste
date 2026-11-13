@@ -225,6 +225,16 @@ await check("a launch removed after its RESULT and added again in the same secon
 	equal(f.calls.filter((c) => c[0] === "agent").length, 2, "each round's done removes its own registration");
 }));
 
+await check("heartbeats of a replaced launch are not held, so they cannot push out a newer launch's early events", () => withFixture(async (f) => {
+	await f.start([{ ...f.watched(), generation: "launch-0002", stamped: true }]);
+	f.append(f.event("ask", 1, { generation: "launch-0003", ask: { kind: "ask", question: "which host?" } }));
+	for (let seq = 2; seq < 70; seq++) f.append(f.event("hb", seq, { generation: "launch-0001" }));
+	await f.tailer.poke();
+	f.writeRules([{ ...f.watched(), generation: "launch-0003", stamped: true }]);
+	await f.tailer.poke();
+	deepStrictEqual([...f.rows.keys()], ["agents:one:launch-0003:session:1"]);
+}));
+
 await check("a late result from the session that retired the old registration keeps the re-registration", () => withFixture(async (f) => {
 	const first = { ...f.watched(), generation: "old" };
 	await f.start([first]);
