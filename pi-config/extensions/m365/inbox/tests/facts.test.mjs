@@ -12,7 +12,7 @@ import { createJiti } from "../../tests/host.mjs";
 const jiti = createJiti(import.meta.url, { interopDefault: true });
 const { inbox } = await jiti.import("../cli/main.ts");
 const { readFacts } = await jiti.import("../cli/facts.ts");
-const { readTsv, withLock } = await jiti.import("../cli/ledger.ts");
+const { readTsv, stamp, withLock } = await jiti.import("../cli/ledger.ts");
 
 let failed = 0;
 async function check(label, fn) {
@@ -32,7 +32,7 @@ await check("upsert replaces one key and keeps superseded text", async () => {
 	const [fact] = readFacts();
 	strictEqual(fact.text, "Deploy after 19:00");
 	strictEqual(fact.superseded.join("|"), "Deploy after 18:00");
-	strictEqual(fact.since, new Date().toISOString().slice(0, 10));
+	strictEqual(fact.since, stamp().slice(0, 10));
 });
 
 await check("cred stores a location and rejects a value", async () => {
