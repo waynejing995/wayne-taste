@@ -62,7 +62,26 @@ in the inbox directory; `{{since}}` = the last successful run), or `tool` (`team
 (writes its own rows), have a `timeout`, or be judged (`--judge on`: a small model reads the output and answers
 INJECT or SKIP; omp uses the `tiny` role, pi the session model). No session open, no jobs: a missed fire runs once
 at the next tick. A long job never holds back the others: later ticks skip it while it runs. The template's jobs: `agent-probe` (`inbox agent probe`), `github-prs` (`bin/watch-prs.sh`;
-`bin/pr-ready.sh` answers "ready to merge?"), `teams-digest` (prompt job reading the watched Teams chats).
+`bin/pr-ready.sh` answers "ready to merge?"), `teams-digest` (prompt job reading every Teams chat active since the
+last verified run into `facts.md` and `ask` rows).
+
+`teams-digest` is checked, not trusted. Its prompt ends with `{{receipt}}`, which the runner replaces with the
+receipt the agent must print (`inbox/cli/digest.ts` holds both the text and the parser). The runner runs it with
+`--mode json` and checks the event stream: every chat `teams_chats active_since` listed, plus the self-chat, needs a
+successful `teams_read` over the whole window (`since` .. `until`), every middle omp elided from a long result must
+be read back from its `artifact://N`, and every `inbox ask|fact` must succeed. A window spans at most a day: a longer
+gap (a backfill, a week offline) is read one day per fire, each verified window moving `backfill_since` to its end
+and firing again at the next tick. Only the verified window that reaches the fire moves `last_ok` and clears
+`backfill_since`; a dispatch, skip, `schedule finish` without the stream, exit, timeout or unread chat keeps both
+and writes one `do` row per chat (`Teams digest could not fully read <chat> since <boundary>`). An older prompt
+without `{{receipt}}` fails until `bin/inbox rules-migrate` replaces it from the template (a watched-chats prompt
+also gets a 7-day `backfill_since`).
+
+End to end against real Teams (read-only, network, not in `npm test`): `node tests/e2e/digest.mjs --out DIR`. It
+runs `inbox schedule run --job teams-digest` with a real `omp` in temporary inboxes, from the template and from a
+migrated copy of `~/.wayne/inbox/rules.yaml` (`--live-rules FILE`; read, never written), and checks a first and an
+incremental run, the backfill window by window, and each failure path; `DIR/summary.json` lists every check, each
+step's files sit beside it.
 
 `inbox then <id> --when <trigger> -- <action>` keeps a promised follow-up on a live row (`pr-merged:`, `gh-run:`,
 `agent-result:`, `at:` triggers): when the trigger happens, a `do` card names what is owed; one reminder after 10
