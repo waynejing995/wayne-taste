@@ -3,11 +3,13 @@
  *
  * Every command returns its stdout text. A data or usage error is an InboxError: `Error: <message>` on stderr, exit 1.
  */
+import * as fs from "node:fs";
 import { addAgent, listAgents, MUXES, removeAgentsByName } from "./agents.ts";
 import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
-import { addEvent, doneRows, InboxError, listRows, places, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
+import { addEvent, doneRows, InboxError, inboxFile, listRows, places, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
 import { dropFact, FACT_KINDS, listFacts, upsertFact } from "./facts.ts";
 import { probeAgents } from "./probe.ts";
+import { migrateRules, migrateRulesText } from "./migrate-rules.ts";
 import { setup } from "./setup.ts";
 import { addThen, checkThens, guardDone, openThenLines, thenDone } from "./thens.ts";
 
@@ -247,6 +249,14 @@ const COMMANDS: Record<string, Command> = {
 	setup: {
 		help: "Make the inbox directory usable: rules.yaml from the template if missing, cursors, first fires; fail if an enabled job's tools are missing.",
 		run: () => setup(),
+	},
+	"rules-migrate": {
+		help: "Rewrite the known old teams-digest prompt and add backfill_since. --dry-run prints the result without writing.",
+		opts: { "dry-run": { flag: true } },
+		run: (p) => {
+			if (!p.flags["dry-run"]) return migrateRules();
+			return migrateRulesText(fs.readFileSync(inboxFile("rules.yaml"), "utf8")).text;
+		},
 	},
 };
 

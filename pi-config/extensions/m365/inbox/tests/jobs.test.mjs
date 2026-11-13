@@ -176,6 +176,30 @@ await check("a partial digest keeps the old boundary and the next run repeats it
 	ok((await jobs.runDue({ session: false }, at("2026-11-10 14:00")))[0].includes("2026-11-10 10:00") || jobs.readJobs()[0].last_ok === "2026-11-10 10:00");
 });
 
+await check("an old watch-only digest backfills unwatched history", async () => {
+	const rules = YAML.parse(readFileSync(join(home, "rules.yaml"), "utf8"));
+	rules.schedule = [{ name: "teams-digest", enabled: true, every: 120, last_ok: "2026-11-13 11:53", action: { kind: "prompt", text: "Read watched chats with limit 200 and inbox fact --key KEY -- TEXT" } }];
+	writeFileSync(join(home, "rules.yaml"), YAML.stringify(rules));
+	const migrated = YAML.parse(await run("rules-migrate", "--dry-run"));
+	const job = migrated.schedule[0];
+	ok(job.enabled === true && job.last_ok === "2026-11-13 11:53" && job.action.text.includes("active_since") && job.backfill_since < "2026-11-13 11:53");
+	writeFileSync(join(home, "rules.yaml"), YAML.stringify(migrated));
+	const all = jobs.readJobs();
+	all[0].next_fire = "2026-11-13 12:00";
+	jobs.writeJobs(all);
+	const previous = process.env.INBOX_AGENT;
+	const complete = join(bin, "complete-scan");
+	writeFileSync(complete, "#!/usr/bin/env node\nconst prompt = process.argv.at(-1);\nconsole.log(prompt);\nconsole.log(JSON.stringify({ complete: true, failed: [] }));\n");
+	chmodSync(complete, 0o755);
+	process.env.INBOX_AGENT = complete;
+	try {
+		await jobs.runDue({ session: false }, at("2026-11-13 12:00"));
+	} finally {
+		process.env.INBOX_AGENT = previous;
+	}
+	ok(rows()[0].note.includes(job.backfill_since), rows()[0].note);
+});
+
 await check("a job still running is left out of the next call, which runs the other due jobs", async () => {
 	await run("schedule", "add", "slow", "--every", "1", "--kind", "shell", "--timeout", "30", "--action", '["sleep", "3"]', "--quiet");
 	await run("schedule", "add", "fast", "--every", "1", "--kind", "shell", "--action", '["echo", "fast"]');

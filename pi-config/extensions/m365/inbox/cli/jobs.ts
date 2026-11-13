@@ -302,8 +302,9 @@ async function execute(job: Job, o: RunOptions): Promise<Outcome> {
 	let output: string;
 	if (a.kind === "shell") output = await runProcess(a.argv, timeoutSec(job), "shell");
 	else if (a.kind === "prompt") {
-		const since = job.last_ok ?? stamp(new Date(Date.now() - 24 * 3600_000));
+		const since = (job.backfill_since as string | undefined) ?? job.last_ok ?? stamp(new Date(Date.now() - 24 * 3600_000));
 		output = await runProcess(agentArgv(o.agent, a.text.replaceAll("{{since}}", since), job.tools), timeoutSec(job), "prompt", inboxDir());
+		if (job.backfill_since) delete job.backfill_since;
 	} else if (a.kind === "tool") {
 		if (!o.tool) throw new InboxError("tool jobs run only inside a live omp or pi session");
 		output = (await o.tool(a.name, a.args ?? {})).slice(0, OUTPUT_CAP);
