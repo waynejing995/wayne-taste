@@ -6,7 +6,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { strictEqual, rejects } from "node:assert/strict";
+import { ok, strictEqual, rejects } from "node:assert/strict";
 import { createJiti } from "../../tests/host.mjs";
 
 const jiti = createJiti(import.meta.url, { interopDefault: true });
@@ -69,6 +69,13 @@ await check("migration is idempotent and keeps the newest repeated key", async (
 	strictEqual(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")).length, 0);
 	strictEqual(readTsv(join(process.env.WAYNE_INBOX_DIR, "archive.tsv")).every((row) => row.note === "moved to facts.md"), true);
 	void script;
+});
+
+await check("migration refuses the default live directory", async () => {
+	const { spawnSync } = await import("node:child_process");
+	const script = new URL("../cli/migrate-facts.ts", import.meta.url);
+	const result = spawnSync(process.execPath, ["--experimental-strip-types", script.pathname, "--dry-run"], { encoding: "utf8" });
+	ok(result.status !== 0 && result.stderr.includes("--dir is required"), result.stderr);
 });
 
 if (failed) process.exit(1);

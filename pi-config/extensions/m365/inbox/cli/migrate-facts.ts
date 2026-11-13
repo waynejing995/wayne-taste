@@ -10,10 +10,10 @@ import { migrateFacts } from "./facts.ts";
 const args = process.argv.slice(2);
 const dirIndex = args.indexOf("--dir");
 const dir = dirIndex >= 0 ? args[dirIndex + 1] : undefined;
-if (dirIndex >= 0 && !dir) throw new Error("--dir requires a path");
-if (dir) process.env.WAYNE_INBOX_DIR = dir;
+if (!dir) throw new Error("--dir is required; point it at a copy, not the live inbox");
+process.env.WAYNE_INBOX_DIR = dir;
 
-const rows = readTsv(`${process.env.WAYNE_INBOX_DIR ?? ""}/ledger.tsv`.replace(/^\/ledger\.tsv$/, "ledger.tsv"));
+const rows = readTsv(`${dir}/ledger.tsv`);
 const openFacts = rows.filter((row) => row.tag === "teams-fact");
 if (args.includes("--dry-run")) {
 	const keys = new Set(openFacts.map((row) => row.key));
