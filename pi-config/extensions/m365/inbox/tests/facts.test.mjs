@@ -47,6 +47,11 @@ await check("fact writes use the ledger lock", async () => {
 	const started = spawnSync(process.execPath, ["--experimental-strip-types", "-e", "import('node:fs').then(fs=>fs.mkdirSync(process.argv[1])).then(()=>Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,1200))", lock], { timeout: 100 });
 	await rejects(() => inbox(["fact", "--kind", "info", "--key", "locked", "--", "waiting"]), /held by another writer/);
 	strictEqual(started.error?.code, "ETIMEDOUT");
+	process.env.INBOX_LOCK_WAIT_MS = "30";
+	const began = Date.now();
+	await rejects(() => inbox(["fact", "--kind", "info", "--key", "locked", "--", "waiting again"]), /held by another writer/);
+	ok(Date.now() - began < 500);
+	delete process.env.INBOX_LOCK_WAIT_MS;
 });
 
 await check("a malformed facts file is rejected before a write", async () => {

@@ -72,7 +72,7 @@ function saveFacts(facts: Fact[]): void {
 }
 
 function mutate<T>(fn: (facts: Fact[]) => T): T {
-	return withLock(inboxFile("ledger.tsv.lock"), 1000, () => fn(readFacts()));
+	return withLock(inboxFile("ledger.tsv.lock"), Number(process.env.INBOX_LOCK_WAIT_MS ?? 1000), () => fn(readFacts()));
 }
 
 function checkFact(kind: string, text: string): void {
