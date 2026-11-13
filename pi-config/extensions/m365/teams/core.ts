@@ -103,6 +103,11 @@ export function loadConfig(): TeamsConfig {
 	return cfg;
 }
 
+/** `active_since` describes current activity, so it must not reuse a cached chat list. */
+export function freshChatList(activeSince: string | undefined, refresh = false): boolean {
+	return refresh || activeSince !== undefined;
+}
+
 const cacheDir = path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "pi");
 const CHATS_CACHE = path.join(cacheDir, "teams-chats.json");
 const CHATS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -1310,7 +1315,7 @@ export function createTeams(pi: TeamsHost) {
 			}
 			const boundary = params.active_since === undefined ? undefined : new Date(params.active_since).getTime();
 			if (boundary !== undefined && !Number.isFinite(boundary)) throw new Error(`active_since is not a time: ${params.active_since}`);
-			const first = params.cursor !== undefined ? await backend.chatsPage(params.cursor) : await getChats(Boolean(params.refresh));
+			const first = params.cursor !== undefined ? await backend.chatsPage(params.cursor) : await getChats(freshChatList(params.active_since, Boolean(params.refresh)));
 			const matches = (c: ChatRef) => {
 				if (q !== "" && !`${c.display ?? ""} ${c.label}`.toLowerCase().includes(q)) return false;
 				if (boundary !== undefined && new Date(c.last_at ?? "").getTime() < boundary) return false;

@@ -23,7 +23,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const { GraphBackend } = await jiti.import(join(ROOT, "teams", "graph-backend.ts"));
 const { GraphClient } = await jiti.import(join(ROOT, "core", "graph.ts"));
-const { readTeams } = await jiti.import(join(ROOT, "teams", "index.ts"));
+const { readTeams, freshChatList } = await jiti.import(join(ROOT, "teams", "core.ts"));
 
 let failed = 0;
 const check = (label, got, want) => {
@@ -107,5 +107,8 @@ for await (const page of (async function* () {
 	found.push(...page.chats.filter((chat) => new Date(chat.last_at ?? "").getTime() >= boundary));
 }
 check("active_since finds an unwatched chat beyond the first page", found.map((chat) => chat.id), [CHAT]);
+
+check("active_since bypasses a cached chat list", freshChatList(SINCE, false), true);
+check("a normal list can use the cache", freshChatList(undefined, false), false);
 
 if (failed) process.exit(1);
