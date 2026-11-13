@@ -425,15 +425,19 @@ export function attachedCardText(content: unknown, contentType: string = CARD_CO
 	}
 }
 
+/** The one footer format every harness writes: `sent by <name> agent` (name already cut to [a-z0-9-]) or `sent by agent`. */
+const AGENT_FOOTER_LINE = /(?:^|\n)\s*sent by (?:[a-z0-9]+(?:-[a-z0-9]+)* )?agent$/;
+
 /**
- * The agent's own send, read back as text: this process's footer as a text send's last line or a card's, not quoted.
- * Images a send carries come after the footer and read back as "[name]", and the footer is italic, so both are cut
- * before the check. Only this process's footer counts: another harness's footer is someone else's send.
+ * Sent by an agent, read back as text: a text send's last line or a card's is a footer in the shared format, not
+ * quoted. Any harness counts (this process's footer, another harness's, the old "sent by pi agent"): every agent
+ * sends as the user, so without this an agent's `omp:` reply would run as the user's own instruction. Images a send
+ * carries come after the footer and read back as "[name]", and the footer is italic, so both are cut before the check.
  */
 export function isAgentSend(text: string): boolean {
-	const end = text.trim().replace(/(\s*\[[^\]\n]*\])+$/, "").replace(/\*+$/, "");
-	// A forward of the agent's send ends in its footer too, quoted ("> sent by omp agent"): that one a person sent.
-	return end.endsWith(agentFooterText()) && !/^>/.test(end.slice(end.lastIndexOf("\n") + 1));
+	const end = text.trim().replace(/(\s*\[[^\]\n]*\])+$/, "").replace(/\*+$/, "").replace(/^\*+/gm, "");
+	// A forward of an agent's send ends in its footer too, quoted ("> sent by omp agent"): that one a person sent.
+	return AGENT_FOOTER_LINE.test(end);
 }
 
 /**

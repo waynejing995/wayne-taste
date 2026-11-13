@@ -43,7 +43,10 @@ const jiti = createJiti(import.meta.url, {
 });
 const { renderMarkdown } = await jiti.import(ext("render.ts"));
 const { htmlToMarkdown } = await jiti.import(ext("convert.ts"));
-const { buildEml, parseEml, respondDefaults, prefixSubject, AGENT_FOOTER, withMentioned } = await jiti.import(ext("mime.ts"));
+const { buildEml, parseEml, respondDefaults, prefixSubject, agentMailFooter, withMentioned } = await jiti.import(ext("mime.ts"));
+// omp names its harness when the extension loads; mail carries the same footer.
+(await jiti.import(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "teams", "card.ts"))).setAgentHarness("omp");
+const AGENT_FOOTER = agentMailFooter();
 
 const here = dirname(fileURLToPath(import.meta.url));
 const load = (name) => parseEml(readFileSync(join(here, "fixtures", name)));

@@ -10,6 +10,7 @@
 import MailComposer from "nodemailer/lib/mail-composer";
 import PostalMime, { type Address as PostalAddress } from "postal-mime";
 import { formatLocal } from "../core/time.ts";
+import { agentFooterText } from "../teams/card.ts";
 import { htmlToMarkdown } from "./convert.ts";
 import { base, esc, mentionsIn, renderMarkdown, THEME } from "./render.ts";
 
@@ -60,8 +61,13 @@ export function prefixSubject(kind: "RE" | "FW", subject: string): string {
 	return PREFIX[kind].test(subject) ? subject : `${kind}: ${subject}`;
 }
 
-/** The line agent-sent mail ends with. Whether a message gets one is the caller's choice. */
-export const AGENT_FOOTER = "\n\n---\n\n*sent by omp agent*";
+/**
+ * The line agent-sent mail ends with: the same per-process footer the Teams sends carry (`sent by omp agent` in omp,
+ * the client's name over MCP). Whether a message gets one is the caller's choice.
+ */
+export function agentMailFooter(): string {
+	return `\n\n---\n\n*${agentFooterText()}*`;
+}
 
 /** Mailboxes from postal-mime's addresses: a group (`Team: a, b;`) becomes its members. */
 const mailboxes = (list: PostalAddress[]): Address[] =>

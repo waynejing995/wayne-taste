@@ -11,7 +11,7 @@ import { formatLocal } from "../core/time.ts";
 import type { RegisterTool, ToolContext } from "../core/tool.ts";
 import { downloads, isShared, saveAttachment, sharedLinks } from "./files.ts";
 import { FOLDER_LABELS, Mailbox, type Summary } from "./mailbox.ts";
-import { type Address, AGENT_FOOTER, type ComposeDraft, type ParsedMail, withMentioned } from "./mime.ts";
+import { type Address, agentMailFooter, type ComposeDraft, type ParsedMail, withMentioned } from "./mime.ts";
 import { readSignature } from "./signature.ts";
 
 /** Said to the agent: the signature is the extension's job, so it must not sign the mail itself. */
@@ -158,7 +158,7 @@ export function createOutlook(pi: OutlookHost): { graph: GraphClient; mailbox: M
 		if (p.cc) defaults.cc = p.cc.map(parseAddress);
 		if (p.subject !== undefined) defaults.subject = p.subject;
 		const draft = withMentioned(defaults, p.body);
-		const eml = await mailbox.build({ ...draft, markdown: p.body, signature: readSignature(), footer: AGENT_FOOTER });
+		const eml = await mailbox.build({ ...draft, markdown: p.body, signature: readSignature(), footer: agentMailFooter() });
 		return { draft, eml };
 	}
 

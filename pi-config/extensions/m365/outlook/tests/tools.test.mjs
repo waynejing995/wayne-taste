@@ -50,6 +50,8 @@ const extension = await jiti.import(ext("index.ts"), { default: true });
 const { Mailbox } = await jiti.import(ext("mailbox.ts"));
 const { GraphError } = await jiti.import(join(EXT_DIR, "..", "core", "graph.ts"));
 const { formatLocal } = await jiti.import(join(EXT_DIR, "..", "core", "time.ts"));
+// In omp the Teams half loads first and names the harness; mail carries the same footer.
+(await jiti.import(join(EXT_DIR, "..", "teams", "card.ts"))).setAgentHarness("omp");
 
 // --- Checks ------------------------------------------------------------------
 

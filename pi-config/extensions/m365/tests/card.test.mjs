@@ -261,15 +261,20 @@ await check("the footer is 'sent by <harness> agent', the name cut to [a-z0-9-],
 	equal(FOOTER, "sent by omp agent");
 });
 
-await check("the echo guard knows only this process's footer: not another harness's, not the old 'sent by pi agent'", () => {
-	ok(!isAgentSend("PONG\n\n*sent by pi agent*"), "the old pi footer");
-	ok(!isAgentSend("PONG\n\n*sent by claude-code agent*"), "another harness's footer");
-	ok(!isAgentSend("PONG\n\n*sent by agent*"), "the unnamed footer");
+await check("in an omp process the echo guard knows every harness's footer, in the one shared format", () => {
+	equal(agentFooterText(), "sent by omp agent");
+	ok(isAgentSend("PONG\n\n*sent by claude-code agent*"), "a Claude Code send is not news");
+	ok(isAgentSend("omp: rerun build 412\n\n*sent by claude-code agent*"), "a Claude Code send opening with omp: is not a command");
+	ok(isAgentSend("PONG\n\n*sent by pi agent*"), "the old pi footer");
+	ok(isAgentSend("PONG\n\n*sent by agent*"), "the unnamed footer");
+	ok(isAgentSend("shot\nsent by codex-cli agent\n[draft-owner.png]"), "with an image after it");
+	ok(!isAgentSend("look\n> Forwarded from Me · 2026-01-02 03:04\n> PONG\n> sent by claude-code agent"), "a quoted forward of it is still news");
+	ok(!isAgentSend("who wrote 'sent by claude-code agent'?"), "a mention mid-text is not a footer");
+	ok(!isAgentSend("PONG\nsent by Claude Code agent"), "only the normalised form counts");
 	setAgentHarness("claude-code");
 	try {
-		ok(isAgentSend("PONG\n\n*sent by claude-code agent*"), "claude-code's own footer once it is the harness");
-		ok(!isAgentSend("PONG\n\n*sent by omp agent*"), "omp's footer is now someone else's");
-		ok(cardText(buildCard({ text: "x" })).endsWith("sent by claude-code agent"), "cards carry it too");
+		ok(cardText(buildCard({ text: "x" })).endsWith("sent by claude-code agent"), "the footer text stays this process's own");
+		ok(isAgentSend("PONG\n\n*sent by omp agent*"), "and omp's send is still an agent's send");
 	} finally {
 		setAgentHarness("omp");
 	}
