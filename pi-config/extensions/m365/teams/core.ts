@@ -20,6 +20,7 @@ import { GraphClient } from "../core/graph.ts";
 import type { Person } from "../core/people.ts";
 import { safeName, saveNew } from "../core/save-file.ts";
 import { formatLocal } from "../core/time.ts";
+import { activeSince } from "./active-since.ts";
 import type { Backend, SelfMessage, UnreadItem } from "./backend.ts";
 import { ScriptBackend } from "./backend.ts";
 import { AGENT_STATUSES, agentFooterText, buildCard, cardMentions, isAgentSend } from "./card.ts";
@@ -1318,7 +1319,7 @@ export function createTeams(pi: TeamsHost) {
 			const first = params.cursor !== undefined ? await backend.chatsPage(params.cursor) : await getChats(freshChatList(params.active_since, Boolean(params.refresh)));
 			const matches = (c: ChatRef) => {
 				if (q !== "" && !`${c.display ?? ""} ${c.label}`.toLowerCase().includes(q)) return false;
-				if (boundary !== undefined && new Date(c.last_at ?? "").getTime() < boundary) return false;
+				if (boundary !== undefined && !activeSince(c, boundary)) return false;
 				return true;
 			};
 			// Most recent first: a query stops at the first page holding a match, or after a page budget (a few

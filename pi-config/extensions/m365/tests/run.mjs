@@ -28,6 +28,8 @@ const groups = [
 	{ label: "inbox jobs", script: join(root, "inbox", "tests", "jobs.test.mjs"), local: false },
 	{ label: "inbox thens", script: join(root, "inbox", "tests", "thens.test.mjs"), local: false },
 	{ label: "inbox facts", script: join(root, "inbox", "tests", "facts.test.mjs"), local: false },
+	{ label: "inbox rules migrate", script: join(root, "inbox", "tests", "migrate.test.mjs"), local: false },
+	{ label: "teams active since", script: join(root, "tests", "active-since.test.mjs"), local: false },
 	{ label: "rules block", script: join(root, "tests", "rules-block.test.mjs"), local: false },
 	{ label: "teams watch list", script: join(root, "tests", "watch-list.test.mjs"), local: false },
 	{ label: "teams watch delivery", script: join(root, "tests", "watch-delivery.test.mjs"), local: false },
