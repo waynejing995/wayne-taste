@@ -13,6 +13,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkDigest, receiptInstructions, type FailedChat } from "./digest.ts";
 import { InboxError, inboxDir, inboxFile, recordDirect, stamp, withRulesLock } from "./ledger.ts";
 import { readList, SCHEDULE_LIST, writeList } from "./lists.ts";
 
@@ -289,7 +290,48 @@ export function agentArgv(agent: string | undefined, prompt: string, tools?: str
 	return [name, ...flags, prompt];
 }
 
-type Outcome = { action: string; status: string; detail: string; text: string; error?: string };
+/** `verified`: a digest run whose event stream showed every chat read since `since` (digest.ts); only that moves its boundary. */
+type Outcome = { action: string; status: string; detail: string; text: string; error?: string; gaps?: FailedChat[]; since?: string; verified?: boolean };
+
+/** The job whose prompt carries the `{{receipt}}` contract (digest.ts) and whose run the runner checks. */
+const DIGEST = "teams-digest";
+
+/** A digest run that did not read every chat since `since`; each gap becomes a named `do` row. */
+function digestFailure(message: string, since: string, gaps: FailedChat[]): InboxError {
+	return Object.assign(new InboxError(message), { since, gaps });
+}
+
+/** The digest's `{{since}}`: a pending backfill, else the last verified run, else a day ago. */
+function boundary(job: Job): string {
+	return (job.backfill_since as string | undefined) ?? job.last_ok ?? stamp(new Date(Date.now() - 24 * 3600_000));
+}
+
+/** Check a digest run's `--mode json` stream; the verified outcome, or a failure naming every chat not read. */
+function digestOutcome(stdout: string, since: string): Outcome {
+	let check;
+	try {
+		check = checkDigest(stdout, since);
+	} catch (e) {
+		const reason = e instanceof Error ? e.message : String(e);
+		throw digestFailure(`teams digest failed: ${reason}`, since, [{ chat: "all chats", reason }]);
+	}
+	if (check.failed.length) throw digestFailure(`teams digest incomplete: ${check.failed.map((f) => f.chat).join(", ")}`, since, check.failed);
+	return { action: "notify", status: "ok", detail: check.summary.slice(0, 200), text: check.summary, since, verified: true };
+}
+
+/** Run the digest agent in JSON mode and check what it did, not what it says. */
+async function runDigest(job: Job, text: string, since: string, o: RunOptions): Promise<Outcome> {
+	if (!text.includes("{{receipt}}")) throw digestFailure(`the ${DIGEST} prompt has no {{receipt}}: run \`inbox rules-migrate\``, since, [{ chat: "all chats", reason: "the prompt asks for no receipt" }]);
+	const argv = agentArgv(o.agent, text.replaceAll("{{since}}", since).replaceAll("{{receipt}}", receiptInstructions()), job.tools);
+	argv.splice(1, 0, "--mode", "json");
+	try {
+		return digestOutcome(await runProcess(argv, timeoutSec(job), "prompt", inboxDir()), since);
+	} catch (e) {
+		if (e instanceof InboxError && "gaps" in e) throw e;
+		const reason = e instanceof Error ? e.message : String(e);
+		throw digestFailure(`teams digest failed: ${reason}`, since, [{ chat: "all chats", reason }]);
+	}
+}
 
 async function execute(job: Job, o: RunOptions): Promise<Outcome> {
 	const a = job.action;
@@ -302,27 +344,13 @@ async function execute(job: Job, o: RunOptions): Promise<Outcome> {
 	let output: string;
 	if (a.kind === "shell") output = await runProcess(a.argv, timeoutSec(job), "shell");
 	else if (a.kind === "prompt") {
-		const since = (job.backfill_since as string | undefined) ?? job.last_ok ?? stamp(new Date(Date.now() - 24 * 3600_000));
+		const since = boundary(job);
+		if (job.name === DIGEST) return runDigest(job, a.text, since, o);
 		output = await runProcess(agentArgv(o.agent, a.text.replaceAll("{{since}}", since), job.tools), timeoutSec(job), "prompt", inboxDir());
-		if (job.backfill_since) delete job.backfill_since;
 	} else if (a.kind === "tool") {
 		if (!o.tool) throw new InboxError("tool jobs run only inside a live omp or pi session");
 		output = (await o.tool(a.name, a.args ?? {})).slice(0, OUTPUT_CAP);
 	} else throw new InboxError(`unknown action ${JSON.stringify(a)}`);
-	if (job.name === "teams-digest") {
-		let receipt: { complete?: boolean; failed?: string[] };
-		try {
-			receipt = JSON.parse(output.slice(output.lastIndexOf("{")));
-		} catch {
-			throw new InboxError("teams digest has no completion receipt");
-		}
-		const failedChats = receipt.failed ?? [];
-		if (receipt.complete !== true || failedChats.length > 0) {
-			const error = new InboxError(`teams digest incomplete: ${failedChats.join(", ") || "unknown chat"}`) as InboxError & { failedChats: string[] };
-			error.failedChats = failedChats;
-			throw error;
-		}
-	}
 	if (job.judge !== "on") return { action: "notify", status: "ok", detail: output.slice(0, 200), text: output };
 	if (!o.judge) throw new InboxError("judge needs the live session");
 	const { verdict, summary } = await o.judge(String(job.judge_prompt ?? ""), output);
@@ -335,8 +363,8 @@ function record(job: Job, fire: string, out: Outcome): string {
 	const fail = out.status === "fail";
 	if (job.quiet && !fail) return `quiet ${job.name}:${fire}`;
 	const subject = (fail ? `${job.name} ${fire} FAILED` : `${job.name} ${fire}`).slice(0, 200);
-	const marker = `${out.error ?? ""}\n${out.text}`;
-	for (const line of marker.split("\n")) if (line.startsWith("unread:")) recordDirect("ask-wayne", "do", `digest-gap:${line.slice(7)}`, `Teams digest could not fully read ${line.slice(7)}`, "teams-digest", "the next run keeps the old boundary", "", "coordinator");
+	for (const gap of out.gaps ?? [])
+		recordDirect("ask-wayne", "do", `digest-gap:${out.since}:${gap.chat}`, `Teams digest could not fully read ${gap.chat} since ${out.since}`, DIGEST, `${gap.reason}; the next run keeps the old boundary`, "", "coordinator");
 	recordDirect("schedule", out.action, `${job.name}:${fire}`, subject, "schedule", (out.error ?? out.text).slice(0, OUTPUT_CAP), "", job.owner || "wayne");
 	return `${out.action} ${job.name}:${fire}`;
 }
@@ -363,9 +391,9 @@ function settle(name: string, fire: string, at: Date, out: Outcome): string {
 
 function failed(e: unknown): Outcome {
 	const message = e instanceof Error ? e.message : String(e);
-	const failedChats = e && typeof e === "object" && "failedChats" in e ? (e.failedChats as string[]) : [];
-	const text = failedChats.map((chat) => `unread:${chat}`).join("\n");
-	return { action: "notify", status: "fail", detail: message, text, error: [message, text].filter(Boolean).join("\n") };
+	const { gaps, since } = (e && typeof e === "object" ? e : {}) as { gaps?: FailedChat[]; since?: string };
+	const text = (gaps ?? []).map((g) => `unread ${g.chat}: ${g.reason}`).join("\n");
+	return { action: "notify", status: "fail", detail: message, text, error: [message, text].filter(Boolean).join("\n"), gaps, since };
 }
 
 /** Run one due job if this caller can. Returns one line; leaves the job due when it cannot run it. */
@@ -432,7 +460,7 @@ export function finishFire(name: string, f: { output: string; verdict?: string; 
 	release(name, fire); // a runner's claim, if one noticed this job first
 	const summary = f.summary ?? "";
 	let out: Outcome;
-	if (f.error) out = failed(new Error(f.error));
+	if (f.error) out = failed(name === DIGEST ? digestFailure(f.error, boundary(job), [{ chat: "all chats", reason: f.error }]) : new Error(f.error));
 	else if (f.verdict === "FAIL") out = { action: "notify", status: "fail", detail: summary || f.output, text: f.output };
 	else if (f.verdict === "DISPATCHED") out = { action: "do", status: "dispatched", detail: summary || "prompt card sent", text: f.output };
 	else if (f.verdict === "SKIP") out = { action: "log", status: "skip", detail: summary || "judge skipped", text: f.output };

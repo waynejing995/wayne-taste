@@ -6,7 +6,8 @@
 import { deepStrictEqual, ok, rejects, strictEqual } from "node:assert/strict";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createJiti } from "../../tests/host.mjs";
 import YAML from "yaml";
 
@@ -156,48 +157,65 @@ await check("a prompt job runs the agent with {{since}} filled and keeps the own
 	strictEqual(rows()[0].note, "since 2026-11-10 11:00");
 });
 
-await check("a partial digest keeps the old boundary and the next run repeats it", async () => {
-	const scan = join(bin, "partial-scan");
-	writeFileSync(scan, "#!/usr/bin/env node\nconsole.log(JSON.stringify({ complete: false, failed: [\"Ops\"] }));\n");
-	chmodSync(scan, 0o755);
-	process.env.INBOX_AGENT = scan;
-	await run("schedule", "add", "teams-digest", "--every", "120", "--kind", "prompt", "--action", "scan {{since}}", "--quiet");
-	const all = jobs.readJobs();
-	all[0].next_fire = "2026-11-10 12:00";
-	all[0].last_ok = "2026-11-10 10:00";
-	jobs.writeJobs(all);
-	const line = (await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0];
-	ok(line.startsWith("fail teams-digest"), line);
-	ok(rows().some((r) => r.action === "do" && r.subject === "Teams digest could not fully read Ops"), `${line}\n${rows().map((r) => `${r.tag}:${r.action}:${r.subject}:${r.note}`).join("; ")}`);
-	strictEqual(jobs.readJobs()[0].last_ok, "2026-11-10 10:00");
-	const again = jobs.readJobs();
-	again[0].next_fire = "2026-11-10 14:00";
-	jobs.writeJobs(again);
-	ok((await jobs.runDue({ session: false }, at("2026-11-10 14:00")))[0].includes("2026-11-10 10:00") || jobs.readJobs()[0].last_ok === "2026-11-10 10:00");
+// The digest tests run the shipped template prompt through a fake agent that does only what that prompt says
+// (fixtures/fake-digest-agent.mjs), so they cannot pass unless the real prompt carries the real contract.
+const FAKE_DIGEST = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-digest-agent.mjs");
+const TEMPLATE_DIGEST = YAML.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "templates", "rules.yaml"), "utf8"), { version: "1.1" }).schedule.find((j) => j.name === "teams-digest");
+
+/** The template digest, enabled and due at `next`, run by the fake agent in `mode`. */
+function digestJob(next, extra = {}, mode = "ok") {
+	process.env.INBOX_AGENT = FAKE_DIGEST;
+	process.env.FAKE_DIGEST_MODE = mode;
+	jobs.writeJobs([{ ...structuredClone(TEMPLATE_DIGEST), enabled: true, next_fire: next, last_ok: "2026-11-10 10:00", ...extra }]);
+}
+const digest = () => jobs.readJobs()[0];
+const gapRows = () => rows().filter((r) => r.action === "do" && r.tag === "ask-wayne");
+function restoreAgent() {
+	process.env.INBOX_AGENT = agent;
+	delete process.env.FAKE_DIGEST_MODE;
+}
+
+await check("the shipped digest prompt yields a receipt the runner accepts, and the boundary moves", async () => {
+	try {
+		digestJob("2026-11-10 12:00");
+		const line = (await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0];
+		ok(line.startsWith("ok teams-digest"), line);
+		strictEqual(digest().last_ok, "2026-11-10 12:00");
+		ok(readFileSync(join(home, "facts.md"), "utf8").includes("[endpoint:build-server]"));
+		strictEqual(gapRows().length, 0);
+	} finally {
+		restoreAgent();
+	}
 });
 
-await check("an old watch-only digest backfills unwatched history", async () => {
-	const rules = YAML.parse(readFileSync(join(home, "rules.yaml"), "utf8"));
-	rules.schedule = [{ name: "teams-digest", enabled: true, every: 120, last_ok: "2026-11-13 11:53", action: { kind: "prompt", text: "Read watched chats with limit 200 and inbox fact --key KEY -- TEXT" } }];
-	writeFileSync(join(home, "rules.yaml"), YAML.stringify(rules));
-	const migrated = YAML.parse(await run("rules-migrate", "--dry-run"));
-	const job = migrated.schedule[0];
-	ok(job.enabled === true && job.last_ok === "2026-11-13 11:53" && job.action.text.includes("active_since") && job.backfill_since < "2026-11-13 11:53");
-	writeFileSync(join(home, "rules.yaml"), YAML.stringify(migrated));
-	const all = jobs.readJobs();
-	all[0].next_fire = "2026-11-13 12:00";
-	jobs.writeJobs(all);
-	const previous = process.env.INBOX_AGENT;
-	const complete = join(bin, "complete-scan");
-	writeFileSync(complete, "#!/usr/bin/env node\nconst prompt = process.argv.at(-1);\nconsole.log(prompt);\nconsole.log(JSON.stringify({ complete: true, failed: [] }));\n");
-	chmodSync(complete, 0o755);
-	process.env.INBOX_AGENT = complete;
+for (const [mode, chat, reason] of [
+	["readfail", "Ops", /teams_read failed/],
+	["lie", "Ops", /never read/],
+	["factfail", "Ops", /inbox write failed/],
+	["exit", "all chats", /exited 1/],
+])
+	await check(`a digest run in mode ${mode} keeps the old boundary and names ${chat} in a do row`, async () => {
+		try {
+			digestJob("2026-11-10 12:00", {}, mode);
+			const line = (await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0];
+			ok(line.startsWith("fail teams-digest"), line);
+			strictEqual(digest().last_ok, "2026-11-10 10:00");
+			const gap = gapRows().find((r) => r.subject === `Teams digest could not fully read ${chat} since 2026-11-10 10:00`);
+			ok(gap && reason.test(gap.note), rows().map((r) => `${r.subject} | ${r.note}`).join("\n"));
+		} finally {
+			restoreAgent();
+		}
+	});
+
+await check("a digest prompt without {{receipt}} fails and names the gap", async () => {
 	try {
-		await jobs.runDue({ session: false }, at("2026-11-13 12:00"));
+		digestJob("2026-11-10 12:00", { action: { kind: "prompt", text: "Read the watched Teams chats with `limit` 200." } });
+		ok((await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0].startsWith("fail teams-digest"));
+		strictEqual(digest().last_ok, "2026-11-10 10:00");
+		ok(gapRows().some((r) => r.subject.includes("all chats") && r.note.includes("no receipt")));
 	} finally {
-		process.env.INBOX_AGENT = previous;
+		restoreAgent();
 	}
-	ok(rows()[0].note.includes(job.backfill_since), rows()[0].note);
 });
 
 await check("a job still running is left out of the next call, which runs the other due jobs", async () => {

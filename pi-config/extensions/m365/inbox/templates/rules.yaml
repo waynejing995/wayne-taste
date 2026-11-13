@@ -92,9 +92,10 @@ schedule:
         - who owes an action: `inbox fact --kind owed --key KEY --source teams-digest --note NOTE -- TEXT`
         - any other durable fact: `inbox fact --kind info --key KEY --source teams-digest --note NOTE -- TEXT`
         KEY: short, stable, lowercase words joined by `-`, naming the subject, not the time; the same subject seen again gets the same key.
-        TEXT: one sentence in English; keep short quotes verbatim. NOTE: chat name, who, and time `MM-DD HH:MM`.
+        TEXT: one sentence in English; keep short quotes verbatim. NOTE: `CHAT, WHO, MM-DD HH:MM`: the chat name first, then who and when.
         Facts only, each from a message you read. Drop chit-chat, progress reports, and anything already resolved within the window. Never copy passwords, tokens or secrets. Do not post to Teams and write no file.
-        End with one line: `teams digest: N findings since {{since}}`.
+        Before the receipt, write one line: `teams digest: N findings since {{since}}`.
+        {{receipt}}
     enabled: false
     quiet: true
     owner: ''
