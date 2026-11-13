@@ -1,13 +1,13 @@
 /**
  * The MCP server over an in-memory transport: the tool listing, a call round trip, argument validation, the sign-in
- * hint and image content.
+ * hint, image content, and the channel's push path (inbox card and the test-only local source).
  *
  *   bun mcp/tests/server.test.mjs
  *
  * Offline: the inbox and the token cache are temp directories, and fetch throws.
  */
 import { deepStrictEqual } from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, appendFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -34,18 +34,25 @@ const check = (label, fn) => {
 	}
 };
 
-async function connect(clientName) {
-	const server = createServer();
+async function connect(channel, clientName) {
+	const server = createServer({ channel });
 	const [a, b] = InMemoryTransport.createLinkedPair();
 	const client = new Client({ name: clientName, version: "0" });
+	const events = [];
+	client.fallbackNotificationHandler = async (n) => void events.push(n);
 	await server.connect(a);
 	await client.connect(b);
-	return { server, client };
+	return { server, client, events };
 }
+
+const until = async (pred, ms = 5000) => {
+	const end = Date.now() + ms;
+	while (!pred() && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+};
 
 // ── Tools ───────────────────────────────────────────────────────────────────
 {
-	const { client, server } = await connect("test");
+	const { client, server } = await connect(false, "test");
 	const { tools } = await client.listTools();
 	const names = tools.map((t) => t.name);
 	check("lists every teams_* tool", () =>
@@ -56,7 +63,7 @@ async function connect(clientName) {
 		deepStrictEqual(names.filter((n) => n.startsWith("inbox_")).sort(), ["inbox_ask", "inbox_done", "inbox_fact", "inbox_facts", "inbox_ls", "inbox_set"]),
 	);
 	check("every tool has an object input schema", () => deepStrictEqual(tools.filter((t) => t.inputSchema?.type !== "object").map((t) => t.name), []));
-	check("declares tools and no experimental capability", () => deepStrictEqual(client.getServerCapabilities()?.experimental, undefined));
+	check("no channel capability without M365_CHANNEL", () => deepStrictEqual(client.getServerCapabilities()?.experimental, undefined));
 
 	// A round trip through the inbox CLI: ask records a row, ls lists it, done archives it.
 	const ask = await client.callTool({ name: "inbox_ask", arguments: { text: "Ship it?", key: "t1" } });
@@ -86,7 +93,7 @@ async function connect(clientName) {
 	});
 
 	const watch = await client.callTool({ name: "teams_watch", arguments: { action: "start", chat_id: "48:notes" } });
-	check("teams_watch start is refused: nothing could receive its cards", () => deepStrictEqual([watch.isError, /not available over MCP/.test(watch.content[0].text)], [true, true]));
+	check("teams_watch start is refused without a channel", () => deepStrictEqual([watch.isError, /needs the Claude Code channel/.test(watch.content[0].text)], [true, true]));
 	await server.close();
 }
 
@@ -98,6 +105,38 @@ async function connect(clientName) {
 	const saved = mcpContent([{ type: "text", text: "[photo.png]" }, { type: "image", data: png, mimeType: "image/png" }]);
 	const path = /\[image saved: (.+)\]/.exec(saved[1]?.text ?? "")?.[1];
 	check("an image without a file is saved and named by its path", () => deepStrictEqual([saved.map((c) => c.type), !!path && existsSync(path)], [["text", "text", "image"], true]));
+}
+
+// ── Channel ─────────────────────────────────────────────────────────────────
+{
+	// An inbox set up with no saved watches: the inbox lease is free (this temp directory's), so its cards are pushed.
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "rules.yaml"), "teams_watch:\n  chats: []\n");
+	const local = join(tmp, "local-events");
+	process.env.M365_CHANNEL_LOCAL = local;
+	const other = await connect(true, "codex");
+	check("channel capability is declared", () => deepStrictEqual(other.client.getServerCapabilities()?.experimental, { "claude/channel": {} }));
+	await other.server.close();
+
+	const { client, server, events } = await connect(true, "claude-code");
+	await until(() => events.some((e) => e.params?.content?.startsWith("Inbox cards:")));
+	await client.callTool({ name: "inbox_ask", arguments: { text: "Pushed?", key: "t2" } });
+	await until(() => events.some((e) => e.params?.meta?.kind === "inbox"));
+	appendFileSync(local, "hello from the test\n");
+	await until(() => events.some((e) => e.params?.meta?.kind === "local"));
+	const inbox = events.find((e) => e.params?.meta?.kind === "inbox");
+	check("a new notify row is pushed as notifications/claude/channel", () =>
+		deepStrictEqual([inbox?.method, /Pushed\?/.test(inbox?.params.content ?? ""), inbox?.params.meta.sender], ["notifications/claude/channel", true, "inbox"]),
+	);
+	const localEvent = events.find((e) => e.params?.meta?.kind === "local");
+	check("the local source pushes each appended line", () => deepStrictEqual(localEvent?.params.content, "hello from the test"));
+	check("meta keys are identifiers only", () =>
+		deepStrictEqual(events.flatMap((e) => Object.keys(e.params?.meta ?? {})).filter((k) => !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k)), []),
+	);
+	check("the instructions say how to reply and carry the untrusted rule", () => {
+		const text = client.getInstructions() ?? "";
+		deepStrictEqual([/teams_send/.test(text), /UNTRUSTED/.test(text)], [true, true]);
+	});
+	await server.close();
 }
 
 rmSync(tmp, { recursive: true, force: true });

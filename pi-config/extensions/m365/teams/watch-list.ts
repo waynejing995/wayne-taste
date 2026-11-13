@@ -36,6 +36,11 @@ function split(): { text: string; list: WatchList } {
 	return { text, list };
 }
 
+/** The saved watches, as a harness resuming them reads them. */
+export function savedWatches(): WatchList {
+	return split().list;
+}
+
 /** Hold the lock file for one read-modify-write. A lock older than LOCK_STALE_MS belonged to a process that died. */
 function locked(edit: (list: WatchList) => WatchList): void {
 	fs.mkdirSync(path.dirname(WATCH_LIST), { recursive: true });

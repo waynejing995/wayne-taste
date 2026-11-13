@@ -10,7 +10,7 @@ both; each half keeps its own tools (`teams_*`, `outlook_*`), its own command
 | `teams/` | Chats: unread count, the `/teams` overlay, send/read/people/download/transcript tools, chat watches (the self-chat takes `omp:`/`pi:` instructions) | `teams/README.md` — read its sign-in note first |
 | `outlook/` | Mail: the `/outlook` three-pane reader and composer, ten mail tools, signature | `outlook/README.md` |
 | `inbox/` | The inbox: a general ledger + scheduler. `inbox/cli/` is the `inbox` command (`bin/inbox`), the scheduler runs its jobs while a session is open, `/inbox watch` pushes new `notify`/`do` rows into this session as cards | [Inbox](#inbox) below |
-| `mcp/` | The same tools as an MCP server for Claude Code, Codex and Cursor | [Other harnesses (MCP)](#other-harnesses-mcp) below |
+| `mcp/` | The same tools as an MCP server for Claude Code, Codex and Cursor, with Claude Code's channel for watch and inbox cards | [Other harnesses (MCP)](#other-harnesses-mcp) below |
 
 ## core/
 
@@ -83,25 +83,40 @@ run `bin/inbox`. No UI: no overlays, status bar or commands.
 - **Sign-in** is omp's: the server reads the token cache `/teams init` wrote (`~/.cache/pi/teams-auth/`) and
   refuses to start without it (`run /teams init in omp`). There is no second login.
 - **Pictures** come back as MCP image content, each with the local file path (`[image n saved: <file>]`).
-- **Watches** need a session that cards can be pushed into, so `teams_watch start` is refused here; `list` and
-  `stop` work.
 - **Write tools** (`teams_send`, `teams_react`, `outlook_send`, `outlook_draft`, `outlook_move`, `outlook_mark`,
   `inbox_set`, `inbox_done`) have no confirmation of their own in the server: approval is the client's job (Claude
   Code permissions or `allowedTools`, Codex `approval_mode`, Cursor's tool approval).
+- **Channel** (Claude Code only, `M365_CHANNEL=1`): the server declares `claude/channel` and pushes
+  `notifications/claude/channel` events, `<channel source="m365" kind=… chat_id=… sender=… policy=…>`:
+  - `card`: the Teams watch, resumed from the `teams_watch` section of `rules.yaml` (chats, policies, interval;
+    read, never rewritten here). Same cursors, card text and per-chat lock as omp. A chat another session already
+    watches is skipped, and the skip is pushed as a `notice` naming that session. There is no policy gate model
+    here, so a card from a chat with a policy always starts a turn and says so; Claude decides from the policy.
+  - `instruction`: your own `omp:`/`pi:` message in a watched chat.
+  - `inbox`: new `notify`/`do` ledger rows, only when no omp session holds `/inbox watch` (same lease and cursor).
+  - `M365_CHANNEL_LOCAL=<file>` (test only) pushes each line appended to the file as a `local` event.
+
+  The server's instructions tell Claude to reply with `teams_send` and carry the untrusted-content rules of the
+  omp cards. Without the channel, `teams_watch start` is refused: its cards would go nowhere.
 
 `<wayne-skills>` is where you cloned the repo. `bun` must be on the harness's `PATH` (or give its full path).
 
-**Claude Code**: `.mcp.json` in the project (or `claude mcp add`):
+**Claude Code**: `.mcp.json` in the project (or `claude mcp add`), then launch with the development-channel flag:
 
 ```json
 {
   "mcpServers": {
     "m365": {
       "command": "bun",
-      "args": ["<wayne-skills>/pi-config/extensions/m365/mcp/server.ts"]
+      "args": ["<wayne-skills>/pi-config/extensions/m365/mcp/server.ts"],
+      "env": { "M365_CHANNEL": "1" }
     }
   }
 }
+```
+
+```sh
+claude --dangerously-load-development-channels server:m365
 ```
 
 **Codex**: `~/.codex/config.toml`:
@@ -166,8 +181,8 @@ npm test               # node tests/run.mjs
 ```
 
 All offline: no sign-in, no network. Runs Outlook's suite, the package load
-check, the MCP server test (`mcp/tests/server.test.mjs`, under bun: tool listing and a call round trip over an
-in-memory transport), and the Teams card tests (`tests/card.test.mjs`: the card builder, the
+check, the MCP server test (`mcp/tests/server.test.mjs`, under bun: tool listing, a call round trip and the
+channel push over an in-memory transport), and the Teams card tests (`tests/card.test.mjs`: the card builder, the
 Graph card post, and the echo guard on cards read back). Teams' suite is local-only (`teams/.gitignore`: it was written against a
 real mailbox and holds real names and messages); it runs where it exists and is
 reported as skipped in a clone. It runs as `unshare -rn node teams/tests/run.mjs`
