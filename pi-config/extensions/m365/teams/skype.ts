@@ -57,12 +57,19 @@ export interface AmsImage {
 
 export interface RawSkypeMessage {
 	id?: string;
+	/** The sender, as a contact URL ending in its MRI: ".../contacts/8:orgid:<user id>". */
+	from?: string;
 	composetime?: string;
 	content?: string;
 	messagetype?: string;
 	/** `cards` is a JSON string: [{cardClientId, contentType, content}], what a Graph card send stores. `files` is
 	 * one too: [{fileName, objectUrl, …}], the files sent in it, each a share on the sender's OneDrive. */
 	properties?: { cards?: string; files?: string; originalMessageContext?: unknown; emotions?: unknown };
+}
+
+/** A chatsvc message's sender as a user id (the forwards in it are authorized by it); "" when not a person. */
+function senderOf(m: RawSkypeMessage): string {
+	return /\/8:orgid:([^/?]+)$/.exec(m.from ?? "")?.[1] ?? "";
 }
 
 /** The files a chatsvc message carries, as the Graph backend names them. */
@@ -238,7 +245,7 @@ export class SkypeClient {
 		const { ams } = await this.authorize();
 		// A forward names its sender by id (properties.originalMessageContext), and a forwarded card is only on the
 		// original: one lookup for the page.
-		const fwd = await lookup(forwardNeed(raw.flatMap((m) => forwardParts(m.content ?? "", [], m.properties?.originalMessageContext))));
+		const fwd = await lookup(forwardNeed(raw.map((m) => ({ parts: forwardParts(m.content ?? "", [], m.properties?.originalMessageContext), forwarder: senderOf(m) }))));
 		const out: SelfMessage[] = [];
 		for (const m of raw) {
 			try {
@@ -250,7 +257,8 @@ export class SkypeClient {
 				// A card's content is an empty span pointing at it: the card is the text.
 				const card = cardsText(m);
 				const files = sentFiles(m);
-				const parts = forwardParts(html, [], m.properties?.originalMessageContext, fwd.originals);
+				const originals = fwd.originalsFor(senderOf(m));
+				const parts = forwardParts(html, [], m.properties?.originalMessageContext, originals);
 				const flat = [partsText(parts, fwd.names), card].filter(Boolean).join("\n");
 				// A file-only note has no text, and is still a message.
 				if (!flat && files.length === 0) continue;
@@ -263,7 +271,7 @@ export class SkypeClient {
 					id,
 					at: m.composetime ?? "",
 					text: flat,
-					md: [htmlToMarkdown(html, [], fwd.names, m.properties?.originalMessageContext, fwd.originals), cardsText(m, "\n\n")].filter(Boolean).join("\n\n"),
+					md: [htmlToMarkdown(html, [], fwd.names, m.properties?.originalMessageContext, originals), cardsText(m, "\n\n")].filter(Boolean).join("\n\n"),
 					...(images.length > 0 ? { images, ...(ams ? { imageSource: new URL(ams).origin + "/" } : {}) } : {}),
 					...(files.length > 0 ? { files } : {}),
 					...(reactions.length > 0 ? { reactions } : {}),

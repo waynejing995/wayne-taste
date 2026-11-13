@@ -51,30 +51,38 @@ export interface Forward {
 /** An original message a forward points at, as the backend read it. */
 export interface Original {
 	sender: string;
-	/** Who sent it (a person's or a bot's id) and when, ISO: checked against what the forward itself says. */
-	senderId: string;
-	at: string;
 	html: string;
 	attachments: FwdAttachment[];
 }
 
 const NO_ORIGINALS: ReadonlyMap<string, Original> = new Map();
 
-/** The key of an original in the `originals` map forwardParts takes. */
+/** The key of an original in the map forwardParts takes (ForwardContext.originalsFor). */
 export const originalKey = (conversationId: string, messageId: string): string => `${conversationId}/${messageId}`;
 
-/** What rendering forwards needs from outside them: people's names by directory id, originals by `originalKey`. */
+/**
+ * What rendering forwards needs from outside them: people's names by directory id, and the originals by
+ * `originalKey` that a message from `forwarder` may show. A forward reference is written by whoever sent the forward,
+ * so an original is only ever offered to the forwarder the backend checked it for (see GraphBackend.lookupForwards).
+ */
 export interface ForwardContext {
 	names: ReadonlyMap<string, string>;
-	originals: ReadonlyMap<string, Original>;
+	originalsFor(forwarder: string): ReadonlyMap<string, Original>;
 }
 
-export const NO_FORWARD_CONTEXT: ForwardContext = { names: new Map(), originals: NO_ORIGINALS };
+export const NO_FORWARD_CONTEXT: ForwardContext = { names: new Map(), originalsFor: () => NO_ORIGINALS };
 
-/** What the forwards on a page leave to be read: senders known only by id, and originals as [conversation, message]. */
+/** An original a forward points at, and who sent the message carrying the forward (a user id; "" when not a person). */
+export interface ForwardRef {
+	forwarder: string;
+	conversationId: string;
+	messageId: string;
+}
+
+/** What the forwards on a page leave to be read: senders known only by id, and originals. */
 export interface ForwardNeed {
 	senderIds: string[];
-	originals: [string, string][];
+	originals: ForwardRef[];
 }
 
 /** Reads what forwards need (the backend supplies it): one call for a page of messages. */
@@ -82,15 +90,17 @@ export type ForwardLookup = (need: ForwardNeed) => Promise<ForwardContext>;
 
 export const NO_LOOKUP: ForwardLookup = async () => NO_FORWARD_CONTEXT;
 
-/** What the forwards in `parts` need read. */
-export function forwardNeed(parts: readonly Part[]): ForwardNeed {
+/** What the forwards in a page's messages need read; `forwarder` is who sent each message. */
+export function forwardNeed(messages: readonly { parts: readonly Part[]; forwarder: string }[]): ForwardNeed {
 	const senderIds: string[] = [];
-	const originals: [string, string][] = [];
-	for (const p of parts) {
-		if (!("forward" in p)) continue;
-		const f = p.forward;
-		if (!f.sender && f.senderId) senderIds.push(f.senderId);
-		if (needsOriginal(f)) originals.push([f.conversationId, f.messageId]);
+	const originals: ForwardRef[] = [];
+	for (const { parts, forwarder } of messages) {
+		for (const p of parts) {
+			if (!("forward" in p)) continue;
+			const f = p.forward;
+			if (!f.sender && f.senderId) senderIds.push(f.senderId);
+			if (needsOriginal(f)) originals.push({ forwarder, conversationId: f.conversationId, messageId: f.messageId });
+		}
 	}
 	return { senderIds, originals };
 }
@@ -157,24 +167,10 @@ function needsOriginal(f: Forward): boolean {
 	return Boolean(f.conversationId && f.messageId) && (CARD_STUB.test(f.html) || !f.html.trim() || (!f.sender && Boolean(f.appId)));
 }
 
-/**
- * Whether `o` is the message the forward quotes. The reference is written by whoever sent the forward, so it could
- * name any message the reader can see in any chat: only one whose sender and time both match the forward's own is used.
- */
-function matches(f: Forward, o: Original): boolean {
-	const sender = f.senderId || f.appId;
-	const at = Date.parse(f.at);
-	return Boolean(sender) && sender === o.senderId && !Number.isNaN(at) && at === Date.parse(o.at);
-}
-
 /** The forward with what its original gives: the sender's name, and for a card stub the card and its body. */
 function withOriginal(f: Forward, originals: ReadonlyMap<string, Original>): Forward {
 	const o = needsOriginal(f) ? originals.get(originalKey(f.conversationId, f.messageId)) : undefined;
 	if (!o) return f;
-	if (!matches(f, o)) {
-		console.warn(`[teams] forwarded message ${f.messageId} in ${f.conversationId} does not match the forward's sender and time; showing the forward as sent`);
-		return f;
-	}
 	const stub = CARD_STUB.test(f.html) || !f.html.trim();
 	return { ...f, sender: f.sender || o.sender, ...(stub ? { html: o.html, attachments: o.attachments } : {}) };
 }

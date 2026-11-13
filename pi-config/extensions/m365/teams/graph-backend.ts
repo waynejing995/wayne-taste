@@ -22,7 +22,7 @@ import { type DownloadedFile, downloadShared } from "../core/shares.ts";
 import type { Backend, ChatAddr, ChatHistoryPage, SelfHistoryPage, SelfMessage, UnreadItem, UnreadPayload } from "./backend.ts";
 import { HISTORY_MESSAGES, type ChatRef, type ChatsPage, type HistoryMessage, type SendTarget } from "./compose-overlay.ts";
 import { attachedCardText, CARD_CONTENT_TYPE, isCardType } from "./card.ts";
-import { type ForwardContext, type ForwardNeed, forwardedAttachmentIds, forwardNeed, forwardParts, NO_FORWARD_CONTEXT, type Original, originalKey, partImages, partsText, type Part } from "./forward.ts";
+import { type ForwardContext, type ForwardNeed, type ForwardRef, forwardedAttachmentIds, forwardNeed, forwardParts, NO_FORWARD_CONTEXT, type Original, originalKey, partImages, partsText, type Part } from "./forward.ts";
 import { escapeHtml, htmlToText } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import { fillMentions, type Mention, type ResolvedMention } from "./mentions.ts";
@@ -261,7 +261,12 @@ export function msgText(m: RawMessage, fwd: ForwardContext = NO_FORWARD_CONTEXT)
 /** The body cut into its own HTML and its forwards (forward.ts). */
 function msgParts(m: RawMessage, fwd: ForwardContext = NO_FORWARD_CONTEXT): Part[] {
 	const body = m.body ?? {};
-	return body.contentType === "html" ? forwardParts(body.content ?? "", attachmentList(m), undefined, fwd.originals) : [];
+	return body.contentType === "html" ? forwardParts(body.content ?? "", attachmentList(m), undefined, fwd.originalsFor(forwarderOf(m))) : [];
+}
+
+/** Who sent a message, as the forwards in it are authorized by: a person's id, "" for a bot or a system event. */
+function forwarderOf(m: RawMessage): string {
+	return m.from?.user?.id ?? "";
 }
 
 /**
@@ -506,26 +511,72 @@ export class GraphBackend implements Backend {
 	/** Names of people by directory id, read once per process: a forward names its sender only by id. */
 	private readonly userNames = new Map<string, string>();
 
-	/** Originals of forwarded messages by originalKey, read once per process: a forwarded card is only there. */
+	/** Originals of forwarded messages by originalKey, read once per process: a forwarded card is only there. Never
+	 * handed out whole: lookupForwards gives each forwarder only the ones it may show. */
 	private readonly originals = new Map<string, Original>();
+	/** Chat members' user ids by chat, read once per process: who may quote a chat's messages elsewhere. */
+	private readonly chatMembers = new Map<string, ReadonlySet<string>>();
 
-	/** What the forwards in `raw` need read: their senders' names and the originals of forwarded cards. */
-	private forwardContext(raw: readonly RawMessage[]): Promise<ForwardContext> {
-		return this.lookupForwards(forwardNeed(raw.flatMap((m) => msgParts(m))));
+	/** What the forwards in `raw` (messages of `chatId`) need read: their senders' names and forwarded cards' originals. */
+	private forwardContext(raw: readonly RawMessage[], chatId: string): Promise<ForwardContext> {
+		return this.lookupForwards(forwardNeed(raw.map((m) => ({ parts: msgParts(m), forwarder: forwarderOf(m) }))), chatId);
 	}
 
-	/** Names and originals for forwards, from Graph; the self-chat (chatsvc) asks through this too. */
-	private async lookupForwards(need: ForwardNeed): Promise<ForwardContext> {
-		const [names] = await Promise.all([this.namesOf(need.senderIds), this.originalsOf(need.originals)]);
-		return { names, originals: this.originals };
+	/**
+	 * Names and originals for the forwards in `chatId`, from Graph; the self-chat (chatsvc) asks through this too.
+	 *
+	 * A forward reference is written by whoever sent the forward, so it can name any chat and message the reader can see,
+	 * with any sender and time it likes. The original is read and shown only when the forwarder could see it too: they
+	 * are a member of the original's chat, they are me (my self-chat, my own forwards), or the original is in this chat.
+	 * Anything else, a failed membership lookup included, stays the stub and is logged. Cached originals go through the
+	 * same check, per forwarder.
+	 */
+	private async lookupForwards(need: ForwardNeed, chatId: string): Promise<ForwardContext> {
+		const me = need.originals.length > 0 ? tokenClaim(await this.graph.rawToken(), "oid") : "";
+		const allowed = (
+			await Promise.all(
+				need.originals.map(async (r) => {
+					if (r.forwarder === me || r.conversationId === chatId) return r;
+					if (r.forwarder && (await this.isMember(r.conversationId, r.forwarder))) return r;
+					console.warn(`[teams] forwarded message ${r.messageId} from ${r.conversationId} not shown: its forwarder ${r.forwarder || "(not a person)"} is not a member of that chat`);
+					return undefined;
+				}),
+			)
+		).filter((r): r is ForwardRef => r !== undefined);
+		const [names] = await Promise.all([this.namesOf(need.senderIds), this.originalsOf(allowed)]);
+		const by = new Map<string, Map<string, Original>>();
+		for (const r of allowed) {
+			const key = originalKey(r.conversationId, r.messageId);
+			const o = this.originals.get(key);
+			if (!o) continue;
+			if (!by.has(r.forwarder)) by.set(r.forwarder, new Map());
+			by.get(r.forwarder)?.set(key, o);
+		}
+		return { names, originalsFor: (forwarder) => by.get(forwarder) ?? new Map() };
+	}
+
+	/** Whether `userId` is a member of `chatId`. A failed lookup is logged and counts as no: the forward stays a stub. */
+	private async isMember(chatId: string, userId: string): Promise<boolean> {
+		let members = this.chatMembers.get(chatId);
+		if (!members) {
+			try {
+				const list = await this.graph.getAll<{ userId?: string }>(`/chats/${encodeURIComponent(chatId)}/members`);
+				members = new Set(list.flatMap((m) => (m.userId ? [m.userId] : [])));
+				this.chatMembers.set(chatId, members);
+			} catch (e) {
+				console.warn(`[teams] members of ${chatId} not read: ${e instanceof Error ? e.message : String(e)}`);
+				return false;
+			}
+		}
+		return members.has(userId);
 	}
 
 	/**
 	 * The originals of forwards that leave their content out (a card) or name a bot only by id, read from the chat they
 	 * were sent in. One the reader cannot see (not a member any more, deleted) is logged and stays a stub.
 	 */
-	private async originalsOf(wanted: readonly [string, string][]): Promise<void> {
-		const missing = new Map(wanted.map(([c, id]) => [originalKey(c, id), [c, id] as const]).filter(([k]) => !this.originals.has(k as string)));
+	private async originalsOf(wanted: readonly ForwardRef[]): Promise<void> {
+		const missing = new Map(wanted.map((r) => [originalKey(r.conversationId, r.messageId), [r.conversationId, r.messageId] as const]).filter(([k]) => !this.originals.has(k as string)));
 		await Promise.all(
 			[...missing].map(async ([key, [conversation, id]]) => {
 				try {
@@ -533,8 +584,6 @@ export class GraphBackend implements Backend {
 					const body = o.body ?? {};
 					this.originals.set(key, {
 						sender: msgSender(o) === "(system)" ? "" : msgSender(o),
-						senderId: o.from?.user?.id ?? o.from?.application?.id ?? "",
-						at: o.createdDateTime ?? "",
 						html: body.contentType === "html" ? (body.content ?? "") : `<p>${escapeHtml(body.content ?? "")}</p>`,
 						attachments: attachmentList(o),
 					});
@@ -594,7 +643,7 @@ export class GraphBackend implements Backend {
 						mine: Boolean(me) && sender.toLowerCase().includes(me),
 						...(m.from?.user?.id ? { sender_id: m.from.user.id } : {}),
 						text: `${text}${imageError}`,
-						md: body.contentType === "html" ? `${htmlToMarkdown(body.content ?? "", attachmentList(m), fwd.names, undefined, fwd.originals)}${badAttachment}${imageError}` : `${text}${imageError}`,
+						md: body.contentType === "html" ? `${htmlToMarkdown(body.content ?? "", attachmentList(m), fwd.names, undefined, fwd.originalsFor(forwarderOf(m)))}${badAttachment}${imageError}` : `${text}${imageError}`,
 						mentions_me: mentionsMe(m, me),
 						images: resolved,
 						imageSource: messageUrl,
@@ -620,7 +669,7 @@ export class GraphBackend implements Backend {
 		const raw = await this.graph.getAll<RawMessage>(`/chats/${chat.id}/messages?$top=${MESSAGE_PAGE}`, { max: top });
 		const myName = await this.myName();
 		const kept = raw.slice(0, top);
-		return { messages: this.project(kept, myName, chat.id, await this.forwardContext(kept)), me: myName, chat: chat.label, display: chat.display };
+		return { messages: this.project(kept, myName, chat.id, await this.forwardContext(kept, chat.id)), me: myName, chat: chat.label, display: chat.display };
 	}
 
 	/** One page of a conversation's messages as Graph gives them: the raw messages, and the link to the page before. */
@@ -641,7 +690,7 @@ export class GraphBackend implements Backend {
 		let messages: HistoryMessage[] = [];
 		let older: string | undefined;
 		for await (const page of cursorPages(await this.messagesPage(start), (p) => p.older, (c) => this.messagesPage(c))) {
-			messages = this.project(page.raw, myName, chat.id, await this.forwardContext(page.raw));
+			messages = this.project(page.raw, myName, chat.id, await this.forwardContext(page.raw, chat.id));
 			older = page.older;
 			if (messages.length > 0) break;
 		}
@@ -650,12 +699,12 @@ export class GraphBackend implements Backend {
 
 	/** 48:notes is chatsvc, not Graph. See skype.ts. */
 	selfMessages(sinceId: string, top: number): Promise<SelfMessage[]> {
-		return this.requireSkype().selfMessages(sinceId, top, (need) => this.lookupForwards(need));
+		return this.requireSkype().selfMessages(sinceId, top, (need) => this.lookupForwards(need, "48:notes"));
 	}
 
 	/** One page of the self-chat for the pane: the newest, then the page before `cursor`. See SkypeClient.selfPage. */
 	selfHistoryPage(cursor?: string): Promise<SelfHistoryPage> {
-		return this.requireSkype().selfPage(cursor, HISTORY_MESSAGES, (need) => this.lookupForwards(need));
+		return this.requireSkype().selfPage(cursor, HISTORY_MESSAGES, (need) => this.lookupForwards(need, "48:notes"));
 	}
 	/**
 	 * A picture in a message: hostedContents on Graph (the Graph bearer), or an AMS object pasted into the self-chat
