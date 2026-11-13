@@ -50,11 +50,13 @@ await check("fact writes use the ledger lock", async () => {
 	strictEqual(await inbox(["fact", "--kind", "info", "--key", "locked", "--", "waiting"]), "added info:locked", "a fact write waits as long as a ledger writer");
 	await new Promise((resolve) => holder.on("exit", resolve));
 	ok(!existsSync(lock));
+	mkdirSync(lock);
 	process.env.INBOX_LOCK_WAIT_MS = "30";
 	const began = Date.now();
 	await rejects(() => inbox(["fact", "--kind", "info", "--key", "locked", "--", "waiting again"]), /held by another writer/);
 	ok(Date.now() - began < 500);
 	delete process.env.INBOX_LOCK_WAIT_MS;
+	rmSync(lock, { recursive: true, force: true });
 });
 
 await check("a malformed facts file is rejected before a write", async () => {
