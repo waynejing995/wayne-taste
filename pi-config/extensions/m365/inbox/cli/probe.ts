@@ -271,7 +271,7 @@ async function check(a: AgentEntry, st: SessionState, stallS: number, want: bool
 	} else if (!p.alive) {
 		const legacy = a.migratedGeneration === "legacy";
 		const known = legacy && [...readTsv(inboxFile("ledger.tsv")), ...readTsv(inboxFile("archive.tsv"))].some((row) => row.key === `agents:${a.name}:gone`);
-		if (!known) events.push({ key: `gone:${a.generation ?? a.since ?? a.name}`, event: "gone", state: "exited", note: "the pane ended with no RESULT" });
+		if (!known) events.push({ key: "gone", event: "gone", state: "exited", note: "the pane ended with no RESULT" });
 	}
 	else if (p.state === "blocked") events.push({ key: `blocked:${st.last_active}`, event: "blocked", state: "waiting", note: `${a.mux}: waiting on an approval or a question` });
 	const quiet = now - st.last_active;
@@ -289,7 +289,7 @@ function record(a: AgentEntry, e: Event): string {
 	return addEvent({
 		source: "agents",
 		place: a.name,
-		key: `agents:${a.name}:${e.key}`,
+		key: `agents:${a.name}:${a.generation}:${e.key}`,
 		subject: `agent ${a.name}`,
 		note: a.goal ? `${e.note}. Goal: ${a.goal}` : e.note,
 		link: a.result ?? "",

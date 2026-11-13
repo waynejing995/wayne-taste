@@ -109,7 +109,7 @@ await check("ask maps question, options, goal and fields", () => withFixture(asy
 	f.append(f.event("ask", 1, { ask: { kind: "ask", question: "Choose?", options: ["yes", "no"] } }));
 	await f.tailer.poke();
 	const row = [...f.rows.values()][0];
-	equal(arg(row, "--key"), "agents:one:session:1");
+	equal(arg(row, "--key"), "agents:one:11111111-1111-4111-8111-111111111111:session:1");
 	equal(arg(row, "--subject"), "agent one");
 	equal(arg(row, "--note"), "waiting on ask: Choose? [options: yes | no]. Goal: ship safely");
 	equal(arg(row, "--link"), "/result");
@@ -221,7 +221,7 @@ await check("an unchanged status makes no second card; a changed one does", () =
 	f.append(f.event("ask", 5, { ask: { kind: "ask", question: "Go?", options: ["yes", "no"] } }));
 	f.append(f.event("ended", 6));
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:session:1", "agents:one:session:3", "agents:one:session:4", "agents:one:session:6"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:11111111-1111-4111-8111-111111111111:session:1", "agents:one:11111111-1111-4111-8111-111111111111:session:3", "agents:one:11111111-1111-4111-8111-111111111111:session:4", "agents:one:11111111-1111-4111-8111-111111111111:session:6"]);
 	ok(f.warnings.some((w) => w.includes("seq 2 repeats")), "the skipped card is logged");
 }));
 
@@ -305,7 +305,7 @@ await check("failed add leaves the cursor and retries in order", () => withFixtu
 	match(f.tailer.status(), /ledger unavailable/);
 	f.fail(false);
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:session:1", "agents:one:session:2"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:11111111-1111-4111-8111-111111111111:session:1", "agents:one:11111111-1111-4111-8111-111111111111:session:2"]);
 	equal(f.saved().hosts.local.offset, fs.statSync(f.file).size);
 }));
 
@@ -426,7 +426,7 @@ await check("a finished session is not recorded again after rm; re-registration 
 	f.append(f.event("ask", 5, { session: "new", ask: { kind: "ask", question: "Again?" } }));
 	await f.tailer.poke();
 	equal(f.rows.size, 2);
-	equal(arg([...f.rows.values()][1], "--key"), "agents:one:new:5");
+	equal(arg([...f.rows.values()][1], "--key"), "agents:one:11111111-1111-4111-8111-111111111111:new:5");
 }));
 
 await check("follow-up sent before re-registration (delegate skill order): its ask arrives on registration", () => withFixture(async (f) => {
@@ -444,7 +444,7 @@ await check("follow-up sent before re-registration (delegate skill order): its a
 	await f.tailer.poke();
 	equal(f.rows.size, 2);
 	const row = [...f.rows.values()][1];
-	equal(arg(row, "--key"), "agents:one:session:3");
+	equal(arg(row, "--key"), "agents:one:11111111-1111-4111-8111-111111111111:session:3");
 	match(arg(row, "--note"), /Which branch\?/);
 	f.append(f.event("result", 5, { text: "again", result: { status: "done", path: "/answer" } }));
 	await f.tailer.poke();
@@ -471,7 +471,7 @@ await check("done, follow-up turn and its ask read in one batch: the ask waits f
 	await f.tailer.poke();
 	equal(f.rows.size, 2);
 	const row = [...f.rows.values()][1];
-	equal(arg(row, "--key"), "agents:one:session:3");
+	equal(arg(row, "--key"), "agents:one:11111111-1111-4111-8111-111111111111:session:3");
 	match(arg(row, "--note"), /Which branch\?/);
 }));
 
@@ -491,7 +491,7 @@ await check("an old run's exit read after a new launch and re-registration makes
 	f.append(f.event("ended", 4, { session: "new" }));
 	await f.tailer.poke();
 	equal(f.rows.size, 2);
-	equal(arg([...f.rows.values()][1], "--key"), "agents:one:new:4");
+	equal(arg([...f.rows.values()][1], "--key"), "agents:one:11111111-1111-4111-8111-111111111111:new:4");
 }));
 
 await check("a retired name registered again while the coordinator is down: the follow-up's events arrive after restart", () => withFixture(async (f) => {
@@ -532,7 +532,7 @@ await check("agent-push-smart, reporters with `prompted`: an agent-started conti
 	f.append(ev("working", 248, "2026-11-10T05:27:11.014Z", { prompted: false }));
 	f.append(done(249, "2026-11-10T05:27:26.268Z", "retro done, again"));
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], [`agents:${name}:${session}:1794274167959072`, `agents:${name}:${session}:1794274167959247`]);
+	deepStrictEqual([...f.rows.keys()], [`agents:${name}:11111111-1111-4111-8111-111111111111:${session}:1794274167959072`, `agents:${name}:11111111-1111-4111-8111-111111111111:${session}:1794274167959247`]);
 	equal(f.calls.filter((call) => call[0] === "agent").length, 2, "247 retires the name");
 	equal(f.saved().names[name].pending, undefined);
 	for (const seq of [1794274167959075, 1794274167959249]) ok(f.warnings.some((w) => w.includes(`seq ${seq}`)), `the dropped ${seq} is logged`);
@@ -546,7 +546,7 @@ await check("agent-push-smart 2026-11-10, the stream as written (no `prompted`):
 	const session = "00000000-0000-4000-8000-000000000001";
 	const result = { path: "/tmp/demo/RESULT.md", status: "done" };
 	const real = (seq, type, ts) => ({ v: 1, ts, name, host: "example-host", pid: 1001, session, seq: 1794274167959000 + seq, type, ...(type === "result" ? { result } : {}) });
-	const key = (seq) => `agents:${name}:${session}:${1794274167959000 + seq}`;
+	const key = (seq) => `agents:${name}:11111111-1111-4111-8111-111111111111:${session}:${1794274167959000 + seq}`;
 	await f.start([f.watched(name, "local", "2026-11-10 09:29:20")]);
 	f.append(real(62, "working", "2026-11-10T02:26:58.181Z"));
 	f.append(real(72, "result", "2026-11-10T02:35:33.557Z"));
@@ -590,7 +590,7 @@ await check("no `prompted`: a follow-up whose result repeats the retiring one st
 	f.advance(1000);
 	f.writeRules([f.watched("one", "local", f.since())]);
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:session:1", "agents:one:session:3", "agents:one:session:4"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:11111111-1111-4111-8111-111111111111:session:1", "agents:one:11111111-1111-4111-8111-111111111111:session:3", "agents:one:11111111-1111-4111-8111-111111111111:session:4"]);
 	equal(f.warnings.length, 0);
 }));
 
@@ -619,7 +619,7 @@ await check("a prompted follow-up that finishes before re-registration still mak
 	f.advance(1000);
 	f.writeRules([f.watched("one", "local", f.since())]);
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:session:1", "agents:one:session:3", "agents:one:session:4"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:11111111-1111-4111-8111-111111111111:session:1", "agents:one:11111111-1111-4111-8111-111111111111:session:3", "agents:one:11111111-1111-4111-8111-111111111111:session:4"]);
 	equal(f.calls.filter((call) => call[0] === "agent").length, 2);
 	equal(f.warnings.length, 0);
 }));

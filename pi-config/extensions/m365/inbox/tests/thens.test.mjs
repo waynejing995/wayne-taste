@@ -79,10 +79,25 @@ await check("agent add arms its plan on the row: the next RESULT fires it and th
 	strictEqual(await inbox(["agent", "ls"]), "", "a bad row registers nothing");
 	const id = await row();
 	ok((await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "expect PR open; reply Wayne; close row"])).endsWith(`then ${id}.1 waits for agent-result:fixer`));
-	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", "agents:fixer:s1:1", "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
+	const [{ generation }] = readAgents();
+	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:${generation}:s1:1`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
 	await checkThens({ now: T0 });
 	ok(thenRows()[0].note.includes("you owe: expect PR open; reply Wayne; close row"), thenRows()[0].note);
 	await rejects(inbox(["done", id]), /open then-actions/);
+});
+
+await check("an agent's plan fires only on a RESULT of its own registration", async () => {
+	const id = await row();
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old plan"]);
+	const [{ generation: old }] = readAgents();
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new plan"]);
+	const [{ generation: current }] = readAgents();
+	const result = (gen, seq) => inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:${gen}:s1:${seq}`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
+	await result(old, 1);
+	deepStrictEqual(await checkThens({ now: T0 }), [], "the replaced registration's late RESULT does not fire the new plan");
+	await result(current, 2);
+	await checkThens({ now: T0 });
+	ok(thenRows()[0].note.includes("you owe: new plan [RESULT status: done (row #"), thenRows()[0].note);
 });
 
 await check("adding the same agent again cancels its previous unfired plan", async () => {

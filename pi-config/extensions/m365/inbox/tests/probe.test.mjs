@@ -511,7 +511,7 @@ await check("a legacy probe registration is migrated and removed on completion",
 		delete rules.agent_watch[0].generation;
 		fs.writeFileSync(path.join(f.dir, "rules.yaml"), YAML.stringify(rules));
 		await f.run();
-		ok(!f.ledgerKeys().some((key) => key.startsWith("agents:alpha:gone")), f.ledgerKeys().join(","));
+		ok(!f.ledgerKeys().some((key) => key.endsWith(":gone")), f.ledgerKeys().join(","));
 		deepStrictEqual(f.watchedNames(), []);
 	}),
 );
@@ -521,7 +521,7 @@ await check("an archived legacy gone key is not recorded again", () =>
 		f.watch("alpha", dead, false, "11111111-1111-4111-8111-111111111111", true);
 		fs.writeFileSync(path.join(f.dir, "archive.tsv"), "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink\n1\tagents:alpha:gone\t\t\t\t\t\t\t\t\t\n");
 		await f.run();
-		ok(!f.ledgerKeys().some((key) => key.startsWith("agents:alpha:gone")), f.ledgerKeys().join(","));
+		ok(!f.ledgerKeys().some((key) => key.endsWith(":gone")), f.ledgerKeys().join(","));
 	}),
 );
 
@@ -532,7 +532,7 @@ await check("a new generation emits gone after an archived legacy key", () =>
 		await f.run();
 		f.watch("alpha", dead);
 		await f.run();
-		ok(f.ledgerKeys().some((key) => key.startsWith("agents:alpha:gone:")), f.ledgerKeys().join(","));
+		deepStrictEqual(f.ledgerKeys("agents:alpha:"), ["agents:alpha:legacy-generation:gone", "agents:alpha:11111111-1111-4111-8111-111111111111:gone"]);
 	}),
 );
 
@@ -561,7 +561,7 @@ for (const waiting of [false, true]) {
 			const events = f.logs.filter((l) => l.includes(" -> ")).map((l) => l.replace(/ -> .*/, ""));
 			// Keyed on last_active (first seen at T0), so the same key every run; the ledger keeps one row for it.
 			deepStrictEqual([...new Set(events)], ["alpha: blocked waiting"]);
-			deepStrictEqual(f.ledgerKeys("agents:alpha:"), [`agents:alpha:blocked:${T0}`]);
+			deepStrictEqual(f.ledgerKeys("agents:alpha:"), [`agents:alpha:11111111-1111-4111-8111-111111111111:blocked:${T0}`]);
 		}),
 	);
 }
@@ -613,11 +613,11 @@ await check("a rewritten result with the same status and open items makes no sec
 		await f.run();
 		f.now = T0 + 120;
 		await f.run();
-		strictEqual(f.ledgerKeys("agents:alpha:result:").length, 1, "same status and open items, new mtime: no card");
+		strictEqual(f.ledgerKeys("agents:alpha:11111111-1111-4111-8111-111111111111:result:").length, 1, "same status and open items, new mtime: no card");
 		f.watch("alpha", partialResult("h-rollout"));
 		f.now = T0 + 240;
 		await f.run();
-		deepStrictEqual(f.ledgerKeys("agents:alpha:result:"), [`agents:alpha:result:${T0}`, `agents:alpha:result:${T0 + 240}`]);
+		deepStrictEqual(f.ledgerKeys("agents:alpha:11111111-1111-4111-8111-111111111111:result:"), [`agents:alpha:11111111-1111-4111-8111-111111111111:result:${T0}`, `agents:alpha:11111111-1111-4111-8111-111111111111:result:${T0 + 240}`]);
 	}),
 );
 

@@ -502,7 +502,8 @@ export class AgentTailer {
 		if (repeat && live && !finished) this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} repeats the last card; not added`);
 		const generation = live?.generation;
 		if (live && row && !finished && !repeat) {
-			await this.add(live, `agents:${ev.name}:${ev.session}:${ev.seq}`, ev.type, row.state, row.note, ev.result?.path ?? "");
+			// The row names the registration it was recorded for: that registration's plan (an agent-result then) fires on it.
+			await this.add(live, `agents:${ev.name}:${live.generation}:${ev.session}:${ev.seq}`, ev.type, row.state, row.note, ev.result?.path ?? "");
 			current.lastCard = said;
 			if (ev.type === "result" && row.state === "done") {
 				retire = true;
@@ -662,7 +663,7 @@ export class AgentTailer {
 				? `reporter never started (WAYNE_AGENT_WATCH not set at launch, or wayne-agent-report.ts not linked on ${entry.host})`
 				: `no heartbeat for ${Math.round((now - state.lastSeen) / 1000)} s (last event ${state.state} at ${new Date(state.lastSeen).toISOString()})`;
 			try {
-				await this.add(entry, `agents:${entry.name}:dead:${state.lastSeen}`, "dead", never ? "never-started" : "no-heartbeat", note, "");
+				await this.add(entry, `agents:${entry.name}:${entry.generation}:dead:${state.lastSeen}`, "dead", never ? "never-started" : "no-heartbeat", note, "");
 			} catch (e) {
 				this.fail(`dead:${entry.name}`, e);
 				continue;

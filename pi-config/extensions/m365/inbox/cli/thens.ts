@@ -5,7 +5,8 @@
  *
  * Triggers: `pr-merged:<owner/repo>#<n>` (the PR watch recorded the merge: a ledger or archive row keyed
  * `github:<repo>#<n>:merged`, so the repo's rules must record `event: merged`, `log` is enough),
- * `agent-result:<name>` (a RESULT row for that agent session added after the then), `gh-run:<owner/repo>:<run-id>`
+ * `agent-result:<name>` (a RESULT row for that agent session added after the then; an `agent add` plan, which carries
+ * its registration's generation, only by a row keyed `agents:<name>:<generation>:`), `gh-run:<owner/repo>:<run-id>`
  * (`gh run view` says completed), `at:<YYYY-MM-DD HH:MM>` (local time).
  *
  * When the trigger happens, one `do` row (tag `then`) starts a turn: "Trigger X happened; you owe: <action>". A fired
@@ -155,7 +156,8 @@ async function happened(t: Then, rows: Row[], now: Date, gh: boolean): Promise<s
 	if (kind === "pr-merged") return rows.some((r) => r.key === `github:${arg}:merged`) ? "merged" : undefined;
 	if (kind === "at") return parseStamp(arg) <= now ? `it is ${stamp(now)}` : undefined;
 	if (kind === "agent-result") {
-		const hit = rows.find((r) => Number(r.id) > t.after && r.source === "agents" && r.key.startsWith(`agents:${arg}:`) && r.note.startsWith("RESULT status:"));
+		const prefix = t.generation ? `agents:${arg}:${t.generation}:` : `agents:${arg}:`;
+		const hit = rows.find((r) => Number(r.id) > t.after && r.source === "agents" && r.key.startsWith(prefix) && r.note.startsWith("RESULT status:"));
 		return hit ? `${/^RESULT status: [a-z_]+/.exec(hit.note)?.[0] ?? "RESULT"} (row #${hit.id})` : undefined;
 	}
 	if (kind === "gh-run" && gh) {
