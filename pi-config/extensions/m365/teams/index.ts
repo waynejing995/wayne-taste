@@ -58,6 +58,7 @@ import { findChat, GraphBackend } from "./graph-backend.ts";
 import { escapeHtml } from "./html.ts";
 import { type Mention, renderWithMentions } from "./mentions.ts";
 import { cursorPages } from "./paging.ts";
+import { REACTIONS, reactionLine, reactionType } from "./reactions.ts";
 import { claim, describeOwner, listOwners, type WatchLease, type WatchOwner } from "./watch.ts";
 import { forgetWatch, rememberInterval, rememberWatch } from "./watch-list.ts";
 import { SKYPE_SCOPES, SkypeClient } from "./skype.ts";
@@ -985,7 +986,7 @@ export default function (pi: ExtensionAPI) {
 	// ── Reading messages ─────────────────────────────────────────────────
 
 	/** A self-chat message as a history line. My own notes, so always mine. */
-	const selfLine = (m: SelfMessage): HistoryMessage => ({ sender: "me", at: m.at, text: m.text, md: m.md, mine: true, ...(m.images ? { images: m.images } : {}), ...(m.imageSource ? { imageSource: m.imageSource } : {}), ...(m.files ? { files: m.files } : {}) });
+	const selfLine = (m: SelfMessage): HistoryMessage => ({ id: m.id, sender: "me", at: m.at, text: m.text, md: m.md, mine: true, ...(m.images ? { images: m.images } : {}), ...(m.imageSource ? { imageSource: m.imageSource } : {}), ...(m.files ? { files: m.files } : {}), ...(m.reactions ? { reactions: m.reactions } : {}) });
 
 	/** One page of a conversation for the pane: the newest, or the page before `cursor`. Oldest first. */
 	async function loadHistoryPage(target: SendTarget, cursor?: string): Promise<HistoryPage> {
@@ -1245,7 +1246,9 @@ export default function (pi: ExtensionAPI) {
 			"error. HTML is already converted to plain text, and messages that contained a picture read " +
 			"as [image]. The newest pictures are attached to the result as images, each with the local path " +
 			"it was saved to, so look at them and describe what they show instead of telling the user to open " +
-			"Teams -- this terminal cannot display them. Use teams_unread first " +
+			"Teams -- this terminal cannot display them. Each message line ends with its id (`id: …`), the " +
+			"message_id teams_react takes, and a message with reactions has a line with each emoji and how many " +
+			"chose it. Use teams_unread first " +
 			"when you need to find out which conversation has new activity.",
 		parameters: Type.Object({
 			target: StringEnum(["self", "chat"], { description: "Which conversation to read" }),
@@ -1270,7 +1273,8 @@ export default function (pi: ExtensionAPI) {
 
 			const msgs = await loadRecent(target, params.limit ?? HISTORY_MESSAGES);
 			/**
-			 * One line per message, plus a line per shared file.
+			 * One line per message with its id (teams_react's message_id), a line per shared file, and one for the
+			 * reactions when there are any.
 			 *
 			 * The file line carries the URL, because that URL is the argument to
 			 * teams_download -- without it the agent can see that a file exists and
@@ -1280,9 +1284,11 @@ export default function (pi: ExtensionAPI) {
 				// A file-only message has no text at all, and "Sender: " with
 				// nothing after it reads like something failed to load.
 				const who = m.mine ? "me" : m.sender;
-				const head = m.text ? `[${formatLocal(m.at)}] ${who}: ${m.text}` : `[${formatLocal(m.at)}] ${who}:`;
+				const stamp = `[${formatLocal(m.at)}]${m.id ? ` (id: ${m.id})` : ""}`;
+				const head = m.text ? `${stamp} ${who}: ${m.text}` : `${stamp} ${who}:`;
 				const files = (m.files ?? []).map((f) => `    \u{1f4ce} file: ${f.name}\n       url: ${f.url}`);
-				return [head, ...files].join("\n");
+				const reactions = reactionLine(m.reactions);
+				return [head, ...files, ...(reactions ? [`    reactions: ${reactions}`] : [])].join("\n");
 			};
 			const text = msgs.length === 0 ? "(no messages)" : msgs.map(render).join("\n");
 
@@ -1302,6 +1308,29 @@ export default function (pi: ExtensionAPI) {
 				}
 			}
 			return { content, details: {} };
+		},
+	});
+
+	pi.registerTool({
+		name: "teams_react",
+		label: "Teams React",
+		description:
+			"React to one Teams message, e.g. a thumbs up, or take your reaction back with remove=true. " +
+			"`message_id` is the id teams_read prints on each message line; `chat_id` is the chat it is in " +
+			"(from teams_chats, or \"48:notes\" for the self-chat). `reaction` is like, heart, laugh, surprised, " +
+			"sad, angry, or an emoji such as 👍.",
+		parameters: Type.Object({
+			chat_id: Type.String({ description: "The chat the message is in: an id from teams_chats, or 48:notes for the self-chat" }),
+			message_id: Type.String({ description: "The message's id, as teams_read prints it" }),
+			reaction: Type.String({ description: `${Object.keys(REACTIONS).join(", ")}, or an emoji` }),
+			remove: Type.Optional(Type.Boolean({ description: "Take my reaction back instead of adding it (default false)" })),
+		}),
+		async execute(_id, params) {
+			const type = reactionType(params.reaction);
+			await backend.react(params.chat_id, params.message_id, type, params.remove === true);
+			const where = params.chat_id === SELF_CHAT ? "the self-chat" : `chat ${params.chat_id}`;
+			const text = params.remove ? `Removed ${type} from message ${params.message_id} in ${where}.` : `Reacted ${type} to message ${params.message_id} in ${where}.`;
+			return { content: [{ type: "text", text }], details: {} };
 		},
 	});
 

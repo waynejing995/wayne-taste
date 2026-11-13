@@ -36,6 +36,7 @@ const groups = [
 	{ label: "teams forwards", script: join(root, "tests", "forward.test.mjs"), local: true },
 	{ label: "teams bot cards", script: join(root, "tests", "bot-cards.test.mjs"), local: true },
 	{ label: "teams file sends", script: join(root, "tests", "files.test.mjs"), local: false },
+	{ label: "teams reactions", script: join(root, "tests", "reactions.test.mjs"), local: true },
 	{ label: "teams (local-only)", script: join(root, "teams", "tests", "run.mjs"), local: true, isolated: true },
 ];
 let failed = 0;

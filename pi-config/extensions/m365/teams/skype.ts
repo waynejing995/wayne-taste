@@ -27,6 +27,7 @@ import { escapeHtml } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import { fillMentions, type ResolvedMention } from "./mentions.ts";
 import { cursorPages } from "./paging.ts";
+import { skypeReactions } from "./reactions.ts";
 
 export const SKYPE_SCOPES = ["https://api.spaces.skype.com/.default"];
 const SELF_CONVERSATION = "48:notes";
@@ -64,7 +65,7 @@ export interface RawSkypeMessage {
 	messagetype?: string;
 	/** `cards` is a JSON string: [{cardClientId, contentType, content}], what a Graph card send stores. `files` is
 	 * one too: [{fileName, objectUrl, …}], the files sent in it, each a share on the sender's OneDrive. */
-	properties?: { cards?: string; files?: string; originalMessageContext?: unknown };
+	properties?: { cards?: string; files?: string; originalMessageContext?: unknown; emotions?: unknown };
 }
 
 /** The files a chatsvc message carries, as the Graph backend names them. */
@@ -259,6 +260,7 @@ export class SkypeClient {
 				// blocks I sent myself came back flat while every other chat rendered.
 				// htmlToText reads a picture as "[image]"; its address is what lets the extension fetch it (see image()).
 				const images = partImages(parts).map((src) => src.replaceAll("&amp;", "&"));
+				const reactions = skypeReactions(m.properties?.emotions);
 				out.push({
 					id,
 					at: m.composetime ?? "",
@@ -266,6 +268,7 @@ export class SkypeClient {
 					md: [htmlToMarkdown(html, [], who, m.properties?.originalMessageContext), cardsText(m, "\n\n")].filter(Boolean).join("\n\n"),
 					...(images.length > 0 ? { images, ...(ams ? { imageSource: new URL(ams).origin + "/" } : {}) } : {}),
 					...(files.length > 0 ? { files } : {}),
+					...(reactions.length > 0 ? { reactions } : {}),
 				});
 			} catch {
 				out.push({ id: String(m.id ?? ""), at: m.composetime ?? "", text: "[unreadable attachment]", md: "[unreadable attachment]" });

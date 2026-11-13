@@ -27,6 +27,7 @@ import { escapeHtml, htmlToText } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import { fillMentions, type Mention, type ResolvedMention } from "./mentions.ts";
 import { cursorPages } from "./paging.ts";
+import { graphReactions } from "./reactions.ts";
 import type { SkypeClient } from "./skype.ts";
 import { fetchMeetingTranscript, type MeetingTranscriptResult } from "./transcript.ts";
 
@@ -75,6 +76,7 @@ interface RawMessage {
 	body?: { contentType?: string; content?: string };
 	mentions?: { mentioned?: { user?: { displayName?: string } }; mentionText?: string }[];
 	attachments?: RawAttachment[];
+	reactions?: unknown;
 }
 
 interface RawChat {
@@ -550,7 +552,9 @@ export class GraphBackend implements Backend {
 							imageError = "\n[unreadable attachment]";
 						}
 					}
+					const reactions = graphReactions(m.reactions);
 					return [{
+						...(m.id ? { id: m.id } : {}),
 						sender,
 						at: m.createdDateTime ?? "",
 						mine: Boolean(me) && sender.toLowerCase().includes(me),
@@ -561,6 +565,7 @@ export class GraphBackend implements Backend {
 						images: resolved,
 						imageSource: messageUrl,
 						...(files.length > 0 ? { files } : {}),
+						...(reactions.length > 0 ? { reactions } : {}),
 					}];
 				} catch {
 					return [{ sender: "(system)", at: m.createdDateTime ?? "", mine: false, text: "[unreadable attachment]", md: "[unreadable attachment]", mentions_me: false, images: [] }];
@@ -657,6 +662,16 @@ export class GraphBackend implements Backend {
 		const oid = tokenClaim(token, "oid");
 		const tid = tokenClaim(token, "tid");
 		await this.graph.post(`/chats/${chatId}/markChatReadForUser`, { user: { id: oid, tenantId: tid } });
+	}
+
+	/**
+	 * My reaction on one message: Graph's setReaction / unsetReaction. The self-chat is "48:notes" on Graph too, and its
+	 * chatsvc message ids are the Graph ids.
+	 */
+	async react(chatId: string, messageId: string, reactionType: string, remove = false): Promise<void> {
+		const chat = encodeURIComponent(chatId);
+		const message = encodeURIComponent(messageId);
+		await this.graph.post(`/chats/${chat}/messages/${message}/${remove ? "unsetReaction" : "setReaction"}`, { reactionType });
 	}
 
 	/** Fetch a shared file to disk; see downloadShared. */

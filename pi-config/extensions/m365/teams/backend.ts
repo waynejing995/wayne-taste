@@ -23,6 +23,7 @@ import type { DownloadedFile } from "../core/shares.ts";
 import type { Person } from "../core/people.ts";
 import { type ChatRef, type ChatsPage, type HistoryMessage, HISTORY_MESSAGES, type SendTarget } from "./compose-overlay.ts";
 import type { Mention } from "./mentions.ts";
+import type { ReactionCount } from "./reactions.ts";
 import type { MeetingTranscriptResult } from "./transcript.ts";
 
 /** One chat holding unread activity. Chat-level: Graph's preview carries no
@@ -54,6 +55,8 @@ export interface SelfMessage {
 	imageSource?: string;
 	/** Files sent in it: a name and the SharePoint URL behind it (teams_download; pictures are fetched as pictures). */
 	files?: { name: string; url: string }[];
+	/** Reactions on it, each emoji with how many chose it; absent when there are none. */
+	reactions?: ReactionCount[];
 }
 
 /** Where to read a chat from. `id` is preferred: resolving a name walks the whole chat list. */
@@ -123,6 +126,8 @@ export interface Backend {
 	 * `files` are local files of any type, uploaded to OneDrive (a chat) or the channel's folder and attached.
 	 */
 	send(target: SendTarget, message: string, html: boolean, mentions?: Mention[], images?: string[], card?: Record<string, unknown>, files?: string[]): Promise<void>;
+	/** Add (or with `remove`, take back) my reaction to one message. `reactionType` is the emoji (reactions.ts). */
+	react(chatId: string, messageId: string, reactionType: string, remove?: boolean): Promise<void>;
 }
 
 /** The script logs progress to stderr and emits exactly one JSON line on stdout. */
@@ -207,6 +212,10 @@ export class ScriptBackend implements Backend {
 		return Promise.reject(
 			new Error('the script backend cannot download files; set "backend": "graph" in ~/.pi/agent/teams.json'),
 		);
+	}
+
+	react(): Promise<never> {
+		return Promise.reject(new Error('reactions need the graph backend; set "backend": "graph" in ~/.pi/agent/teams.json'));
 	}
 
 	transcript(): Promise<never> {

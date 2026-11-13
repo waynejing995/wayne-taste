@@ -38,6 +38,7 @@ import * as tn from "../core/tern-native.ts";
 import type { Person } from "../core/people.ts";
 import { formatLocal } from "../core/time.ts";
 import { showImage } from "./image-viewer.ts";
+import type { ReactionCount } from "./reactions.ts";
 
 /** The newest messages of a conversation on open, and the default for teams_read. */
 export const HISTORY_MESSAGES = 20;
@@ -62,6 +63,8 @@ export interface ChatsPage {
 }
 
 export interface HistoryMessage {
+	/** The message's id in its chat: what teams_react targets. */
+	id?: string;
 	sender: string;
 	at: string;
 	/** Flattened text. Kept for tools and for anything that cannot render. */
@@ -85,6 +88,8 @@ export interface HistoryMessage {
 	 * of a fact we already have.
 	 */
 	files?: { name: string; url: string }[];
+	/** Reactions on it, each emoji with how many chose it; absent when there are none. */
+	reactions?: ReactionCount[];
 }
 
 /** One page of a conversation, oldest first. `older` names the page before it; absent when nothing is older. */
