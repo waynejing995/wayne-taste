@@ -19,6 +19,8 @@ export const STATES = ["claimed", "open"];
 /** Sections of rules.yaml that are lists kept by programs, not classification rules. */
 const LISTS = new Set(["teams_watch", "agent_watch", "schedule"]);
 const LOCK_STALE_MS = 10_000;
+/** How long a ledger-lock writer waits: past the stale age, so a dead holder never blocks. INBOX_LOCK_WAIT_MS overrides it for tests. */
+export const ledgerLockWaitMs = () => Number(process.env.INBOX_LOCK_WAIT_MS ?? LOCK_STALE_MS + 2000);
 
 export type Row = Record<string, string>;
 type Rule = { action: string; tag?: string; owner?: string; when?: Record<string, unknown> };
@@ -185,7 +187,7 @@ export function withRulesLock<T>(fn: () => T): T {
 
 /** ledger.tsv's rows under the ledger lock. `save` writes them back. Waits past the stale age, so a dead holder never blocks. */
 export function withLedger<T>(fn: (rows: Row[], save: (rows: Row[]) => void) => T): T {
-	return withLock(inboxFile("ledger.tsv.lock"), Number(process.env.INBOX_LOCK_WAIT_MS ?? LOCK_STALE_MS + 2000), () => {
+	return withLock(inboxFile("ledger.tsv.lock"), ledgerLockWaitMs(), () => {
 		const file = inboxFile("ledger.tsv");
 		return fn(readTsv(file), (rows) => writeTsv(file, rows));
 	});

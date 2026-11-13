@@ -43,10 +43,13 @@ await check("cred stores a location and rejects a value", async () => {
 
 await check("fact writes use the ledger lock", async () => {
 	const lock = join(process.env.WAYNE_INBOX_DIR, "ledger.tsv.lock");
-	const { spawnSync } = await import("node:child_process");
-	const started = spawnSync(process.execPath, ["--experimental-strip-types", "-e", "import('node:fs').then(fs=>fs.mkdirSync(process.argv[1])).then(()=>Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,1200))", lock], { timeout: 100 });
-	await rejects(() => inbox(["fact", "--kind", "info", "--key", "locked", "--", "waiting"]), /held by another writer/);
-	strictEqual(started.error?.code, "ETIMEDOUT");
+	const { spawn } = await import("node:child_process");
+	const { mkdirSync, existsSync } = await import("node:fs");
+	mkdirSync(lock);
+	const holder = spawn(process.execPath, ["-e", "setTimeout(()=>require('node:fs').rmSync(process.argv[1],{recursive:true,force:true}),1500)", lock]);
+	strictEqual(await inbox(["fact", "--kind", "info", "--key", "locked", "--", "waiting"]), "added info:locked", "a fact write waits as long as a ledger writer");
+	await new Promise((resolve) => holder.on("exit", resolve));
+	ok(!existsSync(lock));
 	process.env.INBOX_LOCK_WAIT_MS = "30";
 	const began = Date.now();
 	await rejects(() => inbox(["fact", "--kind", "info", "--key", "locked", "--", "waiting again"]), /held by another writer/);

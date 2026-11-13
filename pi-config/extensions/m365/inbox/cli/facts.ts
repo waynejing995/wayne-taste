@@ -4,7 +4,7 @@
  * Writes share the ledger lock and land through a temp file renamed over facts.md.
  */
 import * as fs from "node:fs";
-import { clean, finishRows, inboxFile, listRows, readTsv, stamp, withLedger, withLock, type Row } from "./ledger.ts";
+import { clean, finishRows, inboxFile, ledgerLockWaitMs, listRows, readTsv, stamp, withLedger, withLock, type Row } from "./ledger.ts";
 import { InboxError } from "./ledger.ts";
 
 export const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
@@ -93,7 +93,7 @@ function saveFacts(facts: Fact[]): void {
 }
 
 function mutate<T>(fn: (facts: Fact[]) => T): T {
-	return withLock(inboxFile("ledger.tsv.lock"), Number(process.env.INBOX_LOCK_WAIT_MS ?? 1000), () => fn(readFacts()));
+	return withLock(inboxFile("ledger.tsv.lock"), ledgerLockWaitMs(), () => fn(readFacts()));
 }
 
 const KEY_RE = /^[a-z0-9][a-z0-9._-]*$/;
