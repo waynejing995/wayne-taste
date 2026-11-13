@@ -22,6 +22,9 @@ globalThis.fetch = async (url) => {
 const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
 const { createServer, mcpContent, requireLogin } = await import("../server.ts");
+const { startChannel } = await import("../channel.ts");
+const { listOwners } = await import("../../teams/watch.ts");
+const { LEASE_ID } = await import("../../inbox/delivery.ts");
 
 let failed = 0;
 const check = (label, fn) => {
@@ -107,10 +110,39 @@ const until = async (pred, ms = 5000) => {
 	check("an image without a file is saved and named by its path", () => deepStrictEqual([saved.map((c) => c.type), !!path && existsSync(path)], [["text", "text", "image"], true]));
 }
 
+// ── Channel claims: opt-in only ─────────────────────────────────────────────
+{
+	// The saved list holds the self-chat and another chat; omp may be restarting and about to resume both.
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "rules.yaml"), "teams_watch:\n  chats:\n    - { chat: self-chat, chat_id: '48:notes', policy: '' }\n    - { chat: Team, chat_id: '19:team@thread.v2', policy: reply }\n");
+	const run = async (env) => {
+		const keys = ["M365_CHANNEL_WATCHES", "M365_CHANNEL_SELF", "M365_CHANNEL_INBOX"];
+		for (const k of keys) delete process.env[k];
+		Object.assign(process.env, env);
+		const started = [];
+		const teams = { startWatch: async (_ctx, chatId) => (started.push(chatId), `Watching ${chatId}`), setWatchInterval: () => "", stopAllWatches: () => {} };
+		const stop = startChannel({ teams, context: {}, push: async () => {} });
+		await new Promise((r) => setTimeout(r, 300));
+		const inboxClaimed = (await listOwners()).some((o) => o.chatId === LEASE_ID);
+		stop();
+		for (const k of keys) delete process.env[k];
+		await new Promise((r) => setTimeout(r, 100));
+		return { started, inboxClaimed };
+	};
+	const none = await run({});
+	check("by default the channel resumes no saved watch and leaves the inbox lease alone", () => deepStrictEqual(none, { started: [], inboxClaimed: false }));
+	const watches = await run({ M365_CHANNEL_WATCHES: "1" });
+	check("M365_CHANNEL_WATCHES=1 resumes the saved chats but never the self-chat", () => deepStrictEqual(watches, { started: ["19:team@thread.v2"], inboxClaimed: false }));
+	const self = await run({ M365_CHANNEL_WATCHES: "1", M365_CHANNEL_SELF: "1" });
+	check("M365_CHANNEL_SELF=1 also takes the self-chat", () => deepStrictEqual(self.started.sort(), ["19:team@thread.v2", "48:notes"]));
+	const inbox = await run({ M365_CHANNEL_INBOX: "1" });
+	check("M365_CHANNEL_INBOX=1 takes the inbox lease, and only that", () => deepStrictEqual(inbox, { started: [], inboxClaimed: true }));
+}
+
 // ── Channel ─────────────────────────────────────────────────────────────────
 {
-	// An inbox set up with no saved watches: the inbox lease is free (this temp directory's), so its cards are pushed.
+	// No saved watches; the inbox is opted in and its lease is free (this temp directory's), so its cards are pushed.
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "rules.yaml"), "teams_watch:\n  chats: []\n");
+	process.env.M365_CHANNEL_INBOX = "1";
 	const local = join(tmp, "local-events");
 	process.env.M365_CHANNEL_LOCAL = local;
 	const other = await connect(true, "codex");
@@ -137,6 +169,7 @@ const until = async (pred, ms = 5000) => {
 		deepStrictEqual([/teams_send/.test(text), /UNTRUSTED/.test(text)], [true, true]);
 	});
 	await server.close();
+	delete process.env.M365_CHANNEL_INBOX;
 }
 
 rmSync(tmp, { recursive: true, force: true });

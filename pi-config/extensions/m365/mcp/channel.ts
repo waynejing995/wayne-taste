@@ -2,10 +2,15 @@
  * Claude Code's channel: the Teams watch and the inbox cards pushed into the session as
  * `notifications/claude/channel` events, the way omp adds teams-watch and inbox cards to its conversation.
  *
- * The watch list and policies are the saved ones in ~/.wayne/inbox/rules.yaml (teams_watch), read and never
- * rewritten here; cursors, card text and the per-chat lock are the Teams core's. A chat another session already
- * watches is skipped, and the skip is pushed as a notice naming that session: two watchers never poll one chat.
- * Inbox cards come only when no other session holds the inbox lease (omp's /inbox watch).
+ * Nothing is claimed by default: an omp session restarting, resuming or starting /new must find its self-chat watch,
+ * its saved watches and the inbox lease free, or the user's omp:/pi: instructions would run here instead. Claims are
+ * the user's explicit opt-ins:
+ *   - a teams_watch start call from this session;
+ *   - M365_CHANNEL_WATCHES=1: resume the saved chats in ~/.wayne/inbox/rules.yaml (teams_watch), the self-chat
+ *     excepted; M365_CHANNEL_SELF=1 adds the self-chat. The list is read, never rewritten here;
+ *   - M365_CHANNEL_INBOX=1: deliver the inbox (omp's /inbox watch lease and cursor).
+ * Cursors, card text and the per-chat lock are the Teams core's. A chat another session already watches is skipped,
+ * and the skip is pushed as a notice naming that session: two watchers never poll one chat.
  *
  * M365_CHANNEL_LOCAL=<file> adds a test-only source: each line appended to the file is pushed as an event. It proves
  * the push path end to end without touching a chat someone else watches.
@@ -20,6 +25,7 @@ import { claim, describeOwner, type WatchLease } from "../teams/watch.ts";
 import { savedWatches } from "../teams/watch-list.ts";
 
 const BACKSTOP_MS = 60_000;
+const SELF_CHAT = "48:notes";
 
 /** One pushed event. Meta keys are identifiers only: Claude Code drops any other key. */
 export interface ChannelEvent {
@@ -53,19 +59,23 @@ export function startChannel(opts: { teams: TeamsWatches; context: ToolContext; 
 	};
 	const stops: (() => void)[] = [() => teams.stopAllWatches()];
 
-	void (async () => {
-		const saved = savedWatches();
-		if (saved.interval_sec !== undefined) teams.setWatchInterval(saved.interval_sec, false);
-		for (const w of saved.chats) {
-			try {
-				notice(await teams.startWatch(context, w.chat_id, undefined, w.policy, false), { chat_id: w.chat_id, policy: w.policy });
-			} catch (e) {
-				notice(`Skipped "${w.chat}": ${e instanceof Error ? e.message : e}`, { chat_id: w.chat_id, policy: w.policy });
+	if (process.env.M365_CHANNEL_WATCHES === "1") {
+		const withSelf = process.env.M365_CHANNEL_SELF === "1";
+		void (async () => {
+			const saved = savedWatches();
+			if (saved.interval_sec !== undefined) teams.setWatchInterval(saved.interval_sec, false);
+			for (const w of saved.chats) {
+				if (w.chat_id === SELF_CHAT && !withSelf) continue;
+				try {
+					notice(await teams.startWatch(context, w.chat_id, undefined, w.policy, false), { chat_id: w.chat_id, policy: w.policy });
+				} catch (e) {
+					notice(`Skipped "${w.chat}": ${e instanceof Error ? e.message : e}`, { chat_id: w.chat_id, policy: w.policy });
+				}
 			}
-		}
-	})();
+		})();
+	}
 
-	void startInbox(notice, push).then((stop) => stop && stops.push(stop));
+	if (process.env.M365_CHANNEL_INBOX === "1") void startInbox(notice, push).then((stop) => stop && stops.push(stop));
 
 	const local = process.env.M365_CHANNEL_LOCAL;
 	if (local) stops.push(startLocal(local, push));

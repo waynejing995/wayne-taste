@@ -88,13 +88,22 @@ run `bin/inbox`. No UI: no overlays, status bar or commands.
   Code permissions or `allowedTools`, Codex `approval_mode`, Cursor's tool approval).
 - **Channel** (Claude Code only, `M365_CHANNEL=1`): the server declares `claude/channel` and pushes
   `notifications/claude/channel` events, `<channel source="m365" kind=… chat_id=… sender=… policy=…>`:
-  - `card`: the Teams watch, resumed from the `teams_watch` section of `rules.yaml` (chats, policies, interval;
-    read, never rewritten here). Same cursors, card text and per-chat lock as omp. A chat another session already
-    watches is skipped, and the skip is pushed as a `notice` naming that session. There is no policy gate model
+  - `card`: a watched Teams chat. Same cursors, card text and per-chat lock as omp. There is no policy gate model
     here, so a card from a chat with a policy always starts a turn and says so; Claude decides from the policy.
   - `instruction`: your own `omp:`/`pi:` message in a watched chat.
-  - `inbox`: new `notify`/`do` ledger rows, only when no omp session holds `/inbox watch` (same lease and cursor).
+  - `inbox`: new `notify`/`do` ledger rows (same lease and cursor as omp's `/inbox watch`).
+  - `notice`: what the channel claimed or skipped. A chat another session already watches is skipped and named.
   - `M365_CHANNEL_LOCAL=<file>` (test only) pushes each line appended to the file as a `local` event.
+
+  **Nothing is claimed by default.** omp restarting, resuming or starting `/new` must find its watches and the inbox
+  lease free; otherwise your `omp:`/`pi:` phone instructions would run in Claude Code. Claims are opt-in:
+
+  | Claims | How |
+  |---|---|
+  | One chat | `teams_watch start` called from the Claude Code session |
+  | The saved chats in `rules.yaml` (`teams_watch`), self-chat excepted; read, never rewritten | `M365_CHANNEL_WATCHES=1` |
+  | The self-chat too (with `M365_CHANNEL_WATCHES=1`) | `M365_CHANNEL_SELF=1` |
+  | The inbox lease and its cursor | `M365_CHANNEL_INBOX=1` |
 
   The server's instructions tell Claude to reply with `teams_send` and carry the untrusted-content rules of the
   omp cards. Without the channel, `teams_watch start` is refused: its cards would go nowhere.
