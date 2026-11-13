@@ -141,7 +141,7 @@ await check("malformed keys and metadata-shaped text are rejected or round-trip"
 });
 
 await check("secrets are rejected in every field and scrubbed from history", async () => {
-	const accepted = ["CI token lives in the release vault", "the password is in the team vault", "the API key is stored in 1Password under ci-bot", "token rotation is owned by Ops", "password reset goes through the IT portal", "the CI token is expired", "the deploy token was rotated by Ops", "tokens are issued per team", "the pw is kept in the safe"];
+	const accepted = ["CI token lives in the release vault", "the password is in the team vault", "the API key is stored in 1Password under ci-bot", "token rotation is owned by Ops", "password reset goes through the IT portal", "the CI token is expired", "the deploy token was rotated by Ops", "tokens are issued per team", "the pw is kept in the safe", "The Jira token: ask Lin for it", "secret: rotate monthly", "Teams token: Graph delegated via az cli", "token=see 1Password item ci-bot"];
 	for (const text of accepted) await inbox(["fact", "--kind", "info", "--key", `pointer-${accepted.indexOf(text)}`, "--", text]);
 	const rejected = ["the password is hunter2X", "pw is s3cr3t!", "password: hunter2", "token=abc123", "Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature", "api key: sk-live-1234567890abcdef", "ghp_1234567890abcdefghij", "xoxb-1234567890-abcdefghij", "pw is X", "password is abc", "password: 7", "the token = a", "the secret was hunter", "PASSWORD IS Sunshine"];
 	for (const text of rejected) await rejects(() => inbox(["fact", "--kind", "decision", "--key", "release-window", "--", text]), /never its value/);
