@@ -375,8 +375,8 @@ function adaptiveBlocks(card: El): string[] {
 		if (link) out.push(`[${link}](${link})`);
 	};
 	walk(card.body);
-	// The card's own buttons come before the footer, so a card the agent sent still ends with it.
-	const footer = out.at(-1) === agentFooterText() ? out.pop() : undefined;
+	// The card's own buttons come before the footer, so a card an agent sent (any harness) still ends with it.
+	const footer = isAgentFooterLine(out.at(-1) ?? "") ? out.pop() : undefined;
 	actions(card.actions);
 	if (footer) out.push(footer);
 	return out;
@@ -426,18 +426,24 @@ export function attachedCardText(content: unknown, contentType: string = CARD_CO
 }
 
 /** The one footer format every harness writes: `sent by <name> agent` (name already cut to [a-z0-9-]) or `sent by agent`. */
-const AGENT_FOOTER_LINE = /(?:^|\n)\s*sent by (?:[a-z0-9]+(?:-[a-z0-9]+)* )?agent$/;
+const AGENT_FOOTER_LINE = /^sent by (?:[a-z0-9]+(?:-[a-z0-9]+)* )?agent$/;
+
+/** One line in the shared footer format, italic or not; a quoted line ("> sent by omp agent") is not one. */
+export function isAgentFooterLine(line: string): boolean {
+	return AGENT_FOOTER_LINE.test(line.trim().replace(/^\*+|\*+$/g, ""));
+}
 
 /**
  * Sent by an agent, read back as text: a text send's last line or a card's is a footer in the shared format, not
  * quoted. Any harness counts (this process's footer, another harness's, the old "sent by pi agent"): every agent
  * sends as the user, so without this an agent's `omp:` reply would run as the user's own instruction. Images a send
- * carries come after the footer and read back as "[name]", and the footer is italic, so both are cut before the check.
+ * carries come after the footer, each on its own line as "[name]" (a name may hold brackets: "[shot[1].png]"), so
+ * whole bracketed lines and blank lines are cut from the end before the check.
  */
 export function isAgentSend(text: string): boolean {
-	const end = text.trim().replace(/(\s*\[[^\]\n]*\])+$/, "").replace(/\*+$/, "").replace(/^\*+/gm, "");
-	// A forward of an agent's send ends in its footer too, quoted ("> sent by omp agent"): that one a person sent.
-	return AGENT_FOOTER_LINE.test(end);
+	const lines = text.trim().split("\n");
+	while (lines.length > 1 && /^\s*(\[.*\])?\s*$/.test(lines.at(-1) ?? "")) lines.pop();
+	return isAgentFooterLine(lines.at(-1) ?? "");
 }
 
 /**

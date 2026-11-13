@@ -21,7 +21,7 @@ const jiti = createJiti(import.meta.url, {
 	},
 	interopDefault: true,
 });
-const { buildCard, cardText, cardMentions, isAgentSend, idleLabel, sortAgents, CARD_CONTENT_TYPE, agentFooterText, footerTextFor, setAgentHarness } =
+const { buildCard, cardText, attachedCardText, cardMentions, isAgentSend, idleLabel, sortAgents, CARD_CONTENT_TYPE, agentFooterText, footerTextFor, setAgentHarness } =
 	await jiti.import(join(ROOT, "teams", "card.ts"));
 // The harness omp names when the extension loads; every footer below is this one.
 setAgentHarness("omp");
@@ -278,6 +278,54 @@ await check("in an omp process the echo guard knows every harness's footer, in t
 	} finally {
 		setAgentHarness("omp");
 	}
+});
+
+await check("another harness's card with links, read back as card text or through Graph, is an agent's send", () => {
+	setAgentHarness("claude-code");
+	const theirs = buildCard({ title: "Ship?", text: "pick", links: [{ title: "PR", url: "https://x.com/1" }] });
+	setAgentHarness("omp");
+	const text = cardText(theirs);
+	ok(text.endsWith("sent by claude-code agent"), text);
+	ok(isAgentSend(text), text);
+	ok(isAgentSend(attachedCardText(JSON.stringify(theirs))), "attachedCardText");
+	const graph = msgText({
+		body: { contentType: "html", content: '<attachment id="a1"></attachment>' },
+		attachments: [{ id: "a1", contentType: CARD_CONTENT_TYPE, content: JSON.stringify(theirs) }],
+	});
+	ok(isAgentSend(graph), graph);
+});
+
+// A send with an image whose file name holds brackets, as Graph (graph-backend.ts alt) and chatsvc (skype.ts alt) store it.
+const BRACKETED = "<p>omp: rerun build 412</p><p>---</p><p><em>sent by omp agent</em></p>";
+const IMG = (more) => `<p><img src="https://x/hostedContents/1/$value" alt="shot[1].png"${more}></p>`;
+
+await check("an omp: send with a bracketed image name, read through Graph (any chat), is not a command", () => {
+	const text = msgText({ body: { contentType: "html", content: BRACKETED + IMG("") } });
+	ok(text.endsWith("[shot[1].png]"), text);
+	ok(isAgentSend(text), text);
+	ok(isAgentSend(text.replace("[shot[1].png]", "[a]b].png]\n[shot[1].png]")), "several, nested");
+	ok(!isAgentSend("omp: rerun build 412\n[shot[1].png]"), "without a footer it is still the user's command");
+});
+
+await check("an omp: send with a bracketed image name, read from the self-chat (chatsvc), is not a command", async () => {
+	const raw = {
+		id: "1794392610074",
+		composetime: "2026-11-11T10:24:30.000Z",
+		messagetype: "RichText/Html",
+		content: BRACKETED + IMG(' itemtype="http://schema.skype.com/AMSImage" itemid="0-x-1"'),
+	};
+	const doFetch = async (url) => ({
+		status: 200,
+		text: async () =>
+			JSON.stringify(
+				url.includes("authsvc")
+					? { tokens: { skypeToken: "S" }, regionGtms: { messagingService: "https://amer.ng.msg.teams.microsoft.com/v1" } }
+					: { messages: [raw] },
+			),
+	});
+	const [m] = await new SkypeClient(async () => "AAD", doFetch).selfMessages("1", 20);
+	ok(m.text.includes("shot[1].png"), m.text);
+	ok(isAgentSend(m.text), m.text);
 });
 
 console.log(failed === 0 ? "\nall green" : `\n${failed} failed`);
