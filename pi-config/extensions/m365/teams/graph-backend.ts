@@ -585,7 +585,13 @@ export class GraphBackend implements Backend {
 		const asm = u.hostname.endsWith(".asm.skype.com");
 		if (source && !asm) {
 			const owned = new URL(source);
-			const samePath = decodeURIComponent(u.pathname).startsWith(decodeURIComponent(owned.pathname));
+			// Compare segment by segment: `19:x` and `19%3Ax` are the same chat (a chat id may even hold an encoded
+			// `/`), but past the message prefix a segment that decodes to a separator or a dot-segment (`..%2F`, `%5C`,
+			// `%2E%2E`) would climb out of the message, so it is refused.
+			const own = owned.pathname.replace(/\/$/, "").split("/").map(decodeURIComponent);
+			const asked = u.pathname.split("/").map(decodeURIComponent);
+			const samePath = own.every((s, i) => asked[i] === s)
+				&& !asked.slice(own.length).some((s) => /[/\\]/.test(s) || s === ".." || s === ".");
 			if (owned.origin !== u.origin || !samePath) throw new Error(`${u.host} is not the source message; not sending a token there`);
 		}
 		if (u.host === "graph.microsoft.com") return this.graph.getBytes(url, IMAGE_DOWNLOAD_MAX, IMAGE_TIMEOUT_MS);

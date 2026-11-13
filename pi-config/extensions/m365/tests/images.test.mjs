@@ -155,6 +155,14 @@ console.log("\n== receive: GraphBackend.image sends each token to its own host =
 	check("a stalled download times out", /download timed out/.test(await threw(() => readBounded({ status: 200, text: async () => "", arrayBuffer: async () => new ArrayBuffer(0) }, 1, controller.signal))), true);
 	check("and aborts the request", controller.signal.aborted, true);
 	check("and nothing is fetched over http", seen.length, plain);
+	const source = "https://graph.microsoft.com/v1.0/chats/19%3Ax/messages/1/";
+	const own = `${source}hostedContents/a/$value`;
+	check("its own message's picture is fetched", [...(await b.image(own, source))], [...PNG]);
+	const owned = seen.length;
+	for (const escape of [`${source}..%2F2/hostedContents/a/$value`, `${source}..%5C2/hostedContents/a/$value`, `${source}hostedContents/%2E%2E%2F%2E%2E%2F2/hostedContents/a/$value`, `${source}hostedContents/a%2F..%2F..%2F..%2F2/$value`]) {
+		check(`an escape from the source message is refused: ${escape.slice(source.length)}`, /not the source message/.test(await threw(() => b.image(escape, source))), true);
+	}
+	check("and no token goes with the escapes", seen.length, owned);
 }
 
 const dir = mkdtempSync(join(tmpdir(), "teams-images-"));
