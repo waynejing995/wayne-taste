@@ -22,6 +22,7 @@ globalThis.fetch = async (url) => {
 const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
 const { createServer, mcpContent, requireLogin } = await import("../server.ts");
+const { factArgv } = await import("../inbox.ts");
 const { startChannel } = await import("../channel.ts");
 const { listOwners } = await import("../../teams/watch.ts");
 const { LEASE_ID, LAUNCHER, readCursor, writeCursor } = await import("../../inbox/delivery.ts");
@@ -68,6 +69,14 @@ const until = async (pred, ms = 5000) => {
 	);
 	check("every tool has an object input schema", () => deepStrictEqual(tools.filter((t) => t.inputSchema?.type !== "object").map((t) => t.name), []));
 	check("no channel capability without M365_CHANNEL", () => deepStrictEqual(client.getServerCapabilities()?.experimental, undefined));
+	const fact = tools.find((t) => t.name === "inbox_fact");
+	check("inbox_fact offers the fact kinds", () => deepStrictEqual(fact.inputSchema.properties.kind.anyOf.map((k) => k.const), ["endpoint", "cred", "decision", "owed", "info"]));
+	check("inbox_fact passes --kind only when given", () =>
+		deepStrictEqual(
+			[factArgv({ text: "Deploys need a ticket", key: "f1", kind: "decision" }), factArgv({ text: "x", key: "f2" })],
+			[["fact", "Deploys need a ticket", "--key", "f1", "--kind", "decision"], ["fact", "x", "--key", "f2"]],
+		),
+	);
 
 	// A round trip through the inbox CLI: ask records a row, ls lists it, done archives it.
 	const ask = await client.callTool({ name: "inbox_ask", arguments: { text: "Ship it?", key: "t1" } });

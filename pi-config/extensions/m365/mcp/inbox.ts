@@ -26,6 +26,14 @@ function options(opts: Record<string, string | undefined>): string[] {
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }], details: {} });
 
+/** The kinds `inbox fact --kind` takes. */
+const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
+
+/** `inbox fact` argv; `--kind` only when the caller gave one. */
+export function factArgv(p: { text: string; key: string; source?: string; note?: string; link?: string; kind?: string }): string[] {
+	return ["fact", p.text, ...options({ key: p.key, source: p.source, note: p.note, link: p.link, kind: p.kind })];
+}
+
 const recorded = {
 	text: Type.String({ description: "What to record: the row's subject" }),
 	key: Type.String({ description: "Stable id, so recording the same thing twice keeps one row" }),
@@ -61,19 +69,22 @@ export const inboxTools: ToolDef[] = [
 	{
 		name: "inbox_fact",
 		label: "Inbox Fact",
-		description: "Record a decision or rule seen in Teams: a `teams-fact` log row (no card).",
-		parameters: Type.Object(recorded),
+		description: "Record a standing fact: something that stays true and later work should know (an endpoint, where a credential lives, a decision, something owed).",
+		parameters: Type.Object({
+			...recorded,
+			kind: Type.Optional(Type.Union(FACT_KINDS.map((k) => Type.Literal(k)), { description: "What sort of fact it is" })),
+		}),
 		async execute(_id, p) {
-			return text(await inbox(["fact", p.text, ...options({ key: p.key, source: p.source, note: p.note, link: p.link })]));
+			return text(await inbox(factArgv(p)));
 		},
 	},
 	{
 		name: "inbox_facts",
 		label: "Inbox Facts",
-		description: "Run `inbox facts` with the given arguments: the recorded teams-fact rows, as the inbox CLI reports them.",
-		parameters: Type.Object({ args: Type.Optional(Type.Array(Type.String(), { description: "Arguments after `inbox facts`" })) }),
+		description: "List the standing facts, as `inbox facts` prints them.",
+		parameters: Type.Object({ grep: Type.Optional(Type.String({ description: "Only facts that contain this" })) }),
 		async execute(_id, p) {
-			return text(await inbox(["facts", ...((p.args ?? []) as string[])]));
+			return text(await inbox(["facts", ...options({ grep: p.grep })]));
 		},
 	},
 	{
