@@ -71,6 +71,16 @@ await check("migration is idempotent and keeps the newest repeated key", async (
 	void script;
 });
 
+await check("migration does not replace a newer existing fact", async () => {
+	await inbox(["fact", "--kind", "decision", "--key", "release-window", "--note", "Ops Cee 2026-11-13 12:00", "--", "Release window is 20:00"]);
+	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n1\tteams-fact:release-window\tRelease window is 18:00\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
+	const { migrateFacts } = await jiti.import("../cli/facts.ts");
+	const { readTsv } = await jiti.import("../cli/ledger.ts");
+	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+	strictEqual(readFacts().find((fact) => fact.key === "release-window").text, "Release window is 20:00");
+});
+
 await check("migration refuses the default live directory", async () => {
 	const { spawnSync } = await import("node:child_process");
 	const script = new URL("../cli/migrate-facts.ts", import.meta.url);

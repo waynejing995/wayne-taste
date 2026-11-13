@@ -133,8 +133,12 @@ export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).sp
 		const old = newest.get(key);
 		if (!old || row.first_seen > old.first_seen || (row.first_seen === old.first_seen && Number(row.id) > Number(old.id))) newest.set(key, row);
 	}
+	const existing = readFacts();
 	for (const row of newest.values()) {
-		upsertFact(mappedKind(row.subject), factKey(row), row.subject, `${row.note || row.source} ${row.first_seen}`.trim(), row.first_seen);
+		const key = factKey(row);
+		const current = existing.find((fact) => fact.key === key);
+		if (current && current.since > row.first_seen.slice(0, 10)) continue;
+		upsertFact(mappedKind(row.subject), key, row.subject, `${row.note || row.source} ${row.first_seen}`.trim(), row.first_seen);
 	}
 	const ids = facts.map((row) => row.id);
 	if (ids.length) doneRows(ids, "moved to facts.md");
