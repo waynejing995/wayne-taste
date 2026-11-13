@@ -91,8 +91,8 @@ FactsFile branch adds: until it lands, the tool returns the CLI's own error.
 - **Channel**: the server always declares Claude Code's `claude/channel`. A client that can take pushes (it
   advertises `claude/channel`, or it is Claude Code, which as of 2.1.322 advertises nothing and is known by its
   `clientInfo.name`) gets `notifications/claude/channel` events, `<channel source="m365" kind=… chat_id=… sender=… policy=…>`:
-  - `card`: a watched Teams chat. Same cursors, card text and per-chat lock as omp. There is no policy gate model
-    here, so a card from a chat with a policy always starts a turn and says so; Claude decides from the policy.
+  - `card`: a watched Teams chat. Same cursors, card text and per-chat lock as omp. The server has no policy gate
+    model: every card reaches Claude Code, and the turn gate is a Claude Code hook (below).
   - `instruction`: your own `omp:`/`pi:` message in a watched chat.
   - `inbox`: new `notify`/`do` ledger rows, after `inbox_watch start`.
   - `notice`: what the channel resumed or skipped.
@@ -132,6 +132,19 @@ claude --dangerously-load-development-channels server:m365
 **Codex**: `~/.codex/config.toml`:
 
 ```toml
+**Turn gate** (Claude Code only): a channel event arrives as a prompt, so Claude Code's `UserPromptSubmit` hooks see
+it. `mcp/claude-code-hooks.json` is a `type: "prompt"` hook that does omp's turn gate there: a `kind="card"` event
+from a chat with a policy goes ahead only when, under that policy, a message needs the agent; otherwise the turn is
+stopped ("Operation stopped by hook: display only: …") and the card stays on screen. Cards from the self-chat and
+every other kind (`instruction`, `inbox`, `notice`) and your own prompts pass. Each channel event costs one call to
+Claude Code's background model (a few seconds). Append its `UserPromptSubmit` entry to `.claude/settings.json` (or
+`.claude/settings.local.json`) of the project you launch from; this keeps every hook already there:
+
+```sh
+jq --slurpfile h <wayne-skills>/pi-config/extensions/m365/mcp/claude-code-hooks.json \
+  '.hooks.UserPromptSubmit += $h[0].hooks.UserPromptSubmit' .claude/settings.json > /tmp/s.json && mv /tmp/s.json .claude/settings.json
+```
+
 [mcp_servers.m365]
 command = "bun"
 args = ["<wayne-skills>/pi-config/extensions/m365/mcp/server.ts"]
