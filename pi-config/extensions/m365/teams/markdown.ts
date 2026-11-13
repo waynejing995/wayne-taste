@@ -51,16 +51,33 @@ function attSender(d: Record<string, unknown>): string {
  * context-free one-liners.
  */
 export function attachmentMarkdown(att: Attachment): string {
+	// One attachment that cannot be read is marked where it sits; the message's
+	// text, sender and other attachments still come through.
+	try {
+		return renderAttachment(att);
+	} catch {
+		return "[unreadable attachment]";
+	}
+}
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+	v !== null && typeof v === "object" && !Array.isArray(v);
+
+function renderAttachment(att: Attachment): string {
 	const ctype = att.contentType ?? "";
 	let body: Record<string, unknown> = {};
 	if (typeof att.content === "string") {
+		let parsed: unknown;
 		try {
-			body = JSON.parse(att.content) as Record<string, unknown>;
+			parsed = JSON.parse(att.content);
 		} catch {
-			body = {};
+			parsed = {};
 		}
-	} else if (att.content && typeof att.content === "object") {
-		body = att.content as Record<string, unknown>;
+		// JSON "null", a number or a list is not a reply or a forward.
+		if (!isPlainObject(parsed)) return "[unreadable attachment]";
+		body = parsed;
+	} else if (isPlainObject(att.content)) {
+		body = att.content;
 	}
 
 	if (ctype === "messageReference") {
