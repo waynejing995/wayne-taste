@@ -85,6 +85,35 @@ await check("facts keep their order and colour their value by tone", () => {
 	ok(!/"text":"Ann"[^}]*"color"/.test(json), "no tone, no colour");
 });
 
+await check("a fact with detail opens its own hidden, tone-accented panel when its row is tapped", () => {
+	const card = buildCard({
+		text: "",
+		facts: [
+			{ name: "CI", value: "red", tone: "attention", detail: "**3 tests** failed in `probe`" },
+			{ name: "Owner", value: "Ann" },
+			{ name: "Risk", value: "low", detail: "only docs" },
+		],
+	});
+	const rows = card.body.find((e) => e.type === "Container" && e.items?.some((i) => i.type === "ColumnSet")).items;
+	const toggles = rows.filter((r) => r.selectAction);
+	deepStrictEqual(toggles.map((r) => r.selectAction), [
+		{ type: "Action.ToggleVisibility", targetElements: ["fact-detail-0"] },
+		{ type: "Action.ToggleVisibility", targetElements: ["fact-detail-2"] },
+	]);
+	ok(JSON.stringify(toggles[0]).includes("▸"), "a row with detail shows ▸");
+	ok(!JSON.stringify(rows.find((r) => JSON.stringify(r).includes('"Owner"'))).includes("▸"), "a row without detail has no ▸");
+	const panels = rows.filter((r) => typeof r.id === "string" && r.id.startsWith("fact-detail-"));
+	deepStrictEqual(panels.map((p) => [p.id, p.isVisible, p.style]), [["fact-detail-0", false, "emphasis"], ["fact-detail-2", false, "emphasis"]]);
+	const accents = panels.map((p) => p.items[0].columns[0].style);
+	deepStrictEqual(accents, ["attention", "accent"], "the accent bar takes the tone; no tone, the neutral accent");
+	const header = panels[0].items[0].columns[1].items[0];
+	deepStrictEqual([header.text, header.weight, header.size, header.color], ["CI: red", "Bolder", "Medium", "Attention"]);
+	ok(!JSON.stringify(panels).includes("isSubtle"), "no subtle text in a detail panel");
+	const back = cardText(card);
+	ok(back.includes("**3 tests** failed in `probe`") && back.includes("only docs"), "detail reads back");
+	throws(() => buildCard({ text: "", facts: [{ name: "x", value: "y", detail: " " }] }), /fact "x" has an empty detail/);
+});
+
 await check("details are hidden behind a Details toggle and still read back", () => {
 	const card = buildCard({ text: "x", details: "long log" });
 	ok(card.actions.some((a) => a.type === "Action.ToggleVisibility" && a.targetElements[0] === "details"));

@@ -1079,7 +1079,7 @@ export default function (pi: ExtensionAPI) {
 			"The files are uploaded and shown inline under the text, in any chat, channel or the self-chat, " +
 			"with a card too. A Markdown image in `message` stays text and is not read or uploaded. " +
 			"Card: a chat or channel send goes out as an Adaptive Card with an agent badge: `title` on top, " +
-			"`message` as its text, and any of `facts` (status rows), `decision` (a question with its context and " +
+			"`message` as its text, and any of `facts` (status rows; a row's `detail` opens under it on a tap), `decision` (a question with its context and " +
 			"numbered options, each with its consequence, one marked recommended with the reason), `links` (buttons), " +
 			"`details` (collapsed). A card carries the real content, not a one-line summary: the whole message in " +
 			"`message`, a fact for every key value you have (PR, commit sha, run id, ticket, times, owner), and the " +
@@ -1123,9 +1123,12 @@ export default function (pi: ExtensionAPI) {
 					Type.Object({
 						name: Type.String(),
 						value: Type.String(),
-						tone: Type.Optional(StringEnum(["good", "warning", "attention"], { description: "Colours the value" })),
+						tone: Type.Optional(StringEnum(["good", "warning", "attention"], { description: "Colours the value and its detail panel" })),
+						detail: Type.Optional(
+							Type.String({ description: "Markdown behind this row: the row shows ▸ and a tap opens it in its own panel (the catch-up for this item)." }),
+						),
 					}),
-					{ description: "Card status rows, one per key value (PR, sha, run id, ticket, times): name, value, optional tone." },
+					{ description: "Card status rows, one per key value (PR, sha, run id, ticket, times): name, value, optional tone, optional detail." },
 				),
 			),
 			decision: Type.Optional(

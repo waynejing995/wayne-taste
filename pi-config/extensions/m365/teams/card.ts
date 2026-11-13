@@ -6,7 +6,7 @@
  *   decision  + a question with options, one recommended  (`decision`)
  *   progress  + one row per agent, needs-you first        (`agents`)
  *
- * Links become buttons, `details` a collapsed section. The model fills fields, never card JSON: a free-form card is
+ * Links become buttons, `details` a collapsed section, a fact's `detail` a panel its row opens. The model fills fields, never card JSON: a free-form card is
  * a second rendering language to get wrong, and these four cover "tell", "report", "ask" and "agent digest".
  *
  * Every card opens with the agent badge and ends with the AGENT_FOOTER_TEXT line. The footer is the echo guard: a
@@ -31,6 +31,8 @@ export interface Fact {
 	name: string;
 	value: string;
 	tone?: Tone;
+	/** Markdown behind the row: tapping the row (marked ▸) opens it in its own panel. */
+	detail?: string;
 }
 export interface DecisionOption {
 	label: string;
@@ -83,6 +85,7 @@ const STATUS_ICON: Record<AgentStatus, string> = {
 	working: "⏳",
 };
 const TONE_COLOR: Record<Tone, string> = { good: "Good", warning: "Warning", attention: "Attention" };
+const TONE_STYLE: Record<Tone, string> = { good: "good", warning: "warning", attention: "attention" };
 
 const text = (t: string, extra: El = {}): El => ({ type: "TextBlock", text: t, wrap: true, ...extra });
 
@@ -153,18 +156,49 @@ function decisionBlock(d: Decision): El {
 	};
 }
 
+/** A fact's detail: hidden until its row is tapped, a bar in the fact's tone beside a bold header and the Markdown. */
+function factDetail(f: Fact, id: string): El {
+	const color = f.tone ? { color: TONE_COLOR[f.tone] } : {};
+	return {
+		type: "Container",
+		id,
+		isVisible: false,
+		style: "emphasis",
+		spacing: "Small",
+		items: [
+			{
+				type: "ColumnSet",
+				columns: [
+					{ type: "Column", width: "4px", style: f.tone ? TONE_STYLE[f.tone] : "accent", items: [] },
+					{
+						type: "Column",
+						width: "stretch",
+						items: [text(`${f.name}: ${f.value}`, { weight: "Bolder", size: "Medium", ...color }), text(f.detail!, { spacing: "Small" })],
+					},
+				],
+			},
+		],
+	};
+}
+
 function factRows(facts: readonly Fact[]): El {
 	return {
 		type: "Container",
 		spacing: "Medium",
-		items: facts.map((f) => ({
-			type: "ColumnSet",
-			spacing: "Small",
-			columns: [
-				{ type: "Column", width: "auto", items: [text(f.name, { isSubtle: true })] },
-				{ type: "Column", width: "stretch", items: [text(f.value, { weight: "Bolder", ...(f.tone ? { color: TONE_COLOR[f.tone] } : {}) })] },
-			],
-		})),
+		items: facts.flatMap((f, i) => {
+			const id = `fact-detail-${i}`;
+			const row: El = {
+				type: "ColumnSet",
+				spacing: "Small",
+				...(f.detail ? { selectAction: { type: "Action.ToggleVisibility", targetElements: [id] } } : {}),
+				columns: [
+					{ type: "Column", width: "auto", items: [text(f.name, { isSubtle: true })] },
+					{ type: "Column", width: "stretch", items: [text(f.value, { weight: "Bolder", ...(f.tone ? { color: TONE_COLOR[f.tone] } : {}) })] },
+					...(f.detail ? [{ type: "Column", width: "auto", verticalContentAlignment: "Center", items: [text("▸", { weight: "Bolder" })] }] : []),
+				],
+			};
+			return f.detail ? [row, factDetail(f, id)] : [row];
+		}),
 	};
 }
 
@@ -176,6 +210,7 @@ function check(spec: CardSpec): void {
 		if (d.recommended !== undefined && !(Number.isInteger(d.recommended) && d.recommended >= 0 && d.recommended < d.options.length))
 			throw new Error(`decision.recommended is ${d.recommended}; it must index options (0..${d.options.length - 1})`);
 	}
+	for (const f of spec.facts ?? []) if (f.detail !== undefined && !f.detail.trim()) throw new Error(`fact "${f.name}" has an empty detail`);
 	for (const l of spec.links ?? []) if (!/^https:\/\//.test(l.url)) throw new Error(`link "${l.title}" must be an https URL, got ${l.url}`);
 	for (const a of spec.agents ?? []) if (!AGENT_STATUSES.includes(a.status)) throw new Error(`agent "${a.name}" has unknown status "${a.status}"`);
 }

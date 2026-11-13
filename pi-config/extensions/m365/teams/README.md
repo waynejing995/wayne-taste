@@ -371,7 +371,7 @@ model the same rule, so the default and the guidance agree.
 |---|---|
 | `title` | The header, beside the `🤖 pi agent` badge |
 | `message` | The whole message, not a one-line summary (bold, italic, links and lists render; headings, tables and code blocks do not — send those with `card: false`) |
-| `facts` | Rows `{name, value, tone?}`, one per key value (PR, sha, run id, ticket, times); `tone` `good`/`warning`/`attention` colours the value |
+| `facts` | Rows `{name, value, tone?, detail?}`, one per key value (PR, sha, run id, ticket, times); `tone` `good`/`warning`/`attention` colours the value. `detail` is Markdown for that row alone: the row shows ▸, and a tap opens its own panel (emphasis background, a bar in the row's tone, the row as a bold header, then the detail), so a catch-up card keeps one line per item with the story one tap away |
 | `decision` | `{question, context?, options: [{label, consequence?}], recommended?, reason?}`: the question, what readers need to know to choose, numbered options each with what happens if taken, the recommended one highlighted with its reason. Two options at least; `recommended` is a 0-based index |
 | `agents` | Progress rows `{name, host, idle_min, status, tail?}`: `status` is `waiting on question` (a real ask: a pending ask card or approval, or a RESULT blocked with a `## Questions` section), `probe failed`, `idle` (the turn ended: no RESULT, awaiting review, partial — not counted in “need you”), `done` or `working`; rows needing you come first; the idle timer is green under 10 min, yellow under 30, red after; `tail` opens on a tap |
 | `links` | `{title, url}` buttons (`Action.OpenUrl`, https only — the only action Graph accepts without a bot) |
