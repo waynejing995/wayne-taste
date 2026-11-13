@@ -70,10 +70,10 @@ export const inboxTools: ToolDef[] = [
 	{
 		name: "inbox_facts",
 		label: "Inbox Facts",
-		description: "Run `inbox facts` with the given arguments: the recorded teams-fact rows, as the inbox CLI reports them.",
-		parameters: Type.Object({ args: Type.Optional(Type.Array(Type.String(), { description: "Arguments after `inbox facts`" })) }),
+		description: "The recorded teams-fact rows (live and archived), as `inbox facts` prints them; `grep` keeps the ones containing it, any case.",
+		parameters: Type.Object({ grep: Type.Optional(Type.String({ description: "Text the fact must contain" })) }),
 		async execute(_id, p) {
-			return text(await inbox(["facts", ...((p.args ?? []) as string[])]));
+			return text(await inbox(["facts", ...options({ grep: p.grep })]));
 		},
 	},
 	{

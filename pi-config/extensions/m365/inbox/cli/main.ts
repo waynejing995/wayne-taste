@@ -5,7 +5,7 @@
  */
 import { addAgent, listAgents, MUXES, removeAgentsByName } from "./agents.ts";
 import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
-import { addEvent, doneRows, InboxError, listRows, places, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
+import { addEvent, doneRows, formatTsv, InboxError, inboxFile, listRows, places, readTsv, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
 import { probeAgents } from "./probe.ts";
 import { setup } from "./setup.ts";
 import { addThen, checkThens, guardDone, openThenLines, thenDone } from "./thens.ts";
@@ -86,6 +86,17 @@ const COMMANDS: Record<string, Command> = {
 	},
 	ask: direct("ask-wayne", "notify", "coordinator"),
 	fact: direct("teams-fact", "log", "digest"),
+	facts: {
+		help: "The recorded teams-fact rows, live and archived, as TSV with the header; --grep keeps the rows containing it, any case.",
+		opts: { grep: { default: "" } },
+		run: (p) => {
+			const needle = p.opts.grep!.toLowerCase();
+			const rows = [...readTsv(inboxFile("ledger.tsv")), ...readTsv(inboxFile("archive.tsv"))].filter(
+				(r) => r.tag === "teams-fact" && (!needle || `${r.key} ${r.subject} ${r.note} ${r.link}`.toLowerCase().includes(needle)),
+			);
+			return formatTsv(rows);
+		},
+	},
 	done: {
 		help: "Finish rows: move them from the ledger into archive.tsv.",
 		args: ["ids..."],
