@@ -1,52 +1,68 @@
 /**
- * Rewrite the known old teams-digest prompt in an existing rules.yaml.
+ * Rewrite an old teams-digest prompt in an existing rules.yaml.
  *
- * The old prompt scanned watched chats with a 200-message limit. Its last_ok therefore cannot be the boundary for
- * every chat. The migrated job keeps enabled, last_ok, and the rest of the user's config, and adds backfill_since
- * for the first all-chat scan.
+ * A prompt is current once it matches the template, or once it carries the `{{receipt}}` placeholder the runner
+ * fills in. Anything older is rewritten from the template. The watched-chats prompt never read unwatched chats,
+ * so only that family gets backfill_since for its first all-chat scan; the job keeps the rest of the user's config.
+ *
+ * `inbox rules-migrate` is the way to run this; it honours WAYNE_INBOX_DIR.
  */
 import * as fs from "node:fs";
-import YAML from "yaml";
-import { inboxFile, withRulesLock } from "./ledger.ts";
+import { stamp, parseYaml, withRulesLock, inboxFile } from "./ledger.ts";
+import { readJobs, writeJobs, type Job } from "./jobs.ts";
 import { TEMPLATE } from "./setup.ts";
 
-const OLD = "watched chats";
-
+/** Seven days back, as the local `YYYY-MM-DD HH:MM` stamp rules.yaml holds. */
 export function defaultBackfill(now = new Date()): string {
-	return new Date(now.getTime() - 7 * 24 * 3600_000).toISOString().slice(0, 16).replace("T", " ");
+	return stamp(new Date(now.getTime() - 7 * 24 * 3600_000));
 }
 
-function templateDigest(): Record<string, unknown> {
-	const rules = YAML.parse(fs.readFileSync(TEMPLATE, "utf8")) as { schedule?: Record<string, unknown>[] };
+function templateDigest(): Job {
+	const rules = parseYaml(fs.readFileSync(TEMPLATE, "utf8")) as { schedule?: Job[] };
 	const job = rules.schedule?.find((item) => item.name === "teams-digest");
 	if (!job?.action) throw new Error("template has no teams-digest action");
 	return job;
 }
 
-export function migrateRulesText(text: string, now = new Date()): { text: string; changed: boolean } {
-	const rules = YAML.parse(text) as { schedule?: Record<string, unknown>[] };
-	const job = rules.schedule?.find((item) => item.name === "teams-digest");
-	const action = job?.action as { text?: string } | undefined;
-	if (!job || !action?.text?.includes(OLD) || !action.text.includes("limit 200")) return { text, changed: false };
-	const fresh = templateDigest();
-	job.action = fresh.action;
-	job.tools = fresh.tools;
-	job.backfill_since ??= defaultBackfill(now);
-	return { text: YAML.stringify(rules), changed: true };
+/** The watched-chats family read `teams_watch.chats` and never the unwatched chats, so it needs the backfill. */
+function watchedChats(text: string): boolean {
+	return text.includes("teams_watch.chats") || text.includes("watched chats") || text.includes("watched Teams chats");
 }
 
 export function migrateRules(now = new Date()): string {
 	return withRulesLock(() => {
 		const file = inboxFile("rules.yaml");
 		if (!fs.existsSync(file)) return "no rules.yaml";
-		const current = fs.readFileSync(file, "utf8");
-		const next = migrateRulesText(current, now);
-		if (!next.changed) return "rules.yaml already current";
-		const tmp = `${file}.tmp.${process.pid}`;
-		fs.writeFileSync(tmp, next.text);
-		fs.renameSync(tmp, file);
-		return `migrated teams-digest; backfill_since ${YAML.parse(next.text).schedule.find((job: { name: string }) => job.name === "teams-digest").backfill_since}`;
+		const jobs = readJobs();
+		const job = jobs.find((item) => item.name === "teams-digest");
+		const fresh = templateDigest();
+		const text = job?.action.kind === "prompt" ? job.action.text : "";
+		const freshText = fresh.action.kind === "prompt" ? fresh.action.text : "";
+		if (!job || freshText === "" || text === freshText || text.includes("{{receipt}}")) return "rules.yaml already current";
+		job.action = fresh.action;
+		job.tools = fresh.tools;
+		const stamped = job as Job & { backfill_since?: string };
+		if (watchedChats(text)) stamped.backfill_since ??= defaultBackfill(now);
+		writeJobs(jobs);
+		return stamped.backfill_since ? `migrated teams-digest; backfill_since ${stamped.backfill_since}` : "migrated teams-digest";
 	});
+}
+
+/** What `rules-migrate --dry-run` prints: the file as `migrateRules` would write it, without writing. */
+export function migrateRulesText(text: string, now = new Date()): { text: string; changed: boolean } {
+	const dir = fs.mkdtempSync(new URL(`file://${process.env.TMPDIR ?? "/tmp"}/`).pathname + "inbox-migrate-");
+	const rules = `${dir}/rules.yaml`;
+	fs.writeFileSync(rules, text);
+	const saved = process.env.WAYNE_INBOX_DIR;
+	process.env.WAYNE_INBOX_DIR = dir;
+	try {
+		const result = migrateRules(now);
+		return { text: fs.readFileSync(rules, "utf8"), changed: result !== "rules.yaml already current" && result !== "no rules.yaml" };
+	} finally {
+		if (saved === undefined) delete process.env.WAYNE_INBOX_DIR;
+		else process.env.WAYNE_INBOX_DIR = saved;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

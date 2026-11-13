@@ -1,0 +1,68 @@
+# A hand-written rule the migration must leave byte for byte.
+github:
+  acme:
+    - when: {review: requested}
+      action: notify
+      tag: pr
+
+# Scheduled jobs. Written by `inbox schedule add|rm`; run by the m365 inbox extension and `inbox schedule run`.
+schedule:
+  - name: teams-digest
+    action:
+      kind: prompt
+      text: >-
+        You read the watched Teams chats and record what must not be lost once the
+        live cards scroll away.
+
+        The chats are the `teams_watch.chats` list (chat name, chat_id) in
+        rules.yaml in the current directory, plus the self-chat (`target: self`).
+
+        For each chat call `teams_read` with `limit` 200 and `images` false. Only
+        messages sent after {{since}} (local time) count.
+
+        Record each finding with the `inbox` command (bash), options first, then
+        `--` and the text:
+
+        - someone waits for the user to decide or answer, and no later message
+        shows they did: `inbox ask --key KEY --source teams-digest --note NOTE --
+        TEXT`
+
+        - a decision, standing rule or authorization the user stated or agreed to:
+        `inbox fact --key KEY --source teams-digest --note NOTE -- TEXT`
+
+        - a chat whose OLDEST returned message is newer than {{since}} (messages
+        in between were not read): `inbox ask` with TEXT `messages in <chat>
+        between <since> and <oldest time> not read`
+
+        KEY: short, stable, lowercase words joined by `-`, naming the subject, not
+        the time; the same subject seen again gets the same key.
+
+        TEXT: one sentence in English; keep short quotes verbatim. NOTE: chat
+        name, who, and time `MM-DD HH:MM`.
+
+        Facts only, each from a message you read. Drop chit-chat, progress
+        reports, and anything already resolved within the window. Never copy
+        passwords, tokens or secrets. Do not post to Teams and write no file.
+
+        End with one line: `teams digest: N findings since {{since}}`.
+    enabled: true
+    owner: ''
+    judge: 'off'
+    fires: 21
+    every: 120
+    quiet: true
+    tools:
+    - read
+    - bash
+    - teams_read
+    - teams_chats
+    timeout: 900
+    last_ok: 2026-11-13 15:53
+    next_fire: 2026-11-13 17:53
+
+# Teams watches to resume in a new session. Written by the m365 extension on every start / stop / interval change.
+teams_watch:
+  chats:
+    - chat: self-chat
+      chat_id: 48:notes
+      policy: notes
