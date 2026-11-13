@@ -47,7 +47,11 @@ const LOG = join(dir, "run.log");
 writeFileSync(LOG, "line 1\nline 2\n");
 
 /** A Graph that serves uploads, members and channels, recording every request. */
-function graph({ members = [], chunkLimit } = {}) {
+/** The chat files folder as Graph lists its permissions: owned by me alone, unless a test shares it. */
+const OWNER_ONLY = [{ id: "p-me", roles: ["owner"], grantedToV2: { user: { id: "oid-me", email: "me@contoso.test" } }, inheritedFrom: {} }];
+const PERMISSIONS = `${GRAPH}/me/drive/root:/Microsoft Teams Chat Files:/permissions`;
+
+function graph({ members = [], permissions = OWNER_ONLY } = {}) {
 	const seen = [];
 	const reply = (status, body) => ({ status, text: async () => JSON.stringify(body) });
 	const doFetch = async (url, init) => {
@@ -68,6 +72,7 @@ function graph({ members = [], chunkLimit } = {}) {
 				parentReference: { driveId: DRIVE },
 			});
 		}
+		if (decodeURIComponent(url) === PERMISSIONS) return permissions ? reply(200, { value: permissions }) : reply(404, { error: { code: "itemNotFound", message: "Item not found" } });
 		if (url === `${GRAPH}/chats/${CHAT}/members`) return reply(200, { value: members });
 		if (url === `${GRAPH}/me/joinedTeams`) return reply(200, { value: [{ id: "team-1", displayName: "Eng" }] });
 		if (url === `${GRAPH}/teams/team-1/channels`) return reply(200, { value: [{ id: "chan-1", displayName: "General" }] });
@@ -164,6 +169,41 @@ await check("a missing file, a device or a chat that matches nothing refuses the
 		match(err, want);
 		ok(!seen.some((s) => s.url.endsWith("/createUploadSession") || s.url.endsWith("/messages")), `nothing uploaded or posted: ${err}`);
 	}
+});
+
+const uploads = (seen) => seen.filter((s) => s.url.endsWith("/createUploadSession") || s.method === "PUT");
+
+await check("a chat files folder shared by an organisation link refuses chat and self sends, uploading nothing", async () => {
+	const permissions = [
+		...OWNER_ONLY,
+		{ id: "p-org", roles: ["read"], link: { scope: "organization", type: "view" }, inheritedFrom: { path: "/drive/root:" } },
+		{ id: "p-guest", roles: ["write"], grantedToV2: { user: { id: "oid-guest", email: "guest@fabrikam.test" } } },
+	];
+	for (const target of [{ kind: "chat", id: CHAT }, { kind: "self" }]) {
+		const { seen, b } = graph({ permissions, members: [{ userId: "oid-ann", email: "ann@contoso.test" }] });
+		let err = "";
+		await b.send(target, "<p>x</p>", true, [], [], undefined, [LOG]).catch((e) => (err = e.message));
+		match(err, /Microsoft Teams Chat Files/);
+		match(err, /organization-scope view link \(read\) inherited from \/drive\/root:/);
+		match(err, /guest@fabrikam\.test \(write\)/);
+		ok(!err.includes("me@contoso.test"), err);
+		deepStrictEqual(uploads(seen), [], "nothing uploaded");
+		ok(!seen.some((s) => s.url.endsWith("/messages") || s.url.includes("/invite")), "nothing posted or shared");
+	}
+});
+
+await check("a chat files folder that does not exist yet is clean, and a clean check holds for the next send", async () => {
+	const { seen, b } = graph({ permissions: null });
+	await b.send({ kind: "self" }, "<p>x</p>", true, [], [], undefined, [LOG]);
+	await b.send({ kind: "self" }, "<p>y</p>", true, [], [], undefined, [LOG]);
+	equal(uploads(seen).filter((s) => s.method === "POST").length, 2);
+	equal(seen.filter((s) => s.url === PERMISSIONS).length, 1);
+});
+
+await check("a channel send does not look at the chat files folder", async () => {
+	const { seen, b } = graph({ permissions: [{ id: "p-org", roles: ["read"], link: { scope: "organization" } }] });
+	await b.send({ kind: "channel", team: "Eng", channel: "General" }, "<p>x</p>", true, [], [], undefined, [LOG]);
+	ok(!seen.some((s) => s.url === PERMISSIONS));
 });
 
 console.log(failed === 0 ? "\nall green" : `\n${failed} failed`);

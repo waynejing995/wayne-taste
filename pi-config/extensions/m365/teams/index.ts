@@ -1084,7 +1084,9 @@ export default function (pi: ExtensionAPI) {
 			"To share any other file (a log, a PDF, a script), pass local paths in `files`: each is uploaded and " +
 			"attached to the message as a Teams file. In a chat it goes to the user's OneDrive \"Microsoft Teams Chat " +
 			"Files\" and is shared read-only with exactly that chat's members; in a channel it goes to the channel's " +
-			"files folder; in the self-chat it stays private. Only paths in `files` are read. " +
+			"files folder; in the self-chat it stays private. A chat or self-chat file send is refused, with nothing " +
+			"uploaded, while that OneDrive folder is shared with anyone else (the error names each share). " +
+			"Only paths in `files` are read. " +
 			"Card: a chat or channel send goes out as an Adaptive Card with an agent badge: `title` on top, " +
 			"`message` as its text, and any of `facts` (status rows; a row's `detail` opens under it on a tap), `decision` (a question with its context and " +
 			"numbered options, each with its consequence, one marked recommended with the reason), `links` (buttons), " +

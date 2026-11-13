@@ -800,6 +800,8 @@ export class GraphBackend implements Backend {
 				return sharedFile(await this.graph.upload<DriveItem>(`/drives/${drive}/items/${folder.id}:/${encodeURIComponent(name)}:`, bytes));
 			};
 		}
+		// A chat file inherits whatever its folder is already shared with: check before the first byte goes up.
+		if (attached.length > 0 && target.kind !== "channel") await this.requireChatFilesPrivate();
 		const shared: SharedFile[] = [];
 		for (const f of attached) shared.push(await upload(f.name, f.bytes));
 
@@ -842,6 +844,39 @@ export class GraphBackend implements Backend {
 		await this.graph.post(post, body);
 	}
 
+	/** When the chat files folder was last seen shared with no one but me: a send checks again after CLEAN_FOR_MS. */
+	private chatFilesCleanAt = 0;
+
+	/**
+	 * Refuses a chat or self-chat file send while "Microsoft Teams Chat Files" is shared with anyone but me. A file
+	 * uploaded there inherits every permission the folder and the drive above it hold (an old share, a guest, an
+	 * organisation or anonymous link), and shareWithMembers only adds to them. So any grant other than my own owner
+	 * role names itself in the error and nothing is uploaded; the user decides what to unshare. A folder that does not
+	 * exist yet is clean: Teams creates it owned by me alone.
+	 */
+	private async requireChatFilesPrivate(): Promise<void> {
+		if (Date.now() - this.chatFilesCleanAt < CLEAN_FOR_MS) return;
+		let perms: DrivePermission[];
+		try {
+			perms = await this.graph.getAll<DrivePermission>(`/me/drive/root:/${encodeURIComponent(CHAT_FILES)}:/permissions`);
+		} catch (e) {
+			if (e instanceof GraphError && e.status === 404) {
+				this.chatFilesCleanAt = Date.now();
+				return;
+			}
+			throw e;
+		}
+		const me = tokenClaim(await this.graph.rawToken(), "oid");
+		const extra = perms.filter((p) => !(p.roles?.length === 1 && p.roles[0] === "owner" && !p.link && (p.grantedToV2?.user?.id ?? p.grantedTo?.user?.id) === me));
+		if (extra.length > 0) {
+			throw new Error(
+				`refusing to upload: OneDrive "${CHAT_FILES}" is shared beyond you, and every file sent would inherit it: ${extra.map(describeGrant).join("; ")}. ` +
+					"Remove those shares from the folder (or the drive above it), then send again.",
+			);
+		}
+		this.chatFilesCleanAt = Date.now();
+	}
+
 	/**
 	 * Opens an uploaded chat file to exactly the chat's members, read-only: each by address, no invitation mail,
 	 * sign-in required. Never a link anyone or the whole organisation could use. A member Graph lists without an
@@ -871,6 +906,40 @@ export class GraphBackend implements Backend {
 
 /** The OneDrive folder Teams keeps chat files in; the name is Teams' own, the same in every tenant language. */
 const CHAT_FILES = "Microsoft Teams Chat Files";
+/** How long a clean check of CHAT_FILES' sharing holds: sends in a burst ask once. */
+const CLEAN_FOR_MS = 5 * 60 * 1000;
+
+interface DriveIdentity {
+	id?: string;
+	displayName?: string;
+	email?: string;
+	loginName?: string;
+}
+
+/** A driveItem permission: a grant to someone (grantedToV2), or a sharing link (link.scope). */
+interface DrivePermission {
+	id?: string;
+	roles?: string[];
+	link?: { scope?: string; type?: string };
+	grantedToV2?: { user?: DriveIdentity; group?: DriveIdentity; siteUser?: DriveIdentity; siteGroup?: DriveIdentity; application?: DriveIdentity };
+	grantedTo?: { user?: DriveIdentity };
+	grantedToIdentitiesV2?: { user?: DriveIdentity; group?: DriveIdentity; siteUser?: DriveIdentity }[];
+	invitation?: { email?: string };
+	inheritedFrom?: { path?: string; id?: string };
+}
+
+/** One permission as the refusal names it: who or what link, its roles, where it is inherited from. */
+function describeGrant(p: DrivePermission): string {
+	const who = (i?: DriveIdentity) => i?.email || i?.displayName || i?.loginName || i?.id || "";
+	const g = p.grantedToV2;
+	const holders = [g?.user, g?.group, g?.siteGroup, g?.application, p.grantedTo?.user, ...(p.grantedToIdentitiesV2 ?? []).flatMap((x) => [x.user, x.group])].map(who).filter(Boolean);
+	const subject = p.link
+		? [`${p.link.scope ?? "unknown"}-scope`, p.link.type, "link"].filter(Boolean).join(" ")
+		: [...new Set(holders)].join(", ") || p.invitation?.email || g?.siteUser?.loginName || `permission ${p.id ?? "?"}`;
+	const from = p.inheritedFrom?.path ? ` inherited from ${p.inheritedFrom.path}` : "";
+	return `${subject} (${(p.roles ?? []).join(", ") || "no role"})${from}`;
+}
+
 /** The most teams_send reads for files in one message: they are read whole before the first upload. */
 const FILE_MAX_BYTES = 250 * 1024 * 1024;
 
