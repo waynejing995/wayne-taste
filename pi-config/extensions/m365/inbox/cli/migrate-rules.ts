@@ -65,11 +65,3 @@ export function migrateRulesText(text: string, now = new Date()): { text: string
 	}
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-	const args = process.argv.slice(2);
-	const file = args.includes("--file") ? args[args.indexOf("--file") + 1] : inboxFile("rules.yaml");
-	const current = fs.readFileSync(file, "utf8");
-	const next = migrateRulesText(current);
-	if (args.includes("--dry-run")) process.stdout.write(next.changed ? next.text : current);
-	else console.log(next.changed ? "migrated" : "rules.yaml already current");
-}
