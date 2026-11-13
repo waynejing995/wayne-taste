@@ -138,11 +138,14 @@ from a chat with a policy goes ahead only when, under that policy, a message nee
 stopped ("Operation stopped by hook: display only: …") and the card stays on screen. Cards from the self-chat and
 every other kind (`instruction`, `inbox`, `notice`) and your own prompts pass. Each channel event costs one call to
 Claude Code's background model (a few seconds). Append its `UserPromptSubmit` entry to `.claude/settings.json` (or
-`.claude/settings.local.json`) of the project you launch from; this keeps every hook already there:
+`.claude/settings.local.json`) of the project you launch from; this keeps every hook already there and creates the
+file when it is missing:
 
 ```sh
+mkdir -p .claude && f=.claude/settings.json && { [ -s "$f" ] || echo '{}' > "$f"; } &&
+t=$(mktemp .claude/settings.XXXXXX) &&
 jq --slurpfile h <wayne-skills>/pi-config/extensions/m365/mcp/claude-code-hooks.json \
-  '.hooks.UserPromptSubmit += $h[0].hooks.UserPromptSubmit' .claude/settings.json > /tmp/s.json && mv /tmp/s.json .claude/settings.json
+  '.hooks.UserPromptSubmit += $h[0].hooks.UserPromptSubmit' "$f" > "$t" && mv "$t" "$f"
 ```
 
 **Codex**: `~/.codex/config.toml`:
