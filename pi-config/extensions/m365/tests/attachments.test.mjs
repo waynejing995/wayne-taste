@@ -190,19 +190,21 @@ console.log("\n== one bad attachment keeps the message text ==");
 	check("the attachment is marked unreadable", text.includes("[unreadable attachment]"), true);
 }
 
-console.log("\n== a reply whose quoted content is JSON null keeps the message ==");
-{
-	const quote = { id: "q1", contentType: "messageReference", content: "null" };
+for (const [label, content] of [["JSON null", "null"], ["malformed JSON", '{"messagePreview": "half']]) {
+	console.log(`\n== a reply whose quoted content is ${label} keeps the message ==`);
+	const quote = { id: "q1", contentType: "messageReference", content };
 	const reply = message("5", "2026-11-12T08:12:00Z", [quote, file("d1", "notes.pdf")]);
 	reply.body = { contentType: "html", content: `<attachment id="q1"></attachment><p>please run the deploy</p><attachment id="d1"></attachment>` };
 	chat.unshift(reply);
 	const r = await tools.teams_read.execute("r", { target: "chat", chat_id: GROUP, limit: 1 }, null, null, ctx);
+	chat.shift();
 	const text = texts(r.content);
 	check("the instruction survives", text.includes("please run the deploy"), true);
 	check("the sender survives", text.includes("Lin"), true);
 	const { htmlToMarkdown } = await jiti.import(join(ROOT, "teams", "markdown.ts"));
 	const md = htmlToMarkdown(reply.body.content, reply.attachments);
 	check("the quote is marked unreadable where it sits", md.includes("[unreadable attachment]"), true);
+	check("not rendered as a quoted reply", md.includes("replying to"), false);
 	check("the pane keeps the instruction and the file", md.includes("please run the deploy") && md.includes("notes.pdf"), true);
 	check("the other attachment survives", text.includes("notes.pdf"), true);
 	check("not the whole-message fallback", text.includes("(system)"), false);

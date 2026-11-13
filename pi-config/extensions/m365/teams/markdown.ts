@@ -65,20 +65,15 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 
 function renderAttachment(att: Attachment): string {
 	const ctype = att.contentType ?? "";
-	let body: Record<string, unknown> = {};
-	if (typeof att.content === "string") {
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(att.content);
-		} catch {
-			parsed = {};
-		}
-		// JSON "null", a number or a list is not a reply or a forward.
-		if (!isPlainObject(parsed)) return "[unreadable attachment]";
-		body = parsed;
-	} else if (isPlainObject(att.content)) {
-		body = att.content;
+	if (ctype !== "messageReference" && ctype !== "forwardedMessageReference") {
+		if (att.contentUrl) return `\u{1f4ce} [${att.name || "attachment"}](${att.contentUrl})`;
+		return `\u{1f4ce} [${att.name || ctype || "attachment"}]`;
 	}
+	// A reply or a forward is its JSON content. Malformed JSON throws to attachmentMarkdown's marker;
+	// JSON "null", a number or a list is not a reply or a forward either.
+	const parsed: unknown = typeof att.content === "string" ? JSON.parse(att.content) : att.content;
+	if (!isPlainObject(parsed)) return "[unreadable attachment]";
+	const body = parsed;
 
 	if (ctype === "messageReference") {
 		const quoted = htmlToText(String(body.messagePreview ?? "")).trim();
@@ -86,15 +81,11 @@ function renderAttachment(att: Attachment): string {
 		const head = who ? `> \u21a9 replying to **${who}**` : "> \u21a9 replying to an earlier message";
 		return head + (quoted ? `: ${quoted}` : "");
 	}
-	if (ctype === "forwardedMessageReference") {
-		const quoted = htmlToText(String(body.originalMessageContent ?? "")).trim();
-		const first = quoted ? quoted.split("\n")[0].slice(0, 200) : "";
-		const who = attSender(body);
-		const head = who ? `> \u2937 forwarded from **${who}**` : "> \u2937 forwarded message";
-		return head + (first ? `: ${first}` : "");
-	}
-	if (att.contentUrl) return `\u{1f4ce} [${att.name || "attachment"}](${att.contentUrl})`;
-	return `\u{1f4ce} [${att.name || ctype || "attachment"}]`;
+	const quoted = htmlToText(String(body.originalMessageContent ?? "")).trim();
+	const first = quoted ? quoted.split("\n")[0].slice(0, 200) : "";
+	const who = attSender(body);
+	const head = who ? `> \u2937 forwarded from **${who}**` : "> \u2937 forwarded message";
+	return head + (first ? `: ${first}` : "");
 }
 
 /**
