@@ -30,7 +30,7 @@ export function receiptInstructions(): string {
 	return [
 		`End your reply with the receipt: one line of JSON, nothing after it, for example ${example}`,
 		`Fields: ${fields}. If a teams_read or inbox command fails, retry it once; if it still fails, set "complete" to false and name the chat in "failed".`,
-		"When omp elides the middle of a teams_read result (`Showing lines 1-H and T-N of N; ... elided. Read artifact://N for full output`), read every elided line before you go on, with `read artifact://N:A-B` (as many reads as it takes, from H+1 to T-1).",
+		"When omp elides the middle of a teams_read result (`Showing lines 1-H and T-N of N; ... elided. Read artifact://N for full output`), read every elided line before you go on, with the `read` tool: `read artifact://N:A-B` (as many reads as it takes, from H+1 to T-1). Reading the artifact through bash (sed, grep, cat) does not count: the run is checked against `read` calls only.",
 	].join("\n");
 }
 
