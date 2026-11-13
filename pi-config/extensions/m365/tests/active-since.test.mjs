@@ -23,4 +23,26 @@ check("last_at before the boundary is not active", activeSince(chat("2026-11-13T
 check("last_at at the boundary is active", activeSince(chat("2026-11-13T10:00:00"), boundary), true);
 check("last_at after the boundary is active", activeSince(chat("2026-11-13T10:01:00"), boundary), true);
 
+const { throttledRetry } = await jiti.import("../teams/active-since.ts");
+const { GraphError } = await jiti.import("../core/graph.ts");
+{
+	let calls = 0;
+	const got = await throttledRetry(async () => {
+		calls++;
+		if (calls <= 2) throw new GraphError("Graph 429 on /me/chats: TooManyRequests", 429, "{}");
+		return "page";
+	}, 1);
+	check("a chat list throttled twice still returns the page", `${got}/${calls}`, "page/3");
+	const stuck = await throttledRetry(async () => {
+		throw new GraphError("Graph 429", 429, "{}");
+	}, 1).then(() => 0, (e) => e.status);
+	check("a chat list that stays throttled still fails loudly", stuck, 429);
+	let other = 0;
+	await throttledRetry(async () => {
+		other++;
+		throw new Error("boom");
+	}, 1).catch(() => {});
+	check("other errors are not retried", other, 1);
+}
+
 process.exitCode = failed ? 1 : 0;

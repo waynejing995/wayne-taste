@@ -20,7 +20,7 @@ import { GraphClient } from "../core/graph.ts";
 import type { Person } from "../core/people.ts";
 import { safeName, saveNew } from "../core/save-file.ts";
 import { formatLocal } from "../core/time.ts";
-import { activeSince } from "./active-since.ts";
+import { activeSince, throttledRetry } from "./active-since.ts";
 import type { Backend, SelfMessage, UnreadItem } from "./backend.ts";
 import { ScriptBackend } from "./backend.ts";
 import { AGENT_STATUSES, agentFooterText, buildCard, cardMentions, isAgentSend } from "./card.ts";
@@ -1324,7 +1324,7 @@ export function createTeams(pi: TeamsHost) {
 			}
 			const boundary = params.active_since === undefined ? undefined : new Date(params.active_since).getTime();
 			if (boundary !== undefined && !Number.isFinite(boundary)) throw new Error(`active_since is not a time: ${params.active_since}`);
-			const first = params.cursor !== undefined ? await backend.chatsPage(params.cursor) : await getChats(freshChatList(params.active_since, Boolean(params.refresh)));
+			const first = params.cursor !== undefined ? await backend.chatsPage(params.cursor) : await throttledRetry(() => getChats(freshChatList(params.active_since, Boolean(params.refresh))));
 			const matches = (c: ChatRef) => {
 				if (q !== "" && !`${c.display ?? ""} ${c.label}`.toLowerCase().includes(q)) return false;
 				if (boundary !== undefined && !activeSince(c, boundary)) return false;
@@ -1336,7 +1336,7 @@ export function createTeams(pi: TeamsHost) {
 			const chats: ChatRef[] = [];
 			let next: string | undefined;
 			let pages = 0;
-			for await (const page of cursorPages(first, (p) => p.next, (c) => backend.chatsPage(c), signal)) {
+			for await (const page of cursorPages(first, (p) => p.next, (c) => throttledRetry(() => backend.chatsPage(c)), signal)) {
 				chats.push(...page.chats);
 				pages++;
 				next = page.next;
