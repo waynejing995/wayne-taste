@@ -92,6 +92,18 @@ await check("migration does not replace a newer existing fact", async () => {
 	strictEqual(readFacts().find((fact) => fact.key === "release-window").text, "Release window is 20:00");
 });
 
+await check("migration keeps a fact whose history held a credential, minus that history", async () => {
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:build-host]\n\nrelease host is build-01\n\nsource: digest\nsince: 2026-11-13\nsuperseded: password: hunter2\n\n");
+	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n1\tteams-fact:other\tdeploys need a ticket\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
+	const { migrateFacts } = await jiti.import("../cli/facts.ts");
+	const { readTsv } = await jiti.import("../cli/ledger.ts");
+	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+	const host = readFacts().find((fact) => fact.key === "build-host");
+	strictEqual(host?.text, "release host is build-01");
+	strictEqual(host?.superseded.length, 0);
+});
+
 await check("migration keeps a recorded legacy kind", async () => {
 	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n1\tteams-fact:release-host\t[endpoint:release-host] release host\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
@@ -150,8 +162,10 @@ await check("secrets are rejected in every field and scrubbed from history", asy
 	await rejects(() => inbox(["fact", "--kind", "info", "--key", "owner", "--source", "password: hunter2", "--", "rotation owner"]), /never its value/);
 	const leaked = "## [info:old-secret]\n\npassword: hunter2\n\nsource: digest\nsince: 2026-11-13\n\n";
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), leaked);
-	await rejects(() => inbox(["fact", "--kind", "info", "--key", "safe-note", "--source", "digest", "--", "plain status"]), /never its value/);
-	strictEqual(readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8"), leaked);
+	strictEqual(await inbox(["fact", "--kind", "info", "--key", "safe-note", "--source", "digest", "--", "plain status"]), "added info:safe-note");
+	const kept = readFacts().find((fact) => fact.key === "old-secret");
+	strictEqual(kept?.text, "[redacted: credential value]", "a stored credential is redacted, not deleted");
+	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("hunter2"));
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:old-secret]\n\nplain status\n\nsource: digest\nsince: 2026-11-13\nsuperseded: token=abc123\n\n");
 	await inbox(["fact", "--kind", "info", "--key", "old-secret", "--source", "digest", "--", "plain status"]);
 	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("token=abc123"));

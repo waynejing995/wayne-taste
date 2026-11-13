@@ -111,6 +111,15 @@ function checkFact(kind: string, key: string, text: string, source: string): voi
 	if ([key, text, source].some((value) => SECRET.test(value))) throw new InboxError("a fact names where the credential lives, never its value");
 }
 
+const REDACTED = "[redacted: credential value]";
+
+/** A stored fact with credential values redacted: the fact stays (never silently deleted), its value does not. */
+function scrub(fact: Fact): Fact {
+	const bad = (value: string) => SECRET.test(value);
+	if (!bad(fact.text) && !bad(fact.source) && !fact.superseded.some(bad)) return fact;
+	return { ...fact, text: bad(fact.text) ? REDACTED : fact.text, source: bad(fact.source) ? REDACTED : fact.source, superseded: fact.superseded.filter((text) => !bad(text)) };
+}
+
 /** Insert or replace one fact. The replaced text stays as `superseded:`. */
 export function upsertFact(kind: string, key: string, text: string, source: string, at = stamp()): string {
 	const cleanKind = clean(kind);
@@ -119,12 +128,12 @@ export function upsertFact(kind: string, key: string, text: string, source: stri
 	const cleanSource = clean(source);
 	checkFact(cleanKind, cleanKey, cleanText, cleanSource);
 	return mutate((facts) => {
-		const old = facts.find((fact) => fact.kind === cleanKind && fact.key === cleanKey);
-		if (facts.some((fact) => [fact.key, fact.text, fact.source].some((value) => SECRET.test(value)))) throw new InboxError("a fact names where the credential lives, never its value");
-		const history = (old?.superseded ?? []).filter((text) => !SECRET.test(text));
+		const stored = facts.map(scrub);
+		const old = stored.find((fact) => fact.kind === cleanKind && fact.key === cleanKey);
+		const history = [...(old?.superseded ?? [])];
 		if (old && old.text !== cleanText) history.unshift(old.text);
 		const next: Fact = { kind: cleanKind, key: cleanKey, text: cleanText, source: cleanSource, since: old?.since ?? at.slice(0, 10), updated: at, superseded: history };
-		saveFacts(old ? facts.map((fact) => fact === old ? next : fact) : [...facts, next]);
+		saveFacts(old ? stored.map((fact) => fact === old ? next : fact) : [...stored, next]);
 		if (old && old.text === cleanText) return `unchanged ${cleanKind}:${cleanKey}`;
 		return old ? `updated ${cleanKind}:${cleanKey}` : `added ${cleanKind}:${cleanKey}`;
 	});
@@ -188,7 +197,7 @@ export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).sp
 			if (current) next[next.indexOf(current)] = fact;
 			else next.push(fact);
 		}
-		saveFacts(next.filter((fact) => !SECRET.test(`${fact.key} ${fact.text} ${fact.source} ${fact.superseded.join(" ")}`)));
+		saveFacts(next.map(scrub));
 		for (const row of liveRows.filter((row) => redacted.includes(row.id))) {
 			row.subject = "[redacted: credential value]";
 			row.note = "redacted because the row held a credential value";
