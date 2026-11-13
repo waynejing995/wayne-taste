@@ -51,7 +51,7 @@ writeFileSync(LOG, "line 1\nline 2\n");
 const OWNER_ONLY = [{ id: "p-me", roles: ["owner"], grantedToV2: { user: { id: "oid-me", email: "me@contoso.test" } }, inheritedFrom: {} }];
 const PERMISSIONS = `${GRAPH}/me/drive/root:/Microsoft Teams Chat Files:/permissions`;
 
-function graph({ members = [], permissions = OWNER_ONLY } = {}) {
+function graph({ members = [], permissions = OWNER_ONLY, directory = {} } = {}) {
 	const seen = [];
 	const reply = (status, body) => ({ status, text: async () => JSON.stringify(body) });
 	const doFetch = async (url, init) => {
@@ -73,6 +73,8 @@ function graph({ members = [], permissions = OWNER_ONLY } = {}) {
 			});
 		}
 		if (decodeURIComponent(url) === PERMISSIONS) return permissions ? reply(200, { value: permissions }) : reply(404, { error: { code: "itemNotFound", message: "Item not found" } });
+		const user = /\/users\/([^/?]+)\?\$select=mail$/.exec(url);
+		if (user) return directory[user[1]] ? reply(200, directory[user[1]]) : reply(404, { error: { code: "Request_ResourceNotFound", message: "gone" } });
 		if (url === `${GRAPH}/chats/${CHAT}/members`) return reply(200, { value: members });
 		if (url === `${GRAPH}/me/joinedTeams`) return reply(200, { value: [{ id: "team-1", displayName: "Eng" }] });
 		if (url === `${GRAPH}/teams/team-1/channels`) return reply(200, { value: [{ id: "chan-1", displayName: "General" }] });
@@ -116,12 +118,12 @@ await check("a chat file is shared read-only with exactly the chat's other membe
 		{ userId: "oid-ann", email: "ann@contoso.test" },
 		{ userId: "oid-bo", email: "" },
 	];
-	const { seen, b } = graph({ members });
+	const { seen, b } = graph({ members, directory: { "oid-bo": { mail: "bo@contoso.test" } } });
 	await b.send({ kind: "chat", id: CHAT }, "<p>x</p>", true, [], [], undefined, [LOG]);
 	const grants = seen.filter((s) => s.url.includes("/invite") || s.url.includes("/createLink"));
 	deepStrictEqual(grants.map((g) => [g.method, g.url]), [["POST", `${GRAPH}/drives/${DRIVE}/items/item-1/invite`]]);
 	deepStrictEqual(grants[0].body, {
-		recipients: [{ email: "ann@contoso.test" }, { objectId: "oid-bo" }],
+		recipients: [{ email: "ann@contoso.test" }, { email: "bo@contoso.test" }],
 		roles: ["read"],
 		requireSignIn: true,
 		sendInvitation: false,
@@ -168,6 +170,17 @@ await check("a missing file, a device or a chat that matches nothing refuses the
 		await b.send(target, "<p>x</p>", true, [], [], undefined, files).catch((e) => (err = e.message));
 		match(err, want);
 		ok(!seen.some((s) => s.url.endsWith("/createUploadSession") || s.url.endsWith("/messages")), `nothing uploaded or posted: ${err}`);
+	}
+});
+
+await check("a chat member with no email anywhere refuses the send before anything is uploaded; never an object-id grant", async () => {
+	for (const directory of [{}, { "oid-bo": { mail: null } }]) {
+		const members = [{ userId: "oid-ann", email: "ann@contoso.test" }, { userId: "oid-bo", email: "", displayName: "Bo" }];
+		const { seen, b } = graph({ members, directory });
+		let err = "";
+		await b.send({ kind: "chat", id: CHAT }, "<p>x</p>", true, [], [], undefined, [LOG]).catch((e) => (err = e.message));
+		match(err, /chat member Bo has no email address/);
+		ok(!seen.some((s) => s.url.endsWith("/createUploadSession") || s.method === "PUT" || s.url.includes("/invite") || s.url.endsWith("/messages")), `nothing uploaded, shared or posted: ${err}`);
 	}
 });
 

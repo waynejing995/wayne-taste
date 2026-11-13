@@ -781,9 +781,11 @@ export class GraphBackend implements Backend {
 			post = `/chats/${id}/messages`;
 			// A chat's files are the sender's: OneDrive's "Microsoft Teams Chat Files", the folder Teams itself uses,
 			// opened to exactly the chat's members. The self-chat has only me, and I own the file.
+			// Who gets it is settled before the first upload: a member with no email refuses the send, no orphan left.
+			const recipients = target.kind === "chat" && attached.length > 0 ? await this.chatRecipients(id) : [];
 			upload = async (name, bytes) => {
 				const item = await this.graph.upload<DriveItem>(`/me/drive/root:/${encodeURIComponent(CHAT_FILES)}/${encodeURIComponent(name)}:`, bytes);
-				if (target.kind === "chat") await this.shareWithMembers(item, id);
+				await this.invite(item, recipients);
 				return sharedFile(item);
 			};
 		} else {
@@ -850,7 +852,7 @@ export class GraphBackend implements Backend {
 	/**
 	 * Refuses a chat or self-chat file send while "Microsoft Teams Chat Files" is shared with anyone but me. A file
 	 * uploaded there inherits every permission the folder and the drive above it hold (an old share, a guest, an
-	 * organisation or anonymous link), and shareWithMembers only adds to them. So any grant other than my own owner
+	 * organisation or anonymous link), and the chat invite only adds to them. So any grant other than my own owner
 	 * role names itself in the error and nothing is uploaded; the user decides what to unshare. A folder that does not
 	 * exist yet is clean: Teams creates it owned by me alone.
 	 */
@@ -878,20 +880,37 @@ export class GraphBackend implements Backend {
 	}
 
 	/**
-	 * Opens an uploaded chat file to exactly the chat's members, read-only: each by address, no invitation mail,
-	 * sign-in required. Never a link anyone or the whole organisation could use. A member Graph lists without an
-	 * address gets it by object id; one with neither refuses the send, as the file would be unreadable to them.
+	 * The addresses an uploaded chat file is opened to: every member of the chat but me, by email. Graph's member list
+	 * leaves some emails empty (guests, some accounts); those are read from the directory. A member with no email
+	 * anywhere refuses the send: the file would be unreadable to them, and an object-id grant is not what Teams does.
 	 */
-	private async shareWithMembers(item: DriveItem, chatId: string): Promise<void> {
+	private async chatRecipients(chatId: string): Promise<{ email: string }[]> {
 		const me = tokenClaim(await this.graph.rawToken(), "oid");
 		const members = await this.graph.getAll<{ userId?: string; email?: string; displayName?: string }>(`/chats/${chatId}/members`);
-		const recipients = members
-			.filter((m) => m.userId !== me)
-			.map((m) => {
-				if (m.email) return { email: m.email };
-				if (m.userId) return { objectId: m.userId };
-				throw new Error(`chat member ${m.displayName ?? "(unnamed)"} has no address to share ${item.name} with`);
-			});
+		return Promise.all(
+			members
+				.filter((m) => m.userId !== me)
+				.map(async (m) => {
+					if (m.email) return { email: m.email };
+					let mail = "";
+					if (m.userId) {
+						try {
+							mail = (await this.graph.get<{ mail?: string | null }>(`/users/${encodeURIComponent(m.userId)}?$select=mail`)).mail ?? "";
+						} catch (e) {
+							if (!(e instanceof GraphError && e.status === 404)) throw e;
+						}
+					}
+					if (!mail) throw new Error(`chat member ${m.displayName || m.userId || "(unnamed)"} has no email address to share the file with; nothing was sent`);
+					return { email: mail };
+				}),
+		);
+	}
+
+	/**
+	 * Opens an uploaded chat file to `recipients`, read-only: no invitation mail, sign-in required. Never a link anyone
+	 * or the whole organisation could use.
+	 */
+	private async invite(item: DriveItem, recipients: { email: string }[]): Promise<void> {
 		if (recipients.length === 0) return;
 		const drive = item.parentReference?.driveId;
 		if (!drive || !item.id) throw new Error(`uploaded ${item.name} has no drive item id`);
