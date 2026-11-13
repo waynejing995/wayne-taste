@@ -1,15 +1,16 @@
 /**
  * The MCP server over an in-memory transport: the tool listing, a call round trip, argument validation, the sign-in
- * hint, image content, and the channel's push path (inbox card and the test-only local source).
+ * hint, image content, and the channel: who gets pushes, the saved watches it resumes or skips, and inbox cards.
  *
- *   bun mcp/tests/server.test.mjs
+ *   unshare -rn bun mcp/tests/server.test.mjs
  *
- * Offline: the inbox and the token cache are temp directories, and fetch throws.
+ * Offline: the inbox and the token cache are temp directories, and fetch throws. Watch locks are abstract sockets,
+ * per network namespace, so tests/run.mjs runs this under `unshare -rn`: a live session's locks are not in its way.
  */
 import { deepStrictEqual } from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, appendFileSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const tmp = mkdtempSync(join(tmpdir(), "m365-mcp-test-"));
 process.env.WAYNE_INBOX_DIR = join(tmp, "inbox");
@@ -24,7 +25,7 @@ const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.j
 const { createServer, mcpContent, requireLogin } = await import("../server.ts");
 const { factArgv } = await import("../inbox.ts");
 const { startChannel } = await import("../channel.ts");
-const { listOwners } = await import("../../teams/watch.ts");
+const { claim, listOwners } = await import("../../teams/watch.ts");
 const { LEASE_ID, LAUNCHER, readCursor, writeCursor } = await import("../../inbox/delivery.ts");
 const { execFileSync } = await import("node:child_process");
 
@@ -39,10 +40,10 @@ const check = (label, fn) => {
 	}
 };
 
-async function connect(channel, clientName) {
-	const server = createServer({ channel });
+async function connect(clientName, capabilities = {}) {
+	const server = createServer();
 	const [a, b] = InMemoryTransport.createLinkedPair();
-	const client = new Client({ name: clientName, version: "0" });
+	const client = new Client({ name: clientName, version: "0" }, { capabilities });
 	const events = [];
 	client.fallbackNotificationHandler = async (n) => void events.push(n);
 	await server.connect(a);
@@ -54,10 +55,24 @@ const until = async (pred, ms = 5000) => {
 	const end = Date.now() + ms;
 	while (!pred() && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
 };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const rules = (chats) =>
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "rules.yaml"), `teams_watch:\n  chats:\n${chats.map((c) => `    - { chat: '${c.chat}', chat_id: '${c.id}', policy: '' }\n`).join("") || "    []\n"}`);
+/** Another session's lock on `chatId`: a lease held in this process under a pid that is not ours. */
+const holdAs = async (chatId, pid) => {
+	const claimed = await claim({ chatId, label: chatId, pid, sessionId: `other-${pid}`, cwd: "/elsewhere", since: new Date().toISOString() });
+	if (!("lease" in claimed)) throw new Error(`could not hold ${chatId}`);
+	return claimed.lease;
+};
+const ownerOf = async (chatId) => (await listOwners()).find((o) => o.chatId === chatId);
+const ask = (text, key) => execFileSync(LAUNCHER, ["ask", text, "--key", key], { env: process.env });
+const text = (r) => (r.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+mkdirSync(process.env.WAYNE_INBOX_DIR, { recursive: true });
+rules([]);
 
 // ── Tools ───────────────────────────────────────────────────────────────────
 {
-	const { client, server } = await connect(false, "test");
+	const { client, server } = await connect("test");
 	const { tools } = await client.listTools();
 	const names = tools.map((t) => t.name);
 	check("lists every teams_* tool", () =>
@@ -69,10 +84,10 @@ const until = async (pred, ms = 5000) => {
 	);
 	check("lists ten outlook_* tools", () => deepStrictEqual(names.filter((n) => n.startsWith("outlook_")).length, 10));
 	check("lists the inbox tools", () =>
-		deepStrictEqual(names.filter((n) => n.startsWith("inbox_")).sort(), ["inbox_ask", "inbox_done", "inbox_fact", "inbox_facts", "inbox_ls", "inbox_set"]),
+		deepStrictEqual(names.filter((n) => n.startsWith("inbox_")).sort(), ["inbox_ask", "inbox_done", "inbox_fact", "inbox_facts", "inbox_ls", "inbox_set", "inbox_watch"]),
 	);
 	check("every tool has an object input schema", () => deepStrictEqual(tools.filter((t) => t.inputSchema?.type !== "object").map((t) => t.name), []));
-	check("no channel capability without M365_CHANNEL", () => deepStrictEqual(client.getServerCapabilities()?.experimental, undefined));
+	check("claude/channel is always declared", () => deepStrictEqual(client.getServerCapabilities()?.experimental, { "claude/channel": {} }));
 	const fact = tools.find((t) => t.name === "inbox_fact");
 	check("inbox_fact offers the fact kinds", () => deepStrictEqual(fact.inputSchema.properties.kind.anyOf.map((k) => k.const), ["endpoint", "cred", "decision", "owed", "info"]));
 	check("inbox_fact passes --kind only when given", () =>
@@ -83,22 +98,22 @@ const until = async (pred, ms = 5000) => {
 	);
 
 	// A round trip through the inbox CLI: ask records a row, ls lists it, done archives it.
-	const ask = await client.callTool({ name: "inbox_ask", arguments: { text: "Ship it?", key: "t1" } });
-	check("inbox_ask records a row", () => deepStrictEqual([ask.isError ?? false, ask.content[0].text], [false, "notify 1 ask-wayne"]));
+	const asked = await client.callTool({ name: "inbox_ask", arguments: { text: "Ship it?", key: "t1" } });
+	check("inbox_ask records a row", () => deepStrictEqual([asked.isError ?? false, text(asked)], [false, "notify 1 ask-wayne"]));
 	const ls = await client.callTool({ name: "inbox_ls", arguments: { state: ["open"] } });
-	check("inbox_ls lists it", () => deepStrictEqual(ls.content[0].text.split("\n")[1].split("\t").slice(0, 3), ["1", "ask-wayne:t1", "Ship it?"]));
+	check("inbox_ls lists it", () => deepStrictEqual(text(ls).split("\n")[1].split("\t").slice(0, 3), ["1", "ask-wayne:t1", "Ship it?"]));
 	const done = await client.callTool({ name: "inbox_done", arguments: { ids: ["1"], note: "test" } });
 	check("inbox_done archives it", () => deepStrictEqual(done.isError ?? false, false));
 
 	const bad = await client.callTool({ name: "inbox_set", arguments: { ids: [] } });
-	check("arguments are validated against the schema", () => deepStrictEqual([bad.isError, /invalid arguments for inbox_set: \/ids/.test(bad.content[0].text)], [true, true]));
+	check("arguments are validated against the schema", () => deepStrictEqual([bad.isError, /invalid arguments for inbox_set: \/ids/.test(text(bad))], [true, true]));
 
 	const unknown = await client.callTool({ name: "nope", arguments: {} });
 	check("an unknown tool is an error", () => deepStrictEqual(unknown.isError, true));
 
 	// No token cache in this HOME: the hint names omp, where the sign-in lives.
 	const mail = await client.callTool({ name: "outlook_folders", arguments: {} });
-	check("signed out: the error says to run /teams init in omp", () => deepStrictEqual([mail.isError, /run \/teams init in omp/.test(mail.content[0].text)], [true, true]));
+	check("signed out: the error says to run /teams init in omp", () => deepStrictEqual([mail.isError, /run \/teams init in omp/.test(text(mail))], [true, true]));
 	check("requireLogin fails loudly without a token cache", () => {
 		let message = "";
 		try {
@@ -109,9 +124,22 @@ const until = async (pred, ms = 5000) => {
 		deepStrictEqual(/not signed in.*run \/teams init in omp/.test(message), true);
 	});
 
+	// "test" names no push support and advertises none: its watch cards and inbox cards would go nowhere.
 	const watch = await client.callTool({ name: "teams_watch", arguments: { action: "start", chat_id: "48:notes" } });
-	check("teams_watch start is refused without a channel", () => deepStrictEqual([watch.isError, /needs the Claude Code channel/.test(watch.content[0].text)], [true, true]));
+	const inbox = await client.callTool({ name: "inbox_watch", arguments: { action: "start" } });
+	check("a client that cannot take pushes is refused teams_watch start and inbox_watch start", () =>
+		deepStrictEqual([watch.isError, /cannot receive pushed events/.test(text(watch)), inbox.isError, /cannot receive pushed events/.test(text(inbox))], [true, true, true, true]),
+	);
+	const unclaimed = await ownerOf(LEASE_ID);
+	check("and nothing was claimed for it", () => deepStrictEqual(unclaimed, undefined));
 	await server.close();
+}
+
+// ── No environment variables ────────────────────────────────────────────────
+{
+	const root = dirname(dirname(new URL(import.meta.url).pathname));
+	const files = ["server.ts", "channel.ts", "inbox.ts"].map((f) => join(root, f)).concat(join(dirname(root), "README.md"));
+	check("no M365_ environment variable is read or documented", () => deepStrictEqual(files.filter((f) => /M365_/.test(readFileSync(f, "utf8"))), []));
 }
 
 // ── Images ──────────────────────────────────────────────────────────────────
@@ -124,73 +152,101 @@ const until = async (pred, ms = 5000) => {
 	check("an image without a file is saved and named by its path", () => deepStrictEqual([saved.map((c) => c.type), !!path && existsSync(path)], [["text", "text", "image"], true]));
 }
 
-// ── Channel claims: opt-in only ─────────────────────────────────────────────
+// ── Saved watches: resumed at start, the self-chat included; a held chat is skipped, never taken ─────────────────
 {
-	// The saved list holds the self-chat and another chat; omp may be restarting and about to resume both.
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "rules.yaml"), "teams_watch:\n  chats:\n    - { chat: self-chat, chat_id: '48:notes', policy: '' }\n    - { chat: Team, chat_id: '19:team@thread.v2', policy: reply }\n");
-	const run = async (env) => {
-		const keys = ["M365_CHANNEL_WATCHES", "M365_CHANNEL_SELF", "M365_CHANNEL_INBOX"];
-		for (const k of keys) delete process.env[k];
-		Object.assign(process.env, env);
-		const started = [];
-		const teams = { startWatch: async (_ctx, chatId) => (started.push(chatId), `Watching ${chatId}`), setWatchInterval: () => "", stopAllWatches: () => {} };
-		const stop = startChannel({ teams, context: {}, push: async () => {} });
-		await new Promise((r) => setTimeout(r, 300));
-		const inboxClaimed = (await listOwners()).some((o) => o.chatId === LEASE_ID);
-		stop();
-		for (const k of keys) delete process.env[k];
-		await new Promise((r) => setTimeout(r, 100));
-		return { started, inboxClaimed };
-	};
-	const none = await run({});
-	check("by default the channel resumes no saved watch and leaves the inbox lease alone", () => deepStrictEqual(none, { started: [], inboxClaimed: false }));
-	const watches = await run({ M365_CHANNEL_WATCHES: "1" });
-	check("M365_CHANNEL_WATCHES=1 resumes the saved chats but never the self-chat", () => deepStrictEqual(watches, { started: ["19:team@thread.v2"], inboxClaimed: false }));
-	const self = await run({ M365_CHANNEL_WATCHES: "1", M365_CHANNEL_SELF: "1" });
-	check("M365_CHANNEL_SELF=1 also takes the self-chat", () => deepStrictEqual(self.started.sort(), ["19:team@thread.v2", "48:notes"]));
-	const inbox = await run({ M365_CHANNEL_INBOX: "1" });
-	check("M365_CHANNEL_INBOX=1 takes the inbox lease, and only that", () => deepStrictEqual(inbox, { started: [], inboxClaimed: true }));
+	rules([
+		{ chat: "self-chat", id: "48:notes" },
+		{ chat: "Team", id: "19:team@thread.v2" },
+		{ chat: "Busy", id: "19:busy@thread.v2" },
+	]);
+	const busy = await holdAs("19:busy@thread.v2", 999991);
+	const started = [];
+	const teams = { startWatch: async (_ctx, chatId) => (started.push(chatId), `Watching ${chatId}`), setWatchInterval: () => "", stopAllWatches: () => {} };
+	const channel = startChannel({ teams, context: {}, push: async () => {} });
+	await sleep(300);
+	check("the saved chats are resumed, the self-chat included", () => deepStrictEqual(started.sort(), ["19:team@thread.v2", "48:notes"]));
+	check("a chat another session holds is skipped and named with its holder", () =>
+		deepStrictEqual(
+			channel.held.map((h) => [h.chatId, h.owner.pid]),
+			[["19:busy@thread.v2", 999991]],
+		),
+	);
+	const still = (await ownerOf("19:busy@thread.v2"))?.pid;
+	const inboxFree = (await ownerOf(LEASE_ID)) === undefined;
+	check("its lock stays with its holder, and a start takes no inbox lease", () => deepStrictEqual([still, inboxFree], [999991, true]));
+	channel.stop();
+
+	// Through the server: a Claude Code client's teams_watch list names the skipped chat and who holds it.
+	rules([{ chat: "Busy", id: "19:busy@thread.v2" }]);
+	const { client, server } = await connect("claude-code");
+	let list;
+	for (const end = Date.now() + 5000; Date.now() < end; await sleep(100)) {
+		list = await client.callTool({ name: "teams_watch", arguments: { action: "list" } });
+		if (/held by/.test(text(list))) break;
+	}
+	check("teams_watch list shows the skipped chat as held by its pid", () => deepStrictEqual(/Busy.*held by pid 999991/s.test(text(list)), true));
+	await server.close();
+	busy.close();
+	rules([]);
 }
 
-// ── Channel ─────────────────────────────────────────────────────────────────
+// ── Who gets pushes: a client that advertises claude/channel, or Claude Code by name ─────────────────────────────
 {
-	// No saved watches; the inbox is opted in and its lease is free (this temp directory's), so its cards are pushed.
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "rules.yaml"), "teams_watch:\n  chats: []\n");
-	process.env.M365_CHANNEL_INBOX = "1";
-	const local = join(tmp, "local-events");
-	process.env.M365_CHANNEL_LOCAL = local;
-	const other = await connect(true, "codex");
-	check("channel capability is declared", () => deepStrictEqual(other.client.getServerCapabilities()?.experimental, { "claude/channel": {} }));
-	await other.server.close();
+	const advertised = await connect("some-client", { experimental: { "claude/channel": {} } });
+	const started = await advertised.client.callTool({ name: "inbox_watch", arguments: { action: "start" } });
+	check("a client advertising claude/channel can start inbox_watch", () => deepStrictEqual([started.isError ?? false, /pushed here/.test(text(started))], [false, true]));
+	await advertised.server.close();
+	await sleep(100);
+}
 
-	const { client, server, events } = await connect(true, "claude-code");
-	await until(() => events.some((e) => e.params?.content?.startsWith("Inbox cards:")));
+// ── Inbox: inbox_watch takes the lease only when it is free ────────────────────────────────────────────────────
+{
+	const other = await holdAs(LEASE_ID, 999992);
+	const { client, server } = await connect("claude-code");
+	const refused = await client.callTool({ name: "inbox_watch", arguments: { action: "start" } });
+	const status = await client.callTool({ name: "inbox_watch", arguments: { action: "status" } });
+	const owner = await ownerOf(LEASE_ID);
+	check("inbox_watch start says who holds the inbox and does not take it", () =>
+		deepStrictEqual([refused.isError, /already delivered to another session \(pid 999992/.test(text(refused)), owner?.pid], [true, true, 999992]),
+	);
+	check("inbox_watch status names the holder", () => deepStrictEqual(/held by pid 999992/.test(text(status)), true));
+	await server.close();
+	other.close();
+	await sleep(100);
+}
+
+// ── Channel push: inbox cards once inbox_watch started ──────────────────────────────────────────────────────────
+{
+	const { client, server, events } = await connect("claude-code");
+	check("nothing is pushed before inbox_watch start", () => deepStrictEqual(events.filter((e) => e.method === "notifications/claude/channel"), []));
+	const started = await client.callTool({ name: "inbox_watch", arguments: { action: "start" } });
+	const takenBy = (await ownerOf(LEASE_ID))?.pid;
+	check("inbox_watch start takes the free lease", () => deepStrictEqual([started.isError ?? false, takenBy], [false, process.pid]));
 	await client.callTool({ name: "inbox_ask", arguments: { text: "Pushed?", key: "t2" } });
 	await until(() => events.some((e) => e.params?.meta?.kind === "inbox"));
-	appendFileSync(local, "hello from the test\n");
-	await until(() => events.some((e) => e.params?.meta?.kind === "local"));
 	const inbox = events.find((e) => e.params?.meta?.kind === "inbox");
 	check("a new notify row is pushed as notifications/claude/channel", () =>
 		deepStrictEqual([inbox?.method, /Pushed\?/.test(inbox?.params.content ?? ""), inbox?.params.meta.sender], ["notifications/claude/channel", true, "inbox"]),
 	);
-	const localEvent = events.find((e) => e.params?.meta?.kind === "local");
-	check("the local source pushes each appended line", () => deepStrictEqual(localEvent?.params.content, "hello from the test"));
 	check("meta keys are identifiers only", () =>
 		deepStrictEqual(events.flatMap((e) => Object.keys(e.params?.meta ?? {})).filter((k) => !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k)), []),
 	);
 	check("the instructions say how to reply and carry the untrusted rule", () => {
-		const text = client.getInstructions() ?? "";
-		deepStrictEqual([/teams_send/.test(text), /UNTRUSTED/.test(text)], [true, true]);
+		const t = client.getInstructions() ?? "";
+		deepStrictEqual([/teams_send/.test(t), /UNTRUSTED/.test(t)], [true, true]);
 	});
+	const stopped = await client.callTool({ name: "inbox_watch", arguments: { action: "stop" } });
+	await sleep(100);
+	const freed = await ownerOf(LEASE_ID);
+	check("inbox_watch stop frees the lease", () => deepStrictEqual([stopped.isError ?? false, freed], [false, undefined]));
 	await server.close();
-	delete process.env.M365_CHANNEL_INBOX;
+	await sleep(100);
 }
+
+const fakeTeams = { startWatch: async () => "", setWatchInterval: () => "", stopAllWatches: () => {} };
 
 // ── Inbox cursor: advanced only after the push is delivered ─────────────────
 {
-	process.env.M365_CHANNEL_INBOX = "1";
-	// bun's execFileSync does not pass process.env changes on to the child without an explicit env.
-	const ask = (text, key) => execFileSync(LAUNCHER, ["ask", text, "--key", key], { env: process.env });
 	const before = readCursor();
 	const cards = [];
 	let fail = true;
@@ -202,32 +258,28 @@ const until = async (pred, ms = 5000) => {
 		}
 		cards.push(event.content);
 	};
-	const teams = { startWatch: async () => "", setWatchInterval: () => "", stopAllWatches: () => {} };
 	ask("Lost?", "t3");
-	const stop = startChannel({ teams, context: {}, push });
+	const channel = startChannel({ teams: fakeTeams, context: {}, push });
+	await channel.inbox.start();
 	await until(() => !fail);
-	await new Promise((r) => setTimeout(r, 200));
+	await sleep(200);
 	check("a push that rejects leaves the cursor unchanged", () => deepStrictEqual(readCursor(), before));
 	ask("And this?", "t4");
 	await until(() => cards.length > 0);
 	check("the next scan delivers the rows again", () => deepStrictEqual([/Lost\?/.test(cards[0] ?? ""), /And this\?/.test(cards[0] ?? "")], [true, true]));
-	stop();
-	delete process.env.M365_CHANNEL_INBOX;
+	channel.stop();
+	await sleep(100);
 }
 
 // ── Shutdown: nothing is claimed, pushed or written after stop ───────────────
 {
-	process.env.M365_CHANNEL_INBOX = "1";
-	const ask = (text, key) => execFileSync(LAUNCHER, ["ask", text, "--key", key], { env: process.env });
-	const inboxOwned = async () => (await listOwners()).some((o) => o.chatId === LEASE_ID);
-	const teams = { startWatch: async () => "", setWatchInterval: () => "", stopAllWatches: () => {} };
 	ask("After stop?", "t5");
 
 	// Stopped while an inbox push is outstanding: a successor moves the cursor, then the old push succeeds.
 	const { promise: sent, resolve: deliver } = Promise.withResolvers();
 	let pending = false;
-	const stop = startChannel({
-		teams,
+	const channel = startChannel({
+		teams: fakeTeams,
 		context: {},
 		push: async (event) => {
 			if (event.kind !== "inbox") return;
@@ -235,23 +287,24 @@ const until = async (pred, ms = 5000) => {
 			await sent;
 		},
 	});
+	await channel.inbox.start();
 	await until(() => pending);
-	stop();
+	channel.stop();
 	const successor = (readCursor() ?? 0) + 100;
 	writeCursor(successor);
 	deliver();
-	await new Promise((r) => setTimeout(r, 300));
+	await sleep(300);
 	check("a push that completes after stop does not move the successor's cursor", () => deepStrictEqual([pending, readCursor()], [true, successor]));
 
-	// Stopped before the inbox lease was claimed: the claim must not happen later and leak.
+	// Stopped while inbox_watch start is claiming: the claim must not land afterwards and leak.
 	const late = [];
-	const stopEarly = startChannel({ teams, context: {}, push: async (event) => void late.push(event.kind) });
-	stopEarly();
-	await new Promise((r) => setTimeout(r, 500));
-	const leaked = await inboxOwned();
-	check("a channel stopped while starting takes no inbox lease and pushes nothing", () => deepStrictEqual([leaked, late], [false, []]));
-
-	delete process.env.M365_CHANNEL_INBOX;
+	const early = startChannel({ teams: fakeTeams, context: {}, push: async (event) => void late.push(event.kind) });
+	const starting = early.inbox.start().catch((e) => e.message);
+	early.stop();
+	const outcome = await starting;
+	await sleep(500);
+	const leaked = await ownerOf(LEASE_ID);
+	check("a channel stopped while inbox_watch starts takes no inbox lease and pushes nothing", () => deepStrictEqual([leaked, late, /stopped/.test(String(outcome))], [undefined, [], true]));
 }
 
 rmSync(tmp, { recursive: true, force: true });

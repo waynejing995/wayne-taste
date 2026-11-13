@@ -78,7 +78,7 @@ standing instructions for the agent that receives them).
 `mcp/server.ts` is a stdio MCP server, run with [bun](https://bun.sh) (Node's type stripping cannot load the Teams
 core). It serves the same tool objects omp registers, from `teams/core.ts` and `outlook/tools.ts`: every `teams_*`
 and `outlook_*` tool, plus `inbox_ls`, `inbox_ask`, `inbox_done`, `inbox_set`, `inbox_fact` and `inbox_facts`, which
-run `bin/inbox`. No UI: no overlays, status bar or commands. `inbox_fact` takes an optional `kind` (endpoint, cred,
+run `bin/inbox`, and `inbox_watch` (see Channel). No UI: no overlays, status bar or commands. `inbox_fact` takes an optional `kind` (endpoint, cred,
 decision, owed, info), passed as `--kind` only when given. `inbox_facts` wraps `inbox facts [--grep]`, which the
 FactsFile branch adds: until it lands, the tool returns the CLI's own error.
 
@@ -88,39 +88,38 @@ FactsFile branch adds: until it lands, the tool returns the CLI's own error.
 - **Write tools** (`teams_send`, `teams_react`, `outlook_send`, `outlook_draft`, `outlook_move`, `outlook_mark`,
   `inbox_set`, `inbox_done`) have no confirmation of their own in the server: approval is the client's job (Claude
   Code permissions or `allowedTools`, Codex `approval_mode`, Cursor's tool approval).
-- **Channel** (Claude Code only, `M365_CHANNEL=1`): the server declares `claude/channel` and pushes
-  `notifications/claude/channel` events, `<channel source="m365" kind=… chat_id=… sender=… policy=…>`:
+- **Channel**: the server always declares Claude Code's `claude/channel`. A client that can take pushes (it
+  advertises `claude/channel`, or it is Claude Code, which as of 2.1.322 advertises nothing and is known by its
+  `clientInfo.name`) gets `notifications/claude/channel` events, `<channel source="m365" kind=… chat_id=… sender=… policy=…>`:
   - `card`: a watched Teams chat. Same cursors, card text and per-chat lock as omp. There is no policy gate model
     here, so a card from a chat with a policy always starts a turn and says so; Claude decides from the policy.
   - `instruction`: your own `omp:`/`pi:` message in a watched chat.
-  - `inbox`: new `notify`/`do` ledger rows (same lease and cursor as omp's `/inbox watch`).
-  - `notice`: what the channel claimed or skipped. A chat another session already watches is skipped and named.
-  - `M365_CHANNEL_LOCAL=<file>` (test only) pushes each line appended to the file as a `local` event.
+  - `inbox`: new `notify`/`do` ledger rows, after `inbox_watch start`.
+  - `notice`: what the channel resumed or skipped.
 
-  **Nothing is claimed by default.** omp restarting, resuming or starting `/new` must find its watches and the inbox
-  lease free; otherwise your `omp:`/`pi:` phone instructions would run in Claude Code. Claims are opt-in:
-
-  | Claims | How |
-  |---|---|
-  | One chat | `teams_watch start` called from the Claude Code session |
-  | The saved chats in `rules.yaml` (`teams_watch`), self-chat excepted; read, never rewritten | `M365_CHANNEL_WATCHES=1` |
-  | The self-chat too (with `M365_CHANNEL_WATCHES=1`) | `M365_CHANNEL_SELF=1` |
-  | The inbox lease and its cursor | `M365_CHANNEL_INBOX=1` |
+  Watching is on when you turn it on:
+  - At start the server resumes the chats saved in `rules.yaml` (`teams_watch`), the self-chat included; the list is
+    read, never rewritten here. A chat another session holds (a running omp) is skipped, never taken: its name and
+    holder go to stderr, and `teams_watch list` shows it as held by that pid.
+  - Any other chat: `teams_watch start`, the self-chat too when you ask for it.
+  - The inbox: `inbox_watch start|stop|status`, omp's `/inbox watch` with the same lease and cursor. If another
+    session holds the lease, it says who and takes nothing.
 
   The server's instructions tell Claude to reply with `teams_send` and carry the untrusted-content rules of the
-  omp cards. Without the channel, `teams_watch start` is refused: its cards would go nowhere.
+  omp cards. A client that cannot take pushes (Codex, Cursor) gets the tools; `teams_watch start` and
+  `inbox_watch start` are refused there, since their cards would go nowhere.
 
 `<wayne-skills>` is where you cloned the repo. `bun` must be on the harness's `PATH` (or give its full path).
 
-**Claude Code**: `.mcp.json` in the project (or `claude mcp add`), then launch with the development-channel flag:
+**Claude Code**: `.mcp.json` in the project (or `claude mcp add`), then launch with the development-channel flag so
+Claude Code shows the pushed events:
 
 ```json
 {
   "mcpServers": {
     "m365": {
       "command": "bun",
-      "args": ["<wayne-skills>/pi-config/extensions/m365/mcp/server.ts"],
-      "env": { "M365_CHANNEL": "1" }
+      "args": ["<wayne-skills>/pi-config/extensions/m365/mcp/server.ts"]
     }
   }
 }

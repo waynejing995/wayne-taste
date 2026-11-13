@@ -37,8 +37,9 @@ const groups = [
 	{ label: "teams bot cards", script: join(root, "tests", "bot-cards.test.mjs"), local: true },
 	{ label: "teams file sends", script: join(root, "tests", "files.test.mjs"), local: false },
 	{ label: "teams reactions", script: join(root, "tests", "reactions.test.mjs"), local: true },
-	// The MCP server runs under bun (Node's type stripping cannot load the Teams core), so its test does too.
-	{ label: "mcp server", script: join(root, "mcp", "tests", "server.test.mjs"), local: false, runtime: "bun" },
+	// The MCP server runs under bun (Node's type stripping cannot load the Teams core), so its test does too. It takes
+	// watch locks, so it gets its own network namespace like the Teams suite.
+	{ label: "mcp server", script: join(root, "mcp", "tests", "server.test.mjs"), local: false, runtime: "bun", isolated: true },
 	{ label: "teams (local-only)", script: join(root, "teams", "tests", "run.mjs"), local: true, isolated: true },
 ];
 let failed = 0;

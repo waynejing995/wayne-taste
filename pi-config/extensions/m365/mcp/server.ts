@@ -2,8 +2,11 @@
  * m365 as an MCP server (stdio): the teams_* and outlook_* tools from the shared tool layer, plus the inbox ledger
  * tools. One implementation: omp registers the same tool objects (teams/index.ts, outlook/index.ts).
  *
- *   bun mcp/server.ts            # tools only: Codex, Cursor, Claude Code
- *   M365_CHANNEL=1 bun mcp/server.ts   # Claude Code with --dangerously-load-development-channels server:m365
+ *   bun mcp/server.ts
+ *
+ * The server always declares Claude Code's claude/channel. A client that can take pushes (it advertises claude/channel,
+ * or it is Claude Code) gets the channel: the saved Teams watches resume, and teams_watch and inbox_watch push their
+ * cards into the session. Any other client gets the tools, with teams_watch start and inbox_watch start refused.
  *
  * Sign-in is omp's: the server reads the MSAL token cache `/teams init` wrote and never prompts.
  */
@@ -20,8 +23,10 @@ import * as auth from "../core/auth.ts";
 import type { ToolContent, ToolContext, ToolDef, ToolResult } from "../core/tool.ts";
 import { createOutlook } from "../outlook/tools.ts";
 import { createTeams, type TeamsHost } from "../teams/core.ts";
-import { CHANNEL_INSTRUCTIONS, type ChannelEvent, logFailure, type Push, startChannel } from "./channel.ts";
+import { describeOwner } from "../teams/watch.ts";
+import { type Channel, CHANNEL_INSTRUCTIONS, type ChannelEvent, logFailure, type Push, startChannel } from "./channel.ts";
 import { inboxTools } from "./inbox.ts";
+import { Type } from "typebox";
 
 const NAME = "m365";
 const VERSION = "1.0.0";
@@ -81,13 +86,17 @@ export function mcpContent(content: ToolContent[]): ({ type: "text"; text: strin
 	return out;
 }
 
-/**
- * The server, not yet connected. `channel` declares Claude Code's claude/channel capability and, once the client has
- * initialized, starts pushing the Teams watch and inbox cards.
- */
-export function createServer(options: { channel: boolean }): Server {
+/** The client takes pushed channel events: it advertises claude/channel, or it is Claude Code (which, as of 2.1.322, advertises nothing). */
+function canTakePushes(server: Server): boolean {
+	const caps = server.getClientCapabilities() as { experimental?: Record<string, unknown> } | undefined;
+	return caps?.experimental?.["claude/channel"] !== undefined || server.getClientVersion()?.name === "claude-code";
+}
+
+/** The server, not yet connected. Once the client has initialized, a client that takes pushes gets the channel. */
+export function createServer(): Server {
 	const tools: ToolDef[] = [];
 	let pushEvent: Push | undefined;
+	let channel: Channel | undefined;
 	const send = (event: ChannelEvent) => pushEvent && logFailure(pushEvent(event));
 	const host: TeamsHost = {
 		registerTool: (tool) => void tools.push(tool as unknown as ToolDef),
@@ -104,23 +113,41 @@ export function createServer(options: { channel: boolean }): Server {
 	createOutlook({ registerTool: host.registerTool });
 	tools.push(...inboxTools);
 
+	const noPush = () => `${server.getClientVersion()?.name ?? "this client"} cannot receive pushed events (it neither advertises claude/channel nor is Claude Code)`;
+	const text = (t: string): ToolResult => ({ content: [{ type: "text", text: t }], details: {} });
+
 	// A watch here delivers only through the channel; without one its cards would go nowhere.
 	const watchTool = tools.find((t) => t.name === "teams_watch")!;
 	const watchExecute = watchTool.execute.bind(watchTool);
 	watchTool.execute = async (id, params, signal, onUpdate, ctx) => {
-		const starting = typeof params === "object" && params !== null && "action" in params && params.action === "start";
-		if (starting && !pushEvent)
-			throw new Error("teams_watch start needs the Claude Code channel (M365_CHANNEL=1, launched with --dangerously-load-development-channels server:m365); this session has none");
-		return watchExecute(id, params, signal, onUpdate, ctx);
+		const action = (params as { action?: string }).action;
+		if (action === "start" && !pushEvent) throw new Error(`teams_watch start is refused: ${noPush()}.`);
+		const result = await watchExecute(id, params, signal, onUpdate, ctx);
+		if (action !== "list" || !channel?.held.length) return result;
+		const held = channel.held.map((h) => `- ${h.label}  id: ${h.chatId}\n  held by ${describeOwner(h.owner)}`).join("\n");
+		return { ...result, content: [...result.content, { type: "text", text: `Saved watches skipped at start (another session holds them):\n${held}` }] };
 	};
 
-	const server = new Server(
-		{ name: NAME, version: VERSION },
-		{
-			capabilities: { tools: {}, ...(options.channel ? { experimental: { "claude/channel": {} } } : {}) },
-			instructions: options.channel ? CHANNEL_INSTRUCTIONS : "Microsoft Teams, Outlook and the user's inbox ledger, signed in as the user.",
+	tools.push({
+		name: "inbox_watch",
+		label: "Inbox Watch",
+		description:
+			"Push the user's inbox cards into this session, as omp's /inbox watch does: start takes the inbox lease when " +
+			"no other session holds it (otherwise it says who does, and takes nothing), stop releases it, status says " +
+			"who delivers the inbox. Start only when the user asks.",
+		parameters: Type.Object({ action: Type.Union([Type.Literal("start"), Type.Literal("stop"), Type.Literal("status")], { description: "What to do" }) }),
+		async execute(_id, params) {
+			const action = (params as { action: "start" | "stop" | "status" }).action;
+			if (action === "start") {
+				if (!channel) throw new Error(`inbox_watch start is refused: ${noPush()}.`);
+				return text(await channel.inbox.start());
+			}
+			if (action === "stop") return text(channel ? channel.inbox.stop() : "This session does not watch the inbox.");
+			return text(channel ? await channel.inbox.status() : `This session does not watch the inbox: ${noPush()}.`);
 		},
-	);
+	});
+
+	const server = new Server({ name: NAME, version: VERSION }, { capabilities: { tools: {}, experimental: { "claude/channel": {} } }, instructions: CHANNEL_INSTRUCTIONS });
 
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: tools.map((t) => ({ name: t.name, title: t.label, description: t.description, inputSchema: t.parameters as { type: "object" } })),
@@ -142,18 +169,16 @@ export function createServer(options: { channel: boolean }): Server {
 		}
 	});
 
-	if (options.channel) {
-		server.oninitialized = () => {
-			const client = server.getClientVersion()?.name ?? "unknown";
-			if (client !== "claude-code") {
-				console.error(`[${NAME}] M365_CHANNEL=1 but the client is ${client}, not Claude Code: no channel`);
-				return;
-			}
-			pushEvent = (event) => server.notification({ method: "notifications/claude/channel", params: { content: event.content, meta: { kind: event.kind, ...event.meta } } });
-			const stop = startChannel({ teams, context, push: pushEvent });
-			server.onclose = () => void stop();
-		};
-	}
+	server.oninitialized = () => {
+		if (!canTakePushes(server)) {
+			console.error(`[${NAME}] ${noPush()}: tools only, no channel`);
+			return;
+		}
+		pushEvent = (event) => server.notification({ method: "notifications/claude/channel", params: { content: event.content, meta: { kind: event.kind, ...event.meta } } });
+		const started = startChannel({ teams, context, push: pushEvent });
+		channel = started;
+		server.onclose = () => started.stop();
+	};
 	return server;
 }
 
@@ -161,7 +186,7 @@ if (import.meta.main) {
 	// stdout is the protocol: anything a library logs goes to stderr.
 	console.log = console.error;
 	requireLogin();
-	const server = createServer({ channel: process.env.M365_CHANNEL === "1" });
+	const server = createServer();
 	await server.connect(new StdioServerTransport());
 	process.stdin.on("close", () => void server.close().finally(() => process.exit(0)));
 }
