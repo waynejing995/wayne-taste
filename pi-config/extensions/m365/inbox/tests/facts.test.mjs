@@ -94,6 +94,8 @@ await check("migration keeps a recorded legacy kind", async () => {
 	const { readTsv } = await jiti.import("../cli/ledger.ts");
 	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
 	strictEqual(readFacts()[0].kind, "endpoint");
+	strictEqual(readFacts()[0].source, "digest Ops Ada 2026-11-13 09:00");
+
 });
 
 await check("migration refuses the default live directory", async () => {

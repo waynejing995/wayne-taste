@@ -140,7 +140,7 @@ export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).sp
 		const key = factKey(row);
 		const current = existing.find((fact) => fact.key === key);
 		if (current && current.since > row.first_seen.slice(0, 10)) continue;
-		upsertFact(mappedKind(row), key, row.subject, `${row.note || row.source} ${row.first_seen}`.trim(), row.first_seen);
+		upsertFact(mappedKind(row), key, row.subject, [row.source, row.note, row.first_seen].filter(Boolean).join(" "), row.first_seen);
 	}
 	const ids = facts.map((row) => row.id);
 	if (ids.length) doneRows(ids, "moved to facts.md");
