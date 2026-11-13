@@ -23,7 +23,7 @@
  */
 import TurndownService from "turndown";
 import { attachedCardText, isCardType } from "./card.ts";
-import { FORWARD_ATTACHMENT, forwardHeader, forwardParts, quote } from "./forward.ts";
+import { FORWARD_ATTACHMENT, forwardHeader, forwardParts, type Original, quote } from "./forward.ts";
 import { htmlToText } from "./html.ts";
 
 interface Attachment {
@@ -266,15 +266,17 @@ function build(attachments: Attachment[]): TurndownService {
  * keeps the structure a chat pane can show.
  *
  * A forward (forward.ts) is a quoted block: its header, then the original converted like any message. `names` maps
- * a forward's sender id to the name it is shown with; `context` is chatsvc's originalMessageContext.
+ * a forward's sender id to the name it is shown with; `context` is chatsvc's originalMessageContext; `originals` are
+ * the originals of forwarded cards, read by the backend.
  */
-export function htmlToMarkdown(html: string, attachments: Attachment[] = [], names: ReadonlyMap<string, string> = new Map(), context?: unknown): string {
+export function htmlToMarkdown(html: string, attachments: Attachment[] = [], names: ReadonlyMap<string, string> = new Map(), context?: unknown, originals?: ReadonlyMap<string, Original>): string {
 	if (!html) return "";
-	return forwardParts(html, attachments, context)
+	return forwardParts(html, attachments, context, originals)
 		.map((p) => {
 			if (!("forward" in p)) return convert(p.html, attachments);
 			// The original's own attachments (a card it carried) render inside the quote; the forwards do not nest.
-			const body = htmlToMarkdown(p.forward.html, attachments.filter((x) => x.contentType !== FORWARD_ATTACHMENT), names);
+			const own = [...(p.forward.attachments as Attachment[]), ...attachments.filter((x) => x.contentType !== FORWARD_ATTACHMENT)];
+			const body = htmlToMarkdown(p.forward.html, own, names);
 			return quote([forwardHeader(p.forward, names, true), body].filter(Boolean).join("\n\n"));
 		})
 		.filter(Boolean)

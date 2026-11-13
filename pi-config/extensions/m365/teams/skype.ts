@@ -22,7 +22,7 @@
 import type { SelfHistoryPage, SelfMessage } from "./backend.ts";
 import { readBounded } from "../core/graph.ts";
 import { attachedCardText, isCardType } from "./card.ts";
-import { forwardParts, forwardSenderIds, partImages, partsText } from "./forward.ts";
+import { type ForwardLookup, forwardNeed, forwardParts, NO_LOOKUP, partImages, partsText } from "./forward.ts";
 import { escapeHtml } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import { fillMentions, type ResolvedMention } from "./mentions.ts";
@@ -54,9 +54,6 @@ export interface AmsImage {
 	host: string;
 }
 
-/** People's names by directory id, for forwards that name their sender only by id (GraphBackend supplies it). */
-export type UserNames = (ids: string[]) => Promise<ReadonlyMap<string, string>>;
-const NO_NAMES: UserNames = async () => new Map();
 
 export interface RawSkypeMessage {
 	id?: string;
@@ -237,10 +234,11 @@ export class SkypeClient {
 	}
 
 	/** Messages as the pane shows them: control frames and empties dropped, newer than `sinceId` when given, oldest first. */
-	private async project(raw: RawSkypeMessage[], sinceId: string, names: UserNames = NO_NAMES): Promise<SelfMessage[]> {
+	private async project(raw: RawSkypeMessage[], sinceId: string, lookup: ForwardLookup = NO_LOOKUP): Promise<SelfMessage[]> {
 		const { ams } = await this.authorize();
-		// A forward names its sender by id (properties.originalMessageContext): one lookup for the page.
-		const who = await names(raw.flatMap((m) => forwardSenderIds(forwardParts(m.content ?? "", [], m.properties?.originalMessageContext))));
+		// A forward names its sender by id (properties.originalMessageContext), and a forwarded card is only on the
+		// original: one lookup for the page.
+		const fwd = await lookup(forwardNeed(raw.flatMap((m) => forwardParts(m.content ?? "", [], m.properties?.originalMessageContext))));
 		const out: SelfMessage[] = [];
 		for (const m of raw) {
 			try {
@@ -252,8 +250,8 @@ export class SkypeClient {
 				// A card's content is an empty span pointing at it: the card is the text.
 				const card = cardsText(m);
 				const files = sentFiles(m);
-				const parts = forwardParts(html, [], m.properties?.originalMessageContext);
-				const flat = [partsText(parts, who), card].filter(Boolean).join("\n");
+				const parts = forwardParts(html, [], m.properties?.originalMessageContext, fwd.originals);
+				const flat = [partsText(parts, fwd.names), card].filter(Boolean).join("\n");
 				// A file-only note has no text, and is still a message.
 				if (!flat && files.length === 0) continue;
 				// The self-chat used to skip Markdown conversion entirely, so code
@@ -265,7 +263,7 @@ export class SkypeClient {
 					id,
 					at: m.composetime ?? "",
 					text: flat,
-					md: [htmlToMarkdown(html, [], who, m.properties?.originalMessageContext), cardsText(m, "\n\n")].filter(Boolean).join("\n\n"),
+					md: [htmlToMarkdown(html, [], fwd.names, m.properties?.originalMessageContext, fwd.originals), cardsText(m, "\n\n")].filter(Boolean).join("\n\n"),
 					...(images.length > 0 ? { images, ...(ams ? { imageSource: new URL(ams).origin + "/" } : {}) } : {}),
 					...(files.length > 0 ? { files } : {}),
 					...(reactions.length > 0 ? { reactions } : {}),
@@ -288,8 +286,8 @@ export class SkypeClient {
 	 * Without one it is the newest `top`: older pages are read until `top` raw messages are in hand, the newest `top`
 	 * kept, and only then are control frames and empties dropped -- the same order the Graph path uses.
 	 */
-	async selfMessages(sinceId: string, top = 20, names?: UserNames): Promise<SelfMessage[]> {
-		if (sinceId) return this.project((await this.fetchPage(top)).raw, sinceId, names);
+	async selfMessages(sinceId: string, top = 20, lookup?: ForwardLookup): Promise<SelfMessage[]> {
+		if (sinceId) return this.project((await this.fetchPage(top)).raw, sinceId, lookup);
 		const size = Math.min(top, WALK_PAGE);
 		const raw: RawSkypeMessage[] = [];
 		const first = await this.fetchPage(size);
@@ -298,7 +296,7 @@ export class SkypeClient {
 			if (raw.length >= top) break;
 		}
 		raw.sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0));
-		return this.project(raw.slice(0, top), "", names);
+		return this.project(raw.slice(0, top), "", lookup);
 	}
 
 	/**
@@ -307,12 +305,12 @@ export class SkypeClient {
 	 * A page of control frames alone is passed over, and the walk reads on through as many of them as there are, so a
 	 * page never comes back empty while older messages exist.
 	 */
-	async selfPage(cursor: string | undefined, pageSize: number, names?: UserNames): Promise<SelfHistoryPage> {
+	async selfPage(cursor: string | undefined, pageSize: number, lookup?: ForwardLookup): Promise<SelfHistoryPage> {
 		let messages: SelfMessage[] = [];
 		let older: string | undefined;
 		const first = await this.fetchPage(pageSize, cursor);
 		for await (const page of cursorPages(first, (p) => p.older, (c) => this.fetchPage(pageSize, c))) {
-			messages = await this.project(page.raw, "", names);
+			messages = await this.project(page.raw, "", lookup);
 			older = page.older;
 			if (messages.length > 0) break;
 		}

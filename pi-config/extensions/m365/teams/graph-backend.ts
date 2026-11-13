@@ -22,7 +22,7 @@ import { type DownloadedFile, downloadShared } from "../core/shares.ts";
 import type { Backend, ChatAddr, ChatHistoryPage, SelfHistoryPage, SelfMessage, UnreadItem, UnreadPayload } from "./backend.ts";
 import { HISTORY_MESSAGES, type ChatRef, type ChatsPage, type HistoryMessage, type SendTarget } from "./compose-overlay.ts";
 import { attachedCardText, CARD_CONTENT_TYPE, isCardType } from "./card.ts";
-import { forwardedAttachmentIds, forwardParts, forwardSenderIds, partImages, partsText, type Part } from "./forward.ts";
+import { type ForwardContext, type ForwardNeed, forwardedAttachmentIds, forwardNeed, forwardParts, NO_FORWARD_CONTEXT, type Original, originalKey, partImages, partsText, type Part } from "./forward.ts";
 import { escapeHtml, htmlToText } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import { fillMentions, type Mention, type ResolvedMention } from "./mentions.ts";
@@ -239,15 +239,15 @@ export function msgSender(m: RawMessage): string {
  * structured `files` field, and every surface that shows messages renders it
  * from there: teams_read prints a line per file, the pane draws its own row.
  */
-export function msgText(m: RawMessage, names: ReadonlyMap<string, string> = new Map()): string {
+export function msgText(m: RawMessage, fwd: ForwardContext = NO_FORWARD_CONTEXT): string {
 	const body = m.body ?? {};
 	const atts = attachmentList(m);
 	const cardOf = (id: string) => {
 		const a = atts.find((x) => String(x.id) === id && isCardType(x.contentType));
 		return a ? attachedCardText(a.content, a.contentType) : undefined;
 	};
-	const parts = msgParts(m);
-	const text = body.contentType === "html" ? partsText(parts, names, cardOf) : (body.content ?? "").trim();
+	const parts = msgParts(m, fwd);
+	const text = body.contentType === "html" ? partsText(parts, fwd.names, cardOf) : (body.content ?? "").trim();
 	// A card's body is only the <attachment> tag pointing at it, so the card is the message's text. One a forward
 	// points at is already in the forward's quote.
 	const quoted = forwardedAttachmentIds(parts);
@@ -259,9 +259,9 @@ export function msgText(m: RawMessage, names: ReadonlyMap<string, string> = new 
 }
 
 /** The body cut into its own HTML and its forwards (forward.ts). */
-function msgParts(m: RawMessage): Part[] {
+function msgParts(m: RawMessage, fwd: ForwardContext = NO_FORWARD_CONTEXT): Part[] {
 	const body = m.body ?? {};
-	return body.contentType === "html" ? forwardParts(body.content ?? "", attachmentList(m)) : [];
+	return body.contentType === "html" ? forwardParts(body.content ?? "", attachmentList(m), undefined, fwd.originals) : [];
 }
 
 /**
@@ -270,9 +270,9 @@ function msgParts(m: RawMessage): Part[] {
  * htmlToText flattens <img> to "[image]", which is right for text but drops the
  * address. These URLs need the bearer token, so only the extension can fetch them.
  */
-export function msgImages(m: RawMessage): string[] {
+export function msgImages(m: RawMessage, fwd: ForwardContext = NO_FORWARD_CONTEXT): string[] {
 	// A forward's pictures too, which a forwardedMessageReference carries in its content, not in the body.
-	return partImages(msgParts(m));
+	return partImages(msgParts(m, fwd));
 }
 
 /**
@@ -506,9 +506,41 @@ export class GraphBackend implements Backend {
 	/** Names of people by directory id, read once per process: a forward names its sender only by id. */
 	private readonly userNames = new Map<string, string>();
 
-	/** The names of the senders the forwards in `raw` name only by id. */
-	private forwardNames(raw: readonly RawMessage[]): Promise<ReadonlyMap<string, string>> {
-		return this.namesOf(raw.flatMap((m) => forwardSenderIds(msgParts(m))));
+	/** Originals of forwarded messages by originalKey, read once per process: a forwarded card is only there. */
+	private readonly originals = new Map<string, Original>();
+
+	/** What the forwards in `raw` need read: their senders' names and the originals of forwarded cards. */
+	private forwardContext(raw: readonly RawMessage[]): Promise<ForwardContext> {
+		return this.lookupForwards(forwardNeed(raw.flatMap((m) => msgParts(m))));
+	}
+
+	/** Names and originals for forwards, from Graph; the self-chat (chatsvc) asks through this too. */
+	private async lookupForwards(need: ForwardNeed): Promise<ForwardContext> {
+		const [names] = await Promise.all([this.namesOf(need.senderIds), this.originalsOf(need.originals)]);
+		return { names, originals: this.originals };
+	}
+
+	/**
+	 * The originals of forwards that leave their content out (a card) or name a bot only by id, read from the chat they
+	 * were sent in. One the reader cannot see (not a member any more, deleted) is logged and stays a stub.
+	 */
+	private async originalsOf(wanted: readonly [string, string][]): Promise<void> {
+		const missing = new Map(wanted.map(([c, id]) => [originalKey(c, id), [c, id] as const]).filter(([k]) => !this.originals.has(k as string)));
+		await Promise.all(
+			[...missing].map(async ([key, [conversation, id]]) => {
+				try {
+					const o = await this.graph.get<RawMessage>(`/chats/${encodeURIComponent(conversation)}/messages/${encodeURIComponent(id)}`);
+					const body = o.body ?? {};
+					this.originals.set(key, {
+						sender: msgSender(o) === "(system)" ? "" : msgSender(o),
+						html: body.contentType === "html" ? (body.content ?? "") : `<p>${escapeHtml(body.content ?? "")}</p>`,
+						attachments: attachmentList(o),
+					});
+				} catch (e) {
+					console.warn(`[teams] forwarded message ${id} not read from ${conversation}: ${e instanceof Error ? e.message : String(e)}`);
+				}
+			}),
+		);
 	}
 
 	/**
@@ -530,7 +562,7 @@ export class GraphBackend implements Backend {
 	}
 
 	/** Graph messages as the panes show them: system events dropped, oldest first. */
-	private project(raw: RawMessage[], myName: string, chatId: string, names: ReadonlyMap<string, string>): HistoryMessage[] {
+	private project(raw: RawMessage[], myName: string, chatId: string, fwd: ForwardContext): HistoryMessage[] {
 		const me = myName.toLowerCase();
 		return raw
 			.flatMap((m): HistoryMessage[] => {
@@ -539,9 +571,9 @@ export class GraphBackend implements Backend {
 					const sender = msgSender(m);
 					const body = m.body ?? {};
 					const files = msgFiles(m);
-					const images = msgImages(m);
+					const images = msgImages(m, fwd);
 					const badAttachment = attachmentError(m);
-					const text = `${msgText(m, names)}${badAttachment}`;
+					const text = `${msgText(m, fwd)}${badAttachment}`;
 					const messageUrl = `https://graph.microsoft.com/v1.0/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(m.id ?? "")}/`;
 					const resolved: string[] = [];
 					let imageError = "";
@@ -560,7 +592,7 @@ export class GraphBackend implements Backend {
 						mine: Boolean(me) && sender.toLowerCase().includes(me),
 						...(m.from?.user?.id ? { sender_id: m.from.user.id } : {}),
 						text: `${text}${imageError}`,
-						md: body.contentType === "html" ? `${htmlToMarkdown(body.content ?? "", attachmentList(m), names)}${badAttachment}${imageError}` : `${text}${imageError}`,
+						md: body.contentType === "html" ? `${htmlToMarkdown(body.content ?? "", attachmentList(m), fwd.names, undefined, fwd.originals)}${badAttachment}${imageError}` : `${text}${imageError}`,
 						mentions_me: mentionsMe(m, me),
 						images: resolved,
 						imageSource: messageUrl,
@@ -586,7 +618,7 @@ export class GraphBackend implements Backend {
 		const raw = await this.graph.getAll<RawMessage>(`/chats/${chat.id}/messages?$top=${MESSAGE_PAGE}`, { max: top });
 		const myName = await this.myName();
 		const kept = raw.slice(0, top);
-		return { messages: this.project(kept, myName, chat.id, await this.forwardNames(kept)), me: myName, chat: chat.label, display: chat.display };
+		return { messages: this.project(kept, myName, chat.id, await this.forwardContext(kept)), me: myName, chat: chat.label, display: chat.display };
 	}
 
 	/** One page of a conversation's messages as Graph gives them: the raw messages, and the link to the page before. */
@@ -607,7 +639,7 @@ export class GraphBackend implements Backend {
 		let messages: HistoryMessage[] = [];
 		let older: string | undefined;
 		for await (const page of cursorPages(await this.messagesPage(start), (p) => p.older, (c) => this.messagesPage(c))) {
-			messages = this.project(page.raw, myName, chat.id, await this.forwardNames(page.raw));
+			messages = this.project(page.raw, myName, chat.id, await this.forwardContext(page.raw));
 			older = page.older;
 			if (messages.length > 0) break;
 		}
@@ -616,12 +648,12 @@ export class GraphBackend implements Backend {
 
 	/** 48:notes is chatsvc, not Graph. See skype.ts. */
 	selfMessages(sinceId: string, top: number): Promise<SelfMessage[]> {
-		return this.requireSkype().selfMessages(sinceId, top, (ids) => this.namesOf(ids));
+		return this.requireSkype().selfMessages(sinceId, top, (need) => this.lookupForwards(need));
 	}
 
 	/** One page of the self-chat for the pane: the newest, then the page before `cursor`. See SkypeClient.selfPage. */
 	selfHistoryPage(cursor?: string): Promise<SelfHistoryPage> {
-		return this.requireSkype().selfPage(cursor, HISTORY_MESSAGES, (ids) => this.namesOf(ids));
+		return this.requireSkype().selfPage(cursor, HISTORY_MESSAGES, (need) => this.lookupForwards(need));
 	}
 	/**
 	 * A picture in a message: hostedContents on Graph (the Graph bearer), or an AMS object pasted into the self-chat
