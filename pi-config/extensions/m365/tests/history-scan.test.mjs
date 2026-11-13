@@ -92,6 +92,14 @@ const load = async (_target, _limit, since) => (await backend.messages({ id: CHA
 const text = await readTeams({ target: "chat", chat_id: CHAT, since: SINCE, limit: 200 }, load);
 check("teams_read since returns the full bounded history", text.includes("202 message(s)") && text.includes("boundary") && text.includes("new 0"), true);
 
+// A long gap is read one window at a time: `until` drops messages at or after it, on both the backend and the tool.
+const UNTIL = new Date(boundary + 100 * 60_000).toISOString();
+const windowed = await backend.messages({ id: CHAT }, 200, SINCE, UNTIL);
+check("until keeps only messages before it", windowed.messages.every((m) => new Date(m.at).getTime() < boundary + 100 * 60_000) && windowed.messages.some((m) => m.text === "kept 101"), true);
+check("until keeps the boundary message", windowed.messages[0].text, "boundary");
+const windowedText = await readTeams({ target: "chat", chat_id: CHAT, since: SINCE, until: UNTIL }, async (_t, _l, since, until) => (await backend.messages({ id: CHAT }, 200, since, until)).messages);
+check("teams_read passes until through", windowedText.startsWith(`chat ${CHAT} — ${windowed.messages.length} message(s)`) && !windowedText.includes("new 0"), true);
+
 const first = await backend.chatsPage();
 const found = [];
 for await (const page of (async function* () {

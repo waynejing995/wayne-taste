@@ -688,19 +688,22 @@ export class GraphBackend implements Backend {
 		addr: ChatAddr,
 		top: number,
 		since?: string,
+		until?: string,
 	): Promise<{ messages: HistoryMessage[]; me?: string; chat?: string | null; display?: string | null }> {
 		const chat = await this.resolveChat(addr);
 		const raw = since === undefined
 			? (await this.graph.getAll<RawMessage>(`/chats/${chat.id}/messages?$top=${MESSAGE_PAGE}`, { max: top })).slice(0, top)
-			: await this.messagesSince(chat.id, since);
+			: await this.messagesSince(chat.id, since, until);
 		const myName = await this.myName();
 		return { messages: this.project(raw, myName, chat.id, await this.forwardContext(raw)), me: myName, chat: chat.label, display: chat.display };
 	}
 
-	/** Every message at or after `since`, oldest first. Graph pages newest-first, so the walk stops at the first older page. */
-	private async messagesSince(chatId: string, since: string): Promise<RawMessage[]> {
+	/** Every message at or after `since` (and before `until`), oldest first. Graph pages newest-first, so the walk stops at the first older page. */
+	private async messagesSince(chatId: string, since: string, until?: string): Promise<RawMessage[]> {
 		const boundary = new Date(since).getTime();
 		if (!Number.isFinite(boundary)) throw new Error(`since is not a time: ${since}`);
+		const end = until === undefined ? Number.POSITIVE_INFINITY : new Date(until).getTime();
+		if (Number.isNaN(end)) throw new Error(`until is not a time: ${until}`);
 		const raw: RawMessage[] = [];
 		const start = `/chats/${chatId}/messages?$top=${MESSAGE_PAGE}&$orderby=createdDateTime desc`;
 		for await (const page of cursorPages(await this.messagesPage(start), (p) => p.older, (c) => this.messagesPage(c))) {
@@ -708,7 +711,7 @@ export class GraphBackend implements Backend {
 			raw.push(...ordered);
 			if (ordered.every((m) => messageTime(m.createdDateTime) < boundary)) break;
 		}
-		return raw.filter((m) => messageTime(m.createdDateTime) >= boundary);
+		return raw.filter((m) => messageTime(m.createdDateTime) >= boundary && messageTime(m.createdDateTime) < end);
 	}
 
 	/** One page of a conversation's messages as Graph gives them: the raw messages, and the link to the page before. */

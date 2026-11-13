@@ -87,8 +87,8 @@ export interface Backend {
 	unread(maxAgeSec: number): Promise<UnreadPayload>;
 	/** One page of the chat list: the first when there is no cursor, the one a previous page named otherwise. */
 	chatsPage(cursor?: string): Promise<ChatsPage>;
-	/** Up to `top` of a chat's newest messages, or every message at or after `since`, oldest first. */
-	messages(addr: ChatAddr, top: number, since?: string): Promise<{ messages: HistoryMessage[]; me?: string }>;
+	/** Up to `top` of a chat's newest messages, or every message at or after `since` and before `until`, oldest first. */
+	messages(addr: ChatAddr, top: number, since?: string, until?: string): Promise<{ messages: HistoryMessage[]; me?: string }>;
 	/** One page of a conversation: the newest with no cursor, the page before `cursor` otherwise. Oldest first. */
 	historyPage(addr: ChatAddr, cursor?: string): Promise<ChatHistoryPage>;
 	/**

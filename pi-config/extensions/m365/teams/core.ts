@@ -547,17 +547,21 @@ export function createTeams(pi: TeamsHost) {
 		return s.length <= MAX_REPLY_CHARS ? s : `${s.slice(0, MAX_REPLY_CHARS)}\n\n…[truncated]`;
 	}
 
-	async function readSelfChat(sinceId: string, top = 20, since?: string): Promise<SelfMessage[]> {
+	async function readSelfChat(sinceId: string, top = 20, since?: string, until?: string): Promise<SelfMessage[]> {
 		if (since === undefined) return backend.selfMessages(sinceId, top);
 		const boundary = new Date(since).getTime();
 		if (!Number.isFinite(boundary)) throw new Error(`since is not a time: ${since}`);
+		const end = until === undefined ? Number.POSITIVE_INFINITY : new Date(until).getTime();
+		if (Number.isNaN(end)) throw new Error(`until is not a time: ${until}`);
 		const out: SelfMessage[] = [];
 		const first = await backend.selfHistoryPage();
 		for await (const page of cursorPages(first, (p) => p.older, (c) => backend.selfHistoryPage(c))) {
 			out.push(...page.messages);
 			if (page.messages.some((m) => new Date(m.at).getTime() < boundary)) break;
 		}
-		return out.filter((m) => new Date(m.at).getTime() >= boundary).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+		return out
+			.filter((m) => new Date(m.at).getTime() >= boundary && new Date(m.at).getTime() < end)
+			.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 	}
 
 	// ── Watch ───────────────────────────────────────────────────────────────
@@ -986,11 +990,11 @@ export function createTeams(pi: TeamsHost) {
 		return { messages: page.messages.map((m) => ({ ...m, me: page.me })), older: page.older };
 	}
 
-	/** The newest `limit` messages, or every message at or after `since`, oldest first. */
-	async function loadRecent(target: SendTarget, limit: number, since?: string): Promise<HistoryMessage[]> {
-		if (target.kind === "self") return (await readSelfChat("", since === undefined ? limit : Number.POSITIVE_INFINITY, since)).map(selfLine);
+	/** The newest `limit` messages, or every message at or after `since` and before `until`, oldest first. */
+	async function loadRecent(target: SendTarget, limit: number, since?: string, until?: string): Promise<HistoryMessage[]> {
+		if (target.kind === "self") return (await readSelfChat("", since === undefined ? limit : Number.POSITIVE_INFINITY, since, until)).map(selfLine);
 		if (target.kind === "channel") throw new Error("reading channel history is not supported yet");
-		const payload = await backend.messages({ id: target.id, name: target.chat }, limit, since);
+		const payload = await backend.messages({ id: target.id, name: target.chat }, limit, since, until);
 		return payload.messages.map((m) => ({ ...m, me: payload.me }));
 	}
 	readForSchedule = loadRecent;
@@ -1184,7 +1188,7 @@ export function createTeams(pi: TeamsHost) {
 		name: "teams_read",
 		label: "Teams Read",
 		description:
-			"Read the recent messages of one Microsoft Teams conversation, oldest first; `limit` says how many (default 20, up to 200). `since` reads every message at or after that time instead, with no count cap. " +
+			"Read the recent messages of one Microsoft Teams conversation, oldest first; `limit` says how many (default 20, up to 200). `since` reads every message at or after that time instead, with no count cap; `until` stops before a later time. " +
 			"target='self' reads the user's own self-chat (48:notes); target='chat' reads a person " +
 			"or group chat by name. Chat names are matched by substring and an ambiguous name is an " +
 			"error. HTML is already converted to plain text, and messages that contained a picture read " +
@@ -1209,6 +1213,9 @@ export function createTeams(pi: TeamsHost) {
 			since: Type.Optional(
 				Type.String({ description: "Local time `YYYY-MM-DD HH:MM`, or ISO-8601. Reads every message at or after it, ignoring `limit`." }),
 			),
+			until: Type.Optional(
+				Type.String({ description: "With `since`: local time `YYYY-MM-DD HH:MM`, or ISO-8601. Leaves out messages at or after it." }),
+			),
 		}),
 		async execute(_id, params) {
 			if (params.target === "chat" && !params.chat_id && !params.chat)
@@ -1218,7 +1225,8 @@ export function createTeams(pi: TeamsHost) {
 					? { kind: "self" }
 					: { kind: "chat", chat: params.chat ?? "", id: params.chat_id };
 
-			const msgs = await loadRecent(target, params.limit ?? HISTORY_MESSAGES, params.since);
+			if (params.until !== undefined && params.since === undefined) throw new Error("`until` needs `since`");
+			const msgs = await loadRecent(target, params.limit ?? HISTORY_MESSAGES, params.since, params.until);
 			/**
 			 * One line per message with its id (teams_react's message_id), a line per shared file, and one for the
 			 * reactions when there are any.
@@ -1650,12 +1658,12 @@ export function createTeams(pi: TeamsHost) {
  * registered tool, and this is the same function the tool calls.
  */
 export async function readTeams(
-	args: { target?: string; chat_id?: string; chat?: string; limit?: number; since?: string },
-	load: (target: SendTarget, limit: number, since?: string) => Promise<HistoryMessage[]>,
+	args: { target?: string; chat_id?: string; chat?: string; limit?: number; since?: string; until?: string },
+	load: (target: SendTarget, limit: number, since?: string, until?: string) => Promise<HistoryMessage[]>,
 ): Promise<string> {
 	if (args.target === "chat" && !args.chat_id && !args.chat) throw new Error("target='chat' requires 'chat_id' or 'chat'");
 	const target: SendTarget = args.target === "self" ? { kind: "self" } : { kind: "chat", chat: args.chat ?? "", id: args.chat_id };
-	const msgs = await load(target, args.limit ?? HISTORY_MESSAGES, args.since);
+	const msgs = await load(target, args.limit ?? HISTORY_MESSAGES, args.since, args.until);
 	const lines = msgs.map((m) => {
 		const who = m.mine ? "me" : m.sender;
 		return m.text ? `[${formatLocal(m.at)}] ${who}: ${m.text}` : `[${formatLocal(m.at)}] ${who}:`;
