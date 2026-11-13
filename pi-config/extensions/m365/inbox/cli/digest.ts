@@ -175,10 +175,18 @@ function plainWords(command: string): string[] | undefined {
 }
 
 /** The write a bash call made: a Write, "mixed" when an inbox ask/fact is not the call's one plain command, or undefined for no write. */
-function inboxWrite(command: string): Write | "mixed" | undefined {
+function inboxWrite(command: string, ok: boolean): Write | "mixed" | undefined {
 	if (!/\binbox\b/.test(command) || !/\b(ask|fact)\b/.test(command)) return undefined;
 	const words = plainWords(command);
-	if (!words || words[0] !== "inbox") return "mixed";
+	if (!words) {
+		// A failed call that is one `inbox ask|fact` line with a stray quote ("Wayne's") is a shell syntax error: bash
+		// ran nothing, so it is a failed write a corrected retry can clear. With any separator it stays "mixed".
+		const plain = /^inbox (ask|fact) [^;&|\n`$(){}<>\\]*$/.exec(command);
+		if (ok || !plain) return "mixed";
+		const opt = (name: string) => new RegExp(`--${name}\\s+'?([^'\\s,]+)`).exec(command)?.[1] ?? "";
+		return { op: plain[1], kind: opt("kind"), key: opt("key"), chat: (/--note\s+'([^,']*)/.exec(command)?.[1] ?? "").trim() || "unknown chat" };
+	}
+	if (words[0] !== "inbox") return "mixed";
 	if (words[1] !== "ask" && words[1] !== "fact") return undefined;
 	const end = words.indexOf("--");
 	const opts = end < 0 ? words : words.slice(0, end);
@@ -222,7 +230,7 @@ export function checkDigest(stdout: string, since: string, until: string): Diges
 	// Each inbox write must be its bash call's one plain command, so the call's exit status is that write's result.
 	// A failed write counts unless a later call made the same write (op, kind, key) successfully; one the guard
 	// refused as a credential value is dropped on purpose, not a gap.
-	const writes = all.filter((c) => c.name === "bash").map((c) => ({ c, w: inboxWrite(String(c.args.command ?? "")) }));
+	const writes = all.filter((c) => c.name === "bash").map((c) => ({ c, w: inboxWrite(String(c.args.command ?? ""), c.ok) }));
 	writes.forEach(({ c, w }, i) => {
 		if (w === undefined) return;
 		if (w === "mixed") {
