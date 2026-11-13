@@ -30,11 +30,12 @@ export function receiptInstructions(): string {
 	return [
 		`End your reply with the receipt: one line of JSON, nothing after it, for example ${example}`,
 		`Fields: ${fields}. If a teams_read or inbox command fails, retry it once; if it still fails, set "complete" to false and name the chat in "failed".`,
+		"When omp elides the middle of a teams_read result (`Showing lines 1-H and T-N of N; ... elided. Read artifact://N for full output`), read every elided line before you go on, with `read artifact://N:A-B` (as many reads as it takes, from H+1 to T-1).",
 	].join("\n");
 }
 
 type Event = Record<string, unknown>;
-type Call = { name: string; args: Record<string, unknown>; ok: boolean; text: string };
+type Call = { name: string; args: Record<string, unknown>; ok: boolean; text: string; details?: Record<string, unknown> };
 
 /** The `--mode json` stream: one event per line. A line that is not an event means the run was not in JSON mode. */
 function events(stdout: string): Event[] {
@@ -55,8 +56,9 @@ function calls(evs: Event[]): Call[] {
 	return evs
 		.filter((e) => e.type === "tool_execution_end")
 		.map((e) => {
-			const content = ((e.result as { content?: { text?: string }[] } | undefined)?.content ?? []).map((c) => c?.text ?? "").join("");
-			return { name: String(e.toolName), args: args.get(e.toolCallId) ?? {}, ok: e.isError !== true, text: content };
+			const result = e.result as { content?: { text?: string }[]; details?: Record<string, unknown> } | undefined;
+			const content = (result?.content ?? []).map((c) => c?.text ?? "").join("");
+			return { name: String(e.toolName), args: args.get(e.toolCallId) ?? {}, ok: e.isError !== true, text: content, details: result?.details };
 		});
 }
 
@@ -97,6 +99,37 @@ function reaches(value: unknown, end: number): boolean {
 	return value === undefined || (typeof value === "string" && new Date(value).getTime() >= end);
 }
 
+type Truncation = { direction?: string; headRange?: { end: number }; tailRange?: { start: number }; artifactId?: string };
+
+/** The lines `read artifact://ID:...` calls showed, as [first, last] pairs. A read stops at its "Use :X to continue". */
+function artifactReads(all: Call[], id: string): [number, number][] {
+	const path = new RegExp(`^artifact://${id}(?::raw)?:(\\d+)(?:-(\\d+)|\\+(\\d+))?$`);
+	const out: [number, number][] = [];
+	for (const c of all) {
+		if (c.name !== "read" || !c.ok) continue;
+		const m = path.exec(String(c.args.path ?? ""));
+		if (!m) continue;
+		const first = Number(m[1]);
+		const more = /Use :(\d+) to continue\]\s*$/.exec(c.text);
+		const last = more ? Number(more[1]) - 1 : m[2] ? Number(m[2]) : m[3] ? first + Number(m[3]) - 1 : Number.POSITIVE_INFINITY;
+		out.push([first, last]);
+	}
+	return out;
+}
+
+/** The elided middle of a read that no artifact read covered, as a reason; undefined when nothing is missing. */
+function unreadMiddle(read: Call, all: Call[]): string | undefined {
+	const t = (read.details?.meta as { truncation?: Truncation } | undefined)?.truncation;
+	if (t?.direction !== "middle" || !t.headRange || !t.tailRange) return undefined;
+	const id = String(t.artifactId ?? "");
+	const from = t.headRange.end + 1;
+	const to = t.tailRange.start - 1;
+	let next = from;
+	for (const [a, b] of artifactReads(all, id).sort((x, y) => x[0] - y[0])) if (a <= next && b >= next) next = b + 1;
+	if (next > to) return undefined;
+	return `lines ${from}-${to} of the teams_read output were elided by omp and lines ${next}-${to} never read from artifact://${id}`;
+}
+
 const CHAT_LINE = /^- (.*)  \[[^\]]*\]  id: (\S+)$/;
 
 /** Check one digest run's event stream against the contract for the window `since`..`until`. Throws when the run cannot be judged at all. */
@@ -118,9 +151,11 @@ export function checkDigest(stdout: string, since: string, until: string): Diges
 	const failed = new Map<string, string>();
 	for (const [id, name] of wanted) {
 		const mine = reads.filter((c) => (c.args.target === "self" ? SELF.id : c.args.chat_id) === id || (!c.args.chat_id && c.args.chat === name));
-		if (mine.some((c) => c.ok && covers(c.args.since, boundary) && reaches(c.args.until, end))) continue;
+		const read = mine.filter((c) => c.ok && covers(c.args.since, boundary) && reaches(c.args.until, end));
+		const gaps = read.map((c) => unreadMiddle(c, all));
+		if (gaps.some((g) => g === undefined)) continue;
 		const err = mine.find((c) => !c.ok);
-		failed.set(name, err ? `teams_read failed: ${err.text.slice(0, 120)}` : mine.length ? `teams_read did not read since ${since} until ${until}` : "never read");
+		failed.set(name, gaps[0] ?? (err ? `teams_read failed: ${err.text.slice(0, 120)}` : mine.length ? `teams_read did not read since ${since} until ${until}` : "never read"));
 	}
 	for (const c of all.filter((c) => c.name === "bash" && !c.ok && /\binbox\s+(ask|fact)\b/.test(String(c.args.command ?? "")))) {
 		const note = /--note\s+(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(String(c.args.command));

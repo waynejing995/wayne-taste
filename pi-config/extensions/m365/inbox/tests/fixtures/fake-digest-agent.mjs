@@ -9,7 +9,8 @@
  *   prompt's own last instruction instead.
  * Outside `--mode json` it prints plain text, as omp does. FAKE_DIGEST_MODE: ok, readfail (Ops cannot be read),
  * lie (never reads Ops, claims complete), exit (exits 1), factfail (the inbox fact command fails), shortwindow (Ops
- * is read only to a minute after the start).
+ * is read only to a minute after the start), elided (omp elides lines 41-960 of the self-chat read; the agent reads
+ * them from the artifact only if the prompt says how), elidedskip (the same, and it never reads them).
  */
 import { execFileSync } from "node:child_process";
 
@@ -26,16 +27,23 @@ const until = /`until` (\d{4}-\d\d-\d\d \d\d:\d\d)/.exec(prompt)?.[1];
 const window = until ? { since, until } : { since };
 const events = [];
 let n = 0;
-function call(toolName, args, text, isError = false) {
+function call(toolName, args, text, isError = false, details) {
 	const toolCallId = `call-${++n}`;
 	events.push({ type: "tool_execution_start", toolCallId, toolName, args });
-	events.push({ type: "tool_execution_end", toolCallId, toolName, result: { content: [{ type: "text", text }] }, ...(isError ? { isError } : {}) });
+	events.push({ type: "tool_execution_end", toolCallId, toolName, result: { content: [{ type: "text", text }], ...(details ? { details } : {}) }, ...(isError ? { isError } : {}) });
 }
 const failed = [];
 let findings = 0;
 if (since) {
 	call("teams_chats", { active_since: since }, "2 chat(s)\n- Ops  [group]  id: 19:ops@thread.v2\n- Lin  [oneOnOne]  id: 19:lin@unq.gbl.spaces");
-	call("teams_read", { target: "self", ...window, images: false }, "(no messages)");
+	if (mode === "elided" || mode === "elidedskip") {
+		const truncation = { direction: "middle", totalLines: 1000, headRange: { start: 1, end: 40 }, tailRange: { start: 961, end: 1000 }, elidedLines: 920, artifactId: "0" };
+		call("teams_read", { target: "self", ...window, images: false }, "self-chat (48:notes) — 300 message(s)\n[Showing lines 1-40 and 961-1000 of 1000; 920 middle lines elided. Read artifact://0 for full output]", false, { meta: { truncation } });
+		if (mode === "elided" && /`read artifact:\/\/N:A-B`/.test(prompt)) {
+			call("read", { path: "artifact://0:41-600" }, "[400 more lines in resource. Use :601 to continue]");
+			call("read", { path: "artifact://0:601-960" }, "[40 more lines in resource. Use :961 to continue]");
+		}
+	} else call("teams_read", { target: "self", ...window, images: false }, "(no messages)");
 	if (mode === "readfail") {
 		call("teams_read", { chat_id: "19:ops@thread.v2", ...window, images: false }, "Graph 503 Service Unavailable", true);
 		failed.push({ chat: "Ops", reason: "Graph 503" });
