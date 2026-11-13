@@ -27,7 +27,7 @@ export interface Deps {
 }
 
 /** `stamped`: added with `--generation`, the id its launch's reporter stamps on every event (WAYNE_AGENT_GENERATION). */
-interface Entry { name: string; host: string; mux: string; since?: string; generation?: string; stamped?: boolean; goal?: string; result?: string; push?: boolean }
+interface Entry { name: string; host: string; mux: string; since?: string; generation?: string; stamped?: boolean; instance?: string; goal?: string; result?: string; push?: boolean }
 interface Event {
 	v: number; ts: string; name: string; pid: number; session: string; seq: number; type: string; text?: string;
 	/** The launch it belongs to, from WAYNE_AGENT_GENERATION. Absent from reporters launched without one. */
@@ -43,6 +43,8 @@ interface NameState {
 	host: string;
 	since?: string;
 	generation?: string;
+	/** The registration's own id (`agent add` writes one per add); entries from older inboxes have none. */
+	instance?: string;
 	pid?: number;
 	session?: string;
 	/** The last event's seq in `session`. */
@@ -337,7 +339,9 @@ export class AgentTailer {
 		}
 		for (const entry of this.entries) {
 			const old = this.names[entry.name];
-			if (old && old.since === entry.since && old.generation === entry.generation) continue;
+			// The same registration as before only when its own id matches too: a launch removed after its RESULT and
+			// added again within the same second has the same since and generation, and must still be watched again.
+			if (old && old.since === entry.since && old.generation === entry.generation && old.instance === entry.instance) continue;
 			if (old && old.since === entry.since && !old.generation && entry.generation) {
 				old.generation = entry.generation;
 				continue;
@@ -351,6 +355,7 @@ export class AgentTailer {
 			const retiredAt = running ? { session: old.session!, seq: old.seq ?? 0 } : old?.retiredAt;
 			this.names[entry.name] = {
 				state: "registered", lastSeen: this.now(), host: entry.host, since: entry.since, generation: entry.generation,
+				...(entry.instance ? { instance: entry.instance } : {}),
 				...(pending.length > 0 ? { pending } : {}),
 				...(retiredAt ? { retiredAt } : {}),
 			};

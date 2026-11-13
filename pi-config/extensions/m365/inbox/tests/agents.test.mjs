@@ -208,6 +208,23 @@ await check("a stamped registration ignores events with no generation; its own e
 	ok(f.warnings.some((w) => /no generation/.test(w)), f.warnings.join("\n"));
 }));
 
+await check("a launch removed after its RESULT and added again in the same second is watched again", () => withFixture(async (f) => {
+	// Same name, same --generation, same second: only the registration's own instance id tells the two adds apart.
+	const entry = { ...f.watched(), generation: "launch-0001", stamped: true, instance: "first-add" };
+	await f.start([entry]);
+	f.append(f.event("result", 1, { generation: "launch-0001", text: "round one", result: { status: "done", path: "/r" } }));
+	await f.tailer.poke();
+	deepStrictEqual(f.tailer.entries, [], "round one's done removed it");
+	f.writeRules([{ ...entry, instance: "second-add" }]);
+	await f.tailer.poke();
+	// The follow-up prompt starts round two in the same session.
+	f.append(f.event("working", 2, { generation: "launch-0001", prompted: true }));
+	f.append(f.event("result", 3, { generation: "launch-0001", text: "round two", result: { status: "done", path: "/r" } }));
+	await f.tailer.poke();
+	ok(f.rows.has("agents:one:launch-0001:session:3"), [...f.rows.keys()].join(" "));
+	equal(f.calls.filter((c) => c[0] === "agent").length, 2, "each round's done removes its own registration");
+}));
+
 await check("a late result from the session that retired the old registration keeps the re-registration", () => withFixture(async (f) => {
 	const first = { ...f.watched(), generation: "old" };
 	await f.start([first]);

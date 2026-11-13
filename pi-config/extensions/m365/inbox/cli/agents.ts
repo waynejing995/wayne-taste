@@ -21,6 +21,8 @@ export interface AgentEntry {
 	/** Added with `--generation`: the reporter stamps this id on every event, and only those events are this registration's. */
 	stamped?: boolean;
 	migratedGeneration?: string;
+	/** This add's own id: a re-add of the same launch in the same second is still a new registration. */
+	instance?: string;
 }
 
 function migrateAgents(agents: AgentEntry[]): AgentEntry[] {
@@ -57,6 +59,7 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 	// The launch's own id when the session was started with WAYNE_AGENT_GENERATION: its events carry it.
 	entry.generation = a.generation ?? randomUUID();
 	if (a.generation) entry.stamped = true;
+	entry.instance = randomUUID();
 	// Under the rules lock, so the plan is armed only for the registration that is written, and a racing add of the
 	// same name cannot cancel a plan it did not replace.
 	return withRulesLock(() => {
