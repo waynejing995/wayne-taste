@@ -110,4 +110,34 @@ await check("migration refuses the default live directory", async () => {
 	ok(result.status !== 0 && result.stderr.includes("--dir is required"), result.stderr);
 });
 
+await check("malformed keys and metadata-shaped text are rejected or round-trip", async () => {
+	const mulberry32 = (seed) => () => {
+		seed = Math.imul(seed ^ (seed >>> 15), seed | 1);
+		seed ^= seed + Math.imul(seed ^ (seed >>> 7), seed | 61);
+		return ((seed ^ (seed >>> 14)) >>> 0) / 4294967296;
+	};
+	const random = mulberry32(0x5eed);
+	const pieces = ["a", "release", "a]b", "[kind", "## ", "source: ", "since: ", "superseded: ", "updated: ", "token:", "\u4e2d\u6587", "tab\there", "line\nbreak", "colon:inside", "dot.name", "under_score"];
+	const pick = () => pieces[Math.floor(random() * pieces.length)];
+	const value = () => Array.from({ length: 1 + Math.floor(random() * 3) }, pick).join(" ");
+	const kinds = ["endpoint", "cred", "decision", "owed", "info"];
+	for (let i = 0; i < 80; i++) {
+		const kind = kinds[i % kinds.length];
+		const key = value();
+		const text = value();
+		const source = value();
+		let failed = false;
+		try {
+			await inbox(["fact", "--kind", kind, "--key", key, "--source", source, "--", text]);
+		} catch (error) {
+			ok(error instanceof Error && /must be (one plain line|lowercase words)/.test(error.message), `${error}`);
+			failed = true;
+		}
+		if (failed) continue;
+		const stored = readFacts().find((fact) => fact.kind === kind && fact.key === key);
+		ok(stored && stored.text === text.replace(/[\t\r\n]+/g, " ").trim() && stored.source === source.replace(/[\t\r\n]+/g, " ").trim(), `${kind}:${key} did not round-trip`);
+		readFacts();
+	}
+});
+
 if (failed) process.exit(1);

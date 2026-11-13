@@ -75,8 +75,18 @@ function mutate<T>(fn: (facts: Fact[]) => T): T {
 	return withLock(inboxFile("ledger.tsv.lock"), Number(process.env.INBOX_LOCK_WAIT_MS ?? 1000), () => fn(readFacts()));
 }
 
-function checkFact(kind: string, text: string): void {
+const KEY_RE = /^[a-z0-9][a-z0-9._-]*$/;
+const META_RE = /^(?:## |(?:source|since|superseded|updated): )/;
+
+function checkLine(label: string, value: string): void {
+	if (!value || value.includes("\n") || value.includes("\t") || META_RE.test(value)) throw new InboxError(`--${label} must be one plain line`);
+}
+
+function checkFact(kind: string, key: string, text: string, source: string): void {
 	if (!FACT_KINDS.includes(kind)) throw new InboxError(`--kind must be one of ${FACT_KINDS.join(", ")}`);
+	if (!KEY_RE.test(key)) throw new InboxError("--key must be lowercase words, digits, dots, underscores, or dashes");
+	checkLine("text", text);
+	checkLine("source", source);
 	if (kind === "cred" && SECRET.test(text)) throw new InboxError("a cred fact names where the credential lives, never its value");
 }
 
@@ -85,11 +95,11 @@ export function upsertFact(kind: string, key: string, text: string, source: stri
 	const cleanKind = clean(kind);
 	const cleanKey = clean(key);
 	const cleanText = clean(text);
-	checkFact(cleanKind, cleanText);
-	if (!cleanKey) throw new InboxError("--key is required");
+	const cleanSource = clean(source);
+	checkFact(cleanKind, cleanKey, cleanText, cleanSource);
 	return mutate((facts) => {
 		const old = facts.find((fact) => fact.kind === cleanKind && fact.key === cleanKey);
-		const next: Fact = { kind: cleanKind, key: cleanKey, text: cleanText, source: clean(source), since: old?.since ?? at.slice(0, 10), superseded: old ? [old.text, ...old.superseded] : [] };
+		const next: Fact = { kind: cleanKind, key: cleanKey, text: cleanText, source: cleanSource, since: old?.since ?? at.slice(0, 10), superseded: old ? [old.text, ...old.superseded] : [] };
 		saveFacts(old ? facts.map((fact) => fact === old ? next : fact) : [...facts, next]);
 		return old ? `updated ${cleanKind}:${cleanKey}` : `added ${cleanKind}:${cleanKey}`;
 	});
