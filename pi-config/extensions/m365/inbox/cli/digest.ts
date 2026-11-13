@@ -8,6 +8,7 @@
  * after its end, and every `inbox` write must have succeeded. A chat the stream does not show as read is a failed
  * chat, whatever the receipt says.
  */
+import { FACT_KINDS } from "./facts.ts";
 import { InboxError } from "./ledger.ts";
 
 const SELF = { id: "48:notes", name: "self-chat" };
@@ -31,7 +32,7 @@ export function receiptInstructions(): string {
 		`End your reply with the receipt: one line of JSON, nothing after it, for example ${example}`,
 		`Fields: ${fields}. If a teams_read or inbox command fails, retry it once; if it still fails, set "complete" to false and name the chat in "failed".`,
 		"When omp elides the middle of a teams_read result (`Showing lines 1-H and T-N of N; ... elided. Read artifact://N for full output`), read every elided line before you go on, with the `read` tool: `read artifact://N:A-B` (as many reads as it takes, from H+1 to T-1). Reading the artifact through bash (sed, grep, cat) does not count: the run is checked against `read` calls only. The same holds when omp elides the middle of the teams_chats list.",
-		"Run each `inbox ask` or `inbox fact` in its own bash call, one command per call, so each result can be checked. A fact the guard refuses as a credential value is dropped on purpose; do not retry it.",
+		"Run each `inbox ask` or `inbox fact` as its own bash call holding only that one plain command (no `;`, `&&`, `|`, `$(...)` or newline), so each result can be checked. A fact the guard refuses as a credential value is dropped on purpose; do not retry it.",
 	].join("\n");
 }
 
@@ -139,15 +140,53 @@ function artifactText(call: Call, all: Call[]): string {
 	return all.filter((c) => c.name === "read" && c.ok && path.test(String(c.args.path ?? ""))).map((c) => c.text).join("\n");
 }
 
-const INBOX_WRITE = /\binbox\s+(ask|fact)\b/;
+/** One inbox write a bash call ran: the operation, its fact kind (empty for ask), key and the chat its --note names. */
+type Write = { op: string; kind: string; key: string; chat: string };
 
-/** The chat an inbox write names in its --note ("chat, who, time"), and the key it writes. */
-function writeTarget(command: string): { chat: string; key: string } {
+/**
+ * Shell words of a plain command, or undefined when it is anything else: a separator, pipe, redirect, substitution or
+ * newline outside quotes means more than one command could run, so one exit status would not say how each went.
+ */
+function plainWords(command: string): string[] | undefined {
+	const words: string[] = [];
+	let word: string | undefined;
+	for (let i = 0; i < command.length; i++) {
+		const ch = command[i];
+		if (ch === "'") {
+			const end = command.indexOf("'", i + 1);
+			if (end < 0) return undefined;
+			word = (word ?? "") + command.slice(i + 1, end);
+			i = end;
+		} else if (ch === '"') {
+			const end = command.indexOf('"', i + 1);
+			if (end < 0) return undefined;
+			const inner = command.slice(i + 1, end);
+			if (/[$`\\]/.test(inner)) return undefined;
+			word = (word ?? "") + inner;
+			i = end;
+		} else if (ch === " " || ch === "\t") {
+			if (word !== undefined) words.push(word);
+			word = undefined;
+		} else if (/[;&|<>`$\\\n(){}]/.test(ch)) return undefined;
+		else word = (word ?? "") + ch;
+	}
+	if (word !== undefined) words.push(word);
+	return words;
+}
+
+/** The write a bash call made: a Write, "mixed" when an inbox ask/fact is not the call's one plain command, or undefined for no write. */
+function inboxWrite(command: string): Write | "mixed" | undefined {
+	if (!/\binbox\b/.test(command) || !/\b(ask|fact)\b/.test(command)) return undefined;
+	const words = plainWords(command);
+	if (!words || words[0] !== "inbox") return "mixed";
+	if (words[1] !== "ask" && words[1] !== "fact") return undefined;
+	const end = words.indexOf("--");
+	const opts = end < 0 ? words : words.slice(0, end);
 	const opt = (name: string) => {
-		const m = new RegExp(`--${name}\\s+(?:"([^"]*)"|'([^']*)'|(\\S+))`).exec(command);
-		return m?.[1] ?? m?.[2] ?? m?.[3] ?? "";
+		const at = opts.indexOf(`--${name}`);
+		return at < 0 ? "" : (opts[at + 1] ?? "");
 	};
-	return { chat: opt("note").split(",")[0].trim() || "unknown chat", key: opt("key") };
+	return { op: words[1], kind: opt("kind"), key: opt("key"), chat: opt("note").split(",")[0].trim() || "unknown chat" };
 }
 
 const CHAT_LINE = /^- (.*)  \[[^\]]*\]  id: (\S+)$/;
@@ -180,19 +219,25 @@ export function checkDigest(stdout: string, since: string, until: string): Diges
 		const err = mine.find((c) => !c.ok);
 		failed.set(name, gaps[0] ?? (err ? `teams_read failed: ${err.text.slice(0, 120)}` : mine.length ? `teams_read did not read since ${since} until ${until}` : "never read"));
 	}
-	// Each inbox write runs in its own bash call, so its result is its own. A write that failed counts unless a later
-	// call wrote the same key; one the guard refused as a credential value is dropped on purpose, not a gap.
-	const writes = all.filter((c) => c.name === "bash" && INBOX_WRITE.test(String(c.args.command ?? "")));
-	writes.forEach((c, i) => {
-		const command = String(c.args.command ?? "");
-		const { chat, key } = writeTarget(command);
-		if ((command.match(/\binbox\s+(ask|fact)\b/g) ?? []).length > 1) {
-			failed.set(chat, failed.get(chat) ?? "one bash call ran several inbox writes; run one inbox command per bash call so each result can be checked");
+	// Each inbox write must be its bash call's one plain command, so the call's exit status is that write's result.
+	// A failed write counts unless a later call made the same write (op, kind, key) successfully; one the guard
+	// refused as a credential value is dropped on purpose, not a gap.
+	const writes = all.filter((c) => c.name === "bash").map((c) => ({ c, w: inboxWrite(String(c.args.command ?? "")) }));
+	writes.forEach(({ c, w }, i) => {
+		if (w === undefined) return;
+		if (w === "mixed") {
+			const chat = /--note\s+(?:"([^",]*)|'([^',]*)|([^\s,]+))/.exec(String(c.args.command ?? ""));
+			const name = (chat?.[1] ?? chat?.[2] ?? chat?.[3] ?? "").trim() || "unknown chat";
+			failed.set(name, failed.get(name) ?? "an inbox write was not its bash call's one plain command; run one plain `inbox ask|fact` per bash call so each result can be checked");
 			return;
 		}
 		if (c.ok || /never its value/.test(c.text)) return;
-		if (key && writes.slice(i + 1).some((later) => later.ok && writeTarget(String(later.args.command ?? "")).key === key)) return;
-		failed.set(chat, failed.get(chat) ?? `inbox write failed: ${c.text.slice(0, 120)}`);
+		// The same write is the same op and key, and for a fact the same kind; a fact the CLI refused for a kind it does
+		// not know had no kind, so a corrected retry under a real kind counts.
+		const kindOk = (kind: string) => w.op !== "fact" || kind === w.kind || !FACT_KINDS.includes(w.kind);
+		const same = (x: Write | "mixed" | undefined) => typeof x === "object" && x.op === w.op && x.key === w.key && kindOk(x.kind);
+		if (w.key && writes.slice(i + 1).some((later) => later.c.ok && same(later.w))) return;
+		failed.set(w.chat, failed.get(w.chat) ?? `inbox write failed: ${c.text.slice(0, 120)}`);
 	});
 	const text = finalText(evs);
 	const receipt = parseReceipt(text);

@@ -220,7 +220,9 @@ for (const [mode, chat, reason] of [
 	["exit", "all chats", /exited 1/],
 	["elidedskip", "self-chat", /lines 41-960 .*elided/],
 	["listelidedskip", "chat list", /teams_chats output were elided/],
-	["multiwrite", "Ops", /one inbox command per bash call/],
+	["multiwrite", "Ops", /one plain `inbox ask\|fact` per bash call/],
+	["quotedmulti", "Ops", /one plain `inbox ask\|fact` per bash call/],
+	["askmask", "Ops", /inbox write failed/],
 ])
 	await check(`a digest run in mode ${mode} keeps the old boundary and names ${chat} in a do row`, async () => {
 		try {
