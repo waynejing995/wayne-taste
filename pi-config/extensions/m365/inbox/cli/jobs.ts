@@ -17,7 +17,12 @@ import { checkDigest, receiptInstructions, type FailedChat } from "./digest.ts";
 import { InboxError, inboxDir, inboxFile, recordDirect, stamp, withRulesLock } from "./ledger.ts";
 import { readList, SCHEDULE_LIST, writeList } from "./lists.ts";
 
-export type Action = { kind: "shell"; argv: string[] } | { kind: "prompt"; text: string } | { kind: "tool"; name: string; args: Record<string, unknown> };
+/**
+ * `digest` is the teams-digest prompt run under the receipt contract. It is its own kind so a build from before that
+ * contract, which knows only prompt/shell/tool, fails on it ("unknown action") and keeps last_ok, instead of running
+ * the new prompt with only {{since}} filled and advancing the boundary unchecked.
+ */
+export type Action = { kind: "shell"; argv: string[] } | { kind: "prompt"; text: string } | { kind: "digest"; text: string } | { kind: "tool"; name: string; args: Record<string, unknown> };
 
 export interface Job {
 	name: string;
@@ -114,7 +119,7 @@ function pyJson(v: unknown): string {
 
 export function actionLine(action: Action): string {
 	if (action.kind === "shell") return `shell ${action.argv.join(" ")}`;
-	if (action.kind === "prompt") return `prompt ${action.text}`;
+	if (action.kind === "prompt" || action.kind === "digest") return `${action.kind} ${action.text}`;
 	if (action.kind === "tool") return `tool ${action.name} ${pyJson(action.args ?? {})}`;
 	return String((action as { kind: unknown }).kind);
 }
@@ -207,7 +212,7 @@ export function fireId(job: Job): string {
 }
 
 function timeoutSec(job: Job): number {
-	return Number(job.timeout) || (job.action?.kind === "prompt" ? 600 : 60);
+	return Number(job.timeout) || (job.action?.kind === "prompt" || job.action?.kind === "digest" ? 600 : 60);
 }
 
 function claimPath(name: string, fire: string): string {
@@ -334,7 +339,7 @@ function digestOutcome(stdout: string, since: string, until: string): Outcome {
 /** Run the digest agent in JSON mode and check what it did, not what it says. */
 async function runDigest(job: Job, text: string, at: Date, o: RunOptions): Promise<Outcome> {
 	const { since, until } = digestWindow(job, at);
-	if (!text.includes("{{receipt}}")) throw digestFailure(`the ${DIGEST} prompt has no {{receipt}}: run \`inbox rules-migrate\``, since, [{ chat: "all chats", reason: "the prompt asks for no receipt" }]);
+	if (job.action.kind !== "digest" || !text.includes("{{receipt}}")) throw digestFailure(`the ${DIGEST} job is not a receipt-checked digest: run \`inbox rules-migrate\``, since, [{ chat: "all chats", reason: "the prompt asks for no receipt; run inbox rules-migrate" }]);
 	const prompt = text.replaceAll("{{since}}", since).replaceAll("{{until}}", until).replaceAll("{{receipt}}", receiptInstructions());
 	const argv = agentArgv(o.agent, prompt, job.tools);
 	argv.splice(1, 0, "--mode", "json");
@@ -357,8 +362,8 @@ async function execute(job: Job, o: RunOptions, at: Date): Promise<Outcome> {
 	}
 	let output: string;
 	if (a.kind === "shell") output = await runProcess(a.argv, timeoutSec(job), "shell");
+	else if (a.kind === "digest" || (a.kind === "prompt" && job.name === DIGEST)) return runDigest(job, a.text, at, o);
 	else if (a.kind === "prompt") {
-		if (job.name === DIGEST) return runDigest(job, a.text, at, o);
 		output = await runProcess(agentArgv(o.agent, a.text.replaceAll("{{since}}", boundary(job)), job.tools), timeoutSec(job), "prompt", inboxDir());
 	} else if (a.kind === "tool") {
 		if (!o.tool) throw new InboxError("tool jobs run only inside a live omp or pi session");

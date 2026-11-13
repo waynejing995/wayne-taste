@@ -74,9 +74,9 @@ export function missingTools(jobs: Job[] = readJobs()): string[] {
 		if (a?.kind === "shell") {
 			const prog = a.argv[0];
 			need.push(prog, ...(NEEDS[path.basename(prog)] ?? []));
-		} else if (a?.kind === "prompt" && !process.env.INBOX_AGENT) {
+		} else if ((a?.kind === "prompt" || a?.kind === "digest") && !process.env.INBOX_AGENT) {
 			if (!onPath("omp") && !onPath("pi")) missing.push(`${job.name}: a prompt job needs omp or pi on PATH`);
-		} else if (a?.kind === "prompt") need.push(process.env.INBOX_AGENT!);
+		} else if (a?.kind === "prompt" || a?.kind === "digest") need.push(process.env.INBOX_AGENT!);
 		for (const n of new Set(need)) if (n !== "node" && !found(n)) missing.push(`${job.name}: ${n} is not on PATH`);
 	}
 	return missing;

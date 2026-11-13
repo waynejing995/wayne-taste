@@ -51,6 +51,7 @@ await check("the live legacy digest migrates and a second run is a no-op", async
 	const text = readFileSync(file, "utf8");
 	const job = YAML.parse(text, { version: "1.1" }).schedule.find((item) => item.name === "teams-digest");
 	if (job.action.text !== templateJob.action.text) throw new Error(`action text differs from the template`);
+	if (job.action.kind !== "digest") throw new Error(`kind ${job.action.kind}: a build from before the receipt contract would run it as a plain prompt`);
 	if (JSON.stringify(job.tools) !== JSON.stringify(templateJob.tools)) throw new Error(`tools ${JSON.stringify(job.tools)}`);
 	if (job.enabled !== true || job.last_ok !== "2026-11-13 15:53" || job.fires !== 21) throw new Error(`config not kept: ${JSON.stringify({ enabled: job.enabled, last_ok: job.last_ok, fires: job.fires })}`);
 	const want = [stamp(new Date(before.getTime() - 7 * 86400_000)), stamp(new Date(after.getTime() - 7 * 86400_000))];
@@ -76,13 +77,14 @@ await check("an active_since digest without a receipt migrates and gets no backf
 	if (out !== "migrated teams-digest") throw new Error(`output ${JSON.stringify(out)}`);
 });
 
-await check("a digest that already carries the receipt is left alone", async () => {
+await check("a receipt prompt from before the digest kind becomes a digest job without a backfill", async () => {
 	const file = join(home, "rules.yaml");
 	const text = LEGACY.replace("You read the watched Teams chats", "You read the Teams chats and then the {{receipt}}");
 	writeFileSync(file, text);
 	const out = await run("rules-migrate");
-	if (out !== "rules.yaml already current") throw new Error(`output ${JSON.stringify(out)}`);
-	if (readFileSync(file, "utf8") !== text) throw new Error("file changed");
+	const job = YAML.parse(readFileSync(file, "utf8"), { version: "1.1" }).schedule.find((item) => item.name === "teams-digest");
+	if (out !== "migrated teams-digest" || job.action.kind !== "digest" || job.backfill_since !== undefined) throw new Error(`output ${JSON.stringify(out)} kind ${job.action.kind} backfill ${job.backfill_since}`);
+	if ((await run("rules-migrate")) !== "rules.yaml already current") throw new Error("second run migrated again");
 });
 
 await check("running migrate-rules.ts directly never claims a migration it did not write", () => {

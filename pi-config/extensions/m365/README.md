@@ -73,9 +73,11 @@ be read back from its `artifact://N`, and every `inbox ask|fact` must succeed. A
 gap (a backfill, a week offline) is read one day per fire, each verified window moving `backfill_since` to its end
 and firing again at the next tick. Only the verified window that reaches the fire moves `last_ok` and clears
 `backfill_since`; a dispatch, skip, `schedule finish` without the stream, exit, timeout or unread chat keeps both
-and writes one `do` row per chat (`Teams digest could not fully read <chat> since <boundary>`). An older prompt
-without `{{receipt}}` fails until `bin/inbox rules-migrate` replaces it from the template (a watched-chats prompt
-also gets a 7-day `backfill_since`).
+and writes one `do` row per chat (`Teams digest could not fully read <chat> since <boundary>`). The job's action
+kind is `digest`, not `prompt`: a build from before the receipt contract fails on that kind ("unknown action") and
+keeps `last_ok`, instead of running the new prompt unchecked. An older `prompt` digest fails until
+`bin/inbox rules-migrate` replaces it from the template (a watched-chats prompt also gets a 7-day `backfill_since`).
+Restart every omp/pi session on the new build before running `rules-migrate`, so no old scheduler is left to fire it.
 
 End to end against real Teams (read-only, network, not in `npm test`): `node tests/e2e/digest.mjs --out DIR`. It
 runs `inbox schedule run --job teams-digest` with a real `omp` in temporary inboxes, from the template and from a

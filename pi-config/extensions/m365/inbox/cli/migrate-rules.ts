@@ -36,13 +36,13 @@ export function migrateRules(now = new Date()): string {
 		const jobs = readJobs();
 		const job = jobs.find((item) => item.name === "teams-digest");
 		const fresh = templateDigest();
-		const text = job?.action.kind === "prompt" ? job.action.text : "";
-		const freshText = fresh.action.kind === "prompt" ? fresh.action.text : "";
-		if (!job || freshText === "" || text === freshText || text.includes("{{receipt}}")) return "rules.yaml already current";
+		const text = job?.action.kind === "prompt" || job?.action.kind === "digest" ? job.action.text : "";
+		const freshText = fresh.action.kind === "digest" ? fresh.action.text : "";
+		if (!job || freshText === "" || job.action.kind === "digest") return "rules.yaml already current";
 		job.action = fresh.action;
 		job.tools = fresh.tools;
 		const stamped = job as Job & { backfill_since?: string };
-		if (watchedChats(text)) stamped.backfill_since ??= defaultBackfill(now);
+		if (watchedChats(text) && !text.includes("{{receipt}}")) stamped.backfill_since ??= defaultBackfill(now);
 		writeJobs(jobs);
 		return stamped.backfill_since ? `migrated teams-digest; backfill_since ${stamped.backfill_since}` : "migrated teams-digest";
 	});

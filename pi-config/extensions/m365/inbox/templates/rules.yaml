@@ -79,7 +79,7 @@ schedule:
     every: 5
   - name: teams-digest
     action:
-      kind: prompt
+      kind: digest
       text: |-
         You read every Teams chat with activity from {{since}} to {{until}} (local time) and record what must not be lost.
         Call `teams_chats` with `active_since` {{since}}. Also read the self-chat (`target: self`).
