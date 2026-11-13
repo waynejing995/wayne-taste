@@ -24,7 +24,7 @@ const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.j
 const { createServer, mcpContent, requireLogin } = await import("../server.ts");
 const { startChannel } = await import("../channel.ts");
 const { listOwners } = await import("../../teams/watch.ts");
-const { LEASE_ID, LAUNCHER, readCursor } = await import("../../inbox/delivery.ts");
+const { LEASE_ID, LAUNCHER, readCursor, writeCursor } = await import("../../inbox/delivery.ts");
 const { execFileSync } = await import("node:child_process");
 
 let failed = 0;
@@ -208,6 +208,45 @@ const until = async (pred, ms = 5000) => {
 	await until(() => cards.length > 0);
 	check("the next scan delivers the rows again", () => deepStrictEqual([/Lost\?/.test(cards[0] ?? ""), /And this\?/.test(cards[0] ?? "")], [true, true]));
 	stop();
+	delete process.env.M365_CHANNEL_INBOX;
+}
+
+// ── Shutdown: nothing is claimed, pushed or written after stop ───────────────
+{
+	process.env.M365_CHANNEL_INBOX = "1";
+	const ask = (text, key) => execFileSync(LAUNCHER, ["ask", text, "--key", key], { env: process.env });
+	const inboxOwned = async () => (await listOwners()).some((o) => o.chatId === LEASE_ID);
+	const teams = { startWatch: async () => "", setWatchInterval: () => "", stopAllWatches: () => {} };
+	ask("After stop?", "t5");
+
+	// Stopped while an inbox push is outstanding: a successor moves the cursor, then the old push succeeds.
+	const { promise: sent, resolve: deliver } = Promise.withResolvers();
+	let pending = false;
+	const stop = startChannel({
+		teams,
+		context: {},
+		push: async (event) => {
+			if (event.kind !== "inbox") return;
+			pending = true;
+			await sent;
+		},
+	});
+	await until(() => pending);
+	stop();
+	const successor = (readCursor() ?? 0) + 100;
+	writeCursor(successor);
+	deliver();
+	await new Promise((r) => setTimeout(r, 300));
+	check("a push that completes after stop does not move the successor's cursor", () => deepStrictEqual([pending, readCursor()], [true, successor]));
+
+	// Stopped before the inbox lease was claimed: the claim must not happen later and leak.
+	const late = [];
+	const stopEarly = startChannel({ teams, context: {}, push: async (event) => void late.push(event.kind) });
+	stopEarly();
+	await new Promise((r) => setTimeout(r, 500));
+	const leaked = await inboxOwned();
+	check("a channel stopped while starting takes no inbox lease and pushes nothing", () => deepStrictEqual([leaked, late], [false, []]));
+
 	delete process.env.M365_CHANNEL_INBOX;
 }
 
