@@ -22,6 +22,7 @@
  * lists, links, blockquotes, <pre>, <hr>, whitespace -- stays library-owned.
  */
 import TurndownService from "turndown";
+import { attachedCardText, isCardType } from "./card.ts";
 import { FORWARD_ATTACHMENT, forwardHeader, forwardParts, quote } from "./forward.ts";
 import { htmlToText } from "./html.ts";
 
@@ -67,6 +68,10 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 
 function renderAttachment(att: Attachment): string {
 	const ctype = att.contentType ?? "";
+	// A bot's card is the message: every block of it, each its own paragraph.
+	// One with nothing to read keeps the attachment marker below, so it is not invisible.
+	const card = isCardType(ctype) ? attachedCardText(att.content, ctype, "\n\n") : "";
+	if (card) return card;
 	if (ctype !== "messageReference") {
 		if (att.contentUrl) return `\u{1f4ce} [${att.name || "attachment"}](${att.contentUrl})`;
 		return `\u{1f4ce} [${att.name || ctype || "attachment"}]`;
@@ -161,16 +166,22 @@ function build(attachments: Attachment[]): TurndownService {
 		 * silent no-op.
 		 */
 		blankReplacement: (content: string, node: unknown) => {
-			const el = node as { nodeName: string; getAttribute(n: string): string | null; isBlock?: boolean };
+			// Turndown's node is a DOM element (domino); only these members are read.
+			type Node = { nodeName: string; getAttribute(n: string): string | null; isBlock?: boolean; getElementsByTagName(n: string): ArrayLike<Node> };
+			const el = node as Node;
 			const name = el.nodeName.toLowerCase();
 			if (name === "img") {
 				const alt = (el.getAttribute("alt") ?? "").trim();
 				return alt ? `[${alt}]` : "[image]";
 			}
-			if (name === "attachment") {
-				const att = byId.get(String(el.getAttribute("id")));
-				return att ? `\n\n${attachmentMarkdown(att)}\n\n` : "";
-			}
+			// An attachment, or a block holding only attachments (a link preview's card sits in `<p><attachment></p>`):
+			// blank to Turndown, and the card would go with it.
+			const tags = name === "attachment" ? [el] : Array.from(el.getElementsByTagName("attachment"));
+			const shown = tags.flatMap((t) => {
+				const att = byId.get(String(t.getAttribute("id")));
+				return att ? [attachmentMarkdown(att)] : [];
+			});
+			if (shown.length) return `\n\n${shown.join("\n\n")}\n\n`;
 			return el.isBlock ? "\n\n" : "";
 		},
 	});

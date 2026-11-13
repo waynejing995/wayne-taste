@@ -21,7 +21,7 @@
  */
 import type { SelfHistoryPage, SelfMessage } from "./backend.ts";
 import { readBounded } from "../core/graph.ts";
-import { attachedCardText, CARD_CONTENT_TYPE } from "./card.ts";
+import { attachedCardText, isCardType } from "./card.ts";
 import { forwardParts, forwardSenderIds, partImages, partsText } from "./forward.ts";
 import { escapeHtml } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
@@ -84,8 +84,8 @@ function sentFiles(m: RawSkypeMessage): { name: string; url: string }[] {
 	});
 }
 
-/** The text of the Adaptive Cards a chatsvc message carries, one per line. */
-function cardsText(m: RawSkypeMessage): string {
+/** The text of the cards a chatsvc message carries; `sep` joins blocks ("\n\n" for Markdown, see cardText). */
+function cardsText(m: RawSkypeMessage, sep = "\n"): string {
 	if (!m.properties?.cards) return "";
 	let cards: unknown;
 	try {
@@ -98,10 +98,10 @@ function cardsText(m: RawSkypeMessage): string {
 		.map((c) => {
 			if (!c || typeof c !== "object") return "[unreadable attachment]";
 			const card = c as { contentType?: unknown; content?: unknown };
-			return card.contentType === CARD_CONTENT_TYPE ? attachedCardText(card.content) : "";
+			return isCardType(card.contentType) ? attachedCardText(card.content, String(card.contentType), sep) : "";
 		})
 		.filter(Boolean)
-		.join("\n");
+		.join(sep);
 }
 
 export class SkypeClient {
@@ -263,7 +263,7 @@ export class SkypeClient {
 					id,
 					at: m.composetime ?? "",
 					text: flat,
-					md: [htmlToMarkdown(html, [], who, m.properties?.originalMessageContext), card].filter(Boolean).join("\n\n"),
+					md: [htmlToMarkdown(html, [], who, m.properties?.originalMessageContext), cardsText(m, "\n\n")].filter(Boolean).join("\n\n"),
 					...(images.length > 0 ? { images, ...(ams ? { imageSource: new URL(ams).origin + "/" } : {}) } : {}),
 					...(files.length > 0 ? { files } : {}),
 				});

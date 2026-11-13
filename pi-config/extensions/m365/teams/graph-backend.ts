@@ -21,7 +21,7 @@ import { colleagueId, type Person, searchPeople } from "../core/people.ts";
 import { type DownloadedFile, downloadShared } from "../core/shares.ts";
 import type { Backend, ChatAddr, ChatHistoryPage, SelfHistoryPage, SelfMessage, UnreadItem, UnreadPayload } from "./backend.ts";
 import { HISTORY_MESSAGES, type ChatRef, type ChatsPage, type HistoryMessage, type SendTarget } from "./compose-overlay.ts";
-import { attachedCardText, CARD_CONTENT_TYPE } from "./card.ts";
+import { attachedCardText, CARD_CONTENT_TYPE, isCardType } from "./card.ts";
 import { forwardedAttachmentIds, forwardParts, forwardSenderIds, partImages, partsText, type Part } from "./forward.ts";
 import { escapeHtml, htmlToText } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
@@ -241,15 +241,18 @@ export function msgText(m: RawMessage, names: ReadonlyMap<string, string> = new 
 	const body = m.body ?? {};
 	const atts = attachmentList(m);
 	const cardOf = (id: string) => {
-		const a = atts.find((x) => String(x.id) === id && x.contentType === CARD_CONTENT_TYPE);
-		return a ? attachedCardText(a.content) : undefined;
+		const a = atts.find((x) => String(x.id) === id && isCardType(x.contentType));
+		return a ? attachedCardText(a.content, a.contentType) : undefined;
 	};
 	const parts = msgParts(m);
 	const text = body.contentType === "html" ? partsText(parts, names, cardOf) : (body.content ?? "").trim();
 	// A card's body is only the <attachment> tag pointing at it, so the card is the message's text. One a forward
 	// points at is already in the forward's quote.
 	const quoted = forwardedAttachmentIds(parts);
-	const cards = atts.filter((a) => a.contentType === CARD_CONTENT_TYPE && !quoted.has(String(a.id))).map((a) => attachedCardText(a.content));
+	// Graph lists a link preview's card once per place it shows; it is one card.
+	const cards = [...new Map(atts.filter((a) => isCardType(a.contentType) && !quoted.has(String(a.id))).map((a) => [String(a.id), a])).values()].map((a) =>
+		attachedCardText(a.content, a.contentType),
+	);
 	return [text, ...cards].filter(Boolean).join("\n");
 }
 

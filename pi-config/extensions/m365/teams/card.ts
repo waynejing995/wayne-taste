@@ -14,6 +14,7 @@
  */
 import { Marked } from "marked";
 import { mentionExtension, type MentionToken } from "../core/mention.ts";
+import { escapeHtml, htmlToText } from "./html.ts";
 import type { Mention } from "./mentions.ts";
 
 export const CARD_CONTENT_TYPE = "application/vnd.microsoft.card.adaptive";
@@ -262,35 +263,142 @@ export function buildCard(spec: CardSpec): El {
 	};
 }
 
+/** Hero and thumbnail cards: Bot Framework's older cards, a title, text, pictures and buttons, no element tree. */
+const HERO_CONTENT_TYPES = new Set(["application/vnd.microsoft.card.hero", "application/vnd.microsoft.card.thumbnail"]);
+
+/** An attachment whose content is a card this module can read. */
+export function isCardType(contentType: unknown): boolean {
+	return contentType === CARD_CONTENT_TYPE || HERO_CONTENT_TYPES.has(String(contentType));
+}
+
+const str = (v: unknown): string => (typeof v === "string" ? v : "");
+
+/** A button: a link when it opens one (Adaptive "Action.OpenUrl", Bot Framework "openUrl"), else its title in brackets. */
+function button(a: El): string {
+	const title = str(a.title);
+	const url = a.type === "Action.OpenUrl" ? str(a.url) : a.type === "openUrl" ? str(a.value) : "";
+	if (url) return `[${title || url}](${url})`;
+	return title ? `[${title}]` : "";
+}
+
 /**
- * A card as plain text, in body order, hidden parts included: how a card reads back in teams_read and the watch.
- * Teams stores the card, not a rendering, so this is the only text a card message has.
+ * A card's text, block by block, in body order. Everything a reader could see is here: hidden parts (what a
+ * ToggleVisibility opens) and the card behind each Action.ShowCard, which are the collapsed details; inputs with
+ * their choices; buttons, links with their URL.
  */
-export function cardText(card: unknown): string {
+function adaptiveBlocks(card: El): string[] {
 	const out: string[] = [];
+	const actions = (list: unknown): void => {
+		if (!Array.isArray(list)) return;
+		// ToggleVisibility has no content of its own: what it opens is in the body, walked in place.
+		const row = (list as El[]).filter((a) => a?.type !== "Action.ToggleVisibility" && a?.type !== "Action.ShowCard").map(button).filter(Boolean);
+		if (row.length) out.push(row.join(" · "));
+		for (const a of list as El[]) {
+			if (a?.type !== "Action.ShowCard") continue;
+			if (a.title) out.push(`▸ ${a.title}`);
+			walk(a.card);
+		}
+	};
 	const walk = (el: unknown): void => {
+		if (Array.isArray(el)) return el.forEach(walk);
 		if (!el || typeof el !== "object") return;
 		const e = el as El;
-		if (e.type === "TextBlock" && typeof e.text === "string") out.push(e.text);
-		if (e.type === "FactSet" && Array.isArray(e.facts)) for (const f of e.facts as Fact[]) out.push(`${f.name ?? ""}: ${f.value ?? ""}`);
-		const cells = (e.items ?? e.columns ?? e.body) as unknown;
-		if (Array.isArray(cells)) cells.forEach(walk);
+		const select = e.selectAction as El | undefined;
+		const link = select?.type === "Action.OpenUrl" ? str(select.url) : "";
+		switch (e.type) {
+			case "TextBlock":
+				if (typeof e.text === "string") out.push(link ? `[${e.text}](${link})` : e.text);
+				return;
+			case "RichTextBlock": {
+				const runs = Array.isArray(e.inlines) ? (e.inlines as unknown[]) : [];
+				const line = runs
+					.map((r) => {
+						if (typeof r === "string") return r;
+						const run = r as El;
+						const url = (run.selectAction as El | undefined)?.type === "Action.OpenUrl" ? str((run.selectAction as El).url) : "";
+						return url ? `[${str(run.text)}](${url})` : str(run.text);
+					})
+					.join("");
+				if (line.trim()) out.push(line);
+				return;
+			}
+			case "FactSet":
+				// Teams' own FactSet names a fact `title`; buildCard's Fact calls it `name`.
+				for (const f of Array.isArray(e.facts) ? (e.facts as El[]) : []) out.push(`${str(f.title) || str(f.name)}: ${str(f.value)}`);
+				return;
+			case "Image": {
+				const alt = str(e.altText);
+				if (link) out.push(`[${alt || "image"}](${link})`);
+				else if (alt) out.push(`[${alt}]`);
+				return;
+			}
+			case "Input.ChoiceSet":
+				if (e.label) out.push(str(e.label));
+				for (const c of Array.isArray(e.choices) ? (e.choices as El[]) : []) out.push(`○ ${str(c.title)}`);
+				return;
+			case "Input.Toggle":
+				out.push(`☐ ${str(e.title) || str(e.label)}`);
+				return;
+			case "Input.Text":
+			case "Input.Number":
+			case "Input.Date":
+			case "Input.Time":
+				if (e.label || e.placeholder) out.push(`${str(e.label) || str(e.placeholder)}: ___`);
+				return;
+			case "ActionSet":
+				actions(e.actions);
+				return;
+		}
+		// Containers: Container, ColumnSet and Column, Table rows and cells, ImageSet; the card itself.
+		for (const key of ["body", "items", "columns", "rows", "cells", "images"]) walk(e[key]);
+		if (link) out.push(`[${link}](${link})`);
 	};
-	walk(card);
-	// Buttons are not walked for text, but their URLs are content. They are listed before the footer, so a card the
-	// agent sent still ends with it.
-	const links = Array.isArray((card as El)?.actions)
-		? ((card as El).actions as El[]).filter((a) => a.type === "Action.OpenUrl").map((a) => `[${a.title}](${a.url})`)
-		: [];
-	if (links.length) out.splice(out.at(-1) === AGENT_FOOTER_TEXT ? out.length - 1 : out.length, 0, links.join(" · "));
-	return out.join("\n").trim();
+	walk(card.body);
+	// The card's own buttons come before the footer, so a card the agent sent still ends with it.
+	const footer = out.at(-1) === AGENT_FOOTER_TEXT ? out.pop() : undefined;
+	actions(card.actions);
+	if (footer) out.push(footer);
+	return out;
+}
+
+/** Bot Framework HTML (a hero or thumbnail title and text): links kept as Markdown links, the rest flattened. */
+function heroHtml(html: string): string {
+	return htmlToText(
+		html.replace(/<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, url: string, inner: string) => {
+			const label = htmlToText(inner);
+			return !label || label === url ? url : `[${escapeHtml(label)}](${url})`;
+		}),
+	);
+}
+
+function heroBlocks(card: El): string[] {
+	const tap = card.tap as El | undefined;
+	const url = tap?.type === "openUrl" ? str(tap.value) : "";
+	const title = heroHtml(str(card.title));
+	const out = [url && title ? `[${title}](${url})` : title, heroHtml(str(card.subtitle)), heroHtml(str(card.text))];
+	for (const img of Array.isArray(card.images) ? (card.images as El[]) : []) if (img.alt) out.push(`[${str(img.alt)}]`);
+	const buttons = (Array.isArray(card.buttons) ? (card.buttons as El[]) : []).map(button).filter(Boolean);
+	if (buttons.length) out.push(buttons.join(" · "));
+	if (url && !title) out.push(url);
+	return out.filter(Boolean);
+}
+
+/**
+ * A card as plain text, in body order, hidden parts included: how a card reads back in teams_read and the watch.
+ * Teams stores the card, not a rendering, so this is the only text a card message has. `sep` joins the blocks:
+ * "\n" for flat text, "\n\n" for Markdown, where each block is its own paragraph.
+ */
+export function cardText(card: unknown, contentType: string = CARD_CONTENT_TYPE, sep = "\n"): string {
+	if (!card || typeof card !== "object") return "";
+	const blocks = HERO_CONTENT_TYPES.has(contentType) ? heroBlocks(card as El) : adaptiveBlocks(card as El);
+	return blocks.join(sep).trim();
 }
 
 /** The card text of a Graph attachment or chatsvc card entry, whose content may be a JSON string or an object. */
-export function attachedCardText(content: unknown): string {
-	if (typeof content !== "string") return cardText(content);
+export function attachedCardText(content: unknown, contentType: string = CARD_CONTENT_TYPE, sep = "\n"): string {
+	if (typeof content !== "string") return cardText(content, contentType, sep);
 	try {
-		return cardText(JSON.parse(content));
+		return cardText(JSON.parse(content), contentType, sep);
 	} catch {
 		return "[unreadable attachment]";
 	}
