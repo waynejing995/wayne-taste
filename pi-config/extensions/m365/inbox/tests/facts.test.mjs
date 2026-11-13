@@ -3,7 +3,7 @@
  *
  * Synthetic facts only. No live inbox data.
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ok, strictEqual, rejects } from "node:assert/strict";
@@ -47,6 +47,12 @@ await check("fact writes use the ledger lock", async () => {
 	const started = spawnSync(process.execPath, ["--experimental-strip-types", "-e", "import('node:fs').then(fs=>fs.mkdirSync(process.argv[1])).then(()=>Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,1200))", lock], { timeout: 100 });
 	await rejects(() => inbox(["fact", "--kind", "info", "--key", "locked", "--", "waiting"]), /held by another writer/);
 	strictEqual(started.error?.code, "ETIMEDOUT");
+});
+
+await check("a malformed facts file is rejected before a write", async () => {
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:broken]\nmissing metadata\n");
+	await rejects(() => inbox(["fact", "--kind", "info", "--key", "new", "--", "valid"]), /lacks source or since/);
+	strictEqual(readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8"), "## [info:broken]\nmissing metadata\n");
 });
 
 await check("migration is idempotent and keeps the newest repeated key", async () => {
