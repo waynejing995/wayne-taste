@@ -50,8 +50,9 @@ writeFileSync(LOG, "line 1\nline 2\n");
 /** The chat files folder as Graph lists its permissions: owned by me alone, unless a test shares it. */
 const OWNER_ONLY = [{ id: "p-me", roles: ["owner"], grantedToV2: { user: { id: "oid-me", email: "me@contoso.test" } }, inheritedFrom: {} }];
 const PERMISSIONS = `${GRAPH}/me/drive/root:/Microsoft Teams Chat Files:/permissions`;
+const ROOT_PERMISSIONS = `${GRAPH}/me/drive/root/permissions`;
 
-function graph({ members = [], permissions = OWNER_ONLY, directory = {} } = {}) {
+function graph({ members = [], permissions = OWNER_ONLY, rootPermissions = OWNER_ONLY, directory = {} } = {}) {
 	const seen = [];
 	const reply = (status, body) => ({ status, text: async () => JSON.stringify(body) });
 	const doFetch = async (url, init) => {
@@ -72,6 +73,7 @@ function graph({ members = [], permissions = OWNER_ONLY, directory = {} } = {}) 
 				parentReference: { driveId: DRIVE },
 			});
 		}
+		if (url === ROOT_PERMISSIONS) return reply(200, { value: rootPermissions });
 		if (decodeURIComponent(url) === PERMISSIONS) return permissions ? reply(200, { value: permissions }) : reply(404, { error: { code: "itemNotFound", message: "Item not found" } });
 		const user = /\/users\/([^/?]+)\?\$select=mail$/.exec(url);
 		if (user) return directory[user[1]] ? reply(200, directory[user[1]]) : reply(404, { error: { code: "Request_ResourceNotFound", message: "gone" } });
@@ -215,6 +217,21 @@ await check("every send checks the folder again: a share added after a clean sen
 	match(err, /organization-scope view link/);
 	equal(seen.filter((s) => s.url === PERMISSIONS).length, 2);
 	equal(uploads(seen).filter((s) => s.method === "POST").length, 1, "only the first send uploaded");
+});
+
+await check("a chat files folder that does not exist yet is judged by the drive root it would inherit from", async () => {
+	const clean = graph({ permissions: null });
+	await clean.b.send({ kind: "self" }, "<p>x</p>", true, [], [], undefined, [LOG]);
+	ok(clean.seen.some((s) => s.url === ROOT_PERMISSIONS), "root checked");
+	equal(uploads(clean.seen).filter((s) => s.method === "POST").length, 1, "an owner-only root lets the send through");
+
+	const shared = graph({ permissions: null, rootPermissions: [...OWNER_ONLY, { id: "p-org", roles: ["read"], link: { scope: "organization", type: "view" } }] });
+	let err = "";
+	await shared.b.send({ kind: "self" }, "<p>x</p>", true, [], [], undefined, [LOG]).catch((e) => (err = e.message));
+	match(err, /drive root/);
+	match(err, /organization-scope view link \(read\)/);
+	deepStrictEqual(uploads(shared.seen), [], "nothing uploaded");
+	ok(!shared.seen.some((s) => s.url.endsWith("/messages")), "nothing posted");
 });
 
 await check("a channel send does not look at the chat files folder", async () => {

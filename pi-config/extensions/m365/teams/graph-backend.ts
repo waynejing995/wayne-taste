@@ -851,23 +851,26 @@ export class GraphBackend implements Backend {
 	 * uploaded there inherits every permission the folder and the drive above it hold (an old share, a guest, an
 	 * organisation or anonymous link), and the chat invite only adds to them. So any grant other than my own owner
 	 * role names itself in the error and nothing is uploaded; the user decides what to unshare. A folder that does not
-	 * exist yet is clean: Teams creates it owned by me alone.
+	 * exist yet is judged by the drive root, whose sharing the new folder would inherit.
 	 */
 	private async requireChatFilesPrivate(): Promise<void> {
 		// Every send asks: a share added since the last send must refuse this one. It is one GET.
+		let where = `OneDrive "${CHAT_FILES}"`;
 		let perms: DrivePermission[];
 		try {
 			perms = await this.graph.getAll<DrivePermission>(`/me/drive/root:/${encodeURIComponent(CHAT_FILES)}:/permissions`);
 		} catch (e) {
-			if (e instanceof GraphError && e.status === 404) return;
-			throw e;
+			if (!(e instanceof GraphError && e.status === 404)) throw e;
+			// No folder yet: the upload creates it, and it inherits the drive root's sharing.
+			where = `your OneDrive drive root (where "${CHAT_FILES}" would be created)`;
+			perms = await this.graph.getAll<DrivePermission>("/me/drive/root/permissions");
 		}
 		const me = tokenClaim(await this.graph.rawToken(), "oid");
 		const extra = perms.filter((p) => !(p.roles?.length === 1 && p.roles[0] === "owner" && !p.link && (p.grantedToV2?.user?.id ?? p.grantedTo?.user?.id) === me));
 		if (extra.length > 0) {
 			throw new Error(
-				`refusing to upload: OneDrive "${CHAT_FILES}" is shared beyond you, and every file sent would inherit it: ${extra.map(describeGrant).join("; ")}. ` +
-					"Remove those shares from the folder (or the drive above it), then send again.",
+				`refusing to upload: ${where} is shared beyond you, and every file sent would inherit it: ${extra.map(describeGrant).join("; ")}. ` +
+					"Remove those shares (there or above it), then send again.",
 			);
 		}
 	}
