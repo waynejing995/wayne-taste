@@ -3,8 +3,10 @@
 // A coordinator tails agent-events.jsonl under WAYNE_INBOX_DIR (else ~/.wayne/inbox).
 // This extension runs inside the child omp and appends one JSON line per state
 // change so the coordinator does not have to poll the pane. Nested omp -p /
-// bash children must not inherit the watch env, so WAYNE_AGENT_WATCH and
-// WAYNE_AGENT_RESULT are deleted at load. Only the root UI session reports:
+// bash children must not inherit the watch env, so WAYNE_AGENT_WATCH,
+// WAYNE_AGENT_RESULT and WAYNE_AGENT_GENERATION are deleted at load. Every event
+// carries WAYNE_AGENT_GENERATION, the launch id `inbox agent add --generation`
+// registers: only that registration takes the event. Only the root UI session reports:
 // -p and subagents have hasUI === false.
 
 import fs from "node:fs";
@@ -23,8 +25,10 @@ const OPEN_RE = /^ *(?:[-*] )?(?:\*\*open(?:\*\*:?|:\*\*)|`open`:|`open:`|open:)
 
 const name = process.env.WAYNE_AGENT_WATCH ?? "";
 const resultPath = process.env.WAYNE_AGENT_RESULT;
+const generation = process.env.WAYNE_AGENT_GENERATION || undefined;
 delete process.env.WAYNE_AGENT_WATCH;
 delete process.env.WAYNE_AGENT_RESULT;
+delete process.env.WAYNE_AGENT_GENERATION;
 
 const eventFile = path.join(
 	process.env.WAYNE_INBOX_DIR || path.join(os.homedir(), ".wayne", "inbox"),
@@ -162,6 +166,7 @@ export default function (pi: ExtensionAPI) {
 			v: 1,
 			ts: new Date().toISOString(),
 			name,
+			...(generation ? { generation } : {}),
 			host: os.hostname(),
 			pid: process.pid,
 			session,

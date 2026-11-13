@@ -86,13 +86,15 @@ function events(file) {
 		.map((line) => JSON.parse(line));
 }
 
-async function load({ watch, result, inbox } = {}) {
+async function load({ watch, result, inbox, generation } = {}) {
 	installTimers();
 	const dir = inbox || mkdtempSync(path.join(os.tmpdir(), "wayne-agent-report-"));
 	if (watch === undefined) delete process.env.WAYNE_AGENT_WATCH;
 	else process.env.WAYNE_AGENT_WATCH = watch;
 	if (result === undefined) delete process.env.WAYNE_AGENT_RESULT;
 	else process.env.WAYNE_AGENT_RESULT = result;
+	if (generation === undefined) delete process.env.WAYNE_AGENT_GENERATION;
+	else process.env.WAYNE_AGENT_GENERATION = generation;
 	process.env.WAYNE_INBOX_DIR = dir;
 	const handlers = {};
 	const factory = (await import(EXT + "?" + ++n)).default;
@@ -152,6 +154,18 @@ await check("3. each hook writes the schema", async () => {
 	deepStrictEqual(evs[2].ask, { question: "yes or no?", options: ["yes", "no"], kind: "ask" });
 	strictEqual(evs[2].text, "yes or no?");
 	strictEqual(evs[4].text, "all done");
+});
+
+await check("3b. every event carries the launch's WAYNE_AGENT_GENERATION, which nested runs do not inherit", async () => {
+	const { handlers, file } = await load({ watch: "w", generation: "launch-0001" });
+	strictEqual(process.env.WAYNE_AGENT_GENERATION, undefined);
+	handlers.session_start({}, ui);
+	handlers.agent_start({}, ui);
+	handlers.agent_end({ messages: [{ role: "assistant", content: [{ type: "text", text: "done" }] }] }, ui);
+	deepStrictEqual(events(file).map((e) => e.generation), ["launch-0001", "launch-0001", "launch-0001"]);
+	const legacy = await load({ watch: "w" });
+	legacy.handlers.session_start({}, ui);
+	ok(!("generation" in events(legacy.file)[0]), "a launch without one stamps none");
 });
 
 await check("4. agent_end willContinue:true writes nothing", async () => {
