@@ -6,6 +6,7 @@
 import { addAgent, listAgents, MUXES, removeAgentsByName } from "./agents.ts";
 import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
 import { addEvent, doneRows, InboxError, listRows, places, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
+import { dropFact, FACT_KINDS, listFacts, upsertFact } from "./facts.ts";
 import { probeAgents } from "./probe.ts";
 import { setup } from "./setup.ts";
 import { addThen, checkThens, guardDone, openThenLines, thenDone } from "./thens.ts";
@@ -85,7 +86,27 @@ const COMMANDS: Record<string, Command> = {
 		run: (p) => thenDone(p.args[0], p.args[1], p.opts.note),
 	},
 	ask: direct("ask-wayne", "notify", "coordinator"),
-	fact: direct("teams-fact", "log", "digest"),
+	fact: {
+		help: "Record one standing fact in facts.md. The same kind and key replaces the text and keeps the old text as superseded.",
+		args: ["text"],
+		opts: {
+			kind: { required: true, choices: FACT_KINDS, help: "endpoint, cred, decision, owed, or info" },
+			key: { required: true, help: KEY_HELP },
+			source: { default: "digest" },
+			note: { default: "", help: "chat, who, and time" },
+		},
+		run: (p) => upsertFact(p.opts.kind!, p.opts.key!, p.args[0], [p.opts.source, p.opts.note].filter(Boolean).join(" ")),
+	},
+	facts: {
+		help: "Print facts.md, or the entries matching --grep.",
+		opts: { grep: { default: "" } },
+		run: (p) => listFacts(p.opts.grep),
+	},
+	"fact-drop": {
+		help: "Remove one fact by key, or by kind:key.",
+		args: ["key"],
+		run: (p) => dropFact(p.args[0]),
+	},
 	done: {
 		help: "Finish rows: move them from the ledger into archive.tsv.",
 		args: ["ids..."],

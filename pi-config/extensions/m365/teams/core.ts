@@ -541,8 +541,17 @@ export function createTeams(pi: TeamsHost) {
 		return s.length <= MAX_REPLY_CHARS ? s : `${s.slice(0, MAX_REPLY_CHARS)}\n\n…[truncated]`;
 	}
 
-	async function readSelfChat(sinceId: string, top = 20): Promise<SelfMessage[]> {
-		return backend.selfMessages(sinceId, top);
+	async function readSelfChat(sinceId: string, top = 20, since?: string): Promise<SelfMessage[]> {
+		if (since === undefined) return backend.selfMessages(sinceId, top);
+		const boundary = new Date(since).getTime();
+		if (!Number.isFinite(boundary)) throw new Error(`since is not a time: ${since}`);
+		const out: SelfMessage[] = [];
+		const first = await backend.selfHistoryPage();
+		for await (const page of cursorPages(first, (p) => p.older, (c) => backend.selfHistoryPage(c))) {
+			out.push(...page.messages);
+			if (page.messages.some((m) => new Date(m.at).getTime() < boundary)) break;
+		}
+		return out.filter((m) => new Date(m.at).getTime() >= boundary).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 	}
 
 	// ── Watch ───────────────────────────────────────────────────────────────
@@ -971,11 +980,11 @@ export function createTeams(pi: TeamsHost) {
 		return { messages: page.messages.map((m) => ({ ...m, me: page.me })), older: page.older };
 	}
 
-	/** The newest `limit` messages of a conversation, oldest first: what teams_read reads. */
-	async function loadRecent(target: SendTarget, limit: number): Promise<HistoryMessage[]> {
-		if (target.kind === "self") return (await readSelfChat("", limit)).map(selfLine);
+	/** The newest `limit` messages, or every message at or after `since`, oldest first. */
+	async function loadRecent(target: SendTarget, limit: number, since?: string): Promise<HistoryMessage[]> {
+		if (target.kind === "self") return (await readSelfChat("", since === undefined ? limit : Number.POSITIVE_INFINITY, since)).map(selfLine);
 		if (target.kind === "channel") throw new Error("reading channel history is not supported yet");
-		const payload = await backend.messages({ id: target.id, name: target.chat }, limit);
+		const payload = await backend.messages({ id: target.id, name: target.chat }, limit, since);
 		return payload.messages.map((m) => ({ ...m, me: payload.me }));
 	}
 	readForSchedule = loadRecent;
@@ -1169,7 +1178,7 @@ export function createTeams(pi: TeamsHost) {
 		name: "teams_read",
 		label: "Teams Read",
 		description:
-			"Read the recent messages of one Microsoft Teams conversation, oldest first; `limit` says how many (default 20, up to 200). " +
+			"Read the recent messages of one Microsoft Teams conversation, oldest first; `limit` says how many (default 20, up to 200). `since` reads every message at or after that time instead, with no count cap. " +
 			"target='self' reads the user's own self-chat (48:notes); target='chat' reads a person " +
 			"or group chat by name. Chat names are matched by substring and an ambiguous name is an " +
 			"error. HTML is already converted to plain text, and messages that contained a picture read " +
@@ -1191,6 +1200,9 @@ export function createTeams(pi: TeamsHost) {
 			limit: Type.Optional(
 				Type.Integer({ description: `How many recent messages (default ${HISTORY_MESSAGES}, up to 200)`, minimum: 1, maximum: 200 }),
 			),
+			since: Type.Optional(
+				Type.String({ description: "Local time `YYYY-MM-DD HH:MM`, or ISO-8601. Reads every message at or after it, ignoring `limit`." }),
+			),
 		}),
 		async execute(_id, params) {
 			if (params.target === "chat" && !params.chat_id && !params.chat)
@@ -1200,7 +1212,7 @@ export function createTeams(pi: TeamsHost) {
 					? { kind: "self" }
 					: { kind: "chat", chat: params.chat ?? "", id: params.chat_id };
 
-			const msgs = await loadRecent(target, params.limit ?? HISTORY_MESSAGES);
+			const msgs = await loadRecent(target, params.limit ?? HISTORY_MESSAGES, params.since);
 			/**
 			 * One line per message with its id (teams_react's message_id), a line per shared file, and one for the
 			 * reactions when there are any.
@@ -1284,16 +1296,26 @@ export function createTeams(pi: TeamsHost) {
 				Type.String({ description: "Continue an earlier search from where it stopped: the `cursor` its result gave. Use with the same `query`." }),
 			),
 			refresh: Type.Optional(Type.Boolean({ description: "Refetch instead of using the cached list" })),
+			active_since: Type.Optional(Type.String({ description: "Local time `YYYY-MM-DD HH:MM`, or ISO-8601. Lists every chat active at or after it, walking the whole list." })),
 		}),
 		async execute(_id, params, signal) {
 			const q = (params.query ?? "").trim().toLowerCase();
+			if (params.active_since !== undefined && (q !== "" || params.cursor !== undefined)) {
+				throw new Error("`active_since` walks every chat by itself; do not combine it with `query` or `cursor`");
+			}
 			if (params.cursor !== undefined) {
 				if (q === "") throw new Error("`cursor` continues a search: give the same `query` with it");
 				// A cursor is a Graph link fetched with the user's token: it must point at Graph and nowhere else.
 				if (!params.cursor.startsWith("https://graph.microsoft.com/")) throw new Error("`cursor` must be one a teams_chats result gave");
 			}
+			const boundary = params.active_since === undefined ? undefined : new Date(params.active_since).getTime();
+			if (boundary !== undefined && !Number.isFinite(boundary)) throw new Error(`active_since is not a time: ${params.active_since}`);
 			const first = params.cursor !== undefined ? await backend.chatsPage(params.cursor) : await getChats(Boolean(params.refresh));
-			const matches = (c: ChatRef) => q === "" || `${c.display ?? ""} ${c.label}`.toLowerCase().includes(q);
+			const matches = (c: ChatRef) => {
+				if (q !== "" && !`${c.display ?? ""} ${c.label}`.toLowerCase().includes(q)) return false;
+				if (boundary !== undefined && new Date(c.last_at ?? "").getTime() < boundary) return false;
+				return true;
+			};
 			// Most recent first: a query stops at the first page holding a match, or after a page budget (a few
 			// seconds: Graph gives ~25 chats a page, and a long-lived account has thousands). Without one only the
 			// first page is listed. The walk stops early if the tool call is interrupted.
@@ -1304,6 +1326,7 @@ export function createTeams(pi: TeamsHost) {
 				chats.push(...page.chats);
 				pages++;
 				next = page.next;
+				if (boundary !== undefined) continue;
 				if (q === "" || page.chats.some(matches) || pages >= CHATS_SEARCH_PAGES) break;
 			}
 			// A chat can arrive on two pages when the list moves under the walk; it is listed once.
@@ -1311,13 +1334,13 @@ export function createTeams(pi: TeamsHost) {
 			const hits = [...unique.values()].filter(matches);
 			const where = `${unique.size} most recent chat(s)`;
 			const rest =
-				next === undefined
+				next === undefined || boundary !== undefined
 					? ""
 					: q === ""
 						? "\nMore chats follow: pass `query` to search them."
 						: `\nSearched the ${where}, not the whole list: more chats follow. ${hits.length > 0 ? "Another chat with this name may exist further back. " : ""}To keep searching, call again with the same query and cursor: ${next}`;
 			if (hits.length === 0) {
-				const none = q ? (next === undefined ? `No chat matches "${params.query}".` : `No chat matches "${params.query}" among the ${where}.`) : "No chats.";
+				const none = q ? (next === undefined || boundary !== undefined ? `No chat matches "${params.query}".` : `No chat matches "${params.query}" among the ${where}.`) : "No chats.";
 				return { content: [{ type: "text", text: `${none}${rest}` }], details: {} };
 			}
 			const lines = hits.map((c) => `- ${c.display ?? c.label}  [${c.chat_type}]  id: ${c.id}`);
@@ -1621,13 +1644,12 @@ export function createTeams(pi: TeamsHost) {
  * registered tool, and this is the same function the tool calls.
  */
 export async function readTeams(
-	args: { target?: string; chat_id?: string; chat?: string; limit?: number },
-	load: (target: SendTarget, limit: number) => Promise<HistoryMessage[]>,
+	args: { target?: string; chat_id?: string; chat?: string; limit?: number; since?: string },
+	load: (target: SendTarget, limit: number, since?: string) => Promise<HistoryMessage[]>,
 ): Promise<string> {
 	if (args.target === "chat" && !args.chat_id && !args.chat) throw new Error("target='chat' requires 'chat_id' or 'chat'");
 	const target: SendTarget = args.target === "self" ? { kind: "self" } : { kind: "chat", chat: args.chat ?? "", id: args.chat_id };
-	const limit = args.limit ?? HISTORY_MESSAGES;
-	const msgs = await load(target, limit);
+	const msgs = await load(target, args.limit ?? HISTORY_MESSAGES, args.since);
 	const lines = msgs.map((m) => {
 		const who = m.mine ? "me" : m.sender;
 		return m.text ? `[${formatLocal(m.at)}] ${who}: ${m.text}` : `[${formatLocal(m.at)}] ${who}:`;

@@ -147,6 +147,11 @@ export function previewText(p: RawPreview | null | undefined, myName: string, ch
 	return `${prefix}${flat}`.slice(0, 200);
 }
 
+function messageTime(value: string | undefined): number {
+	const time = new Date(value ?? "").getTime();
+	return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
+}
+
 /** A chat as the picker and the tools see it. */
 export function chatRef(c: RawChat, myName: string): ChatRef {
 	const last = c.lastMessagePreview;
@@ -679,12 +684,30 @@ export class GraphBackend implements Backend {
 	 * A client that reads one page silently truncates, which is indistinguishable from a quiet chat. The cap comes
 	 * FIRST and system events are dropped after, as the Python does.
 	 */
-	async messages(addr: ChatAddr, top: number): Promise<{ messages: HistoryMessage[]; me?: string; chat?: string | null; display?: string | null }> {
+	async messages(
+		addr: ChatAddr,
+		top: number,
+		since?: string,
+	): Promise<{ messages: HistoryMessage[]; me?: string; chat?: string | null; display?: string | null }> {
 		const chat = await this.resolveChat(addr);
-		const raw = await this.graph.getAll<RawMessage>(`/chats/${chat.id}/messages?$top=${MESSAGE_PAGE}`, { max: top });
+		const raw = since === undefined
+			? (await this.graph.getAll<RawMessage>(`/chats/${chat.id}/messages?$top=${MESSAGE_PAGE}`, { max: top })).slice(0, top)
+			: await this.messagesSince(chat.id, since);
 		const myName = await this.myName();
-		const kept = raw.slice(0, top);
-		return { messages: this.project(kept, myName, chat.id, await this.forwardContext(kept)), me: myName, chat: chat.label, display: chat.display };
+		return { messages: this.project(raw, myName, chat.id, await this.forwardContext(raw)), me: myName, chat: chat.label, display: chat.display };
+	}
+
+	/** Every message at or after `since`, oldest first. Graph pages newest-first, so the walk stops at the first older page. */
+	private async messagesSince(chatId: string, since: string): Promise<RawMessage[]> {
+		const boundary = new Date(since).getTime();
+		if (!Number.isFinite(boundary)) throw new Error(`since is not a time: ${since}`);
+		const raw: RawMessage[] = [];
+		const start = `/chats/${chatId}/messages?$top=${MESSAGE_PAGE}`;
+		for await (const page of cursorPages(await this.messagesPage(start), (p) => p.older, (c) => this.messagesPage(c))) {
+			raw.push(...page.raw);
+			if (page.raw.some((m) => messageTime(m.createdDateTime) < boundary)) break;
+		}
+		return raw.filter((m) => messageTime(m.createdDateTime) >= boundary);
 	}
 
 	/** One page of a conversation's messages as Graph gives them: the raw messages, and the link to the page before. */

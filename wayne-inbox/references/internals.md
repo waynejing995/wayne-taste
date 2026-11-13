@@ -74,7 +74,7 @@ $I set <id> --state claimed --owner <who>
 $I done <id>... --note <outcome>        # finished: out of the ledger, into archive.tsv
 $I add --source github --place <repo> --key <k> --subject <s> --field k=v ...   # what the watchers call
 $I ask "<question>" --key <k> --note <where>   # someone waits for Wayne: ask-wayne notify row
-$I fact "<decision or rule>" --key <k> --note <chat, who, time>   # teams-fact log row
+$I fact --kind endpoint|cred|decision|owed|info "<fact>" --key <k> --note <chat, who, time>   # upsert facts.md; facts [--grep TEXT] reads it; fact-drop <key> removes it
 $I schedule add <name> --every <min> | --cron '<m h dom mon dow>' --kind shell|prompt|tool --action <argv JSON | text | {name,args}> [--judge on --judge-prompt …] [--quiet] [--timeout s] [--tools a,b] [--disabled]
 $I schedule ls | rm | enable | disable | run --due | run --job <name>
 $I then <id> --when <trigger> -- <action>   # deferred action on a live row (see Then-actions)

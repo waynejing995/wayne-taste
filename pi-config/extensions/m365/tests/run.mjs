@@ -40,6 +40,7 @@ const groups = [
 	// The MCP server runs under bun (Node's type stripping cannot load the Teams core), so its test does too. It takes
 	// watch locks, so it gets its own network namespace like the Teams suite.
 	{ label: "mcp server", script: join(root, "mcp", "tests", "server.test.mjs"), local: false, runtime: "bun", isolated: true },
+	{ label: "teams history scan", script: join(root, "tests", "history-scan.test.mjs"), local: false },
 	{ label: "teams (local-only)", script: join(root, "teams", "tests", "run.mjs"), local: true, isolated: true },
 ];
 let failed = 0;

@@ -165,7 +165,7 @@ export function withLock<T>(lock: string, waitMs: number, fn: () => T): T {
 			} catch {
 				continue; // released between the create and the stat: try again
 			}
-			if (age > LOCK_STALE_MS) fs.rmSync(lock, { force: true });
+			if (age > LOCK_STALE_MS) fs.rmSync(lock, { force: true, recursive: true });
 			else if (Date.now() > deadline) throw new InboxError(`${lock} is held by another writer`);
 			else Atomics.wait(sleeper, 0, 0, 20);
 		}
@@ -173,7 +173,7 @@ export function withLock<T>(lock: string, waitMs: number, fn: () => T): T {
 	try {
 		return fn();
 	} finally {
-		fs.rmSync(lock, { force: true });
+		fs.rmSync(lock, { force: true, recursive: true });
 	}
 }
 
