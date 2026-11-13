@@ -846,9 +846,6 @@ export class GraphBackend implements Backend {
 		await this.graph.post(post, body);
 	}
 
-	/** When the chat files folder was last seen shared with no one but me: a send checks again after CLEAN_FOR_MS. */
-	private chatFilesCleanAt = 0;
-
 	/**
 	 * Refuses a chat or self-chat file send while "Microsoft Teams Chat Files" is shared with anyone but me. A file
 	 * uploaded there inherits every permission the folder and the drive above it hold (an old share, a guest, an
@@ -857,15 +854,12 @@ export class GraphBackend implements Backend {
 	 * exist yet is clean: Teams creates it owned by me alone.
 	 */
 	private async requireChatFilesPrivate(): Promise<void> {
-		if (Date.now() - this.chatFilesCleanAt < CLEAN_FOR_MS) return;
+		// Every send asks: a share added since the last send must refuse this one. It is one GET.
 		let perms: DrivePermission[];
 		try {
 			perms = await this.graph.getAll<DrivePermission>(`/me/drive/root:/${encodeURIComponent(CHAT_FILES)}:/permissions`);
 		} catch (e) {
-			if (e instanceof GraphError && e.status === 404) {
-				this.chatFilesCleanAt = Date.now();
-				return;
-			}
+			if (e instanceof GraphError && e.status === 404) return;
 			throw e;
 		}
 		const me = tokenClaim(await this.graph.rawToken(), "oid");
@@ -876,7 +870,6 @@ export class GraphBackend implements Backend {
 					"Remove those shares from the folder (or the drive above it), then send again.",
 			);
 		}
-		this.chatFilesCleanAt = Date.now();
 	}
 
 	/**
@@ -925,9 +918,6 @@ export class GraphBackend implements Backend {
 
 /** The OneDrive folder Teams keeps chat files in; the name is Teams' own, the same in every tenant language. */
 const CHAT_FILES = "Microsoft Teams Chat Files";
-/** How long a clean check of CHAT_FILES' sharing holds: sends in a burst ask once. */
-const CLEAN_FOR_MS = 5 * 60 * 1000;
-
 interface DriveIdentity {
 	id?: string;
 	displayName?: string;

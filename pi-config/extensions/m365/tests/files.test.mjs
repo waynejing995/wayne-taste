@@ -205,12 +205,16 @@ await check("a chat files folder shared by an organisation link refuses chat and
 	}
 });
 
-await check("a chat files folder that does not exist yet is clean, and a clean check holds for the next send", async () => {
-	const { seen, b } = graph({ permissions: null });
+await check("every send checks the folder again: a share added after a clean send refuses the next one", async () => {
+	const permissions = [...OWNER_ONLY];
+	const { seen, b } = graph({ permissions });
 	await b.send({ kind: "self" }, "<p>x</p>", true, [], [], undefined, [LOG]);
-	await b.send({ kind: "self" }, "<p>y</p>", true, [], [], undefined, [LOG]);
-	equal(uploads(seen).filter((s) => s.method === "POST").length, 2);
-	equal(seen.filter((s) => s.url === PERMISSIONS).length, 1);
+	permissions.push({ id: "p-org", roles: ["read"], link: { scope: "organization", type: "view" } });
+	let err = "";
+	await b.send({ kind: "self" }, "<p>y</p>", true, [], [], undefined, [LOG]).catch((e) => (err = e.message));
+	match(err, /organization-scope view link/);
+	equal(seen.filter((s) => s.url === PERMISSIONS).length, 2);
+	equal(uploads(seen).filter((s) => s.method === "POST").length, 1, "only the first send uploaded");
 });
 
 await check("a channel send does not look at the chat files folder", async () => {
