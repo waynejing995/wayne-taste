@@ -374,6 +374,8 @@ function advance(job: Job, at: Date, out: Outcome): void {
 	job.last = { status: out.status, at: stamp(at), detail: out.detail.slice(0, 200) };
 	// A digest's last_ok is the start of the last run that read every chat; a dispatch, skip or failure keeps it.
 	if (job.name === DIGEST ? out.verified : out.status !== "fail") job.last_ok = stamp(at);
+	// The backfill window is read once that run is verified; settle() writes this under the rules lock.
+	if (out.verified) delete job.backfill_since;
 	job.fires = Number(job.fires ?? 0) + 1;
 }
 

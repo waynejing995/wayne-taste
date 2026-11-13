@@ -248,6 +248,25 @@ await check("schedule finish with the digest's checked event stream moves its bo
 	}
 });
 
+await check("a verified digest clears backfill_since in rules.yaml; a failed one keeps it", async () => {
+	try {
+		digestJob("2026-11-10 12:00", { backfill_since: "2026-11-03 10:00" }, "readfail");
+		await jobs.runDue({ session: false }, at("2026-11-10 12:00"));
+		strictEqual(digest().backfill_since, "2026-11-03 10:00");
+		ok(gapRows().some((r) => r.subject.endsWith("since 2026-11-03 10:00")), "the failed run read from the backfill boundary");
+		const again = jobs.readJobs();
+		again[0].next_fire = "2026-11-10 14:00";
+		jobs.writeJobs(again);
+		process.env.FAKE_DIGEST_MODE = "ok";
+		ok((await jobs.runDue({ session: false }, at("2026-11-10 14:00")))[0].startsWith("ok teams-digest"));
+		strictEqual(digest().backfill_since, undefined);
+		ok(!readFileSync(join(home, "rules.yaml"), "utf8").includes("backfill_since"));
+		strictEqual(digest().last_ok, "2026-11-10 14:00");
+	} finally {
+		restoreAgent();
+	}
+});
+
 await check("a job still running is left out of the next call, which runs the other due jobs", async () => {
 	await run("schedule", "add", "slow", "--every", "1", "--kind", "shell", "--timeout", "30", "--action", '["sleep", "3"]', "--quiet");
 	await run("schedule", "add", "fast", "--every", "1", "--kind", "shell", "--action", '["echo", "fast"]');
