@@ -165,4 +165,12 @@ await check("secrets are rejected in every field and scrubbed from history", asy
 	ok(archived.note.includes("credential value"));
 });
 
+await check("an identical fact refreshes its source without history", async () => {
+	await inbox(["fact", "--kind", "decision", "--key", "deploy-window", "--source", "Ops Ada", "--", "Deploy after 18:00"]);
+	strictEqual(await inbox(["fact", "--kind", "decision", "--key", "deploy-window", "--source", "Ops Bo", "--", "Deploy after 18:00"]), "unchanged decision:deploy-window");
+	const [fact] = readFacts();
+	strictEqual(fact.source, "Ops Bo");
+	strictEqual(fact.superseded.length, 0);
+});
+
 if (failed) process.exit(1);

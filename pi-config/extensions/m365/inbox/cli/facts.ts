@@ -101,9 +101,10 @@ export function upsertFact(kind: string, key: string, text: string, source: stri
 		const old = facts.find((fact) => fact.kind === cleanKind && fact.key === cleanKey);
 		if (facts.some((fact) => [fact.key, fact.text, fact.source].some((value) => SECRET.test(value)))) throw new InboxError("a fact names where the credential lives, never its value");
 		const history = (old?.superseded ?? []).filter((text) => !SECRET.test(text));
-		if (old && !SECRET.test(old.text)) history.unshift(old.text);
+		if (old && old.text !== cleanText) history.unshift(old.text);
 		const next: Fact = { kind: cleanKind, key: cleanKey, text: cleanText, source: cleanSource, since: old?.since ?? at.slice(0, 10), superseded: history };
 		saveFacts(old ? facts.map((fact) => fact === old ? next : fact) : [...facts, next]);
+		if (old && old.text === cleanText) return `unchanged ${cleanKind}:${cleanKey}`;
 		return old ? `updated ${cleanKind}:${cleanKey}` : `added ${cleanKind}:${cleanKey}`;
 	});
 }
