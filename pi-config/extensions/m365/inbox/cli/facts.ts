@@ -11,7 +11,8 @@ export const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
 // A credential word followed by what reads as its value. A pointer word ("is in the vault", "was rotated") is not
 // a value. After `:`/`=` any non-pointer is a value; after is/was any token with a digit or symbol, or a bare word
 // that ends the clause ("password is abc."); right after the word, an ASCII token with a digit or symbol.
-const CRED_WORD = String.raw`\b(?:password|passwd|passphrase|pw|secret|token|api[-_ ]?key)`;
+// The word may follow `_` or a digit (client_secret, GITHUB_TOKEN, db_password), so it starts after any non-letter.
+const CRED_WORD = String.raw`(?<![A-Za-z])(?:password|passwd|passphrase|pw|secret|token|api[-_ ]?key)`;
 const POINTER = String.raw`(?:in|inside|at|on|under|behind|stored|kept|owned|held|located|saved|managed|shared|issued|set|rotated|revoked|expired|reset|changed|required|needed|missing|valid|invalid|unknown|pending|deployed|not|no|none|now|still|being|available|the|per|via|from|by|with|only|also|handled|provided|generated|lives|goes|used|configured|scoped|created|leaked|exposed|empty|here|there|ready|fine|ok|wrong|correct|broken|gone|done|live|active|disabled|enabled|working|unchanged|same|different|new|old|exported|loaded|read|written|passed|sent|derived|copied|fetched|injected|mounted|checked|verified)\b`;
 const SYMBOLIC = String.raw`(?=\S*(?:\d|[^\w\s]))`;
 const SECRET = new RegExp(
