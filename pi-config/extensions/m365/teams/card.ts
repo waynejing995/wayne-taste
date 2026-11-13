@@ -9,7 +9,7 @@
  * Links become buttons, `details` a collapsed section, a fact's `detail` a panel its row opens. The model fills fields, never card JSON: a free-form card is
  * a second rendering language to get wrong, and these four cover "tell", "report", "ask" and "agent digest".
  *
- * Every card opens with the agent badge and ends with the AGENT_FOOTER_TEXT line. The footer is the echo guard: a
+ * Every card opens with the agent badge and ends with the agentFooterText() line. The footer is the echo guard: a
  * card read back (cardText) ends with it, the same as a text send's footer, so the self-chat watch skips its own cards.
  */
 import { Marked } from "marked";
@@ -20,11 +20,32 @@ import type { Mention } from "./mentions.ts";
 export const CARD_CONTENT_TYPE = "application/vnd.microsoft.card.adaptive";
 
 /**
- * Marks a message the agent sent rather than one the user typed. Text sends end with it as an italic footer, cards
- * with it as their last line. The self-chat watch skips notes ending in it (isAgentSend), so a reply to a card or
- * note never comes back as a new one.
+ * Marks a message the agent sent rather than one the user typed: `sent by <harness> agent`, one value per process,
+ * set by the harness when it starts (omp: "omp"; the MCP server: the client's name). Text sends end with it as an
+ * italic footer, cards with it as their last line. The self-chat watch skips notes ending in it (isAgentSend), so a
+ * reply to a card or note never comes back as a new one.
  */
-export const AGENT_FOOTER_TEXT = "sent by pi agent";
+let footerText = footerTextFor(undefined);
+
+/** The footer for a harness name, cut to [a-z0-9-]; no usable name gives "sent by agent". */
+export function footerTextFor(harness: string | undefined): string {
+	const name = (harness ?? "")
+		.toLowerCase()
+		.replace(/[^a-z0-9-]+/g, "-")
+		.replace(/-{2,}/g, "-")
+		.replace(/^-|-$/g, "");
+	return name ? `sent by ${name} agent` : "sent by agent";
+}
+
+/** Name the harness this process runs in; called once, when the harness starts. */
+export function setAgentHarness(harness: string | undefined): void {
+	footerText = footerTextFor(harness);
+}
+
+/** This process's footer line. */
+export function agentFooterText(): string {
+	return footerText;
+}
 const AGENT_BADGE = "🤖 pi agent";
 
 export type Tone = "good" | "warning" | "attention";
@@ -248,7 +269,7 @@ export function buildCard(spec: CardSpec): El {
 			spacing: "Medium",
 			items: [text("Details", { weight: "Bolder", isSubtle: true }), text(spec.details, { spacing: "Small" })],
 		});
-	body.push(text(AGENT_FOOTER_TEXT, { size: "Small", isSubtle: true, separator: true }));
+	body.push(text(agentFooterText(), { size: "Small", isSubtle: true, separator: true }));
 	const actions: El[] = [
 		...(spec.links ?? []).map((l) => ({ type: "Action.OpenUrl", title: l.title, url: l.url })),
 		...(spec.details ? [{ type: "Action.ToggleVisibility", title: "Details", targetElements: ["details"] }] : []),
@@ -355,7 +376,7 @@ function adaptiveBlocks(card: El): string[] {
 	};
 	walk(card.body);
 	// The card's own buttons come before the footer, so a card the agent sent still ends with it.
-	const footer = out.at(-1) === AGENT_FOOTER_TEXT ? out.pop() : undefined;
+	const footer = out.at(-1) === agentFooterText() ? out.pop() : undefined;
 	actions(card.actions);
 	if (footer) out.push(footer);
 	return out;
@@ -405,13 +426,14 @@ export function attachedCardText(content: unknown, contentType: string = CARD_CO
 }
 
 /**
- * The agent's own send, read back as text: a text send's footer or a card's last line, not quoted. Images a send carries come
- * after the footer and read back as "[name]", and the footer is italic, so both are cut before the check.
+ * The agent's own send, read back as text: this process's footer as a text send's last line or a card's, not quoted.
+ * Images a send carries come after the footer and read back as "[name]", and the footer is italic, so both are cut
+ * before the check. Only this process's footer counts: another harness's footer is someone else's send.
  */
 export function isAgentSend(text: string): boolean {
 	const end = text.trim().replace(/(\s*\[[^\]\n]*\])+$/, "").replace(/\*+$/, "");
-	// A forward of the agent's send ends in its footer too, quoted ("> sent by pi agent"): that one a person sent.
-	return end.endsWith(AGENT_FOOTER_TEXT) && !/^>/.test(end.slice(end.lastIndexOf("\n") + 1));
+	// A forward of the agent's send ends in its footer too, quoted ("> sent by omp agent"): that one a person sent.
+	return end.endsWith(agentFooterText()) && !/^>/.test(end.slice(end.lastIndexOf("\n") + 1));
 }
 
 /**

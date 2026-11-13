@@ -387,11 +387,12 @@ self-chat message still goes through chatsvc.
 @mentions in a card's `message` show as bold names in the card and notify from
 the message body beside it, as `<at>` tags with the usual `mentions` array.
 
-Every card ends with the line `sent by pi agent`, the same words a text send
-ends with. Reading back, a card's text is the card itself (Graph: the
-attachment; chatsvc: `properties.cards`), so the self-chat watch recognises the
-agent's own card by that last line and never answers it (`isAgentSend` in
-`card.ts`).
+Every card ends with the line `sent by <harness> agent` (`sent by omp agent` in omp; over MCP the client's name,
+e.g. `sent by claude-code agent`; `sent by agent` when the harness has no name), the same words a text send ends
+with. The harness names itself once, when it starts (`setAgentHarness` in `card.ts`). Reading back, a card's text
+is the card itself (Graph: the attachment; chatsvc: `properties.cards`), so the self-chat watch recognises the
+agent's own card by that last line and never answers it (`isAgentSend` in `card.ts`). Only this process's footer
+counts: a send footed by another harness is someone else's.
 
 ## @mentions
 

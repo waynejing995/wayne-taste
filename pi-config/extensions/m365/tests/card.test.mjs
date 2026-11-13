@@ -21,9 +21,11 @@ const jiti = createJiti(import.meta.url, {
 	},
 	interopDefault: true,
 });
-const { buildCard, cardText, cardMentions, isAgentSend, idleLabel, sortAgents, CARD_CONTENT_TYPE, AGENT_FOOTER_TEXT } = await jiti.import(
-	join(ROOT, "teams", "card.ts"),
-);
+const { buildCard, cardText, cardMentions, isAgentSend, idleLabel, sortAgents, CARD_CONTENT_TYPE, agentFooterText, footerTextFor, setAgentHarness } =
+	await jiti.import(join(ROOT, "teams", "card.ts"));
+// The harness omp names when the extension loads; every footer below is this one.
+setAgentHarness("omp");
+const FOOTER = agentFooterText();
 const { GraphBackend, msgText } = await jiti.import(join(ROOT, "teams", "graph-backend.ts"));
 const { GraphClient } = await jiti.import(join(ROOT, "core", "graph.ts"));
 const { SkypeClient } = await jiti.import(join(ROOT, "teams", "skype.ts"));
@@ -49,7 +51,7 @@ const DECISION = {
 
 await check("a card opens with the agent badge and ends with the footer line", () => {
 	const lines = cardText(buildCard({ title: "Build 412", text: "It is **green**." })).split("\n");
-	deepStrictEqual(lines, ["🤖 pi agent", "Build 412", "It is **green**.", AGENT_FOOTER_TEXT]);
+	deepStrictEqual(lines, ["🤖 pi agent", "Build 412", "It is **green**.", FOOTER]);
 });
 
 await check("a decision keeps its context, every option with its consequence, marks only the recommended one with the reason", () => {
@@ -74,7 +76,7 @@ await check("a non-https link is refused; an https one becomes a button whose UR
 	const card = buildCard({ text: "x", links: [{ title: "PR", url: "https://github.com/a/b/pull/1" }] });
 	deepStrictEqual(card.actions, [{ type: "Action.OpenUrl", title: "PR", url: "https://github.com/a/b/pull/1" }]);
 	const lines = cardText(card).split("\n");
-	deepStrictEqual(lines.slice(-2), ["[PR](https://github.com/a/b/pull/1)", AGENT_FOOTER_TEXT]);
+	deepStrictEqual(lines.slice(-2), ["[PR](https://github.com/a/b/pull/1)", FOOTER]);
 });
 
 await check("facts keep their order and colour their value by tone", () => {
@@ -243,9 +245,34 @@ await check("the agent's card read back from the self-chat (chatsvc properties.c
 
 await check("a person's message is not the agent's send, even one quoting the footer mid-text", () => {
 	ok(!isAgentSend("can you check build 412?"));
-	ok(!isAgentSend("why does it say sent by pi agent at the bottom?"));
-	ok(isAgentSend("PONG\n\n*sent by pi agent*"), "a text send's italic footer");
-	ok(isAgentSend("shot\nsent by pi agent\n[draft-owner.png]"), "a text send with an image");
+	ok(!isAgentSend("why does it say sent by omp agent at the bottom?"));
+	ok(isAgentSend("PONG\n\n*sent by omp agent*"), "a text send's italic footer");
+	ok(isAgentSend("shot\nsent by omp agent\n[draft-owner.png]"), "a text send with an image");
+	ok(!isAgentSend("PONG\n> sent by omp agent"), "a quoted forward of it");
+});
+
+// ── the footer names the harness ─────────────────────────────────────────────
+
+await check("the footer is 'sent by <harness> agent', the name cut to [a-z0-9-], and 'sent by agent' without one", () => {
+	deepStrictEqual(
+		[footerTextFor("omp"), footerTextFor("claude-code"), footerTextFor("Cursor IDE"), footerTextFor("codex_cli/1.2"), footerTextFor(undefined), footerTextFor("  ")],
+		["sent by omp agent", "sent by claude-code agent", "sent by cursor-ide agent", "sent by codex-cli-1-2 agent", "sent by agent", "sent by agent"],
+	);
+	equal(FOOTER, "sent by omp agent");
+});
+
+await check("the echo guard knows only this process's footer: not another harness's, not the old 'sent by pi agent'", () => {
+	ok(!isAgentSend("PONG\n\n*sent by pi agent*"), "the old pi footer");
+	ok(!isAgentSend("PONG\n\n*sent by claude-code agent*"), "another harness's footer");
+	ok(!isAgentSend("PONG\n\n*sent by agent*"), "the unnamed footer");
+	setAgentHarness("claude-code");
+	try {
+		ok(isAgentSend("PONG\n\n*sent by claude-code agent*"), "claude-code's own footer once it is the harness");
+		ok(!isAgentSend("PONG\n\n*sent by omp agent*"), "omp's footer is now someone else's");
+		ok(cardText(buildCard({ text: "x" })).endsWith("sent by claude-code agent"), "cards carry it too");
+	} finally {
+		setAgentHarness("omp");
+	}
 });
 
 console.log(failed === 0 ? "\nall green" : `\n${failed} failed`);

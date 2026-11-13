@@ -33,12 +33,15 @@ import type { TextContent } from "@earendil-works/pi-ai";
 import * as auth from "../core/auth.ts";
 import { describeImage } from "../core/describe-image.ts";
 import { setStatusPart } from "../core/status-row.ts";
+import { setAgentHarness } from "./card.ts";
 import { openComposeOverlay } from "./compose-overlay.ts";
 import { CHATS_REVALIDATE_MS, createTeams } from "./core.ts";
 import { askTurnGate } from "./turn-gate.ts";
 import type { ChatsPage } from "./types.ts";
 
 export default function (pi: ExtensionAPI) {
+	// The agent's sends are footed "sent by omp agent"; the echo guard knows this footer, and only this one.
+	setAgentHarness("omp");
 	let transient = ""; // "sending…" / "sent ✓" / "send failed"
 
 	let unreadTimer: ReturnType<typeof setInterval> | undefined;

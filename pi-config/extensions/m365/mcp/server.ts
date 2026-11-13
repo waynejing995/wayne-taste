@@ -22,6 +22,7 @@ import { Value } from "typebox/value";
 import * as auth from "../core/auth.ts";
 import type { ToolContent, ToolContext, ToolDef, ToolResult } from "../core/tool.ts";
 import { createOutlook } from "../outlook/tools.ts";
+import { setAgentHarness } from "../teams/card.ts";
 import { createTeams, type TeamsHost } from "../teams/core.ts";
 import { describeOwner } from "../teams/watch.ts";
 import { type Channel, CHANNEL_INSTRUCTIONS, type ChannelEvent, logFailure, type Push, startChannel } from "./channel.ts";
@@ -170,6 +171,8 @@ export function createServer(): Server {
 	});
 
 	server.oninitialized = () => {
+		// One client per process: its name foots every send ("sent by claude-code agent"), and the echo guard knows only that.
+		setAgentHarness(server.getClientVersion()?.name);
 		if (!canTakePushes(server)) {
 			console.error(`[${NAME}] ${noPush()}: tools only, no channel`);
 			return;

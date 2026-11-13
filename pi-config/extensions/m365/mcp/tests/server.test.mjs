@@ -24,6 +24,7 @@ const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
 const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
 const { createServer, mcpContent, requireLogin } = await import("../server.ts");
 const { factArgv } = await import("../inbox.ts");
+const { agentFooterText } = await import("../../teams/card.ts");
 const { startChannel } = await import("../channel.ts");
 const { claim, listOwners } = await import("../../teams/watch.ts");
 const { LEASE_ID, LAUNCHER, readCursor, writeCursor } = await import("../../inbox/delivery.ts");
@@ -88,6 +89,7 @@ rules([]);
 	);
 	check("every tool has an object input schema", () => deepStrictEqual(tools.filter((t) => t.inputSchema?.type !== "object").map((t) => t.name), []));
 	check("claude/channel is always declared", () => deepStrictEqual(client.getServerCapabilities()?.experimental, { "claude/channel": {} }));
+	check("the footer names the client from initialize", () => deepStrictEqual(agentFooterText(), "sent by test agent"));
 	const fact = tools.find((t) => t.name === "inbox_fact");
 	check("inbox_fact offers the fact kinds", () => deepStrictEqual(fact.inputSchema.properties.kind.anyOf.map((k) => k.const), ["endpoint", "cred", "decision", "owed", "info"]));
 	check("inbox_fact passes --kind only when given", () =>

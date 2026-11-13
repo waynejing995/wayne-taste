@@ -22,7 +22,7 @@ import { safeName, saveNew } from "../core/save-file.ts";
 import { formatLocal } from "../core/time.ts";
 import type { Backend, SelfMessage, UnreadItem } from "./backend.ts";
 import { ScriptBackend } from "./backend.ts";
-import { AGENT_STATUSES, AGENT_FOOTER_TEXT, buildCard, cardMentions, isAgentSend } from "./card.ts";
+import { AGENT_STATUSES, agentFooterText, buildCard, cardMentions, isAgentSend } from "./card.ts";
 import { findChat, GraphBackend } from "./graph-backend.ts";
 import { escapeHtml } from "./html.ts";
 import { type Mention, renderWithMentions } from "./mentions.ts";
@@ -155,11 +155,11 @@ function pruneImages(): void {
 /** A picture larger than this is saved but not attached: model APIs refuse images past ~5 MB of base64. */
 const IMAGE_ATTACH_MAX = 3_500_000;
 /**
- * The footer a text send ends with; AGENT_FOOTER_TEXT and the echo guard (isAgentSend) live in card.ts, whose cards
- * end with the same line. Only teams_send adds it: anything composed by hand in /teams was typed by a person and must
- * not claim otherwise.
+ * The footer a text send ends with; the footer line (agentFooterText) and the echo guard (isAgentSend) live in card.ts,
+ * whose cards end with the same line. Only teams_send adds it: anything composed by hand in /teams was typed by a person
+ * and must not claim otherwise. Read at send time: the harness names itself once, when it starts.
  */
-const AGENT_FOOTER = `\n\n---\n\n*${AGENT_FOOTER_TEXT}*`;
+const agentFooter = () => `\n\n---\n\n*${agentFooterText()}*`;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -814,7 +814,7 @@ export function createTeams(pi: TeamsHost) {
 		if (!cfg.selfReply) return;
 		const list = commands.map((c) => `- ${c.length > 80 ? `${c.slice(0, 80)}…` : c}`).join("\n");
 		try {
-			await send({ kind: "self" }, mdToHtml(`ACK\n\n${list}${AGENT_FOOTER}`), true);
+			await send({ kind: "self" }, mdToHtml(`ACK\n\n${list}${agentFooter()}`), true);
 		} catch (e) {
 			ctx.ui.notify(`Teams self-chat ACK failed: ${e}`, "error");
 		}
@@ -1146,7 +1146,7 @@ export function createTeams(pi: TeamsHost) {
 				const asCard =
 					params.card ?? (cardFields.some((k) => params[k] !== undefined) || (params.target !== "self" && cfg.backend !== "script"));
 				if (!asCard) {
-					const { html: payload, mentions } = renderWithMentions(message + AGENT_FOOTER);
+					const { html: payload, mentions } = renderWithMentions(message + agentFooter());
 					const msg = await send(target, payload, true, mentions, images, undefined, files);
 					flash(ctx, "sent ✓");
 					return { content: [{ type: "text", text: msg }], details: {} };
@@ -1563,7 +1563,7 @@ export function createTeams(pi: TeamsHost) {
 		replyDue = false;
 		if (!cfg.selfReply || !lastAssistantText.trim()) return;
 		try {
-			const html = `<b>🤖 pi · ${escapeHtml(path.basename(ctx.cwd))}</b><br><br>${mdToHtml(truncate(lastAssistantText.trim()) + AGENT_FOOTER)}`;
+			const html = `<b>🤖 pi · ${escapeHtml(path.basename(ctx.cwd))}</b><br><br>${mdToHtml(truncate(lastAssistantText.trim()) + agentFooter())}`;
 			await send({ kind: "self" }, html, true);
 			flash(ctx, "replied ✓");
 		} catch (e) {
