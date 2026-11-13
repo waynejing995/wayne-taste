@@ -2,13 +2,14 @@
 /**
  * Stands in for `omp -p --mode json` running the teams-digest prompt. It follows only what the prompt it is given
  * says, so a test passes only when the real prompt carries the real contract:
- * - the boundary is the time after "`active_since`" in the prompt; no such time, no teams_chats call;
- * - it reads the self-chat and the chats its teams_chats call lists, each with that `since`;
+ * - the window is the times after "`active_since`" and "`until`" in the prompt; no start, no teams_chats call;
+ * - it reads the self-chat and the chats its teams_chats call lists, each with that `since` and `until`;
  * - it records one fact through the real `inbox fact` command;
  * - its last line is the receipt the prompt's "for example {...}" shows, filled in; a prompt without one gets the
  *   prompt's own last instruction instead.
  * Outside `--mode json` it prints plain text, as omp does. FAKE_DIGEST_MODE: ok, readfail (Ops cannot be read),
- * lie (never reads Ops, claims complete), exit (exits 1), factfail (the inbox fact command fails).
+ * lie (never reads Ops, claims complete), exit (exits 1), factfail (the inbox fact command fails), shortwindow (Ops
+ * is read only to a minute after the start).
  */
 import { execFileSync } from "node:child_process";
 
@@ -21,6 +22,8 @@ if (mode === "exit") {
 }
 const json = argv.includes("--mode") && argv[argv.indexOf("--mode") + 1] === "json";
 const since = /`active_since` (\d{4}-\d\d-\d\d \d\d:\d\d)/.exec(prompt)?.[1];
+const until = /`until` (\d{4}-\d\d-\d\d \d\d:\d\d)/.exec(prompt)?.[1];
+const window = until ? { since, until } : { since };
 const events = [];
 let n = 0;
 function call(toolName, args, text, isError = false) {
@@ -32,12 +35,15 @@ const failed = [];
 let findings = 0;
 if (since) {
 	call("teams_chats", { active_since: since }, "2 chat(s)\n- Ops  [group]  id: 19:ops@thread.v2\n- Lin  [oneOnOne]  id: 19:lin@unq.gbl.spaces");
-	call("teams_read", { target: "self", since, images: false }, "(no messages)");
+	call("teams_read", { target: "self", ...window, images: false }, "(no messages)");
 	if (mode === "readfail") {
-		call("teams_read", { chat_id: "19:ops@thread.v2", since, images: false }, "Graph 503 Service Unavailable", true);
+		call("teams_read", { chat_id: "19:ops@thread.v2", ...window, images: false }, "Graph 503 Service Unavailable", true);
 		failed.push({ chat: "Ops", reason: "Graph 503" });
-	} else if (mode !== "lie") call("teams_read", { chat_id: "19:ops@thread.v2", since, images: false }, "[11-10 11:00] lin: build server is build.example.com");
-	call("teams_read", { chat_id: "19:lin@unq.gbl.spaces", since, images: false }, "(no messages)");
+	} else if (mode === "shortwindow") {
+		const short = new Date(new Date(since).getTime() + 60_000);
+		call("teams_read", { chat_id: "19:ops@thread.v2", since, until: short.toISOString(), images: false }, "(no messages)");
+	} else if (mode !== "lie") call("teams_read", { chat_id: "19:ops@thread.v2", ...window, images: false }, "[11-10 11:00] lin: build server is build.example.com");
+	call("teams_read", { chat_id: "19:lin@unq.gbl.spaces", ...window, images: false }, "(no messages)");
 	const args = ["fact", "--kind", "endpoint", "--key", "build-server", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "The build server is build.example.com."];
 	if (mode === "factfail") args[2] = "bogus";
 	const command = `inbox ${args.map((a) => (/^[\w.,:-]+$/.test(a) ? a : `'${a}'`)).join(" ")}`;
@@ -59,7 +65,7 @@ if (example) {
 	if ("failed" in receipt) receipt.failed = failed;
 	last = JSON.stringify(receipt);
 } else last = prompt.trim().split("\n").at(-1);
-const text = `teams digest: ${findings} findings since ${since}\n${last}`;
+const text = `teams digest: ${findings} findings from ${since} to ${until}\n${last}`;
 if (!json) {
 	console.log(text);
 	process.exit(0);

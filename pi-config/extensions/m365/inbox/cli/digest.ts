@@ -4,8 +4,9 @@
  * The prompt's `{{receipt}}` is replaced by receiptInstructions(), so the text the agent reads and the shape the
  * runner parses come from RECEIPT_FIELDS here and nowhere else. The receipt is only the agent's claim, so the
  * runner also checks the agent's `--mode json` event stream: every chat `teams_chats active_since` listed, plus the
- * self-chat, needs a successful `teams_read` with `since` at or before the boundary, and every `inbox` write must
- * have succeeded. A chat the stream does not show as read is a failed chat, whatever the receipt says.
+ * self-chat, needs a successful `teams_read` with `since` at or before the window's start and `until` (if given) at or
+ * after its end, and every `inbox` write must have succeeded. A chat the stream does not show as read is a failed
+ * chat, whatever the receipt says.
  */
 import { InboxError } from "./ledger.ts";
 
@@ -91,12 +92,18 @@ function covers(value: unknown, boundary: number): boolean {
 	return typeof value === "string" && new Date(value).getTime() <= boundary;
 }
 
+/** True when a read's `until` reaches `end`: no `until` reads to now. */
+function reaches(value: unknown, end: number): boolean {
+	return value === undefined || (typeof value === "string" && new Date(value).getTime() >= end);
+}
+
 const CHAT_LINE = /^- (.*)  \[[^\]]*\]  id: (\S+)$/;
 
-/** Check one digest run's event stream against the contract. Throws when the run cannot be judged at all. */
-export function checkDigest(stdout: string, since: string): DigestCheck {
+/** Check one digest run's event stream against the contract for the window `since`..`until`. Throws when the run cannot be judged at all. */
+export function checkDigest(stdout: string, since: string, until: string): DigestCheck {
 	const boundary = new Date(since).getTime();
-	if (!Number.isFinite(boundary)) throw new InboxError(`teams digest boundary is not a time: ${since}`);
+	const end = new Date(until).getTime();
+	if (!Number.isFinite(boundary) || !Number.isFinite(end)) throw new InboxError(`teams digest window is not a time: ${since} to ${until}`);
 	const evs = events(stdout);
 	const all = calls(evs);
 	const lists = all.filter((c) => c.name === "teams_chats" && c.ok && covers(c.args.active_since, boundary));
@@ -111,9 +118,9 @@ export function checkDigest(stdout: string, since: string): DigestCheck {
 	const failed = new Map<string, string>();
 	for (const [id, name] of wanted) {
 		const mine = reads.filter((c) => (c.args.target === "self" ? SELF.id : c.args.chat_id) === id || (!c.args.chat_id && c.args.chat === name));
-		if (mine.some((c) => c.ok && covers(c.args.since, boundary))) continue;
+		if (mine.some((c) => c.ok && covers(c.args.since, boundary) && reaches(c.args.until, end))) continue;
 		const err = mine.find((c) => !c.ok);
-		failed.set(name, err ? `teams_read failed: ${err.text.slice(0, 120)}` : mine.length ? `teams_read did not read since ${since}` : "never read");
+		failed.set(name, err ? `teams_read failed: ${err.text.slice(0, 120)}` : mine.length ? `teams_read did not read since ${since} until ${until}` : "never read");
 	}
 	for (const c of all.filter((c) => c.name === "bash" && !c.ok && /\binbox\s+(ask|fact)\b/.test(String(c.args.command ?? "")))) {
 		const note = /--note\s+(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(String(c.args.command));

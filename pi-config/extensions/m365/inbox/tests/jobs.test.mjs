@@ -238,11 +238,12 @@ for (const [label, args] of [
 
 await check("schedule finish with the digest's checked event stream moves its boundary", async () => {
 	try {
-		digestJob(stamp(new Date(Date.now() - 60_000)));
-		const prompt = TEMPLATE_DIGEST.action.text.replaceAll("{{since}}", "2026-11-10 10:00").replaceAll("{{receipt}}", receiptInstructions());
+		const old = stamp(new Date(Date.now() - 3600_000));
+		digestJob(stamp(new Date(Date.now() - 60_000)), { last_ok: old });
+		const prompt = TEMPLATE_DIGEST.action.text.replaceAll("{{since}}", old).replaceAll("{{until}}", stamp(new Date(Date.now() + 120_000))).replaceAll("{{receipt}}", receiptInstructions());
 		const stream = execFileSync(FAKE_DIGEST, ["-p", "--mode", "json", prompt], { encoding: "utf8", env: { ...process.env, PATH: `${join(dirname(fileURLToPath(import.meta.url)), "..", "..", "bin")}:${process.env.PATH}` } });
 		ok((await run("schedule", "finish", "teams-digest", "--output", stream)).startsWith("ok teams-digest"));
-		ok(digest().last_ok > "2026-11-10 10:00");
+		ok(digest().last_ok > old);
 	} finally {
 		restoreAgent();
 	}
@@ -250,10 +251,10 @@ await check("schedule finish with the digest's checked event stream moves its bo
 
 await check("a verified digest clears backfill_since in rules.yaml; a failed one keeps it", async () => {
 	try {
-		digestJob("2026-11-10 12:00", { backfill_since: "2026-11-03 10:00" }, "readfail");
+		digestJob("2026-11-10 12:00", { backfill_since: "2026-11-10 08:00" }, "readfail");
 		await jobs.runDue({ session: false }, at("2026-11-10 12:00"));
-		strictEqual(digest().backfill_since, "2026-11-03 10:00");
-		ok(gapRows().some((r) => r.subject.endsWith("since 2026-11-03 10:00")), "the failed run read from the backfill boundary");
+		strictEqual(digest().backfill_since, "2026-11-10 08:00");
+		ok(gapRows().some((r) => r.subject.endsWith("since 2026-11-10 08:00")), "the failed run read from the backfill boundary");
 		const again = jobs.readJobs();
 		again[0].next_fire = "2026-11-10 14:00";
 		jobs.writeJobs(again);
@@ -262,6 +263,36 @@ await check("a verified digest clears backfill_since in rules.yaml; a failed one
 		strictEqual(digest().backfill_since, undefined);
 		ok(!readFileSync(join(home, "rules.yaml"), "utf8").includes("backfill_since"));
 		strictEqual(digest().last_ok, "2026-11-10 14:00");
+	} finally {
+		restoreAgent();
+	}
+});
+
+await check("a digest more than a day behind reads one day per run and catches up", async () => {
+	try {
+		digestJob("2026-11-10 12:00", { last_ok: "2026-11-08 10:00" });
+		ok((await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0].startsWith("ok teams-digest"));
+		strictEqual(digest().last_ok, "2026-11-08 10:00", "a window that ends before now is not the present");
+		strictEqual(digest().backfill_since, "2026-11-09 10:00");
+		strictEqual(digest().next_fire, "2026-11-10 12:01", "the next window runs at the next tick");
+		ok((await jobs.runDue({ session: false }, at("2026-11-10 12:01")))[0].startsWith("ok teams-digest"));
+		strictEqual(digest().backfill_since, "2026-11-10 10:00");
+		ok((await jobs.runDue({ session: false }, at("2026-11-10 12:02")))[0].startsWith("ok teams-digest"));
+		strictEqual(digest().backfill_since, undefined);
+		strictEqual(digest().last_ok, "2026-11-10 12:02");
+		strictEqual(digest().next_fire, "2026-11-10 14:02");
+	} finally {
+		restoreAgent();
+	}
+});
+
+await check("a digest read that stops before the window's end is a gap", async () => {
+	try {
+		digestJob("2026-11-10 12:00", { last_ok: "2026-11-08 10:00" }, "shortwindow");
+		ok((await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0].startsWith("fail teams-digest"));
+		strictEqual(digest().last_ok, "2026-11-08 10:00");
+		strictEqual(digest().backfill_since, undefined);
+		ok(gapRows().some((r) => r.subject === "Teams digest could not fully read Ops since 2026-11-08 10:00" && r.note.includes("until 2026-11-09 10:00")), rows().map((r) => `${r.subject} | ${r.note}`).join("\n"));
 	} finally {
 		restoreAgent();
 	}

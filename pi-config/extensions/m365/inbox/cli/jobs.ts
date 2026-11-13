@@ -290,8 +290,11 @@ export function agentArgv(agent: string | undefined, prompt: string, tools?: str
 	return [name, ...flags, prompt];
 }
 
-/** `verified`: a digest run whose event stream showed every chat read since `since` (digest.ts); only that moves its boundary. */
-type Outcome = { action: string; status: string; detail: string; text: string; error?: string; gaps?: FailedChat[]; since?: string; verified?: boolean };
+/**
+ * `verified`: a digest run whose event stream showed every chat read from `since` to `until` (digest.ts); only that
+ * moves its boundary.
+ */
+type Outcome = { action: string; status: string; detail: string; text: string; error?: string; gaps?: FailedChat[]; since?: string; until?: string; verified?: boolean };
 
 /** The job whose prompt carries the `{{receipt}}` contract (digest.ts) and whose run the runner checks. */
 const DIGEST = "teams-digest";
@@ -306,26 +309,37 @@ function boundary(job: Job): string {
 	return (job.backfill_since as string | undefined) ?? job.last_ok ?? stamp(new Date(Date.now() - 24 * 3600_000));
 }
 
+/** The longest window one digest run reads. A longer gap is read one window per run, so no single read outgrows the agent. */
+const DIGEST_WINDOW_MS = 24 * 3600_000;
+
+/** The window this fire reads: from the boundary to a day later, or to the fire if that is sooner. */
+function digestWindow(job: Job, at: Date): { since: string; until: string } {
+	const since = boundary(job);
+	return { since, until: stamp(new Date(Math.min(parseStamp(since).getTime() + DIGEST_WINDOW_MS, minute(at).getTime()))) };
+}
+
 /** Check a digest run's `--mode json` stream; the verified outcome, or a failure naming every chat not read. */
-function digestOutcome(stdout: string, since: string): Outcome {
+function digestOutcome(stdout: string, since: string, until: string): Outcome {
 	let check;
 	try {
-		check = checkDigest(stdout, since);
+		check = checkDigest(stdout, since, until);
 	} catch (e) {
 		const reason = e instanceof Error ? e.message : String(e);
 		throw digestFailure(`teams digest failed: ${reason}`, since, [{ chat: "all chats", reason }]);
 	}
 	if (check.failed.length) throw digestFailure(`teams digest incomplete: ${check.failed.map((f) => f.chat).join(", ")}`, since, check.failed);
-	return { action: "notify", status: "ok", detail: check.summary.slice(0, 200), text: check.summary, since, verified: true };
+	return { action: "notify", status: "ok", detail: check.summary.slice(0, 200), text: check.summary, since, until, verified: true };
 }
 
 /** Run the digest agent in JSON mode and check what it did, not what it says. */
-async function runDigest(job: Job, text: string, since: string, o: RunOptions): Promise<Outcome> {
+async function runDigest(job: Job, text: string, at: Date, o: RunOptions): Promise<Outcome> {
+	const { since, until } = digestWindow(job, at);
 	if (!text.includes("{{receipt}}")) throw digestFailure(`the ${DIGEST} prompt has no {{receipt}}: run \`inbox rules-migrate\``, since, [{ chat: "all chats", reason: "the prompt asks for no receipt" }]);
-	const argv = agentArgv(o.agent, text.replaceAll("{{since}}", since).replaceAll("{{receipt}}", receiptInstructions()), job.tools);
+	const prompt = text.replaceAll("{{since}}", since).replaceAll("{{until}}", until).replaceAll("{{receipt}}", receiptInstructions());
+	const argv = agentArgv(o.agent, prompt, job.tools);
 	argv.splice(1, 0, "--mode", "json");
 	try {
-		return digestOutcome(await runProcess(argv, timeoutSec(job), "prompt", inboxDir()), since);
+		return digestOutcome(await runProcess(argv, timeoutSec(job), "prompt", inboxDir()), since, until);
 	} catch (e) {
 		if (e instanceof InboxError && "gaps" in e) throw e;
 		const reason = e instanceof Error ? e.message : String(e);
@@ -333,7 +347,7 @@ async function runDigest(job: Job, text: string, since: string, o: RunOptions): 
 	}
 }
 
-async function execute(job: Job, o: RunOptions): Promise<Outcome> {
+async function execute(job: Job, o: RunOptions, at: Date): Promise<Outcome> {
 	const a = job.action;
 	if (a.kind === "tool" && a.name !== "teams_read") {
 		// Only this package's tools run in-process; any other becomes the user's own dispatch line on a `do` card.
@@ -344,9 +358,8 @@ async function execute(job: Job, o: RunOptions): Promise<Outcome> {
 	let output: string;
 	if (a.kind === "shell") output = await runProcess(a.argv, timeoutSec(job), "shell");
 	else if (a.kind === "prompt") {
-		const since = boundary(job);
-		if (job.name === DIGEST) return runDigest(job, a.text, since, o);
-		output = await runProcess(agentArgv(o.agent, a.text.replaceAll("{{since}}", since), job.tools), timeoutSec(job), "prompt", inboxDir());
+		if (job.name === DIGEST) return runDigest(job, a.text, at, o);
+		output = await runProcess(agentArgv(o.agent, a.text.replaceAll("{{since}}", boundary(job)), job.tools), timeoutSec(job), "prompt", inboxDir());
 	} else if (a.kind === "tool") {
 		if (!o.tool) throw new InboxError("tool jobs run only inside a live omp or pi session");
 		output = (await o.tool(a.name, a.args ?? {})).slice(0, OUTPUT_CAP);
@@ -372,10 +385,17 @@ function record(job: Job, fire: string, out: Outcome): string {
 function advance(job: Job, at: Date, out: Outcome): void {
 	job.next_fire = stamp(nextFire(job, at));
 	job.last = { status: out.status, at: stamp(at), detail: out.detail.slice(0, 200) };
-	// A digest's last_ok is the start of the last run that read every chat; a dispatch, skip or failure keeps it.
-	if (job.name === DIGEST ? out.verified : out.status !== "fail") job.last_ok = stamp(at);
-	// The backfill window is read once that run is verified; settle() writes this under the rules lock.
-	if (out.verified) delete job.backfill_since;
+	if (job.name !== DIGEST) {
+		if (out.status !== "fail") job.last_ok = stamp(at);
+	} else if (out.verified && out.until && out.until < stamp(at)) {
+		// One window of a longer gap: the next window starts where this one ended, at the next tick.
+		job.backfill_since = out.until;
+		job.next_fire = stamp(new Date(minute(at).getTime() + 60_000));
+	} else if (out.verified) {
+		// Read up to the fire: the backfill is done. A dispatch, skip or failure keeps both. settle() writes under the rules lock.
+		job.last_ok = out.until ?? stamp(at);
+		delete job.backfill_since;
+	}
 	job.fires = Number(job.fires ?? 0) + 1;
 }
 
@@ -410,7 +430,7 @@ async function one(job: Job, at: Date, o: RunOptions): Promise<string> {
 		if (!current || fireId(current) !== fire) return `skip ${job.name}: ${fire} already ran`;
 		let out: Outcome;
 		try {
-			out = await execute(current, o);
+			out = await execute(current, o, at);
 		} catch (e) {
 			out = failed(e);
 		}
@@ -468,9 +488,10 @@ export function finishFire(name: string, f: { output: string; verdict?: string; 
 	else if (f.verdict === "DISPATCHED") out = { action: "do", status: "dispatched", detail: summary || "prompt card sent", text: f.output };
 	else if (f.verdict === "SKIP") out = { action: "log", status: "skip", detail: summary || "judge skipped", text: f.output };
 	else if (name === DIGEST) {
-		// The output must be the run's `--mode json` stream, checked like the runner's own run.
+		// The output must be the run's `--mode json` stream for this fire's window, checked like the runner's own run.
+		const { since, until } = digestWindow(job, at);
 		try {
-			out = digestOutcome(f.output, boundary(job));
+			out = digestOutcome(f.output, since, until);
 		} catch (e) {
 			out = failed(e);
 		}
@@ -484,7 +505,7 @@ export function finishFire(name: string, f: { output: string; verdict?: string; 
 export async function execAction(name: string, agent?: string): Promise<string> {
 	const job = findJob(readJobs(), name);
 	if (job.action?.kind === "tool") throw new InboxError("a tool action runs inside the omp or pi session");
-	const out = await execute({ ...job, judge: "off" }, { session: false, agent });
+	const out = await execute({ ...job, judge: "off" }, { session: false, agent }, new Date());
 	return out.text;
 }
 
