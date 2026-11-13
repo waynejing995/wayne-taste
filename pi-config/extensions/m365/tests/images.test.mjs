@@ -240,5 +240,21 @@ console.log("\n== a share or mail download has no total time limit; a picture ke
 	check("the picture download still carries one", signals.image instanceof AbortSignal, true);
 }
 
+console.log("== throttling: chatsvc 429 waits and asks again ==");
+{
+	let calls = 0;
+	const { c } = skype((url) => {
+		if (!url.includes("/conversations/")) return undefined;
+		calls++;
+		return calls <= 2 ? { status: 429, body: { errorCode: 429, message: "API calls quota exceeded! 15Per10SecswithDepth6" } } : { body: { messages: [{ id: "9", content: "after the wait", messagetype: "Text" }] } };
+	});
+	c.throttleWaitMs = 1;
+	const msgs = await c.selfMessages("", 20);
+	check("a read throttled twice still returns the page", [calls, msgs.map((m) => m.text)], [3, ["after the wait"]]);
+	const { c: stuck } = skype((url) => (url.includes("/conversations/") ? { status: 429, body: {} } : undefined));
+	stuck.throttleWaitMs = 1;
+	check("a read that stays throttled still fails loudly", /chatsvc 429/.test(await threw(() => stuck.selfMessages("", 20))), true);
+}
+
 console.log(failed === 0 ? "\nall ok" : `\nFAIL ${failed}`);
 process.exit(failed === 0 ? 0 : 1);

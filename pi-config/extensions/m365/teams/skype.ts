@@ -152,6 +152,13 @@ export class SkypeClient {
 	}
 
 	/**
+	 * chatsvc's quota is 15 requests per 10 s; a long self-chat walk crosses it. A 429 waits out the window and asks
+	 * again, a few times; a read still throttled after that fails as before.
+	 */
+	throttleWaitMs = 10_000;
+	private static readonly THROTTLE_RETRIES = 3;
+
+	/**
 	 * A chatsvc request with the cached skype token. The token expires (about a day) and nothing
 	 * tells us when, so a 401 drops the cache, swaps for a fresh one and tries exactly once more.
 	 * Without this a long-lived session (a self-chat watch) went 401 forever until restarted.
@@ -166,10 +173,18 @@ export class SkypeClient {
 			const { url, init } = build(await this.authorize());
 			return this.doFetch(url, init);
 		};
-		const r = await once();
-		if (r.status !== 401) return r;
-		this.auth = undefined;
-		return once();
+		let r = await once();
+		if (r.status === 401) {
+			this.auth = undefined;
+			r = await once();
+		}
+		for (let i = 0; r.status === 429 && i < SkypeClient.THROTTLE_RETRIES; i++) {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			setTimeout(resolve, this.throttleWaitMs);
+			await promise;
+			r = await once();
+		}
+		return r;
 	}
 
 	private conversationUrl(messaging: string, suffix = "", conversation = SELF_CONVERSATION): string {
