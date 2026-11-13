@@ -20,7 +20,7 @@ import * as auth from "../core/auth.ts";
 import type { ToolContent, ToolContext, ToolDef, ToolResult } from "../core/tool.ts";
 import { createOutlook } from "../outlook/tools.ts";
 import { createTeams, type TeamsHost } from "../teams/core.ts";
-import { CHANNEL_INSTRUCTIONS, type ChannelEvent, startChannel } from "./channel.ts";
+import { CHANNEL_INSTRUCTIONS, type ChannelEvent, logFailure, type Push, startChannel } from "./channel.ts";
 import { inboxTools } from "./inbox.ts";
 
 const NAME = "m365";
@@ -87,17 +87,18 @@ export function mcpContent(content: ToolContent[]): ({ type: "text"; text: strin
  */
 export function createServer(options: { channel: boolean }): Server {
 	const tools: ToolDef[] = [];
-	let pushEvent: ((event: ChannelEvent) => void) | undefined;
+	let pushEvent: Push | undefined;
+	const send = (event: ChannelEvent) => pushEvent && logFailure(pushEvent(event));
 	const host: TeamsHost = {
 		registerTool: (tool) => void tools.push(tool as unknown as ToolDef),
 		exec: run,
 		sendMessage: (message, delivery, meta) =>
-			pushEvent?.({
+			send({
 				kind: "card",
 				content: typeof message.content === "string" ? message.content : message.content.flatMap((p) => (p.type === "text" ? [p.text] : [])).join("\n"),
 				meta: { chat_id: message.details.chatId, sender: meta.senders.join(", "), policy: message.details.policy, turn: delivery.triggerTurn ? "yes" : "no" },
 			}),
-		sendUserMessage: (text, _options, meta) => pushEvent?.({ kind: "instruction", content: text, meta: { chat_id: meta.chatId, sender: "user", policy: meta.policy } }),
+		sendUserMessage: (text, _options, meta) => send({ kind: "instruction", content: text, meta: { chat_id: meta.chatId, sender: "user", policy: meta.policy } }),
 	};
 	const teams = createTeams(host);
 	createOutlook({ registerTool: host.registerTool });
@@ -148,10 +149,7 @@ export function createServer(options: { channel: boolean }): Server {
 				console.error(`[${NAME}] M365_CHANNEL=1 but the client is ${client}, not Claude Code: no channel`);
 				return;
 			}
-			pushEvent = (event) =>
-				void server
-					.notification({ method: "notifications/claude/channel", params: { content: event.content, meta: { kind: event.kind, ...event.meta } } })
-					.catch((e) => console.error(`[${NAME}] channel push failed: ${errorText(e)}`));
+			pushEvent = (event) => server.notification({ method: "notifications/claude/channel", params: { content: event.content, meta: { kind: event.kind, ...event.meta } } });
 			const stop = startChannel({ teams, context, push: pushEvent });
 			server.onclose = () => void stop();
 		};

@@ -24,7 +24,8 @@ const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.j
 const { createServer, mcpContent, requireLogin } = await import("../server.ts");
 const { startChannel } = await import("../channel.ts");
 const { listOwners } = await import("../../teams/watch.ts");
-const { LEASE_ID } = await import("../../inbox/delivery.ts");
+const { LEASE_ID, LAUNCHER, readCursor } = await import("../../inbox/delivery.ts");
+const { execFileSync } = await import("node:child_process");
 
 let failed = 0;
 const check = (label, fn) => {
@@ -169,6 +170,35 @@ const until = async (pred, ms = 5000) => {
 		deepStrictEqual([/teams_send/.test(text), /UNTRUSTED/.test(text)], [true, true]);
 	});
 	await server.close();
+	delete process.env.M365_CHANNEL_INBOX;
+}
+
+// ── Inbox cursor: advanced only after the push is delivered ─────────────────
+{
+	process.env.M365_CHANNEL_INBOX = "1";
+	// bun's execFileSync does not pass process.env changes on to the child without an explicit env.
+	const ask = (text, key) => execFileSync(LAUNCHER, ["ask", text, "--key", key], { env: process.env });
+	const before = readCursor();
+	const cards = [];
+	let fail = true;
+	const push = async (event) => {
+		if (event.kind !== "inbox") return;
+		if (fail) {
+			fail = false;
+			throw new Error("transport closed");
+		}
+		cards.push(event.content);
+	};
+	const teams = { startWatch: async () => "", setWatchInterval: () => "", stopAllWatches: () => {} };
+	ask("Lost?", "t3");
+	const stop = startChannel({ teams, context: {}, push });
+	await until(() => !fail);
+	await new Promise((r) => setTimeout(r, 200));
+	check("a push that rejects leaves the cursor unchanged", () => deepStrictEqual(readCursor(), before));
+	ask("And this?", "t4");
+	await until(() => cards.length > 0);
+	check("the next scan delivers the rows again", () => deepStrictEqual([/Lost\?/.test(cards[0] ?? ""), /And this\?/.test(cards[0] ?? "")], [true, true]));
+	stop();
 	delete process.env.M365_CHANNEL_INBOX;
 }
 

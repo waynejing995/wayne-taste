@@ -34,6 +34,9 @@ export interface ChannelEvent {
 	meta: Record<string, string>;
 }
 
+/** Sends one event; resolves once the transport has taken it, rejects when it could not. */
+export type Push = (event: ChannelEvent) => Promise<void>;
+
 /** The part of the Teams core the channel drives. */
 interface TeamsWatches {
 	startWatch(ctx: ToolContext, chatId?: string, name?: string, policy?: string, save?: boolean): Promise<string>;
@@ -51,11 +54,11 @@ export const CHANNEL_INSTRUCTIONS = [
 ].join("\n\n");
 
 /** Starts every source; the returned function stops them and releases every lock. */
-export function startChannel(opts: { teams: TeamsWatches; context: ToolContext; push: (event: ChannelEvent) => void }): () => void {
+export function startChannel(opts: { teams: TeamsWatches; context: ToolContext; push: Push }): () => void {
 	const { teams, context, push } = opts;
 	const notice = (text: string, meta: Record<string, string> = {}) => {
 		console.error(`[m365] channel: ${text}`);
-		push({ kind: "notice", content: text, meta: { sender: "m365", ...meta } });
+		logFailure(push({ kind: "notice", content: text, meta: { sender: "m365", ...meta } }));
 	};
 	const stops: (() => void)[] = [() => teams.stopAllWatches()];
 
@@ -85,8 +88,16 @@ export function startChannel(opts: { teams: TeamsWatches; context: ToolContext; 
 	};
 }
 
-/** Inbox cards, when no other session delivers them. Mirrors omp's /inbox watch: same lease, same cursor, same card. */
-async function startInbox(notice: (text: string) => void, push: (event: ChannelEvent) => void): Promise<(() => void) | undefined> {
+/** For events nothing is retried for: a failed send is logged, not lost silently. */
+export function logFailure(sent: Promise<void>): void {
+	sent.catch((e) => console.error(`[m365] channel push failed: ${e instanceof Error ? e.message : e}`));
+}
+
+/**
+ * Inbox cards, when no other session delivers them. Mirrors omp's /inbox watch: same lease, same cursor, same card.
+ * The cursor moves only after the card was sent, so a failed send leaves its rows for the next scan (or for omp).
+ */
+async function startInbox(notice: (text: string) => void, push: Push): Promise<(() => void) | undefined> {
 	if (!isSetUp()) {
 		notice(`Inbox cards off: ${DIR} is not set up (run /inbox setup in omp).`);
 		return undefined;
@@ -98,17 +109,34 @@ async function startInbox(notice: (text: string) => void, push: (event: ChannelE
 	}
 	const lease: WatchLease = claimed.lease;
 	initInbox();
-	const scan = () => {
+	const scanOnce = async () => {
 		try {
 			const cursor = readCursor() ?? 0;
 			const rows = readRows().filter((r) => Number(r.id) > cursor && PUSHED.has(r.action));
 			if (rows.length === 0) return;
 			const actions = [...new Set(rows.map((r) => r.action))].join(",");
-			push({ kind: "inbox", content: card(rows, LAUNCHER), meta: { sender: "inbox", policy: actions } });
+			await push({ kind: "inbox", content: card(rows, LAUNCHER), meta: { sender: "inbox", policy: actions } });
 			writeCursor(Math.max(...rows.map((r) => Number(r.id))));
 		} catch (e) {
-			console.error(`[m365] inbox scan failed: ${e instanceof Error ? e.message : e}`);
+			console.error(`[m365] inbox scan failed, its rows stay unpushed: ${e instanceof Error ? e.message : e}`);
 		}
+	};
+	// One scan at a time: a scan asked for while a send is outstanding runs after it, against the cursor it left.
+	let running: Promise<void> | undefined;
+	let again = false;
+	const scan = () => {
+		if (running) {
+			again = true;
+			return;
+		}
+		running = (async () => {
+			do {
+				again = false;
+				await scanOnce();
+			} while (again);
+		})().finally(() => {
+			running = undefined;
+		});
 	};
 	// The CLI renames a temp file over the ledger, so the directory is watched; the timer is the backstop.
 	const dirWatch = fs.watch(DIR, scan);
@@ -123,7 +151,7 @@ async function startInbox(notice: (text: string) => void, push: (event: ChannelE
 }
 
 /** Test-only: every line appended to `file` is pushed as a kind=local event. */
-function startLocal(file: string, push: (event: ChannelEvent) => void): () => void {
+function startLocal(file: string, push: Push): () => void {
 	fs.writeFileSync(file, "", { flag: "a" });
 	let offset = fs.statSync(file).size;
 	const read = () => {
@@ -135,7 +163,7 @@ function startLocal(file: string, push: (event: ChannelEvent) => void): () => vo
 		fs.closeSync(fd);
 		offset = size;
 		for (const line of buf.toString("utf8").split("\n").filter((l) => l.trim()))
-			push({ kind: "local", content: line, meta: { chat_id: "local", sender: "local-test", policy: "mechanism proof only: no reply" } });
+			logFailure(push({ kind: "local", content: line, meta: { chat_id: "local", sender: "local-test", policy: "mechanism proof only: no reply" } }));
 	};
 	const timer = setInterval(read, 1000);
 	return () => clearInterval(timer);
