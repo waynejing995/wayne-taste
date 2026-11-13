@@ -702,10 +702,11 @@ export class GraphBackend implements Backend {
 		const boundary = new Date(since).getTime();
 		if (!Number.isFinite(boundary)) throw new Error(`since is not a time: ${since}`);
 		const raw: RawMessage[] = [];
-		const start = `/chats/${chatId}/messages?$top=${MESSAGE_PAGE}`;
+		const start = `/chats/${chatId}/messages?$top=${MESSAGE_PAGE}&$orderby=createdDateTime desc`;
 		for await (const page of cursorPages(await this.messagesPage(start), (p) => p.older, (c) => this.messagesPage(c))) {
-			raw.push(...page.raw);
-			if (page.raw.some((m) => messageTime(m.createdDateTime) < boundary)) break;
+			const ordered = [...page.raw].sort((a, b) => messageTime(b.createdDateTime) - messageTime(a.createdDateTime));
+			raw.push(...ordered);
+			if (ordered.every((m) => messageTime(m.createdDateTime) < boundary)) break;
 		}
 		return raw.filter((m) => messageTime(m.createdDateTime) >= boundary);
 	}

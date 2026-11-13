@@ -45,12 +45,13 @@ const raw = (id, offset, text) => ({
 });
 
 const pages = {
-	[`/chats/${CHAT}/messages?$top=50`]: {
-		value: Array.from({ length: 50 }, (_, i) => raw(`new-${i}`, 250 - i, `new ${i}`)),
+	[`/chats/${CHAT}/messages?$top=50&$orderby=createdDateTime desc`]: {
+		value: [raw("edited-old", -30, "edited old"), ...Array.from({ length: 49 }, (_, i) => raw(`new-${i}`, 250 - i, `new ${i}`))],
 		"@odata.nextLink": "https://graph.microsoft.com/page-2",
 	},
 	"https://graph.microsoft.com/page-2": {
 		value: [
+			raw("new-49", 201, "new 49"),
 			...Array.from({ length: 151 }, (_, i) => raw(`old-${i}`, 200 - i, `kept ${i}`)),
 			raw("boundary", 0, "boundary"),
 		],
@@ -82,7 +83,7 @@ const fetchImpl = async (url) => {
 const backend = new GraphBackend(new GraphClient(async () => "T", fetchImpl), { whoami: async () => "Me" });
 
 const history = await backend.messages({ id: CHAT }, 200, SINCE);
-check("an unwatched chat reads every message since the boundary, past 200", history.messages.length, 202);
+check("an edited old message does not hide a newer message on the next page", history.messages.some((m) => m.text === "new 49") && !history.messages.some((m) => m.text === "edited old"), true);
 check("the oldest kept message is the boundary", history.messages[0].text, "boundary");
 check("the newest message is kept", history.messages.at(-1).text, "new 0");
 check("the walk stops after the first page older than the boundary", requested.includes("https://graph.microsoft.com/page-3") && !requested.includes("https://graph.microsoft.com/page-4"), true);
