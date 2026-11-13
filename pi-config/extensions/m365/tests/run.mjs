@@ -37,10 +37,12 @@ const groups = [
 	{ label: "teams bot cards", script: join(root, "tests", "bot-cards.test.mjs"), local: true },
 	{ label: "teams file sends", script: join(root, "tests", "files.test.mjs"), local: false },
 	{ label: "teams reactions", script: join(root, "tests", "reactions.test.mjs"), local: true },
+	// The MCP server runs under bun (Node's type stripping cannot load the Teams core), so its test does too.
+	{ label: "mcp server", script: join(root, "mcp", "tests", "server.test.mjs"), local: false, runtime: "bun" },
 	{ label: "teams (local-only)", script: join(root, "teams", "tests", "run.mjs"), local: true, isolated: true },
 ];
 let failed = 0;
-for (const { label, script, local, isolated } of groups) {
+for (const { label, script, local, isolated, runtime = process.execPath } of groups) {
 	if (local && !existsSync(script)) {
 		console.log(`SKIP  ${label}: not in this checkout`);
 		continue;
@@ -48,7 +50,7 @@ for (const { label, script, local, isolated } of groups) {
 	// A Teams watch is claimed with an abstract socket, which is per network namespace: in the
 	// host's namespace the suite collides with a live session's watch (the self-chat). `unshare
 	// -rn` gives it a namespace of its own, no root needed.
-	const [cmd, args] = isolated ? ["unshare", ["-rn", process.execPath, script]] : [process.execPath, [script]];
+	const [cmd, args] = isolated ? ["unshare", ["-rn", runtime, script]] : [runtime, [script]];
 	const r = spawnSync(cmd, args, { encoding: "utf8", cwd: dirname(dirname(script)) });
 	if (r.error) throw r.error;
 	const ok = r.status === 0;

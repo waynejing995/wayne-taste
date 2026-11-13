@@ -10,6 +10,7 @@ both; each half keeps its own tools (`teams_*`, `outlook_*`), its own command
 | `teams/` | Chats: unread count, the `/teams` overlay, send/read/people/download/transcript tools, chat watches (the self-chat takes `omp:`/`pi:` instructions) | `teams/README.md` — read its sign-in note first |
 | `outlook/` | Mail: the `/outlook` three-pane reader and composer, ten mail tools, signature | `outlook/README.md` |
 | `inbox/` | The inbox: a general ledger + scheduler. `inbox/cli/` is the `inbox` command (`bin/inbox`), the scheduler runs its jobs while a session is open, `/inbox watch` pushes new `notify`/`do` rows into this session as cards | [Inbox](#inbox) below |
+| `mcp/` | The same tools as an MCP server for Claude Code, Codex and Cursor | [Other harnesses (MCP)](#other-harnesses-mcp) below |
 
 ## core/
 
@@ -72,6 +73,63 @@ to, what to close) is armed as an `agent-result:<name>` then on that row.
 An optional `card-note.md` in the inbox directory is said on every inbox and Teams watch card (the user's own
 standing instructions for the agent that receives them).
 
+## Other harnesses (MCP)
+
+`mcp/server.ts` is a stdio MCP server, run with [bun](https://bun.sh) (Node's type stripping cannot load the Teams
+core). It serves the same tool objects omp registers, from `teams/core.ts` and `outlook/tools.ts`: every `teams_*`
+and `outlook_*` tool, plus `inbox_ls`, `inbox_ask`, `inbox_done`, `inbox_set`, `inbox_fact` and `inbox_facts`, which
+run `bin/inbox`. No UI: no overlays, status bar or commands.
+
+- **Sign-in** is omp's: the server reads the token cache `/teams init` wrote (`~/.cache/pi/teams-auth/`) and
+  refuses to start without it (`run /teams init in omp`). There is no second login.
+- **Pictures** come back as MCP image content, each with the local file path (`[image n saved: <file>]`).
+- **Watches** need a session that cards can be pushed into, so `teams_watch start` is refused here; `list` and
+  `stop` work.
+- **Write tools** (`teams_send`, `teams_react`, `outlook_send`, `outlook_draft`, `outlook_move`, `outlook_mark`,
+  `inbox_set`, `inbox_done`) have no confirmation of their own in the server: approval is the client's job (Claude
+  Code permissions or `allowedTools`, Codex `approval_mode`, Cursor's tool approval).
+
+`<wayne-skills>` is where you cloned the repo. `bun` must be on the harness's `PATH` (or give its full path).
+
+**Claude Code**: `.mcp.json` in the project (or `claude mcp add`):
+
+```json
+{
+  "mcpServers": {
+    "m365": {
+      "command": "bun",
+      "args": ["<wayne-skills>/pi-config/extensions/m365/mcp/server.ts"]
+    }
+  }
+}
+```
+
+**Codex**: `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.m365]
+command = "bun"
+args = ["<wayne-skills>/pi-config/extensions/m365/mcp/server.ts"]
+
+# `codex exec` runs with approval policy "never" and refuses MCP calls that need approval;
+# approve the tools it should run unattended, one table per tool:
+[mcp_servers.m365.tools.teams_chats]
+approval_mode = "approve"
+```
+
+**Cursor**: `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "m365": {
+      "command": "bun",
+      "args": ["<wayne-skills>/pi-config/extensions/m365/mcp/server.ts"]
+    }
+  }
+}
+```
+
 ## In Tern
 
 When omp runs in a [Tern](https://docs.stencil.so/tern/protocol/) pane it speaks
@@ -108,7 +166,8 @@ npm test               # node tests/run.mjs
 ```
 
 All offline: no sign-in, no network. Runs Outlook's suite, the package load
-check, and the Teams card tests (`tests/card.test.mjs`: the card builder, the
+check, the MCP server test (`mcp/tests/server.test.mjs`, under bun: tool listing and a call round trip over an
+in-memory transport), and the Teams card tests (`tests/card.test.mjs`: the card builder, the
 Graph card post, and the echo guard on cards read back). Teams' suite is local-only (`teams/.gitignore`: it was written against a
 real mailbox and holds real names and messages); it runs where it exists and is
 reported as skipped in a clone. It runs as `unshare -rn node teams/tests/run.mjs`
