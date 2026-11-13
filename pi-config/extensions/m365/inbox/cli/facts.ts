@@ -8,7 +8,7 @@ import { clean, doneRows, inboxFile, listRows, readTsv, stamp, withLock, type Ro
 import { InboxError } from "./ledger.ts";
 
 export const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
-const SECRET = /(?:password|passwd|secret|token|api[-_ ]?key)\s*[:=]\s*\S+/i;
+const SECRET = /(?:password|passwd|secret|token|api[-_ ]?key)(?:\s*[:=]\s*|\s+)(?!(?:lives|is|are|stored|kept)\b)[A-Za-z0-9_./+=-]{8,}/i;
 
 export interface Fact {
 	kind: string;

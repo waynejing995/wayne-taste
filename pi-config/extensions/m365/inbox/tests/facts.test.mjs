@@ -38,6 +38,7 @@ await check("upsert replaces one key and keeps superseded text", async () => {
 await check("cred stores a location and rejects a value", async () => {
 	await inbox(["fact", "--kind", "cred", "--key", "ci-token", "--", "CI token lives in the release vault"]);
 	await rejects(() => inbox(["fact", "--kind", "cred", "--key", "ci-token", "--", "token: abc123secret"]), /never its value/);
+	await rejects(() => inbox(["fact", "--kind", "cred", "--key", "ci-token", "--", "the token abc123secret is live"]), /never its value/);
 });
 
 await check("fact writes use the ledger lock", async () => {
