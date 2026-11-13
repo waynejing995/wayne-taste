@@ -156,6 +156,26 @@ await check("a prompt job runs the agent with {{since}} filled and keeps the own
 	strictEqual(rows()[0].note, "since 2026-11-10 11:00");
 });
 
+await check("a partial digest keeps the old boundary and the next run repeats it", async () => {
+	const scan = join(bin, "partial-scan");
+	writeFileSync(scan, "#!/usr/bin/env node\nconsole.log(JSON.stringify({ complete: false, failed: [\"Ops\"] }));\n");
+	chmodSync(scan, 0o755);
+	process.env.INBOX_AGENT = scan;
+	await run("schedule", "add", "teams-digest", "--every", "120", "--kind", "prompt", "--action", "scan {{since}}", "--quiet");
+	const all = jobs.readJobs();
+	all[0].next_fire = "2026-11-10 12:00";
+	all[0].last_ok = "2026-11-10 10:00";
+	jobs.writeJobs(all);
+	const line = (await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0];
+	ok(line.startsWith("fail teams-digest"), line);
+	ok(rows().some((r) => r.action === "do" && r.subject === "Teams digest could not fully read Ops"), `${line}\n${rows().map((r) => `${r.tag}:${r.action}:${r.subject}:${r.note}`).join("; ")}`);
+	strictEqual(jobs.readJobs()[0].last_ok, "2026-11-10 10:00");
+	const again = jobs.readJobs();
+	again[0].next_fire = "2026-11-10 14:00";
+	jobs.writeJobs(again);
+	ok((await jobs.runDue({ session: false }, at("2026-11-10 14:00")))[0].includes("2026-11-10 10:00") || jobs.readJobs()[0].last_ok === "2026-11-10 10:00");
+});
+
 await check("a job still running is left out of the next call, which runs the other due jobs", async () => {
 	await run("schedule", "add", "slow", "--every", "1", "--kind", "shell", "--timeout", "30", "--action", '["sleep", "3"]', "--quiet");
 	await run("schedule", "add", "fast", "--every", "1", "--kind", "shell", "--action", '["echo", "fast"]');

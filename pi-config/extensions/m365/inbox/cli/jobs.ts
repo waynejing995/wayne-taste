@@ -308,6 +308,20 @@ async function execute(job: Job, o: RunOptions): Promise<Outcome> {
 		if (!o.tool) throw new InboxError("tool jobs run only inside a live omp or pi session");
 		output = (await o.tool(a.name, a.args ?? {})).slice(0, OUTPUT_CAP);
 	} else throw new InboxError(`unknown action ${JSON.stringify(a)}`);
+	if (job.name === "teams-digest") {
+		let receipt: { complete?: boolean; failed?: string[] };
+		try {
+			receipt = JSON.parse(output.slice(output.lastIndexOf("{")));
+		} catch {
+			throw new InboxError("teams digest has no completion receipt");
+		}
+		const failedChats = receipt.failed ?? [];
+		if (receipt.complete !== true || failedChats.length > 0) {
+			const error = new InboxError(`teams digest incomplete: ${failedChats.join(", ") || "unknown chat"}`) as InboxError & { failedChats: string[] };
+			error.failedChats = failedChats;
+			throw error;
+		}
+	}
 	if (job.judge !== "on") return { action: "notify", status: "ok", detail: output.slice(0, 200), text: output };
 	if (!o.judge) throw new InboxError("judge needs the live session");
 	const { verdict, summary } = await o.judge(String(job.judge_prompt ?? ""), output);
@@ -320,6 +334,8 @@ function record(job: Job, fire: string, out: Outcome): string {
 	const fail = out.status === "fail";
 	if (job.quiet && !fail) return `quiet ${job.name}:${fire}`;
 	const subject = (fail ? `${job.name} ${fire} FAILED` : `${job.name} ${fire}`).slice(0, 200);
+	const marker = `${out.error ?? ""}\n${out.text}`;
+	for (const line of marker.split("\n")) if (line.startsWith("unread:")) recordDirect("ask-wayne", "do", `digest-gap:${line.slice(7)}`, `Teams digest could not fully read ${line.slice(7)}`, "teams-digest", "the next run keeps the old boundary", "", "coordinator");
 	recordDirect("schedule", out.action, `${job.name}:${fire}`, subject, "schedule", (out.error ?? out.text).slice(0, OUTPUT_CAP), "", job.owner || "wayne");
 	return `${out.action} ${job.name}:${fire}`;
 }
@@ -346,7 +362,9 @@ function settle(name: string, fire: string, at: Date, out: Outcome): string {
 
 function failed(e: unknown): Outcome {
 	const message = e instanceof Error ? e.message : String(e);
-	return { action: "notify", status: "fail", detail: message, text: "", error: message };
+	const failedChats = e && typeof e === "object" && "failedChats" in e ? (e.failedChats as string[]) : [];
+	const text = failedChats.map((chat) => `unread:${chat}`).join("\n");
+	return { action: "notify", status: "fail", detail: message, text, error: [message, text].filter(Boolean).join("\n") };
 }
 
 /** Run one due job if this caller can. Returns one line; leaves the job due when it cannot run it. */
