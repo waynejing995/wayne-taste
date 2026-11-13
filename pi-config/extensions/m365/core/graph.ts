@@ -14,6 +14,8 @@
  */
 
 const BASE = "https://graph.microsoft.com/v1.0";
+/** Upload session pieces must be a multiple of 320 KiB; 5 MiB keeps a slow link's retries short. */
+const UPLOAD_CHUNK = 16 * 320 * 1024;
 
 export class GraphError extends Error {
 	constructor(
@@ -35,7 +37,7 @@ export class GraphError extends Error {
 type ResponseBody = { status: number; text(): Promise<string>; arrayBuffer?(): Promise<ArrayBuffer>; body?: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> } } };
 type Transport = (
 	url: string,
-	init: { method?: string; headers: Record<string, string>; body?: string; signal?: AbortSignal },
+	init: { method?: string; headers: Record<string, string>; body?: string | Uint8Array; signal?: AbortSignal },
 ) => Promise<ResponseBody>;
 
 export class GraphClient {
@@ -141,6 +143,31 @@ export class GraphClient {
 		const text = await r.text();
 		if (r.status < 200 || r.status >= 300) this.fail(r.status, text, url);
 		return this.parse(text, r.status) as T;
+	}
+
+	/**
+	 * A file into OneDrive or SharePoint through an upload session, in UPLOAD_CHUNK pieces; the new driveItem.
+	 * `itemPath` names the item to create (`/me/drive/root:/Folder/name.txt:`). The name is never overwritten: a
+	 * taken one is renamed. The session URL is pre-authorised, and the bearer token is not sent to it.
+	 */
+	async upload<T = Record<string, unknown>>(itemPath: string, bytes: Uint8Array): Promise<T> {
+		if (bytes.length === 0) throw new Error("an empty file cannot be uploaded");
+		const session = await this.post<{ uploadUrl?: string }>(`${itemPath}/createUploadSession`, {
+			item: { "@microsoft.graph.conflictBehavior": "rename" },
+		});
+		if (!session.uploadUrl) throw new GraphError(`Graph gave no uploadUrl for ${itemPath}`, 0, JSON.stringify(session));
+		for (let start = 0; ; start += UPLOAD_CHUNK) {
+			const end = Math.min(start + UPLOAD_CHUNK, bytes.length);
+			const r = await this.doFetch(session.uploadUrl, {
+				method: "PUT",
+				headers: { "Content-Range": `bytes ${start}-${end - 1}/${bytes.length}` },
+				body: bytes.subarray(start, end),
+			});
+			const text = await r.text();
+			if (r.status < 200 || r.status >= 300) this.fail(r.status, text, itemPath);
+			// 202 asks for the next range; the last one answers 200 or 201 with the item.
+			if (end === bytes.length) return this.parse(text, r.status) as T;
+		}
 	}
 
 	/**

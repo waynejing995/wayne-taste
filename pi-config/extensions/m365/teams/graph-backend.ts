@@ -688,102 +688,195 @@ export class GraphBackend implements Backend {
 		mentions: Mention[] = [],
 		images: string[] = [],
 		card?: Record<string, unknown>,
+		files: string[] = [],
 	): Promise<void> {
 		if (mentions.length > 0 && !html) throw new Error("an @mention can only be sent as html");
 		if (images.length > 0 && !html) throw new Error("an image can only be sent as html");
-		// Read before anything is uploaded or posted: one bad file refuses the whole message. The paths come from the
-		// model, so only regular PNG/JPEG/GIF files totalling at most IMAGE_MAX_BYTES are read and sent: never a
-		// device, a secret, a huge file. A non-regular path is refused before it is opened, and the opened descriptor
-		// must be the same inode. Not defended: a concurrent rename of a parent directory between the stat and the
-		// open; only a process of this same user could race it, and that process can open the device itself.
-		let total = 0;
-		const files = images.map((p) => {
-			// The real path, so the open below can refuse a symlinked final component (O_NOFOLLOW).
-			const real = fs.realpathSync(p);
-			const named = fs.statSync(real);
-			if (!named.isFile()) throw new Error(`image ${p} is not a regular file`);
-			const fd = fs.openSync(real, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOCTTY | fs.constants.O_NOFOLLOW);
-			try {
-				const st = fs.fstatSync(fd);
-				if (!st.isFile() || st.dev !== named.dev || st.ino !== named.ino) throw new Error(`image ${p} changed while being read`);
-				total += st.size;
-				if (total > IMAGE_MAX_BYTES) throw new Error(`images total more than ${IMAGE_MAX_BYTES} bytes`);
-				const bytes = Buffer.alloc(st.size);
-				for (let off = 0; off < st.size; ) {
-					const n = fs.readSync(fd, bytes, off, st.size - off, off);
-					if (n === 0) throw new Error(`image ${p} shrank while being read`);
-					off += n;
-				}
-				const head = bytes.subarray(0, 8).toString("latin1");
-				const type = head.startsWith("\x89PNG\r\n\x1a\n")
-					? "image/png"
-					: head.startsWith("\xff\xd8\xff")
-						? "image/jpeg"
-						: head.startsWith("GIF8")
-							? "image/gif"
-							: "";
-				if (!type) throw new Error(`image ${p} is not a PNG, JPEG or GIF file`);
-				return { name: path.basename(p), bytes, type };
-			} finally {
-				fs.closeSync(fd);
-			}
+		if (files.length > 0 && !html) throw new Error("a file can only be sent as html");
+		// Read before anything is uploaded or posted: one bad file refuses the whole message. Pictures must be
+		// PNG/JPEG/GIF; files can be anything regular (readLocal).
+		const imageBudget = { left: IMAGE_MAX_BYTES, max: IMAGE_MAX_BYTES, what: "images" };
+		const pictures = images.map((p) => {
+			const bytes = readLocal(p, "image", imageBudget);
+			const head = bytes.subarray(0, 8).toString("latin1");
+			const type = head.startsWith("\x89PNG\r\n\x1a\n")
+				? "image/png"
+				: head.startsWith("\xff\xd8\xff")
+					? "image/jpeg"
+					: head.startsWith("GIF8")
+						? "image/gif"
+						: "";
+			if (!type) throw new Error(`image ${p} is not a PNG, JPEG or GIF file`);
+			return { name: path.basename(p), bytes, type };
 		});
+		const fileBudget = { left: FILE_MAX_BYTES, max: FILE_MAX_BYTES, what: "files" };
+		const attached = files.map((p) => ({ name: path.basename(p), bytes: readLocal(p, "file", fileBudget) }));
 		// Resolved before anything is posted: one address the directory does not
 		// know refuses the whole message.
 		const resolved = await resolveMentions(this.graph, mentions);
 
-		if (target.kind === "self" && !card) {
+		if (target.kind === "self" && !card && attached.length === 0) {
 			// 48:notes is chatsvc with a Skype token, not Graph. Its mention markup
 			// is chatsvc's own, so the resolved list goes to skype.ts unchanged.
 			const skype = this.requireSkype();
 			const uploaded = [];
-			for (const f of files) uploaded.push(await skype.uploadImage(f.bytes, f.name));
+			for (const f of pictures) uploaded.push(await skype.uploadImage(f.bytes, f.name));
 			await skype.send(message, html, resolved, uploaded);
 			return;
 		}
+
+		// Where the message goes, found before any file is uploaded: a chat name that matches nothing leaves no
+		// orphan in OneDrive.
+		let post: string;
+		let upload: (name: string, bytes: Uint8Array) => Promise<SharedFile>;
+		if (target.kind !== "channel") {
+			const id = target.kind === "self" ? "48:notes" : target.id || findChat(await this.allChats(), target.chat).id;
+			post = `/chats/${id}/messages`;
+			// A chat's files are the sender's: OneDrive's "Microsoft Teams Chat Files", the folder Teams itself uses,
+			// opened to exactly the chat's members. The self-chat has only me, and I own the file.
+			upload = async (name, bytes) => {
+				const item = await this.graph.upload<DriveItem>(`/me/drive/root:/${encodeURIComponent(CHAT_FILES)}/${encodeURIComponent(name)}:`, bytes);
+				if (target.kind === "chat") await this.shareWithMembers(item, id);
+				return sharedFile(item);
+			};
+		} else {
+			const teams = await this.graph.getAll<{ id: string; displayName?: string }>("/me/joinedTeams");
+			const team = matchOne(teams.map((t) => ({ ...t, label: t.displayName ?? "" })), target.team, "team");
+			const channels = await this.graph.getAll<{ id: string; displayName?: string }>(`/teams/${team.id}/channels`);
+			const channel = matchOne(channels.map((c) => ({ ...c, label: c.displayName ?? "" })), target.channel, "channel");
+			post = `/teams/${team.id}/channels/${channel.id}/messages`;
+			// A channel's files live in its own folder of the team's library, which its members can already read.
+			upload = async (name, bytes) => {
+				const folder = await this.graph.get<DriveItem>(`/teams/${team.id}/channels/${channel.id}/filesFolder`);
+				const drive = folder.parentReference?.driveId;
+				if (!drive || !folder.id) throw new Error(`channel ${target.channel} has no files folder`);
+				return sharedFile(await this.graph.upload<DriveItem>(`/drives/${drive}/items/${folder.id}:/${encodeURIComponent(name)}:`, bytes));
+			};
+		}
+		const shared: SharedFile[] = [];
+		for (const f of attached) shared.push(await upload(f.name, f.bytes));
 
 		// Carried, not guessed: posting RichText/Html unconditionally once made
 		// plain text containing "<" disappear as markup.
 		// With a card, `message` holds only what notifies (the mentions); the card follows it as an attachment the
 		// body points at, the shape Graph's own card example posts. Graph posts cards to the self-chat too.
 		// Pictures go inline as hostedContents: each `<img>` points at a temporary id the post carries the bytes under,
-		// and Teams stores them with the message.
+		// and Teams stores them with the message. Files are "reference" attachments: the uploaded item, by its id.
 		const attachmentId = card ? crypto.randomUUID().replaceAll("-", "") : "";
 		const content =
 			fillMentions(message, resolved, (m, i) => `<at id="${i}">${escapeHtml(m.name)}</at>`) +
-			files.map((f, i) => `<p><img src="../hostedContents/${i + 1}/$value" alt="${escapeHtml(f.name)}"></p>`).join("") +
-			(card ? `<attachment id="${attachmentId}"></attachment>` : "");
+			pictures.map((f, i) => `<p><img src="../hostedContents/${i + 1}/$value" alt="${escapeHtml(f.name)}"></p>`).join("") +
+			(card ? `<attachment id="${attachmentId}"></attachment>` : "") +
+			shared.map((f) => `<attachment id="${f.id}"></attachment>`).join("");
 		const graphMentions = resolved.map((m, i) => ({
 			id: i,
 			mentionText: m.name,
 			mentioned: { user: { id: m.oid, displayName: m.name, userIdentityType: "aadUser" } },
 		}));
+		const attachments = [
+			...(card ? [{ id: attachmentId, contentType: CARD_CONTENT_TYPE, content: JSON.stringify(card) }] : []),
+			...shared.map((f) => ({ id: f.id, contentType: "reference", contentUrl: f.url, name: f.name })),
+		];
 		// Only present when someone is mentioned: a plain message's body is unchanged.
 		const body = {
 			body: { contentType: html ? "html" : "text", content },
 			...(graphMentions.length > 0 ? { mentions: graphMentions } : {}),
-			...(files.length > 0
+			...(pictures.length > 0
 				? {
-						hostedContents: files.map((f, i) => ({
+						hostedContents: pictures.map((f, i) => ({
 							"@microsoft.graph.temporaryId": String(i + 1),
 							contentBytes: f.bytes.toString("base64"),
 							contentType: f.type,
 						})),
 					}
 				: {}),
-			...(card ? { attachments: [{ id: attachmentId, contentType: CARD_CONTENT_TYPE, content: JSON.stringify(card) }] } : {}),
+			...(attachments.length > 0 ? { attachments } : {}),
 		};
+		await this.graph.post(post, body);
+	}
 
-		if (target.kind !== "channel") {
-			const id = target.kind === "self" ? "48:notes" : target.id || findChat(await this.allChats(), target.chat).id;
-			await this.graph.post(`/chats/${id}/messages`, body);
-			return;
+	/**
+	 * Opens an uploaded chat file to exactly the chat's members, read-only: each by address, no invitation mail,
+	 * sign-in required. Never a link anyone or the whole organisation could use. A member Graph lists without an
+	 * address gets it by object id; one with neither refuses the send, as the file would be unreadable to them.
+	 */
+	private async shareWithMembers(item: DriveItem, chatId: string): Promise<void> {
+		const me = tokenClaim(await this.graph.rawToken(), "oid");
+		const members = await this.graph.getAll<{ userId?: string; email?: string; displayName?: string }>(`/chats/${chatId}/members`);
+		const recipients = members
+			.filter((m) => m.userId !== me)
+			.map((m) => {
+				if (m.email) return { email: m.email };
+				if (m.userId) return { objectId: m.userId };
+				throw new Error(`chat member ${m.displayName ?? "(unnamed)"} has no address to share ${item.name} with`);
+			});
+		if (recipients.length === 0) return;
+		const drive = item.parentReference?.driveId;
+		if (!drive || !item.id) throw new Error(`uploaded ${item.name} has no drive item id`);
+		await this.graph.post(`/drives/${drive}/items/${item.id}/invite`, {
+			recipients,
+			roles: ["read"],
+			requireSignIn: true,
+			sendInvitation: false,
+		});
+	}
+}
+
+/** The OneDrive folder Teams keeps chat files in; the name is Teams' own, the same in every tenant language. */
+const CHAT_FILES = "Microsoft Teams Chat Files";
+/** The most teams_send reads for files in one message: they are read whole before the first upload. */
+const FILE_MAX_BYTES = 250 * 1024 * 1024;
+
+interface DriveItem {
+	id?: string;
+	name?: string;
+	eTag?: string;
+	webUrl?: string;
+	webDavUrl?: string;
+	parentReference?: { driveId?: string };
+}
+
+/** What a "reference" attachment needs: the item's GUID (its eTag's), its direct URL, its name. */
+interface SharedFile {
+	id: string;
+	url: string;
+	name: string;
+}
+
+function sharedFile(item: DriveItem): SharedFile {
+	const id = /\{([0-9a-f-]{36})\}/i.exec(item.eTag ?? "")?.[1];
+	// The file's own address (…/Documents/Folder/name.ext), as Teams attaches it, not the Office viewer page webUrl
+	// can be.
+	const url = item.webDavUrl ?? item.webUrl;
+	if (!id || !url) throw new Error(`OneDrive did not describe uploaded ${item.name ?? "file"} (eTag ${item.eTag}, url ${url})`);
+	return { id: id.toLowerCase(), url, name: item.name ?? "file" };
+}
+
+/**
+ * One local file the model named, whole. The paths come from the model, so only regular files within the budget
+ * are read: never a device, a FIFO, a huge file. A non-regular path is refused before it is opened, and the opened
+ * descriptor must be the same inode. Not defended: a concurrent rename of a parent directory between the stat and
+ * the open; only a process of this same user could race it, and that process can open the device itself.
+ */
+function readLocal(p: string, kind: string, budget: { left: number; max: number; what: string }): Buffer {
+	// The real path, so the open below can refuse a symlinked final component (O_NOFOLLOW).
+	const real = fs.realpathSync(p);
+	const named = fs.statSync(real);
+	if (!named.isFile()) throw new Error(`${kind} ${p} is not a regular file`);
+	const fd = fs.openSync(real, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOCTTY | fs.constants.O_NOFOLLOW);
+	try {
+		const st = fs.fstatSync(fd);
+		if (!st.isFile() || st.dev !== named.dev || st.ino !== named.ino) throw new Error(`${kind} ${p} changed while being read`);
+		budget.left -= st.size;
+		if (budget.left < 0) throw new Error(`${budget.what} total more than ${budget.max} bytes`);
+		const bytes = Buffer.alloc(st.size);
+		for (let off = 0; off < st.size; ) {
+			const n = fs.readSync(fd, bytes, off, st.size - off, off);
+			if (n === 0) throw new Error(`${kind} ${p} shrank while being read`);
+			off += n;
 		}
-
-		const teams = await this.graph.getAll<{ id: string; displayName?: string }>("/me/joinedTeams");
-		const team = matchOne(teams.map((t) => ({ ...t, label: t.displayName ?? "" })), target.team, "team");
-		const channels = await this.graph.getAll<{ id: string; displayName?: string }>(`/teams/${team.id}/channels`);
-		const channel = matchOne(channels.map((c) => ({ ...c, label: c.displayName ?? "" })), target.channel, "channel");
-		await this.graph.post(`/teams/${team.id}/channels/${channel.id}/messages`, body);
+		return bytes;
+	} finally {
+		fs.closeSync(fd);
 	}
 }

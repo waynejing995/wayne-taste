@@ -551,9 +551,11 @@ export default function (pi: ExtensionAPI) {
 		mentions: Mention[] = [],
 		images: string[] = [],
 		card?: Record<string, unknown>,
+		files: string[] = [],
 	): Promise<string> {
-		await backend.send(target, message, html, mentions, images, card);
-		const uploaded = images.length ? ` Uploaded: ${images.join(", ")}.` : "";
+		await backend.send(target, message, html, mentions, images, card, files);
+		const all = [...images, ...files];
+		const uploaded = all.length ? ` Uploaded: ${all.join(", ")}.` : "";
 		return `Sent ${card ? "a card " : ""}to ${describeTarget(target)}.${uploaded}`;
 	}
 
@@ -1078,6 +1080,10 @@ export default function (pi: ExtensionAPI) {
 			"To show a picture (a screenshot, a rendered UI), pass local PNG/JPEG/GIF paths in `images`. " +
 			"The files are uploaded and shown inline under the text, in any chat, channel or the self-chat, " +
 			"with a card too. A Markdown image in `message` stays text and is not read or uploaded. " +
+			"To share any other file (a log, a PDF, a script), pass local paths in `files`: each is uploaded and " +
+			"attached to the message as a Teams file. In a chat it goes to the user's OneDrive \"Microsoft Teams Chat " +
+			"Files\" and is shared read-only with exactly that chat's members; in a channel it goes to the channel's " +
+			"files folder; in the self-chat it stays private. Only paths in `files` are read. " +
 			"Card: a chat or channel send goes out as an Adaptive Card with an agent badge: `title` on top, " +
 			"`message` as its text, and any of `facts` (status rows; a row's `detail` opens under it on a tap), `decision` (a question with its context and " +
 			"numbered options, each with its consequence, one marked recommended with the reason), `links` (buttons), " +
@@ -1112,6 +1118,13 @@ export default function (pi: ExtensionAPI) {
 					description:
 					"Local PNG/JPEG/GIF file paths, shown inline under the text (or under the card) in any target. " +
 					"Only paths in this parameter are read.",
+				}),
+			),
+			files: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"Local file paths of any type, uploaded and attached as Teams files (see the tool description). " +
+						"Only paths in this parameter are read.",
 				}),
 			),
 			card: Type.Optional(
@@ -1172,6 +1185,7 @@ export default function (pi: ExtensionAPI) {
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const images = (params.images ?? []).map((p) => path.resolve(ctx.cwd ?? process.cwd(), p));
+			const files = (params.files ?? []).map((p) => path.resolve(ctx.cwd ?? process.cwd(), p));
 			const message = params.message;
 			let target: SendTarget;
 			if (params.target === "self") {
@@ -1203,7 +1217,7 @@ export default function (pi: ExtensionAPI) {
 					params.card ?? (cardFields.some((k) => params[k] !== undefined) || (params.target !== "self" && cfg.backend !== "script"));
 				if (!asCard) {
 					const { html: payload, mentions } = renderWithMentions(message + AGENT_FOOTER);
-					const msg = await send(target, payload, true, mentions, images);
+					const msg = await send(target, payload, true, mentions, images, undefined, files);
 					flash(ctx as ExtensionContext, "sent ✓");
 					return { content: [{ type: "text", text: msg }], details: {} };
 				}
@@ -1211,7 +1225,7 @@ export default function (pi: ExtensionAPI) {
 				const { text, mentions: inCard } = cardMentions(message);
 				const card = buildCard({ ...params, text });
 				const { html: notify, mentions } = renderWithMentions(inCard.map((m) => `@[${m.name}](${m.email})`).join(" "));
-				const msg = await send(target, mentions.length > 0 ? notify : "", true, mentions, images, card);
+				const msg = await send(target, mentions.length > 0 ? notify : "", true, mentions, images, card, files);
 				flash(ctx as ExtensionContext, "sent ✓");
 				return { content: [{ type: "text", text: msg }], details: {} };
 			} catch (e) {

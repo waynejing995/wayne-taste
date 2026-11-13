@@ -120,8 +120,9 @@ export interface Backend {
 	 * graph backend can resolve them to people, so the script backend refuses.
 	 * `images` are local PNG/JPEG/GIF files shown inline under the text, in any chat, with or without a card.
 	 * `card` is an Adaptive Card (card.ts) posted after `message`, which then holds only the mentions.
+	 * `files` are local files of any type, uploaded to OneDrive (a chat) or the channel's folder and attached.
 	 */
-	send(target: SendTarget, message: string, html: boolean, mentions?: Mention[], images?: string[], card?: Record<string, unknown>): Promise<void>;
+	send(target: SendTarget, message: string, html: boolean, mentions?: Mention[], images?: string[], card?: Record<string, unknown>, files?: string[]): Promise<void>;
 }
 
 /** The script logs progress to stderr and emits exactly one JSON line on stdout. */
@@ -214,7 +215,9 @@ export class ScriptBackend implements Backend {
 		);
 	}
 
-	async send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = [], images: string[] = [], card?: Record<string, unknown>): Promise<void> {
+	async send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = [], images: string[] = [], card?: Record<string, unknown>, files: string[] = []): Promise<void> {
+		if (files.length > 0)
+			throw new Error('files need the graph backend. Set "backend": "graph" in ~/.pi/agent/teams.json, or send without files.');
 		if (images.length > 0)
 			throw new Error('images need the graph backend. Set "backend": "graph" in ~/.pi/agent/teams.json, or send without images.');
 		if (card)
