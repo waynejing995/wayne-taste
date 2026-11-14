@@ -13,7 +13,7 @@ import { LAUNCHER } from "../inbox/delivery.ts";
 const STATES = ["open", "claimed"];
 
 /** Commands that only read: a cancel or the timeout may kill them. Not `agent ls`: it migrates legacy registrations. */
-const READ_ONLY = new Set(["ls", "facts"]);
+const READ_ONLY = new Set(["ls"]);
 
 /**
  * Run `inbox <args>`; a non-zero exit is the tool's error, with the CLI's own message under the full command name

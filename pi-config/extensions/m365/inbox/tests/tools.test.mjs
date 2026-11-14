@@ -49,7 +49,7 @@ const names = () => readAgents().map((a) => a.name).sort();
 
 await check("omp registers every inbox tool", () =>
 	deepStrictEqual([...tools.keys()].sort(), [
-		"inbox_agent_add", "inbox_agent_ls", "inbox_agent_rm", "inbox_ask", "inbox_done", "inbox_fact", "inbox_facts",
+		"inbox_agent_add", "inbox_agent_ls", "inbox_agent_rm", "inbox_ask", "inbox_done", "inbox_fact",
 		"inbox_ls", "inbox_set", "inbox_then", "inbox_then_done",
 	]),
 );
@@ -166,13 +166,12 @@ await check("fact with a link stores the link in its row", async () => {
 });
 
 // Every parameter a tool advertises reaches this tree's CLI, and the CLI takes it (r7d review).
-await check("each tool with every optional parameter set gets no option error", async () => {
+await check("each tool with every optional parameter set succeeds against this CLI", async () => {
 	const row = (await call("inbox_ask", { text: "All options", key: "t9" })).split(" ")[1];
 	const all = [
 		["inbox_ls", { state: ["open", "claimed"], owner: "me", subject: "All" }],
 		["inbox_ask", { text: "Ask all", key: "t10", source: "test", note: "n", link: "https://example.com/a" }],
 		["inbox_fact", { text: "Fact all", key: "f11", source: "test", note: "n", link: "https://example.com/f" }],
-		["inbox_facts", { grep: "x" }],
 		["inbox_set", { ids: [row], state: "claimed", owner: "me", note: "n" }],
 		["inbox_then", { row, when: "at:2099-01-01 00:00", action: "check it" }],
 		["inbox_then_done", { row, n: "1", note: "n" }],
@@ -182,15 +181,9 @@ await check("each tool with every optional parameter set gets no option error", 
 		["inbox_done", { ids: [row], note: "n", force: true }],
 	];
 	deepStrictEqual(all.map(([t]) => t).sort(), [...tools.keys()].sort());
-	const optionErrors = [];
-	const outs = {};
-	for (const [name, params] of all) {
-		outs[name] = await call(name, params).then((t) => t, (e) => e.message);
-		if (name !== "inbox_facts" && /No such option|invalid choice|requires an argument|Usage:/i.test(outs[name])) optionErrors.push(`${name}: ${outs[name]}`);
-	}
-	deepStrictEqual(optionErrors, []);
-	// This tree's CLI has no `facts` command yet (the FactsFile branch adds it): the tool returns the CLI's own error.
-	match(outs.inbox_facts, /^inbox facts: Error: No such command 'facts/);
+	const errors = [];
+	for (const [name, params] of all) await call(name, params).catch((e) => errors.push(`${name}: ${e.message}`));
+	deepStrictEqual(errors, []);
 });
 
 await check("an error names a two-word command in full", async () => {
