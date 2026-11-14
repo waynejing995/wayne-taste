@@ -309,9 +309,29 @@ function digestFailure(message: string, since: string, gaps: FailedChat[]): Inbo
 	return Object.assign(new InboxError(message), { since, gaps });
 }
 
-/** The digest's `{{since}}`: a pending backfill, else the last verified run, else a day ago. */
+/** `{{since}}`: a pending backfill, else the last verified run. pinBoundary() sets one before a digest's first run; other jobs read a day back. */
 function boundary(job: Job): string {
-	return (job.backfill_since as string | undefined) ?? job.last_ok ?? stamp(new Date(Date.now() - 24 * 3600_000));
+	const since = (job.backfill_since as string | undefined) ?? job.last_ok;
+	if (since) return since;
+	if (job.name === DIGEST) throw new InboxError(`${job.name} has no boundary; pinBoundary() sets one before its first run`);
+	return stamp(new Date(Date.now() - 24 * 3600_000));
+}
+
+/**
+ * A digest that never ran reads from a day before its first fire. Write that start to rules.yaml under the rules lock
+ * before running, as a pending backfill_since, so a failed or skipped first run retries from the same start instead of
+ * a day before the retry. Only a verified run moves it, as with any backfill.
+ */
+function pinBoundary(name: string, at: Date): Job {
+	return withRulesLock(() => {
+		const jobs = readJobs();
+		const job = findJob(jobs, name);
+		if (job.name === DIGEST && !job.backfill_since && !job.last_ok) {
+			job.backfill_since = stamp(new Date(minute(at).getTime() - 24 * 3600_000));
+			writeJobs(jobs);
+		}
+		return job;
+	});
 }
 
 /** The longest window one digest run reads. A longer gap is read one window per run, so no single read outgrows the agent. */
@@ -433,9 +453,10 @@ async function one(job: Job, at: Date, o: RunOptions): Promise<string> {
 		// Another runner may have finished this fire between our read and our claim.
 		const current = readJobs().find((j) => j.name === job.name);
 		if (!current || fireId(current) !== fire) return `skip ${job.name}: ${fire} already ran`;
+		const pinned = pinBoundary(job.name, at);
 		let out: Outcome;
 		try {
-			out = await execute(current, o, at);
+			out = await execute(pinned, o, at);
 		} catch (e) {
 			out = failed(e);
 		}
@@ -482,7 +503,7 @@ export function makeDue(name: string): void {
 /** `inbox schedule finish`: record one fire a session ran outside runDue, then advance the job. */
 export function finishFire(name: string, f: { output: string; verdict?: string; summary?: string; error?: string }): string {
 	const at = minute(new Date());
-	const job = findJob(readJobs(), name);
+	const job = pinBoundary(name, at);
 	if (!dueJobs([job], at).length) throw new InboxError(`${name} is not due`);
 	const fire = fireId(job);
 	release(name, fire); // a runner's claim, if one noticed this job first
@@ -508,7 +529,7 @@ export function finishFire(name: string, f: { output: string; verdict?: string; 
 
 /** `inbox schedule exec`: run a shell or prompt action and return its output. Records nothing. */
 export async function execAction(name: string, agent?: string): Promise<string> {
-	const job = findJob(readJobs(), name);
+	const job = pinBoundary(name, new Date());
 	if (job.action?.kind === "tool") throw new InboxError("a tool action runs inside the omp or pi session");
 	const out = await execute({ ...job, judge: "off" }, { session: false, agent }, new Date());
 	return out.text;

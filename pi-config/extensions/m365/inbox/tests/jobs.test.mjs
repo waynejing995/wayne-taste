@@ -297,6 +297,22 @@ await check("a verified digest clears backfill_since in rules.yaml; a failed one
 	}
 });
 
+await check("a first digest run that fails retries from the same start, not a day before the retry", async () => {
+	try {
+		digestJob("2026-11-10 12:00", { last_ok: undefined }, "readfail");
+		ok((await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0].startsWith("fail teams-digest"));
+		strictEqual(digest().backfill_since, "2026-11-09 12:00", "the first run's start is written before it runs");
+		const again = jobs.readJobs();
+		again[0].next_fire = "2026-11-10 14:00";
+		jobs.writeJobs(again);
+		process.env.FAKE_DIGEST_MODE = "ok";
+		ok((await jobs.runDue({ session: false }, at("2026-11-10 14:00")))[0].startsWith("ok teams-digest"));
+		strictEqual(digest().backfill_since, "2026-11-10 12:00", "the retry read the original first day, from 2026-11-09 12:00");
+	} finally {
+		restoreAgent();
+	}
+});
+
 await check("a digest more than a day behind reads one day per run and catches up", async () => {
 	try {
 		digestJob("2026-11-10 12:00", { last_ok: "2026-11-08 10:00" });
