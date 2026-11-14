@@ -237,7 +237,7 @@ await check("after any safe pointer form the rest of the clause is judged again"
 	strictEqual(leaks.filter((text) => !holdsCredential(text)).join(" | "), "", "a value after a safe form is still a value");
 	strictEqual(pointers.filter((text) => holdsCredential(text)).join(" | "), "", "a pointer fact is not a value");
 	// A clause after a pointer is judged again: what its copula names is a value unless it is a pointer too.
-	const clauses = ["password: in Vault, which is hunter", "password: ask Lin for it, it is hunter", "password: in Vault, so it is hunter2", "password: in Vault (it's Xk9mPq27)", "password: ask Lin (abc123)", "password: TBD, so the value is abc"];
+	const clauses = ["password: in Vault, which is hunter", "password: ask Lin for it, it is hunter", "password: in Vault, so it is hunter2", "password: in Vault (it's Xk9mPq27)", "password: ask Lin (abc123)", "password: TBD, so the value is abc", "password: in Vault hunter", "password: owned by Ops abc", "password: from the team vault hunter", "password: ask Lin abc"];
 	strictEqual(clauses.filter((text) => !holdsCredential(text)).join(" | "), "", "a clause after a pointer can still hold a value");
 	const prose = ["the token is in Vault, so non-interactive shells must load those exports", "password is derived from the app DB password at startup, so TRACE_READER_PASSWORD is no longer configured.", "password is no longer an env var (TRACE_READER_PASSWORD removed); the app derives it at startup"];
 	strictEqual(prose.filter((text) => holdsCredential(text)).join(" | "), "", "a pointer with a plain clause after it is not a value");

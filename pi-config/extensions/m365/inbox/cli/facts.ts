@@ -75,10 +75,13 @@ const SHAPED = new RegExp(
 	].join("|"),
 	"i",
 );
-// A place or holder: an optional article, one word, then up to three more plain words ("the team vault", "Lin for
-// it"). A word with a digit or symbol, or a joining word, ends it, so "in Vault hunter2" and "via Vault or X" leave
-// a rest that is judged again.
-const PLACE = String.raw`(?:(?:the|a|an|our|my|your|their)\s+)?[^\s,;()]+(?:\s+(?!(?:or|and|but|then|use|old|until|contains|currently|value|it'?s|in|at|on|by|from|for|to|via|after|before|since|with|so|which)\b)[A-Za-z.][A-Za-z.-]*){0,3}`;
+// A place or holder is one word ("Vault", "Ops", ".env", "~/.pgpass"), or a multi-word place that ends in a known
+// place noun: "az cli", "the team vault", "the app DB password", "its existing database password". Any other word
+// after it is not part of the place, so "in Vault hunter" and "owned by Ops abc" leave a rest that is judged again,
+// whatever the rest is made of.
+const PLACE_NOUN = String.raw`(?:vault|safe|store|portal|cli|manager|item|entry|file|\.?env|repo|repository|config|secret|password|header|keychain|keyring|db|database|bucket|account|team|channel|chat|wiki|doc|docs|page|note|server|host|pipeline|settings|profile|container|cluster|service|startup|boot|runtime|deploy)`;
+// A place noun "item"/"entry" may carry its one-word name ("1Password item ci-bot").
+const PLACE = String.raw`(?:(?:(?:the|our|my|your|their|its)\s+)?(?:[^\s,;()]+\s+){0,3}${PLACE_NOUN}(?:(?<=item|entry)\s+[^\s,;()]+)?|[^\s,;()]+)(?=[\s.,;!?)\]}"'”’\x60]|$)`;
 const STATUS = String.raw`(?:expired|revoked|rotated|unset|missing|empty|invalid|valid|pending|disabled|enabled|required|optional|needed|configured|short-lived|long-lived|personal|shared|unknown|unchanged|read-only|per-user|per-team|broken|working|ready|available|locked|blocked)`;
 const WHEN = String.raw`(?:yesterday|today|recently|daily|weekly|monthly|last\s+\w+|(?:on|at|after|until|since)\s+[^\s,;()]+|(?:in|for|from|by)\s+${PLACE})`;
 // A place form may carry a time or second place ("derived from the app DB password at startup").
