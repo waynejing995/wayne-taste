@@ -105,16 +105,21 @@ type Truncation = { direction?: string; totalLines?: number; outputLines?: numbe
 
 /** The lines `read artifact://ID:...` calls showed, as [first, last] pairs. A read stops at its "Use :X to continue". */
 function artifactReads(all: Call[], id: string): [number, number][] {
-	const path = new RegExp(`^artifact://${id}(?::raw)?:(\\d+)(?:-(\\d+)|\\+(\\d+))?$`);
+	// The read tool's selectors: `:A-B`, `:A+C`, `:A-` / `:A` (from A on); with `:raw`, a bare `:A` is that one line.
+	const path = new RegExp(`^artifact://${id}(:raw)?:(\\d+)(?:(-)(\\d*)|\\+(\\d+))?$`);
 	const out: [number, number][] = [];
 	for (const c of all) {
 		if (c.name !== "read" || !c.ok) continue;
 		const m = path.exec(String(c.args.path ?? ""));
 		if (!m) continue;
-		const first = Number(m[1]);
+		const [, raw, a, dash, b, count] = m;
+		const first = Number(a);
+		const asked = b ? Number(b) : count ? first + Number(count) - 1 : raw && !dash ? first : Number.POSITIVE_INFINITY;
+		// Never past what came back: omp's "Use :N to continue" marks the first line not returned, and the result holds
+		// at most as many lines as its text has (notice lines included, so this bound only ever errs long by them).
 		const more = /Use :(\d+) to continue\]\s*$/.exec(c.text);
-		const last = more ? Number(more[1]) - 1 : m[2] ? Number(m[2]) : m[3] ? first + Number(m[3]) - 1 : Number.POSITIVE_INFINITY;
-		out.push([first, last]);
+		const returned = first + c.text.replace(/\n$/, "").split("\n").length - 1;
+		out.push([first, Math.min(asked, more ? Number(more[1]) - 1 : returned, returned)]);
 	}
 	return out;
 }
