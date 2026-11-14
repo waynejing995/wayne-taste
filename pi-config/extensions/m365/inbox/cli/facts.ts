@@ -82,7 +82,7 @@ const SHAPED = new RegExp(
 const PLACE_NOUN = String.raw`(?:vault|safe|store|portal|cli|manager|item|entry|file|\.?env|repo|repository|config|secret|password|credential|setting|variable|header|keychain|keyring|db|database|bucket|account|team|channel|chat|wiki|doc|docs|page|note|server|host|pipeline|settings|profile|container|cluster|service|startup|boot|runtime|deploy|app|application)(?:\s+itself)?`;
 // A place noun "item"/"entry" may carry its one-word name ("1Password item ci-bot").
 const PLACE = String.raw`(?:(?:(?:the|our|my|your|their|its)\s+)?(?:[^\s,;()]+\s+){0,3}${PLACE_NOUN}(?:(?<=item|entry)\s+[^\s,;()]+)?|[^\s,;()]+)(?=[\s.,;!?)\]}"'”’\x60]|$)`;
-const STATUS = String.raw`(?:expired|revoked|rotated|unset|missing|empty|invalid|valid|pending|disabled|enabled|required|optional|needed|configured|short-lived|long-lived|personal|shared|unknown|unchanged|read-only|per-user|per-team|broken|working|ready|available|locked|blocked|removed|deleted|dropped|gone|retired|deprecated)`;
+const STATUS = String.raw`(?:expired|revoked|rotated|unset|missing|empty|invalid|valid|pending|disabled|enabled|required|optional|needed|configured|hand-configured|hand-set|short-lived|long-lived|personal|shared|unknown|unchanged|read-only|per-user|per-team|broken|working|ready|available|locked|blocked|removed|deleted|dropped|gone|retired|deprecated)`;
 const WHEN = String.raw`(?:yesterday|today|recently|daily|weekly|monthly|by\s+hand|manually|last\s+\w+|(?:on|at|after|until|since)\s+[^\s,;()]+|(?:in|for|from|by)\s+${PLACE})`;
 // A place form may carry a time or second place ("derived from the app DB password at startup").
 const THEN = String.raw`(?:\s+(?:at|on|after|during|before)\s+(?:the\s+)?(?:app\s+)?(?:startup|boot|deploy|login|runtime|start))?`;
@@ -112,7 +112,7 @@ const SAFE_FORM = new RegExp(
 			String.raw`(?:the\s+)?same\s+as\s+${PLACE}`,
 			String.raw`the\s+one`,
 		].join("|") +
-		String.raw`)(?=[\s.,;!?)\]}"'”’\x60]|$)`,
+		String.raw`)(?=[\s.,;:!?)\]}"'”’\x60]|$)`,
 	"i",
 );
 // An env name is upper case on purpose: pass_word and my_secret_value are values.
