@@ -201,7 +201,7 @@ await check("a digest read whose middle omp elided passes once the agent reads t
 	}
 });
 
-for (const mode of ["listelided", "factretry", "credreject", "quoteretry"])
+for (const mode of ["listelided", "factretry", "quoteretry"])
 	await check(`a digest run in mode ${mode} is complete and moves the boundary`, async () => {
 		try {
 			digestJob("2026-11-10 12:00", {}, mode);
@@ -221,6 +221,7 @@ for (const [mode, chat, reason] of [
 	["elidedskip", "self-chat", /lines 41-960 .*elided/],
 	["listelidedskip", "chat list", /teams_chats output were elided/],
 	["tailskip", "self-chat", /lines 1-960 .*elided/],
+	["credreject", "Ops", /inbox write failed: .*never its value/],
 	["rawone", "self-chat", /lines 41-960 .*elided/],
 	["shortread", "self-chat", /lines 41-960 .*elided/],
 	["multiwrite", "Ops", /one plain `inbox ask\|fact` per bash call/],

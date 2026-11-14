@@ -12,20 +12,23 @@ export const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
 // a value. After `:`/`=` or is/was, a value is a token with a digit or symbol, or a bare word not followed by a pointer word
 // ("password is abc.", "token: hunter"); "token: ask Lin for it" is a pointer. Right after the word, an ASCII token with a digit or symbol.
 // The word may follow `_` or a digit (client_secret, GITHUB_TOKEN, db_password), so it starts after any non-letter.
-// Up to four words, within one sentence, may sit between it and is/:/= ("password for user ci is ...", "token for the bot: ..."); then only
-// a token with a digit or symbol counts, so "token rotation is weekly" stays a pointer.
+// Up to four words, within one sentence, may sit between it and is/:/= ("password for user ci is ...", "token for the bot: ...").
+// When the word after the credential word names an attribute of it (ATTR: "token owner is Lin", "secret store is Vault",
+// "password expiry is 90 days"), the sentence is about that attribute, not the value.
 const CRED_WORD = String.raw`(?<![A-Za-z])(?:password|passwd|passphrase|passcode|pw|secret|token|credentials?|creds|api[-_ ]?key)`;
 const POINTER = String.raw`(?:in|inside|at|on|under|behind|stored|kept|owned|held|located|saved|managed|shared|issued|set|rotated|revoked|expired|reset|changed|required|needed|missing|valid|invalid|unknown|pending|deployed|not|no|none|now|still|being|available|the|per|via|from|by|with|only|also|handled|provided|generated|lives|goes|used|configured|scoped|created|leaked|exposed|empty|here|there|ready|fine|ok|wrong|correct|broken|gone|done|live|active|disabled|enabled|working|unchanged|same|different|new|old|exported|loaded|read|written|passed|sent|derived|copied|fetched|injected|mounted|checked|verified|ask|asked|see|use|request|requested|contact|rotate|delegated)\b`;
 // A bare word is a value too, even with words after it ("password is abc for prod"), unless a pointer word
 // follows it ("token: Graph delegated via az cli").
 const ALPHA = String.raw`[A-Za-z]+\b(?!\s+${POINTER})`;
+// Nouns that name an attribute of a credential, not its value.
+const ATTR = String.raw`(?:owners?|stores?|storage|rotations?|budget|expiry|expiration|quotas?|polic(?:y|ies)|location|vault|manager|limits?|length|format|scopes?|ttl|lifetime|age|name|type|count|size|field|file|path|env|variable|holder|team|process|service|provider|requirements?|rules?|status|issuer|refresh|reset|schedule|cadence|usage|cost|plan|page|docs?|ticket|flow|prompt)\b`;
 // A digit or any non-letter (`_` included: pass_word, abc_def) marks a token as a value, not a word.
 const SYMBOLIC = String.raw`(?=\S*(?:\d|[^A-Za-z\s]))`;
 const SECRET = new RegExp(
 	[
 		String.raw`${CRED_WORD}s?\s*[:=]\s*(?!${POINTER})(?:${SYMBOLIC}\S+|${ALPHA})`,
 		String.raw`${CRED_WORD}s?\s+(?:is|was|are|were)\s+(?!${POINTER})(?:${SYMBOLIC}\S+|${ALPHA})`,
-		String.raw`${CRED_WORD}s?(?:\s+[\w-]+(?:\.[\w-]+)*){1,4}?(?:\s*[:=]|\s+(?:is|was|are|were))\s*(?!${POINTER})(?:${SYMBOLIC}\S+|${ALPHA})`,
+		String.raw`${CRED_WORD}s?(?!\s+${ATTR})(?:\s+(?!${ATTR})[\w-]+(?:\.[\w-]+)*){1,4}?(?:\s*[:=]|\s+(?:is|was|are|were))\s*(?!${POINTER})(?:${SYMBOLIC}\S+|${ALPHA})`,
 		String.raw`${CRED_WORD}(?:\s+|-)(?!${POINTER})(?!\b[A-Za-z]+\b)(?![("'\[])(?=[\x21-\x7e]*[\d\W])[\x21-\x7e]{4,}`,
 		String.raw`Bearer\s+[A-Za-z0-9_-]{8,}`,
 		String.raw`\b(?:ghp|sk)[_-][A-Za-z0-9_-]{8,}`,
@@ -118,16 +121,7 @@ function checkFact(kind: string, key: string, text: string, source: string): voi
 	if ([key, text, source].some((value) => SECRET.test(value))) throw new InboxError("a fact names where the credential lives, never its value");
 }
 
-const REDACTED = "[redacted: credential value]";
-
-/** A stored fact with credential values redacted: the fact stays (never silently deleted), its value does not. */
-function scrub(fact: Fact): Fact {
-	const bad = (value: string) => SECRET.test(value);
-	if (!bad(fact.text) && !bad(fact.source) && !fact.superseded.some(bad)) return fact;
-	return { ...fact, text: bad(fact.text) ? REDACTED : fact.text, source: bad(fact.source) ? REDACTED : fact.source, superseded: fact.superseded.filter((text) => !bad(text)) };
-}
-
-/** Insert or replace one fact. The replaced text stays as `superseded:`. */
+/** Insert or replace one fact. The replaced text stays as `superseded:`; history the guard flags is dropped. Other facts are left as stored. */
 export function upsertFact(kind: string, key: string, text: string, source: string, at = stamp()): string {
 	const cleanKind = clean(kind);
 	const cleanKey = clean(key);
@@ -135,12 +129,11 @@ export function upsertFact(kind: string, key: string, text: string, source: stri
 	const cleanSource = clean(source);
 	checkFact(cleanKind, cleanKey, cleanText, cleanSource);
 	return mutate((facts) => {
-		const stored = facts.map(scrub);
-		const old = stored.find((fact) => fact.kind === cleanKind && fact.key === cleanKey);
+		const old = facts.find((fact) => fact.kind === cleanKind && fact.key === cleanKey);
 		const history = [...(old?.superseded ?? [])];
 		if (old && old.text !== cleanText) history.unshift(old.text);
-		const next: Fact = { kind: cleanKind, key: cleanKey, text: cleanText, source: cleanSource, since: old?.since ?? at.slice(0, 10), updated: at, superseded: history };
-		saveFacts(old ? stored.map((fact) => fact === old ? next : fact) : [...stored, next]);
+		const next: Fact = { kind: cleanKind, key: cleanKey, text: cleanText, source: cleanSource, since: old?.since ?? at.slice(0, 10), updated: at, superseded: history.filter((line) => !SECRET.test(line)) };
+		saveFacts(old ? facts.map((fact) => fact === old ? next : fact) : [...facts, next]);
 		if (old && old.text === cleanText) return `unchanged ${cleanKind}:${cleanKey}`;
 		return old ? `updated ${cleanKind}:${cleanKey}` : `added ${cleanKind}:${cleanKey}`;
 	});
@@ -188,25 +181,23 @@ function unstorable(key: string, text: string, source: string): string | undefin
 type Migration = { written: number; closed: string[]; refused: { id: string; reason: string }[] };
 
 /**
- * Move open teams-fact rows into facts.md. Newest repeated key wins; archived facts stay archived. Every row is
- * credential-checked before it is archived, whether or not it wins. A row facts.md could not read back (a bad key,
- * text that parses as metadata) is refused: not written, left open, and named in `refused`.
+ * Move open teams-fact rows into facts.md. Newest repeated key wins; archived facts stay archived. A row facts.md could
+ * not read back (a bad key, text that parses as metadata) or one that may hold a credential value is refused: not
+ * written, not archived, left open as it is, and named in `refused`. The guard can be wrong, so refusing never
+ * destroys the row's text; the person reading `refused` rewrites or drops it.
  */
 export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).split("\n").slice(1).filter(Boolean).map((line) => Object.fromEntries(line.split("\t").map((cell, i) => [["id", "key", "subject", "first_seen", "source", "tag", "action", "state", "owner", "note", "link"][i], cell])) as Row)): Migration {
 	return withLedger((liveRows, save) => {
 		const facts = rows.filter((row) => row.tag === "teams-fact" && row.state !== "done");
-		// Every column that can carry raw text (link included), each on its own as checkFact does: a clause-ending value
-		// ("password: abc") stops ending its clause once joined. A row redacted earlier is checked again.
-		const raw = (row: Row) => [factKey(row), row.subject, row.source, row.owner, row.note, row.link];
-		const redacted = facts.filter((row) => raw(row).some((field) => SECRET.test(field ?? ""))).map((row) => row.id);
 		const refused: { id: string; reason: string }[] = [];
 		for (const row of facts) {
-			if (redacted.includes(row.id)) continue;
+			// Every column that can carry raw text, each on its own as checkFact does.
+			const column = (["key", "subject", "source", "owner", "note", "link"] as const).find((field) => SECRET.test(row[field] ?? ""));
 			const source = clean([row.source, row.note, row.first_seen].filter(Boolean).join(" "));
-			const reason = unstorable(factKey(row), clean(row.subject), source);
+			const reason = column ? `its ${column} may hold a credential value; record where the credential lives instead` : unstorable(factKey(row), clean(row.subject), source);
 			if (reason) refused.push({ id: row.id, reason });
 		}
-		const skip = new Set([...redacted, ...refused.map((r) => r.id)]);
+		const skip = new Set(refused.map((r) => r.id));
 		const newest = new Map<string, Row>();
 		for (const row of facts.filter((row) => !skip.has(row.id))) {
 			const key = factKey(row);
@@ -221,21 +212,16 @@ export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).sp
 			if (current && (current.updated || current.since) >= row.first_seen) continue;
 			const kind = current?.kind ?? mappedKind(row);
 			const source = [row.source, row.note, row.first_seen].filter(Boolean).join(" ");
-			const fact: Fact = { kind, key, text: clean(row.subject), source: clean(source), since: current?.since ?? row.first_seen.slice(0, 10), updated: row.first_seen, superseded: current && current.text !== row.subject ? [current.text, ...current.superseded] : current?.superseded ?? [] };
+			const history = current && current.text !== row.subject ? [current.text, ...current.superseded] : current?.superseded ?? [];
+			const fact: Fact = { kind, key, text: clean(row.subject), source: clean(source), since: current?.since ?? row.first_seen.slice(0, 10), updated: row.first_seen, superseded: history.filter((line) => !SECRET.test(line)) };
 			if (current) next[next.indexOf(current)] = fact;
 			else next.push(fact);
 			written++;
 		}
-		saveFacts(next.map(scrub));
-		for (const row of liveRows.filter((row) => redacted.includes(row.id))) {
-			row.subject = REDACTED;
-			row.note = "redacted because the row held a credential value";
-			for (const field of ["key", "source", "owner", "link"] as const) if (SECRET.test(row[field] ?? "")) row[field] = field === "key" ? "teams-fact:[redacted]" : "[redacted]";
-		}
-		finishRows(liveRows, redacted, undefined, save);
+		saveFacts(next);
 		const cleanIds = facts.map((row) => row.id).filter((id) => !skip.has(id));
-		finishRows(liveRows.filter((row) => !redacted.includes(row.id)), cleanIds, "moved to facts.md", save);
-		return { written, closed: [...redacted, ...cleanIds], refused };
+		finishRows(liveRows, cleanIds, "moved to facts.md", save);
+		return { written, closed: cleanIds, refused };
 	});
 }
 /** Read rows directly for the migration script, including a copied inbox directory. */

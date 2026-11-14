@@ -97,7 +97,7 @@ await check("migration does not replace a newer existing fact", async () => {
 	strictEqual(readFacts().find((fact) => fact.key === "release-window").text, "Release window is 20:00");
 });
 
-await check("migration keeps a fact whose history held a credential, minus that history", async () => {
+await check("migration leaves a fact it does not write as stored", async () => {
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:build-host]\n\nrelease host is build-01\n\nsource: digest\nsince: 2026-11-13\nsuperseded: password: hunter2\n\n");
 	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n1\tteams-fact:other\tdeploys need a ticket\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
@@ -106,36 +106,28 @@ await check("migration keeps a fact whose history held a credential, minus that 
 	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
 	const host = readFacts().find((fact) => fact.key === "build-host");
 	strictEqual(host?.text, "release host is build-01");
-	strictEqual(host?.superseded.length, 0);
+	strictEqual(host?.superseded.join("|"), "password: hunter2", "the guard can be wrong; another fact's text is never rewritten");
 });
 
-await check("migration redacts a credential row it skips for a newer fact", async () => {
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:db-login]\n\nthe db login lives in the vault\n\nsource: digest\nsince: 2026-11-14\nupdated: 2026-11-14 09:00\n\n");
-	rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
+await check("migration refuses a row that may hold a credential and leaves it open, text intact", async () => {
 	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n3\tteams-fact:db-login\tpassword: hunter2\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
 	const { migrateFacts } = await jiti.import("../cli/facts.ts");
 	const { readTsv } = await jiti.import("../cli/ledger.ts");
-	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
-	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8").includes("hunter2"), "the skipped row's credential reached archive.tsv");
-	rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n8\tteams-fact:db-login\tthe db login moved\t2026-11-13 09:00\tpassword: hunter2\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
-	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
-	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8").includes("hunter2"), "a credential in the skipped row's source reached archive.tsv");
-	for (const [id, subject, source] of [["9", "password: abc", "digest"], ["10", "the db login moved", "password: abc"], ["11", "The password is abc for production.", "digest"]]) {
+	const cases = [["3", "password: hunter2", "digest", ""], ["8", "the db login moved", "password: hunter2", ""], ["9", "password: abc", "digest", ""], ["11", "The password is abc for production.", "digest", ""], ["12", "the build dashboard moved", "digest", "https://ci.example.com/board?access_token=abc123x"]];
+	for (const [id, subject, source, link] of cases) {
+		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:db-login]\n\nthe db login lives in the vault\n\nsource: digest\nsince: 2026-11-14\nupdated: 2026-11-14 09:00\n\n");
 		rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
-		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n${id}\tteams-fact:db-login\t${subject}\t2026-11-13 09:00\t${source}\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
-		migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
-		ok(!/password(: | is )abc/.test(readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8")), `a short value in row ${id} reached archive.tsv once its fields were joined`);
+		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n${id}\tteams-fact:db-login\t${subject}\t2026-11-13 09:00\t${source}\tteams-fact\tlog\topen\t\tOps Ada\t${link}\n`);
+		const result = migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+		strictEqual(result.refused.map((r) => r.id).join(","), id, `row ${id} is refused`);
+		const open = readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))[0];
+		strictEqual(`${open?.subject}|${open?.source}|${open?.link}`, `${subject}|${source}|${link}`, `row ${id} stays open with its text`);
+		ok(!/hunter2|abc123x|password(: | is )abc/.test(readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8")), `row ${id}'s value reached facts.md`);
 	}
-	for (const [id, subject] of [["12", "the build dashboard moved"], ["13", "[redacted: credential value]"]]) {
-		rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
-		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
-		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n${id}\tteams-fact:dashboard\t${subject}\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\thttps://ci.example.com/board?access_token=abc123x\n`);
-		migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
-		ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8").includes("abc123x"), `row ${id}'s credential link reached archive.tsv`);
-		ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("abc123x"), `row ${id}'s credential link reached facts.md`);
-	}
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n14\tteams-fact:token-owner\tThe Jira token owner is Lin.\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
+	strictEqual(migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).written, 1, "a pointer fact migrates with its text");
+	strictEqual(readFacts()[0]?.text, "The Jira token owner is Lin.");
 });
 
 await check("migration refuses a row it cannot store and leaves it open", async () => {
@@ -201,7 +193,7 @@ await check("malformed keys and metadata-shaped text are rejected or round-trip"
 });
 
 await check("secrets are rejected in every field and scrubbed from history", async () => {
-	const accepted = ["CI token lives in the release vault", "the password is in the team vault", "the API key is stored in 1Password under ci-bot", "token rotation is owned by Ops", "password reset goes through the IT portal", "the CI token is expired", "the deploy token was rotated by Ops", "tokens are issued per team", "the pw is kept in the safe", "The Jira token: ask Lin for it", "secret: rotate monthly", "Teams token: Graph delegated via az cli", "token=see 1Password item ci-bot"];
+	const accepted = ["CI token lives in the release vault", "the password is in the team vault", "the API key is stored in 1Password under ci-bot", "token rotation is owned by Ops", "password reset goes through the IT portal", "the CI token is expired", "the deploy token was rotated by Ops", "tokens are issued per team", "the pw is kept in the safe", "The Jira token: ask Lin for it", "secret: rotate monthly", "Teams token: Graph delegated via az cli", "token=see 1Password item ci-bot", "token rotation is weekly", "The Jira token owner is Lin.", "Decision: the CI secret store is Vault.", "Wayne decided the token budget is fixed", "The deploy password expiry is 90 days.", "API key quota is high for staging."];
 	for (const text of accepted) await inbox(["fact", "--kind", "info", "--key", `pointer-${accepted.indexOf(text)}`, "--", text]);
 	const rejected = ["the password is hunter2X", "pw is s3cr3t!", "password: hunter2", "token=abc123", "Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature", "api key: sk-live-1234567890abcdef", "ghp_1234567890abcdefghij", "xoxb-1234567890-abcdefghij", "pw is X", "password is abc", "password: 7", "the token = a", "the secret was hunter", "PASSWORD IS Sunshine"];
 	for (const text of rejected) await rejects(() => inbox(["fact", "--kind", "decision", "--key", "release-window", "--", text]), /never its value/);
@@ -212,9 +204,7 @@ await check("secrets are rejected in every field and scrubbed from history", asy
 	const leaked = "## [info:old-secret]\n\npassword: hunter2\n\nsource: digest\nsince: 2026-11-13\n\n";
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), leaked);
 	strictEqual(await inbox(["fact", "--kind", "info", "--key", "safe-note", "--source", "digest", "--", "plain status"]), "added info:safe-note");
-	const kept = readFacts().find((fact) => fact.key === "old-secret");
-	strictEqual(kept?.text, "[redacted: credential value]", "a stored credential is redacted, not deleted");
-	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("hunter2"));
+	strictEqual(readFacts().find((fact) => fact.key === "old-secret")?.text, "password: hunter2", "a write leaves every other stored fact as it was");
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:old-secret]\n\nplain status\n\nsource: digest\nsince: 2026-11-13\nsuperseded: token=abc123\n\n");
 	await inbox(["fact", "--kind", "info", "--key", "old-secret", "--source", "digest", "--", "plain status"]);
 	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("token=abc123"));
@@ -225,11 +215,9 @@ await check("secrets are rejected in every field and scrubbed from history", asy
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n7\tteams-fact:leaked\tthe password is hunter2X\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\twayne\t\t\n`);
 	const { migrateFacts } = await jiti.import("../cli/facts.ts");
 	const { readTsv } = await jiti.import("../cli/ledger.ts");
-	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+	strictEqual(migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused[0]?.id, "7");
 	ok(!readFacts().some((fact) => fact.key === "leaked"));
-	const archived = readTsv(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"))[0];
-	strictEqual(archived.subject, "[redacted: credential value]");
-	ok(archived.note.includes("credential value"));
+	strictEqual(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))[0]?.subject, "the password is hunter2X", "a refused row stays open with its text");
 });
 
 await check("an identical fact refreshes its source without history", async () => {

@@ -32,7 +32,7 @@ export function receiptInstructions(): string {
 		`End your reply with the receipt: one line of JSON, nothing after it, for example ${example}`,
 		`Fields: ${fields}. If a teams_read or inbox command fails, retry it once; if it still fails, set "complete" to false and name the chat in "failed".`,
 		"When omp elides the middle of a teams_read result (`Showing lines 1-H and T-N of N; ... elided. Read artifact://N for full output`), read every elided line before you go on, with the `read` tool: `read artifact://N:A-B` (as many reads as it takes, from H+1 to T-1). Reading the artifact through bash (sed, grep, cat) does not count: the run is checked against `read` calls only. The same holds when omp elides the middle of the teams_chats list.",
-		"Run each `inbox ask` or `inbox fact` as its own bash call holding only that one plain command (no `;`, `&&`, `|`, `$(...)` or newline), so each result can be checked. A fact the guard refuses as a credential value is dropped on purpose; do not retry it.",
+		"Run each `inbox ask` or `inbox fact` as its own bash call holding only that one plain command (no `;`, `&&`, `|`, `$(...)` or newline), so each result can be checked. If the guard refuses a fact as a credential value, rewrite it to say where the credential lives (never the value) and run it again; a refusal left standing keeps the chat unread.",
 	].join("\n");
 }
 
@@ -238,8 +238,8 @@ export function checkDigest(stdout: string, since: string, until: string): Diges
 		failed.set(name, gaps[0] ?? (err ? `teams_read failed: ${err.text.slice(0, 120)}` : mine.length ? `teams_read did not read since ${since} until ${until}` : "never read"));
 	}
 	// Each inbox write must be its bash call's one plain command, so the call's exit status is that write's result.
-	// A failed write counts unless a later call made the same write (op, kind, key) successfully; one the guard
-	// refused as a credential value is dropped on purpose, not a gap.
+	// A failed write counts unless a later call made the same write (op, kind, key) successfully. A credential refusal
+	// is a failed write too: the guard can be wrong, so the fact is rewritten as a pointer and retried, or the chat stays unread.
 	const writes = all.filter((c) => c.name === "bash").map((c) => ({ c, w: inboxWrite(String(c.args.command ?? ""), c.ok, c.text) }));
 	writes.forEach(({ c, w }, i) => {
 		if (w === undefined) return;
@@ -249,7 +249,7 @@ export function checkDigest(stdout: string, since: string, until: string): Diges
 			failed.set(name, failed.get(name) ?? "an inbox write was not its bash call's one plain command; run one plain `inbox ask|fact` per bash call so each result can be checked");
 			return;
 		}
-		if (c.ok || /never its value/.test(c.text)) return;
+		if (c.ok) return;
 		// The same write is the same op and key, and for a fact the same kind; a fact the CLI refused for a kind it does
 		// not know had no kind, so a corrected retry under a real kind counts.
 		const kindOk = (kind: string) => w.op !== "fact" || kind === w.kind || !FACT_KINDS.includes(w.kind);
