@@ -79,11 +79,11 @@ const SHAPED = new RegExp(
 // place noun: "az cli", "the team vault", "the app DB password", "its existing database password". Any other word
 // after it is not part of the place, so "in Vault hunter" and "owned by Ops abc" leave a rest that is judged again,
 // whatever the rest is made of.
-const PLACE_NOUN = String.raw`(?:vault|safe|store|portal|cli|manager|item|entry|file|\.?env|repo|repository|config|secret|password|header|keychain|keyring|db|database|bucket|account|team|channel|chat|wiki|doc|docs|page|note|server|host|pipeline|settings|profile|container|cluster|service|startup|boot|runtime|deploy)`;
+const PLACE_NOUN = String.raw`(?:vault|safe|store|portal|cli|manager|item|entry|file|\.?env|repo|repository|config|secret|password|header|keychain|keyring|db|database|bucket|account|team|channel|chat|wiki|doc|docs|page|note|server|host|pipeline|settings|profile|container|cluster|service|startup|boot|runtime|deploy|app|application)(?:\s+itself)?`;
 // A place noun "item"/"entry" may carry its one-word name ("1Password item ci-bot").
 const PLACE = String.raw`(?:(?:(?:the|our|my|your|their|its)\s+)?(?:[^\s,;()]+\s+){0,3}${PLACE_NOUN}(?:(?<=item|entry)\s+[^\s,;()]+)?|[^\s,;()]+)(?=[\s.,;!?)\]}"'”’\x60]|$)`;
 const STATUS = String.raw`(?:expired|revoked|rotated|unset|missing|empty|invalid|valid|pending|disabled|enabled|required|optional|needed|configured|short-lived|long-lived|personal|shared|unknown|unchanged|read-only|per-user|per-team|broken|working|ready|available|locked|blocked|removed|deleted|dropped|gone|retired|deprecated)`;
-const WHEN = String.raw`(?:yesterday|today|recently|daily|weekly|monthly|last\s+\w+|(?:on|at|after|until|since)\s+[^\s,;()]+|(?:in|for|from|by)\s+${PLACE})`;
+const WHEN = String.raw`(?:yesterday|today|recently|daily|weekly|monthly|by\s+hand|manually|last\s+\w+|(?:on|at|after|until|since)\s+[^\s,;()]+|(?:in|for|from|by)\s+${PLACE})`;
 // A place form may carry a time or second place ("derived from the app DB password at startup").
 const THEN = String.raw`(?:\s+(?:at|on|after|during|before)\s+(?:the\s+)?(?:app\s+)?(?:startup|boot|deploy|login|runtime|start))?`;
 // One safe pointer form at the start of the text. Each is bounded; whatever follows is judged again.
@@ -96,7 +96,7 @@ const SAFE_FORM = new RegExp(
 			String.raw`\$\{?[A-Za-z_]\w*\}?`,
 			String.raw`\d+(?:\.\d+)?(?:/\d+|%)`,
 			// Before the bare words below, so "no longer configured" is not read as "no" plus a rest.
-			String.raw`(?:not|no\s+longer)\s+(?:${STATUS}|an?\s+env(?:ironment)?\s+var(?:iable)?)`,
+			String.raw`(?:not|no\s+longer)\s+(?:${STATUS}(?:\s+${WHEN})?|an?\s+env(?:ironment)?\s+var(?:iable)?|(?:in|at|on|from)\s+${PLACE})`,
 			String.raw`(?:n/a|tbd|none|unset|yes|no)`,
 			String.raw`(?:in|inside|at|from|under|behind|via|on)\s+${PLACE}`,
 			String.raw`(?:stored|kept|held|saved|located|managed|exported|set|loaded|configured|defined|derived|generated|injected|mounted|lives|sits)\s+(?:(?:automatically|manually)\s+)?(?:(?:in|at|on|under|behind|by|from|via|through)\s+${PLACE}${THEN}|locally|elsewhere|separately|only)`,
