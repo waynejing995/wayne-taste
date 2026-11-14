@@ -21,9 +21,11 @@ const CORE = String.raw`password|passwd|passphrase|passcode|pwd|pw|secret|token|
 const CRED_WORD = String.raw`(?<![A-Za-z0-9])(?:[A-Za-z0-9]*?(?:password|passwd|pwd|secret|token)|(?:[A-Za-z0-9]+[_-])*(?:${CORE}))(?:[_-][A-Za-z0-9]+)*(?![A-Za-z0-9])`;
 const CRED_ASSIGN = String.raw`(?:${CRED_WORD}|(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*pass(?![A-Za-z0-9])|密码|口令)`;
 const POINTER = String.raw`(?:in|inside|at|on|under|behind|stored|kept|owned|held|located|saved|managed|shared|issued|set|rotated|revoked|expired|reset|changed|required|needed|missing|valid|invalid|unknown|pending|deployed|not|no|none|now|still|being|available|the|per|via|from|by|with|only|also|handled|provided|generated|lives|goes|used|configured|scoped|created|leaked|exposed|empty|here|there|ready|fine|ok|wrong|correct|broken|gone|done|live|active|disabled|enabled|working|unchanged|same|different|new|old|exported|loaded|read|written|passed|sent|derived|copied|fetched|injected|mounted|checked|verified|ask|asked|see|use|request|requested|contact|rotate|delegated)\b`;
-// A bare word is a value too, even with words after it ("password is abc for prod"), unless a pointer word
-// follows it ("token: Graph delegated via az cli").
-const ALPHA = String.raw`[A-Za-z]+\b(?!\s+${POINTER})`;
+// A bare word is a value too, even with words after it ("password is abc for prod", "password is abc in Vault").
+// Only a verb right after it makes it a name, not a value ("token: Graph delegated via az cli"); a preposition never
+// does, so the start of the phrase alone decides whether it is a pointer.
+const NAMED_BY = String.raw`(?:stored|kept|owned|held|located|saved|managed|shared|issued|rotated|revoked|expired|changed|required|needed|deployed|handled|provided|generated|lives|goes|used|configured|scoped|created|exported|loaded|written|passed|sent|derived|copied|fetched|injected|mounted|checked|verified|delegated)\b`;
+const ALPHA = String.raw`[A-Za-z]+\b(?!\s+${NAMED_BY})`;
 // Nouns that name an attribute of a credential, not its value.
 const ATTR = String.raw`(?:owners?|stores?|storage|rotations?|budget|expiry|expiration|quotas?|polic(?:y|ies)|location|vault|manager|limits?|length|format|scopes?|ttl|lifetime|age|name|type|count|size|field|file|path|env|variable|holder|team|process|service|provider|requirements?|rules?|status|issuer|refresh|reset|schedule|cadence|usage|cost|plan|page|docs?|ticket|flow|prompt)\b`;
 // A digit or any non-letter (`_` included: pass_word, abc_def) marks a token as a value, not a word.
