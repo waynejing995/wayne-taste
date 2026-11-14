@@ -184,12 +184,43 @@ function plainWords(command: string): string[] | undefined {
 	return words;
 }
 
+/** The simple commands of a bash line as words with quotes removed, split at ; & | and newlines outside quotes. */
+function commandsOf(command: string): string[][] {
+	const out: string[][] = [];
+	let words: string[] = [];
+	let word: string | undefined;
+	let quote = "";
+	const end = () => {
+		if (word !== undefined) words.push(word);
+		word = undefined;
+	};
+	for (const ch of command) {
+		if (quote) {
+			if (ch === quote) quote = "";
+			else word = (word ?? "") + ch;
+		} else if (ch === "'" || ch === '"') {
+			quote = ch;
+			word ??= "";
+		} else if (/[;&|\n]/.test(ch)) {
+			end();
+			if (words.length) out.push(words);
+			words = [];
+		} else if (/\s/.test(ch)) end();
+		else word = (word ?? "") + ch;
+	}
+	end();
+	if (words.length) out.push(words);
+	return out;
+}
+
 /** The write a bash call made: a Write, "mixed" when an inbox ask/fact is not the call's one plain command, or undefined for no write. */
 function inboxWrite(command: string, ok: boolean, text = ""): Write | "mixed" | undefined {
 	if (!/\binbox\b/.test(command) || !/\b(ask|fact)\b/.test(command)) return undefined;
-	// Reading the usage writes nothing, whatever else the call runs (`grep ... facts.md; inbox fact --help | head`):
-	// a call is a write only when some `inbox ask|fact` in it is not just `--help`.
-	if ([...command.matchAll(/\binbox\s+(?:ask|fact)\b(\s+[^\s;&|]+)?/g)].every((m) => m[1]?.trim() === "--help")) return undefined;
+	// Reading the usage writes nothing, whatever else the call runs (`grep ... facts.md; inbox fact --help | head`).
+	// The exemption needs proof: at least one command names inbox, and every command that does, quotes removed, is
+	// exactly `inbox ask|fact --help` (a redirect like 2>&1 aside). Anything unproven stays a write.
+	const uses = commandsOf(command).filter((words) => words.includes("inbox"));
+	if (uses.length && uses.every((w) => w.filter((x) => !/^\d*>&?\d*$/.test(x)).join(" ").match(/^inbox (?:ask|fact) --help$/))) return undefined;
 	const words = plainWords(command);
 	if (!words) {
 		// A line with a stray quote ("Wayne's") that bash refused as a syntax error ran nothing at all, whatever `;`

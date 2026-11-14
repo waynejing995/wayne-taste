@@ -94,6 +94,10 @@ if (since) {
 		bad[2] = "bogus";
 		write(bad);
 		if (write(["ask", "--key", "build-server", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "Who owns the build server?"])) findings++;
+	} else if (mode === "quotedboth") {
+		// Both subcommands quoted: the fact fails (bad kind), the ask after it succeeds, so the call exits 0.
+		execFileSync("inbox", ["ask", "--key", "q1", "--note", "Ops, lin, 11-10 11:00", "--", "Who owns it?"], { stdio: "ignore" });
+		call("bash", { command: "inbox 'fact' --kind bogus --key build-server --note 'Ops, lin, 11-10 11:00' -- 'The build server is build.example.com.'; inbox 'ask' --key q1 --note 'Ops, lin, 11-10 11:00' -- 'Who owns it?'" }, "--kind must be one of endpoint, cred, decision, owed, info\nnotify 9 ask-wayne");
 	} else if (mode === "helpmixed") {
 		// Real agent, Gate 0 r9: a read-only call that greps facts.md and pipes the usage.
 		call("bash", { command: "grep -oE '\\[[a-z0-9-]+\\]' facts.md | sort -u | head -150; inbox fact --help 2>&1 | head -30" }, "Usage: inbox fact TEXT [OPTIONS]");
