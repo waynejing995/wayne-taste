@@ -12,16 +12,25 @@ import { LAUNCHER } from "../inbox/delivery.ts";
 
 const STATES = ["open", "claimed"];
 
+/** Commands that only read: a cancel or the timeout may kill them. */
+const READ_ONLY = new Set(["ls", "facts", "agent ls"]);
+
 /**
- * Run `inbox <args>`; a non-zero exit is the tool's error, with the CLI's own message. Callers put options first and
- * positionals after `--`, so a value like "--help" is data, never a flag. `signal` kills the child when the turn is
- * cancelled. Only newlines are trimmed (an `agent ls` row ends in empty tab-separated fields), and stderr from a
- * successful run comes back as `warning:` lines.
+ * Run `inbox <args>`; a non-zero exit is the tool's error, with the CLI's own message under the full command name
+ * ("inbox agent add: …"). Callers put options first and positionals after `--`, so a value like "--help" is data,
+ * never a flag. A call cancelled before it spawns writes nothing. Once spawned, a command that writes is never killed,
+ * neither by the cancel nor by a timeout: a kill between its writes (rules.yaml, then thens.json) would leave half a
+ * commit and a stale lock. Read-only commands keep the cancel and the timeout. Only newlines are trimmed (an
+ * `agent ls` row ends in empty tab-separated fields), and stderr from a successful run comes back as `warning:` lines.
  */
 function inbox(args: string[], signal?: AbortSignal): Promise<string> {
+	const command = args[0] === "agent" ? `agent ${args[1]}` : args[0];
+	if (signal?.aborted) return Promise.reject(new Error(`inbox ${command}: cancelled, nothing written`));
+	const readOnly = READ_ONLY.has(command);
 	const { promise, resolve, reject } = Promise.withResolvers<string>();
-	execFile(LAUNCHER, args, { timeout: 60_000, maxBuffer: 16 << 20, signal }, (e, stdout, stderr) => {
-		if (e) return reject(new Error(`inbox ${args[0]}: ${(stderr || stdout || e.message).trim()}`));
+	const kill = readOnly ? { timeout: 60_000, signal } : {};
+	execFile(LAUNCHER, args, { maxBuffer: 16 << 20, ...kill }, (e, stdout, stderr) => {
+		if (e) return reject(new Error(`inbox ${command}: ${(stderr || stdout || e.message).trim()}`));
 		const warnings = stderr.split("\n").filter((l) => l.trim()).map((l) => `warning: ${l}`);
 		resolve([stdout.replace(/^\n+|\n+$/g, "") || "(no output)", ...warnings].join("\n"));
 	});

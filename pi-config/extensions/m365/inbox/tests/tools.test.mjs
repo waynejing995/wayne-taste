@@ -130,17 +130,36 @@ await check("ask and then take text that looks like a flag as text", async () =>
 	match(await call("inbox_then", { row: "3", when: "at:2099-01-01 00:00", action: "--help" }), /^then 3\.1 waits/);
 });
 
-await check("a cancelled call kills its child: the row is never recorded", async () => {
+// A spawned writer is never killed: a kill between its writes would leave half a commit (r7c review).
+await check("a writing call cancelled while it waits on the lock still completes, and its row exists", async () => {
 	const lock = join(process.env.WAYNE_INBOX_DIR, "ledger.tsv.lock");
 	writeFileSync(lock, "");
 	const abort = new AbortController();
-	const asked = call("inbox_ask", { text: "Cancelled?", key: "t4" }, abort.signal).then(() => "finished", (e) => e.message);
+	const asked = call("inbox_ask", { text: "Cancelled?", key: "t4" }, abort.signal);
 	await new Promise((r) => setTimeout(r, 300));
 	abort.abort();
-	match(await asked, /^inbox ask: .*abort/i);
-	rmSync(lock);
 	await new Promise((r) => setTimeout(r, 300));
-	ok(!readTsv(inboxFile("ledger.tsv")).some((r) => r.key === "ask-wayne:t4"), "the killed child wrote no row");
+	rmSync(lock);
+	deepStrictEqual(await asked, "notify 4 ask-wayne");
+	ok(readTsv(inboxFile("ledger.tsv")).some((r) => r.key === "ask-wayne:t4"), "the row was recorded");
+});
+
+await check("a call cancelled before it spawns writes nothing", async () => {
+	const abort = new AbortController();
+	abort.abort();
+	const before = ledger();
+	deepStrictEqual(await call("inbox_ask", { text: "Too late", key: "t5" }, abort.signal).then(() => "finished", (e) => e.message), "inbox ask: cancelled, nothing written");
+	deepStrictEqual(await call("inbox_agent_add", { name: "late", mux: "tern", pane: "3", row: "1", then: "t" }, abort.signal).then(() => "finished", (e) => e.message), "inbox agent add: cancelled, nothing written");
+	deepStrictEqual([ledger(), names()], [before, []]);
+});
+
+await check("fact with the text --help records a fact", async () => {
+	await call("inbox_fact", { text: "--help", key: "f9" });
+	ok(readTsv(inboxFile("ledger.tsv")).concat(readTsv(inboxFile("archive.tsv"))).some((r) => r.subject === "--help" && /fact/.test(r.key)), "a fact row with subject --help");
+});
+
+await check("an error names a two-word command in full", async () => {
+	match(await fails("inbox_agent_add", { name: "x", mux: "tern", pane: "1", row: "1", then: "t", generation: "bad" }), /^inbox agent add: /);
 });
 
 rmSync(tmp, { recursive: true, force: true });
