@@ -97,6 +97,8 @@ if (since) {
 		write(["fact", "--kind", "decision", "--key", "ops-db", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "password: hunter2"]);
 		write(["fact", "--kind", "cred", "--key", "ops-db", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "The ops db password is in Vault."]);
 	}
+	// Gate 0 r10 on 7c4fd55: the real agent lists facts and reads the usage in one call; nothing is written.
+	if (mode === "factshelp") call("bash", { command: "inbox facts 2>&1 | head -80; inbox fact --help 2>&1 | head -30" }, "Usage: inbox fact TEXT [OPTIONS]");
 	if (mode === "multiwrite") {
 		execFileSync("inbox", args, { stdio: "ignore" });
 		call("bash", { command: `${quote(args)}; inbox ask --key q1 --note 'Ops, lin, 11-10 11:00' -- 'Who owns it?'` }, "added endpoint:build-server\nnotify 9 ask-wayne");

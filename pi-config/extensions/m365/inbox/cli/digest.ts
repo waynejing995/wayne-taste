@@ -236,12 +236,12 @@ function inboxWrite(command: string, ok: boolean, text = ""): Write | "mixed" | 
 	const commands = commandsOf(command);
 	const runsWrite = (words: string[]) => words.some((w, i) => (/(?:^|\/)inbox$/.test(w) && /^(?:ask|fact)$/.test(words[i + 1] ?? "")) || /(?:^|[\s/;&|])inbox\s+["']?(?:ask|fact)\b/.test(w));
 	if (!commands.some(runsWrite)) return undefined;
-	// Reading the usage writes nothing, whatever else the call runs (`grep ... facts.md; inbox fact --help | head`).
-	// The exemption needs proof: at least one command names inbox (by path, `~/bin/inbox`, or inside a quoted
-	// `bash -c "inbox ..."`), and every command that does, quotes removed, is exactly `inbox ask|fact --help` (a
-	// redirect like 2>&1 aside). Anything unproven stays a write.
-	const uses = commandsOf(command).filter((words) => words.some((w) => /(?:^|\/)inbox$/.test(w) || /(?:^|[\s/])inbox\s/.test(w)));
-	if (uses.length && uses.every((w) => w.filter((x) => !/^\d*>&?\d*$/.test(x)).join(" ").match(/^inbox (?:ask|fact) --help$/))) return undefined;
+	// Reading the usage writes nothing, whatever else the call runs (`inbox facts | head; inbox fact --help | head`).
+	// Only the commands that run inbox ask/fact (by path, or inside a quoted `bash -c "inbox ..."`) are judged: each
+	// must be exactly `inbox ask|fact --help` (a redirect like 2>&1 aside). Read commands (`inbox facts`, `which inbox`)
+	// write nothing. Anything unproven stays a write.
+	const uses = commands.filter(runsWrite);
+	if (uses.every((w) => w.filter((x) => !/^\d*>&?\d*$/.test(x)).join(" ").match(/^(?:\S*\/)?inbox (?:ask|fact) --help$/))) return undefined;
 	const words = plainWords(command);
 	if (!words) {
 		// A line with a stray quote ("Wayne's") that bash refused as a syntax error ran nothing at all, whatever `;`
