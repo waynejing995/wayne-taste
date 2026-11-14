@@ -92,6 +92,11 @@ if (since) {
 	if (mode === "nativeretry") call("inbox_fact", native, "added endpoint:build-server");
 	if (mode === "nativebash") write(args);
 	if (mode === "credreject") write(["fact", "--kind", "cred", "--key", "ops-db", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "password: hunter2"]);
+	// Gate 0 r10: a decision fact the guard refused, rewritten as a pointer and stored under kind cred.
+	if (mode === "credkind") {
+		write(["fact", "--kind", "decision", "--key", "ops-db", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "password: hunter2"]);
+		write(["fact", "--kind", "cred", "--key", "ops-db", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "The ops db password is in Vault."]);
+	}
 	if (mode === "multiwrite") {
 		execFileSync("inbox", args, { stdio: "ignore" });
 		call("bash", { command: `${quote(args)}; inbox ask --key q1 --note 'Ops, lin, 11-10 11:00' -- 'Who owns it?'` }, "added endpoint:build-server\nnotify 9 ask-wayne");

@@ -309,9 +309,11 @@ export function checkDigest(stdout: string, since: string, until: string): Diges
 			return;
 		}
 		if (ok) return;
-		// The same write is the same op and key, and for a fact the same kind; a fact the CLI refused for a kind it does
-		// not know had no kind, so a corrected retry under a real kind counts.
-		const kindOk = (kind: string) => w.op !== "fact" || kind === w.kind || !FACT_KINDS.includes(w.kind);
+		// The same write is the same op and key, and for a fact the same kind. Two refusals leave the kind open: a fact
+		// the CLI refused for a kind it does not know had no kind, and a fact the credential guard refused was a value
+		// the agent rewrites as a pointer, which may fit another kind ("decision" refused, "cred" stored).
+		const refusedValue = /credential lives, never its value/.test(c.text);
+		const kindOk = (kind: string) => w.op !== "fact" || kind === w.kind || refusedValue || !FACT_KINDS.includes(w.kind);
 		const same = (x: Write | "mixed" | undefined) => typeof x === "object" && x.op === w.op && x.key === w.key && kindOk(x.kind);
 		if (w.key && writes.slice(i + 1).some((later) => later.ok && same(later.w))) return;
 		failed.set(w.chat, failed.get(w.chat) ?? `inbox write failed: ${c.text.slice(0, 120)}`);
