@@ -1,5 +1,5 @@
 /**
- * The merged package loads as pi loads it: one entry registers Teams' and Outlook's tools and
+ * The merged package loads as pi loads it: one entry registers Teams', Outlook's and the inbox's tools and
  * commands, each name once, with no network call and no process started at load.
  */
 import { realpathSync } from "node:fs";
@@ -50,9 +50,11 @@ await extension({
 
 const teams = tools.filter((t) => t.startsWith("teams_"));
 const outlook = tools.filter((t) => t.startsWith("outlook_"));
+const inbox = tools.filter((t) => t.startsWith("inbox_"));
 check("Teams' tools are registered", teams.includes("teams_send") && teams.includes("teams_read") && teams.includes("teams_download") && teams.includes("teams_transcript"), teams.join(","));
 check("Outlook's tools are registered", outlook.length === 10 && outlook.includes("outlook_download"), outlook.join(","));
-check("nothing else is registered", tools.length === teams.length + outlook.length, tools.join(","));
+check("the inbox's tools are registered", inbox.length === 11 && inbox.includes("inbox_agent_add"), inbox.join(","));
+check("nothing else is registered", tools.length === teams.length + outlook.length + inbox.length, tools.join(","));
 check("every tool name once", new Set(tools).size === tools.length, tools.join(","));
 check("every command, once each", JSON.stringify([...commands].sort()) === JSON.stringify(["inbox", "outlook", "teams"]), commands.join(","));
 check("no network call at load", netCalls.length === 0, netCalls.join(","));

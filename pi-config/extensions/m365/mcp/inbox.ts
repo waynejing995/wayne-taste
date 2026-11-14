@@ -1,11 +1,13 @@
 /**
- * The inbox ledger as agent tools: each runs the `inbox` launcher (bin/inbox), the same CLI the omp cards name, so the
- * ledger has one writer whatever harness calls it.
+ * The inbox ledger as agent tools, shared by omp (inbox/index.ts registers them) and the MCP server. Each runs the
+ * `inbox` launcher (bin/inbox) as an async child process, the same CLI the omp cards name, so the ledger has one
+ * writer whatever harness calls it. Never in-process: the ledger lock waits with Atomics.wait, which would freeze omp.
  */
 import { execFile } from "node:child_process";
 import { Type } from "typebox";
 import type { ToolDef } from "../core/tool.ts";
 import { FACT_KINDS } from "../inbox/cli/facts.ts";
+import { MUXES } from "../inbox/cli/agents.ts";
 import { LAUNCHER } from "../inbox/delivery.ts";
 
 const STATES = ["open", "claimed"];
@@ -122,6 +124,79 @@ export const inboxTools: ToolDef[] = [
 		}),
 		async execute(_id, p) {
 			return text(await inbox(["done", ...(p.ids as string[]), ...options({ note: p.note }), ...(p.force ? ["--force"] : [])]));
+		},
+	},
+	{
+		name: "inbox_then",
+		label: "Inbox Then",
+		description:
+			"Attach a deferred action to a live row: when the trigger happens, a `do` card says you owe it. Triggers: pr-merged:<owner/repo>#<n>, gh-run:<owner/repo>:<run-id>, agent-result:<name>, at:<YYYY-MM-DD HH:MM>.",
+		parameters: Type.Object({
+			row: Type.String({ description: "The live row id" }),
+			when: Type.String({ description: "The trigger" }),
+			action: Type.String({ description: "What you owe when it fires" }),
+		}),
+		async execute(_id, p) {
+			return text(await inbox(["then", p.row, "--when", p.when, "--", p.action]));
+		},
+	},
+	{
+		name: "inbox_then_done",
+		label: "Inbox Then Done",
+		description: "Close one then-action (after doing it, or to cancel it): row id and its number, as inbox_ls shows `then <row>.<n>`.",
+		parameters: Type.Object({
+			row: Type.String({ description: "The row id" }),
+			n: Type.String({ description: "The then-action's number on that row" }),
+			note: Type.Optional(Type.String()),
+		}),
+		async execute(_id, p) {
+			return text(await inbox(["then-done", p.row, p.n, ...options({ note: p.note })]));
+		},
+	},
+	{
+		name: "inbox_agent_add",
+		label: "Inbox Agent Add",
+		description:
+			"Watch one agent session for a live row; its next RESULT fires the `then` plan on that row. A second add of the same name replaces it.\n" +
+			"Reuse before you open: run inbox_agent_ls first. If a registered session already owns the same topic or repo, send the new round into its pane and register it again under the same name. " +
+			"Every round writes a NEW result file (RESULT-<topic>-rN.md); never rewrite one that is already registered. " +
+			"Open a new session only when the topic is unrelated or the old pane is gone.",
+		parameters: Type.Object({
+			name: Type.String({ description: "The session's name; the same name replaces its registration" }),
+			mux: Type.Union(MUXES.map((m) => Type.Literal(m))),
+			pane: Type.String({ description: "tern block id, herdr id, hc terminal, or tmux target" }),
+			row: Type.String({ description: "The live ledger row this session works for" }),
+			then: Type.String({ description: "The plan for its RESULT: what you expect, whom you reply to and how, what you close" }),
+			host: Type.Optional(Type.String({ description: "local (default), or the ssh host the pane lives on" })),
+			result: Type.Optional(Type.String({ description: "The file the session writes its RESULT to" })),
+			goal: Type.Optional(Type.String({ description: "One line: what it was asked to do" })),
+			push: Type.Optional(Type.Boolean({ description: "The session reports its own events (omp wayne-agent-report extension)" })),
+			generation: Type.Optional(Type.String({ description: "The WAYNE_AGENT_GENERATION the session was launched with" })),
+		}),
+		async execute(_id, p) {
+			const opts = options({ mux: p.mux as string, pane: p.pane, row: p.row, then: p.then, host: p.host, result: p.result, goal: p.goal, generation: p.generation });
+			return text(await inbox(["agent", "add", p.name, ...opts, ...(p.push ? ["--push"] : [])]));
+		},
+	},
+	{
+		name: "inbox_agent_rm",
+		label: "Inbox Agent Rm",
+		description: "Stop watching agent sessions.",
+		parameters: Type.Object({
+			names: Type.Array(Type.String(), { minItems: 1, description: "Session names" }),
+			generation: Type.Optional(Type.String({ description: "Remove only this registration generation" })),
+		}),
+		async execute(_id, p) {
+			return text(await inbox(["agent", "rm", ...(p.names as string[]), ...options({ generation: p.generation })]));
+		},
+	},
+	{
+		name: "inbox_agent_ls",
+		label: "Inbox Agent Ls",
+		description: "Watched agent sessions, one per line: name, mux, host, pane, result, since, goal, push.",
+		parameters: Type.Object({}),
+		async execute() {
+			return text(await inbox(["agent", "ls"]));
 		},
 	},
 ];

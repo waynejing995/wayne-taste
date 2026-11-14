@@ -52,7 +52,12 @@ Until step 2 a session shows one warning naming `/inbox setup`; no job runs and 
 unlike `--experimental-strip-types` it works under `node_modules`, where omp links the plugin). `bin/inbox --help`
 lists the commands: `ls`, `add`, `set`, `done`, `ask`, `fact`, `places`, `then`, `then-done`, `agent add|rm|ls|probe`,
 `schedule add|ls|rm|enable|disable|run|pending|show|exec|finish|widget`, `setup`. The plugin calls the same code
-in-process.
+in-process for its own cards and scheduler.
+
+Agents get the ledger as tools, so they do not shell out: `inbox_ls`, `inbox_ask`, `inbox_fact`, `inbox_facts`,
+`inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`, `inbox_agent_rm`, `inbox_agent_ls`.
+omp and the MCP server register the same definitions (`mcp/inbox.ts`). Each call runs `bin/inbox` as a child
+process: the ledger lock waits synchronously, which in-process would stall the whole session.
 
 ### Jobs
 
@@ -101,16 +106,16 @@ standing instructions for the agent that receives them).
 
 `mcp/server.ts` is a stdio MCP server, run with [bun](https://bun.sh) (Node's type stripping cannot load the Teams
 core). It serves the same tool objects omp registers, from `teams/core.ts` and `outlook/tools.ts`: every `teams_*`
-and `outlook_*` tool, plus `inbox_ls`, `inbox_ask`, `inbox_done`, `inbox_set`, `inbox_fact`, `inbox_facts` and
-`inbox_fact_drop`, which run `bin/inbox`, and `inbox_watch` (see Channel). No UI: no overlays, status bar or commands.
-`inbox_fact` wraps `inbox fact` and, like it, requires a `kind` (endpoint, cred, decision, owed, info); `inbox_facts`
-wraps `inbox facts [--grep]`; `inbox_fact_drop` wraps `inbox fact-drop KEY`.
+and `outlook_*` tool, plus the inbox tools above (from `mcp/inbox.ts`, which run `bin/inbox`), and `inbox_watch`
+(see Channel). No UI: no overlays, status bar or commands. `inbox_fact` wraps `inbox fact` and, like it, requires a
+`kind` (endpoint, cred, decision, owed, info); `inbox_facts` wraps `inbox facts [--grep]`; `inbox_fact_drop` wraps
+`inbox fact-drop KEY`.
 
 - **Sign-in** is omp's: the server reads the token cache `/teams init` wrote (`~/.cache/pi/teams-auth/`) and
   refuses to start without it (`run /teams init in omp`). There is no second login.
 - **Pictures** come back as MCP image content, each with the local file path (`[image n saved: <file>]`).
 - **Write tools** (`teams_send`, `teams_react`, `outlook_send`, `outlook_draft`, `outlook_move`, `outlook_mark`,
-  `inbox_set`, `inbox_done`) have no confirmation of their own in the server: approval is the client's job (Claude
+  `inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`, `inbox_agent_rm`) have no confirmation of their own in the server: approval is the client's job (Claude
   Code permissions or `allowedTools`, Codex `approval_mode`, Cursor's tool approval).
 - **Channel**: the server always declares Claude Code's `claude/channel`. A client that can take pushes (it
   advertises `claude/channel`, or it is Claude Code, which as of 2.1.322 advertises nothing and is known by its

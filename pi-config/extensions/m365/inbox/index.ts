@@ -42,6 +42,7 @@ import { mailSince } from "./mail.ts";
 import { claim, describeOwner, type WatchLease } from "../teams/watch.ts";
 import { renderSchedule, runSessionJobs } from "./schedule.ts";
 import { DIR, LAUNCHER, LEASE_ID, LEDGER, PUSHED, readCursor, readRows, writeCursor } from "./delivery.ts";
+import { inboxTools } from "../mcp/inbox.ts";
 
 /** The scheduler's lease: one job runner per inbox directory, machine and user. */
 const SCHED_ID = `wayne-inbox-schedule:${DIR}`;
@@ -51,6 +52,8 @@ const MAIL_PAGE = 50;
 
 export default function inbox(pi: ExtensionAPI) {
 	const mailbox = new Mailbox(new GraphClient(() => auth.getToken({ scopes: auth.GRAPH_SCOPES })));
+	// The inbox_* tools: the MCP server's definitions, run through bin/inbox as a child process (see mcp/inbox.ts).
+	for (const tool of inboxTools) pi.registerTool(tool as Parameters<ExtensionAPI["registerTool"]>[0]);
 	let mailInFlight = false;
 	let lease: WatchLease | undefined;
 	let ctx: ExtensionContext | undefined;
