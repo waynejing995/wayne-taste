@@ -317,17 +317,24 @@ function boundary(job: Job): string {
 	return stamp(new Date(Date.now() - 24 * 3600_000));
 }
 
+/** A digest that never ran reads from a day before its first fire. */
+function firstBoundary(job: Job, at: Date): Job {
+	if (job.name !== DIGEST || job.backfill_since || job.last_ok) return job;
+	return { ...job, backfill_since: stamp(new Date(minute(at).getTime() - 24 * 3600_000)) };
+}
+
 /**
- * A digest that never ran reads from a day before its first fire. Write that start to rules.yaml under the rules lock
- * before running, as a pending backfill_since, so a failed or skipped first run retries from the same start instead of
- * a day before the retry. Only a verified run moves it, as with any backfill.
+ * Write a first run's start to rules.yaml under the rules lock before running, as a pending backfill_since, so a
+ * failed or skipped first run retries from the same start instead of a day before the retry. Only a verified run
+ * moves it, as with any backfill.
  */
 function pinBoundary(name: string, at: Date): Job {
 	return withRulesLock(() => {
 		const jobs = readJobs();
-		const job = findJob(jobs, name);
-		if (job.name === DIGEST && !job.backfill_since && !job.last_ok) {
-			job.backfill_since = stamp(new Date(minute(at).getTime() - 24 * 3600_000));
+		const i = jobs.findIndex((j) => j.name === name);
+		const job = firstBoundary(findJob(jobs, name), at);
+		if (job !== jobs[i]) {
+			jobs[i] = job;
 			writeJobs(jobs);
 		}
 		return job;
@@ -529,9 +536,10 @@ export function finishFire(name: string, f: { output: string; verdict?: string; 
 
 /** `inbox schedule exec`: run a shell or prompt action and return its output. Records nothing. */
 export async function execAction(name: string, agent?: string): Promise<string> {
-	const job = pinBoundary(name, new Date());
+	const at = new Date();
+	const job = firstBoundary(findJob(readJobs(), name), at);
 	if (job.action?.kind === "tool") throw new InboxError("a tool action runs inside the omp or pi session");
-	const out = await execute({ ...job, judge: "off" }, { session: false, agent }, new Date());
+	const out = await execute({ ...job, judge: "off" }, { session: false, agent }, at);
 	return out.text;
 }
 

@@ -316,6 +316,17 @@ await check("a first digest run that fails retries from the same start, not a da
 	}
 });
 
+await check("schedule exec runs a first digest from a day back and writes nothing to rules.yaml", async () => {
+	try {
+		digestJob("2026-11-10 12:00", { last_ok: undefined });
+		const before = readFileSync(join(home, "rules.yaml"), "utf8");
+		await jobs.execAction("teams-digest");
+		strictEqual(readFileSync(join(home, "rules.yaml"), "utf8"), before);
+	} finally {
+		restoreAgent();
+	}
+});
+
 await check("a digest more than a day behind reads one day per run and catches up", async () => {
 	try {
 		digestJob("2026-11-10 12:00", { last_ok: "2026-11-08 10:00" });
