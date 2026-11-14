@@ -186,6 +186,19 @@ function plainWords(command: string): string[] | undefined {
 	return words;
 }
 
+// The inbox tools that only read; every other native `inbox_*` tool (inbox_fact, inbox_ask, inbox_then, inbox_agent_add, ...) writes.
+const NATIVE_READS = new Set(["inbox_ls", "inbox_facts", "inbox_agent_ls"]);
+
+/** A native inbox tool call as a Write: op from the tool name, the same op/kind/key a bash `inbox` write has. */
+function nativeWrite(c: Call): Write | undefined {
+	if (!c.name.startsWith("inbox_") || NATIVE_READS.has(c.name)) return undefined;
+	const a = c.args;
+	const op = c.name.slice("inbox_".length);
+	const key = String(a.key ?? a.row ?? a.name ?? (Array.isArray(a.ids) ? a.ids.join(",") : "") ?? "");
+	const chat = String(a.note ?? "").split(",")[0].trim() || "unknown chat";
+	return { op, kind: String(a.kind ?? ""), key, chat };
+}
+
 /** The simple commands of a bash line as words with quotes removed, split at ; & | and newlines outside quotes. */
 function commandsOf(command: string): string[][] {
 	const out: string[][] = [];
@@ -276,8 +289,12 @@ export function checkDigest(stdout: string, since: string, until: string): Diges
 	// Each inbox write must be its bash call's one plain command, so the call's exit status is that write's result.
 	// A failed write counts unless a later call made the same write (op, kind, key) successfully. A credential refusal
 	// is a failed write too: the guard can be wrong, so the fact is rewritten as a pointer and retried, or the chat stays unread.
-	const writes = all.filter((c) => c.name === "bash").map((c) => ({ c, w: inboxWrite(String(c.args.command ?? ""), c.ok, c.text) }));
-	writes.forEach(({ c, w }, i) => {
+	const writes = all.flatMap((c) => {
+		if (c.name === "bash") return [{ c, ok: c.ok, w: inboxWrite(String(c.args.command ?? ""), c.ok, c.text) }];
+		const w = nativeWrite(c);
+		return w ? [{ c, ok: c.ok && !/^\s*(?:error|refused)\b/i.test(c.text), w }] : [];
+	});
+	writes.forEach(({ c, ok, w }, i) => {
 		if (w === undefined) return;
 		if (w === "mixed") {
 			const chat = /--note\s+(?:"([^",]*)|'([^',]*)|([^\s,]+))/.exec(String(c.args.command ?? ""));
@@ -285,12 +302,12 @@ export function checkDigest(stdout: string, since: string, until: string): Diges
 			failed.set(name, failed.get(name) ?? "an inbox write was not its bash call's one plain command; run one plain `inbox ask|fact` per bash call so each result can be checked");
 			return;
 		}
-		if (c.ok) return;
+		if (ok) return;
 		// The same write is the same op and key, and for a fact the same kind; a fact the CLI refused for a kind it does
 		// not know had no kind, so a corrected retry under a real kind counts.
 		const kindOk = (kind: string) => w.op !== "fact" || kind === w.kind || !FACT_KINDS.includes(w.kind);
 		const same = (x: Write | "mixed" | undefined) => typeof x === "object" && x.op === w.op && x.key === w.key && kindOk(x.kind);
-		if (w.key && writes.slice(i + 1).some((later) => later.c.ok && same(later.w))) return;
+		if (w.key && writes.slice(i + 1).some((later) => later.ok && same(later.w))) return;
 		failed.set(w.chat, failed.get(w.chat) ?? `inbox write failed: ${c.text.slice(0, 120)}`);
 	});
 	const text = finalText(evs);

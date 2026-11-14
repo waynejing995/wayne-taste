@@ -201,7 +201,7 @@ await check("a digest read whose middle omp elided passes once the agent reads t
 	}
 });
 
-for (const mode of ["listelided", "factretry", "quoteretry", "helpfirst", "helpmixed", "rawafter", "wholeread"])
+for (const mode of ["listelided", "factretry", "quoteretry", "helpfirst", "helpmixed", "rawafter", "wholeread", "nativeretry", "nativebash"])
 	await check(`a digest run in mode ${mode} is complete and moves the boundary`, async () => {
 		try {
 			digestJob("2026-11-10 12:00", {}, mode);
@@ -230,6 +230,8 @@ for (const [mode, chat, reason] of [
 	["quotedboth", "Ops", /one plain `inbox ask\|fact` per bash call/],
 	["quotedfail", "Ops", /inbox write failed/],
 	["askmask", "Ops", /inbox write failed/],
+	["nativefail", "Ops", /inbox write failed/],
+	["nativerefused", "Ops", /inbox write failed: refused/],
 ])
 	await check(`a digest run in mode ${mode} keeps the old boundary and names ${chat} in a do row`, async () => {
 		try {

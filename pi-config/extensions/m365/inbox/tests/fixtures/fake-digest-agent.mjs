@@ -83,6 +83,14 @@ if (since) {
 		bad[2] = "bogus";
 		if (!write(bad) && mode === "factfail") failed.push({ chat: "Ops", reason: "inbox fact failed" });
 	}
+	// Native inbox tools (inbox_fact etc., the m365 omp tools): a failed one that the receipt does not report.
+	const native = { text: "The build server is build.example.com.", key: "build-server", kind: "endpoint", source: "teams-digest", note: "Ops, lin, 11-10 11:00" };
+	// The fail modes use their own key: the run's ordinary bash fact (build-server) is not a retry of them.
+	if (mode === "nativefail") call("inbox_fact", { ...native, key: "build-owner", kind: "bogus" }, "Error: --kind must be one of endpoint, cred, decision, owed, info", true);
+	if (mode === "nativeretry" || mode === "nativebash") call("inbox_fact", { ...native, kind: "bogus" }, "Error: --kind must be one of endpoint, cred, decision, owed, info", true);
+	if (mode === "nativerefused") call("inbox_fact", { ...native, key: "build-owner", text: "password: hunter2" }, "refused: a fact names where the credential lives, never its value");
+	if (mode === "nativeretry") call("inbox_fact", native, "added endpoint:build-server");
+	if (mode === "nativebash") write(args);
 	if (mode === "credreject") write(["fact", "--kind", "cred", "--key", "ops-db", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "password: hunter2"]);
 	if (mode === "multiwrite") {
 		execFileSync("inbox", args, { stdio: "ignore" });
