@@ -232,9 +232,10 @@ function commandsOf(command: string): string[][] {
 function inboxWrite(command: string, ok: boolean, text = ""): Write | "mixed" | undefined {
 	if (!/\binbox\b/.test(command) || !/\b(ask|fact)\b/.test(command)) return undefined;
 	// Reading the usage writes nothing, whatever else the call runs (`grep ... facts.md; inbox fact --help | head`).
-	// The exemption needs proof: at least one command names inbox, and every command that does, quotes removed, is
-	// exactly `inbox ask|fact --help` (a redirect like 2>&1 aside). Anything unproven stays a write.
-	const uses = commandsOf(command).filter((words) => words.includes("inbox"));
+	// The exemption needs proof: at least one command names inbox (by path, `~/bin/inbox`, or inside a quoted
+	// `bash -c "inbox ..."`), and every command that does, quotes removed, is exactly `inbox ask|fact --help` (a
+	// redirect like 2>&1 aside). Anything unproven stays a write.
+	const uses = commandsOf(command).filter((words) => words.some((w) => /(?:^|\/)inbox$/.test(w) || /(?:^|[\s/])inbox\s/.test(w)));
 	if (uses.length && uses.every((w) => w.filter((x) => !/^\d*>&?\d*$/.test(x)).join(" ").match(/^inbox (?:ask|fact) --help$/))) return undefined;
 	const words = plainWords(command);
 	if (!words) {
