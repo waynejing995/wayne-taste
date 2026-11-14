@@ -54,8 +54,9 @@ lists the commands: `ls`, `add`, `set`, `done`, `ask`, `fact`, `places`, `then`,
 `schedule add|ls|rm|enable|disable|run|pending|show|exec|finish|widget`, `setup`. The plugin calls the same code
 in-process for its own cards and scheduler.
 
-Agents get the ledger as tools, so they do not shell out: `inbox_ls`, `inbox_ask`, `inbox_fact`, `inbox_set`,
-`inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`, `inbox_agent_rm`, `inbox_agent_ls`.
+Agents get the ledger as tools, so they do not shell out: `inbox_ls`, `inbox_ask`, `inbox_fact`, `inbox_facts`,
+`inbox_fact_drop`, `inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`, `inbox_agent_rm`,
+`inbox_agent_ls`.
 omp and the MCP server register the same definitions (`mcp/inbox.ts`). Each call runs `bin/inbox` as a child
 process: the ledger lock waits synchronously, which in-process would stall the whole session.
 
@@ -115,7 +116,7 @@ and `outlook_*` tool, plus the inbox tools above (from `mcp/inbox.ts`, which run
   refuses to start without it (`run /teams init in omp`). There is no second login.
 - **Pictures** come back as MCP image content, each with the local file path (`[image n saved: <file>]`).
 - **Write tools** (`teams_send`, `teams_react`, `outlook_send`, `outlook_draft`, `outlook_move`, `outlook_mark`,
-  `inbox_ask`, `inbox_fact`, `inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`,
+  `inbox_ask`, `inbox_fact`, `inbox_fact_drop`, `inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`,
   `inbox_agent_rm`, and `inbox_agent_ls`, which may rewrite legacy registrations) have no confirmation of their own
   in the server: approval is the client's job (Claude Code permissions or `allowedTools`, Codex `approval_mode`,
   Cursor's tool approval).

@@ -13,11 +13,11 @@ import { LAUNCHER } from "../inbox/delivery.ts";
 const STATES = ["open", "claimed"];
 
 /**
- * Commands that only read: a cancel or the timeout may kill them. A kill while `ls` holds ledger.tsv.lock leaves that
- * lock behind; it clears itself within 10 s (LOCK_STALE_MS), and no data is touched. Not `agent ls`: it migrates
- * legacy registrations.
+ * Commands that only read: a cancel or the timeout may kill them. A kill while `ls` or `facts` holds the ledger lock
+ * leaves that lock behind; it clears itself within 10 s (LOCK_STALE_MS), and no data is touched. Not `agent ls`: it
+ * migrates legacy registrations.
  */
-const READ_ONLY = new Set(["ls"]);
+const READ_ONLY = new Set(["ls", "facts"]);
 
 /**
  * Run `inbox <args>`; a non-zero exit is the tool's error, with the CLI's own message under the full command name
@@ -88,7 +88,7 @@ export const inboxTools: ToolDef[] = [
 	{
 		name: "inbox_fact",
 		label: "Inbox Fact",
-		description: "Record a standing fact: something that stays true and later work should know (an endpoint, where a credential lives, a decision, something owed). Never record secret values (passwords, tokens, keys); record where they live instead.",
+		description: "Record a standing fact in facts.md: something that stays true and later work should know (an endpoint, where a credential lives, a decision, something owed). The same kind and key replaces the text. `source` defaults to `digest`: set it to say who recorded it. Never record secret values (passwords, tokens, keys); record where they live instead.",
 		parameters: Type.Object({
 			text: recorded.text,
 			key: recorded.key,
@@ -114,8 +114,8 @@ export const inboxTools: ToolDef[] = [
 		label: "Inbox Fact Drop",
 		description: "Remove one standing fact by key, or by kind:key, as `inbox fact-drop` does.",
 		parameters: Type.Object({ key: Type.String({ description: "The fact's key, or kind:key" }) }),
-		async execute(_id, p) {
-			return text(await inbox(["fact-drop", "--", p.key]));
+		async execute(_id, p, signal) {
+			return text(await inbox(["fact-drop", "--", p.key], signal));
 		},
 	},
 	{

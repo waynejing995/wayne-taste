@@ -49,8 +49,8 @@ const names = () => readAgents().map((a) => a.name).sort();
 
 await check("omp registers every inbox tool", () =>
 	deepStrictEqual([...tools.keys()].sort(), [
-		"inbox_agent_add", "inbox_agent_ls", "inbox_agent_rm", "inbox_ask", "inbox_done", "inbox_fact",
-		"inbox_ls", "inbox_set", "inbox_then", "inbox_then_done",
+		"inbox_agent_add", "inbox_agent_ls", "inbox_agent_rm", "inbox_ask", "inbox_done", "inbox_fact", "inbox_fact_drop",
+		"inbox_facts", "inbox_ls", "inbox_set", "inbox_then", "inbox_then_done",
 	]),
 );
 
@@ -153,16 +153,19 @@ await check("a call cancelled before it spawns writes nothing", async () => {
 	deepStrictEqual([ledger(), names()], [before, []]);
 });
 
-const factRow = (subject) => readTsv(inboxFile("ledger.tsv")).concat(readTsv(inboxFile("archive.tsv"))).find((r) => r.subject === subject && /fact/.test(r.key));
+const { readFacts } = await jiti.import("../cli/facts.ts");
+const fact = (key) => readFacts().find((f) => f.key === key);
 
 await check("fact with the text --help records a fact", async () => {
-	await call("inbox_fact", { text: "--help", key: "f9" });
-	ok(factRow("--help"), "a fact row with subject --help");
+	await call("inbox_fact", { text: "--help", key: "f9", kind: "info" });
+	deepStrictEqual(fact("f9")?.text, "--help");
 });
 
-await check("fact with a link stores the link in its row", async () => {
-	await call("inbox_fact", { text: "Deploys need a ticket", key: "f10", link: "https://example.com/deploy" });
-	deepStrictEqual(factRow("Deploys need a ticket")?.link, "https://example.com/deploy");
+await check("facts lists a fact and fact_drop removes it", async () => {
+	await call("inbox_fact", { text: "Deploys need a ticket", key: "f10", kind: "decision", source: "test" });
+	match(await call("inbox_facts", { grep: "ticket" }), /Deploys need a ticket/);
+	await call("inbox_fact_drop", { key: "decision:f10" });
+	ok(!fact("f10"), "the fact is gone");
 });
 
 // Every parameter a tool advertises reaches this tree's CLI, and the CLI takes it (r7d review).
@@ -171,7 +174,9 @@ await check("each tool with every optional parameter set succeeds against this C
 	const all = [
 		["inbox_ls", { state: ["open", "claimed"], owner: "me", subject: "All" }],
 		["inbox_ask", { text: "Ask all", key: "t10", source: "test", note: "n", link: "https://example.com/a" }],
-		["inbox_fact", { text: "Fact all", key: "f11", source: "test", note: "n", link: "https://example.com/f" }],
+		["inbox_fact", { text: "Fact all", key: "f11", kind: "info", source: "test", note: "n" }],
+		["inbox_facts", { grep: "Fact all" }],
+		["inbox_fact_drop", { key: "info:f11" }],
 		["inbox_set", { ids: [row], state: "claimed", owner: "me", note: "n" }],
 		["inbox_then", { row, when: "at:2099-01-01 00:00", action: "check it" }],
 		["inbox_then_done", { row, n: "1", note: "n" }],
