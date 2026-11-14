@@ -79,7 +79,9 @@ const SAFE_TOKEN = new RegExp(
 	].join("|"),
 	"i",
 );
-const STOP = String.raw`\s*(?:[.,;!)]|$)`;
+// A status or description phrase ends the text, or the whole word is followed by a preposition: punctuation inside a
+// token ("expired!abc") never ends it, and nothing may follow it in the same clause.
+const STOP = String.raw`[.,;!)]*\s*$`;
 const SAFE_PHRASE = new RegExp(
 	[
 		String.raw`^(?:in|inside|at|from|under|behind|via)\s+\S`,
