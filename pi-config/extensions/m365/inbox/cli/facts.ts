@@ -79,7 +79,7 @@ const SHAPED = new RegExp(
 // place noun: "az cli", "the team vault", "the app DB password", "its existing database password". Any other word
 // after it is not part of the place, so "in Vault hunter" and "owned by Ops abc" leave a rest that is judged again,
 // whatever the rest is made of.
-const PLACE_NOUN = String.raw`(?:vault|safe|store|portal|cli|manager|item|entry|file|\.?env|repo|repository|config|secret|password|header|keychain|keyring|db|database|bucket|account|team|channel|chat|wiki|doc|docs|page|note|server|host|pipeline|settings|profile|container|cluster|service|startup|boot|runtime|deploy|app|application)(?:\s+itself)?`;
+const PLACE_NOUN = String.raw`(?:vault|safe|store|portal|cli|manager|item|entry|file|\.?env|repo|repository|config|secret|password|credential|setting|variable|header|keychain|keyring|db|database|bucket|account|team|channel|chat|wiki|doc|docs|page|note|server|host|pipeline|settings|profile|container|cluster|service|startup|boot|runtime|deploy|app|application)(?:\s+itself)?`;
 // A place noun "item"/"entry" may carry its one-word name ("1Password item ci-bot").
 const PLACE = String.raw`(?:(?:(?:the|our|my|your|their|its)\s+)?(?:[^\s,;()]+\s+){0,3}${PLACE_NOUN}(?:(?<=item|entry)\s+[^\s,;()]+)?|[^\s,;()]+)(?=[\s.,;!?)\]}"'”’\x60]|$)`;
 const STATUS = String.raw`(?:expired|revoked|rotated|unset|missing|empty|invalid|valid|pending|disabled|enabled|required|optional|needed|configured|short-lived|long-lived|personal|shared|unknown|unchanged|read-only|per-user|per-team|broken|working|ready|available|locked|blocked|removed|deleted|dropped|gone|retired|deprecated)`;
@@ -96,7 +96,7 @@ const SAFE_FORM = new RegExp(
 			String.raw`\$\{?[A-Za-z_]\w*\}?`,
 			String.raw`\d+(?:\.\d+)?(?:/\d+|%)`,
 			// Before the bare words below, so "no longer configured" is not read as "no" plus a rest.
-			String.raw`(?:not|no\s+longer)\s+(?:${STATUS}(?:\s+${WHEN})?|an?\s+env(?:ironment)?\s+var(?:iable)?|(?:in|at|on|from)\s+${PLACE})`,
+			String.raw`(?:not|no\s+longer)\s+(?:${STATUS}(?:\s+${WHEN})?|an?\s+env(?:ironment)?\s+var(?:iable)?|(?:(?:in|at|on|from)\s+|an?\s+)${PLACE})`,
 			String.raw`(?:n/a|tbd|none|unset|yes|no)`,
 			String.raw`(?:in|inside|at|from|under|behind|via|on)\s+${PLACE}`,
 			String.raw`(?:stored|kept|held|saved|located|managed|exported|set|loaded|configured|defined|derived|generated|injected|mounted|lives|sits)\s+(?:(?:automatically|manually)\s+)?(?:(?:in|at|on|under|behind|by|from|via|through)\s+${PLACE}${THEN}|locally|elsewhere|separately|only)`,
@@ -136,7 +136,10 @@ function valueAt(rest: string): string {
 // word is a plain word, an env name or a path, none hands over a value (use, it's, old, value, contains, currently,
 // or, but, then), and the whole guard finds no value in it ("..., so shells must load those exports", "; no manual
 // secret"). Anything else ("TBD hunter2", "n/a, X", "in Vault, but until then use X", "Old: X", "(currently X)") is a value.
-const AND = /^(?:,\s*)?\s*and\s+/i;
+// "and"/"but" (with an optional copula) may join two safe forms; the next text must still be a safe form, so
+// "in Vault, but until then use X" is a value. "now"/"still"/"instead" may lead a form ("is now derived from ...").
+const AND = /^(?:,\s*)?\s*(?:and|but)(?:\s+(?:(?:the|its)\s+(?:[\w-]+\s+){0,3})?(?:is|was|are|were))?\s+/i;
+const LEAD = /^(?:now|still|instead)\s+/i;
 const OPENER = /^(?:so|which|that|since|because|as|while|when|where|unless|before|after|and|never|no|the|its|it|this|there|requires?|needs?)$/i;
 // A parenthetical of plain words ("(TRACE_X removed)", a quoted remark) is skipped; one with a digit, a symbol or a
 // hand-over word ("(currently X)", "(it's X)", "(old one X)") is not.
@@ -158,7 +161,7 @@ function pointerOnly(phrase: string): boolean {
 		const aside = i > 0 && ASIDE.exec(rest);
 		if (aside && plainWords(aside[1])) rest = rest.slice(aside[0].length);
 		if (i > 0 && /^[\s,;:(]/.test(rest) && plainClause(rest)) return true;
-		if (i > 0) rest = rest.replace(AND, "");
+		if (i > 0) rest = rest.replace(AND, "").replace(LEAD, "");
 		rest = rest.replace(STOP, "");
 		if (!rest) return true;
 		const form = SAFE_FORM.exec(rest) ?? ENV_NAME.exec(rest);
