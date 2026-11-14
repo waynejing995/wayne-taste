@@ -116,6 +116,10 @@ if (since) {
 		// Real agent, Gate 0 r9: a read-only call that greps facts.md and pipes the usage.
 		call("bash", { command: "grep -oE '\\[[a-z0-9-]+\\]' facts.md | sort -u | head -150; inbox fact --help 2>&1 | head -30" }, "Usage: inbox fact TEXT [OPTIONS]");
 		if (write(args)) findings++;
+	} else if (mode === "whichinbox") {
+		// Real agent, Gate 0 r10: a read-only call that greps facts.md and asks where inbox is.
+		call("bash", { command: "grep -E '^## \\[' facts.md | grep -iE 'fact|m365|inbox|session|agent|mcp|teams'; which inbox" }, "## [cred:trace-artifact-token]\n/usr/local/bin/inbox");
+		if (write(args)) findings++;
 	} else if (mode === "pathhelp") {
 		// r10 V1 12: a write by path rides along with a help call; it is still a write.
 		call("bash", { command: "~/bin/inbox fact --kind bogus --key build-server --note 'Ops, lin, 11-10 11:00' -- 'The build server is build.example.com.'; inbox ask --help" }, "--kind must be one of endpoint, cred, decision, owed, info\nUsage: inbox ask TEXT [OPTIONS]");
