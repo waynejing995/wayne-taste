@@ -227,6 +227,7 @@ for (const [mode, chat, reason] of [
 	["multiwrite", "Ops", /one plain `inbox ask\|fact` per bash call/],
 	["quotedmulti", "Ops", /one plain `inbox ask\|fact` per bash call/],
 	["quotedboth", "Ops", /one plain `inbox ask\|fact` per bash call/],
+	["quotedfail", "Ops", /inbox write failed/],
 	["askmask", "Ops", /inbox write failed/],
 ])
 	await check(`a digest run in mode ${mode} keeps the old boundary and names ${chat} in a do row`, async () => {

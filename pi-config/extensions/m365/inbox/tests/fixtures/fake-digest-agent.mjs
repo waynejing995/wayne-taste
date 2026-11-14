@@ -94,6 +94,9 @@ if (since) {
 		bad[2] = "bogus";
 		write(bad);
 		if (write(["ask", "--key", "build-server", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "Who owns the build server?"])) findings++;
+	} else if (mode === "quotedfail") {
+		// r10 V2: one write whose subcommand is quoted fails; no regex sees `inbox fact`, so it must still be a write.
+		call("bash", { command: "inbox \"fact\" --kind bogus --key build-server --note 'Ops, lin, 11-10 11:00' -- 'The build server is build.example.com.'" }, "--kind must be one of endpoint, cred, decision, owed, info", true);
 	} else if (mode === "quotedboth") {
 		// Both subcommands quoted: the fact fails (bad kind), the ask after it succeeds, so the call exits 0.
 		execFileSync("inbox", ["ask", "--key", "q1", "--note", "Ops, lin, 11-10 11:00", "--", "Who owns it?"], { stdio: "ignore" });
