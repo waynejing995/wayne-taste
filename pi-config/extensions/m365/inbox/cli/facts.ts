@@ -36,7 +36,7 @@ const CHANGE = String.raw`(?:now|still|currently|(?:been\s+)?(?:set|changed|upda
 const VALUE_AT = new RegExp(
 	[
 		String.raw`${CRED_ASSIGN}s?${QUALIFIER}${SEP}`,
-		String.raw`${CRED_ASSIGN}s?${QUALIFIER}(?=\s*["'])`,
+		String.raw`${CRED_ASSIGN}s?${QUALIFIER}(?=\s*["'“”‘’])`,
 		String.raw`${CRED_WORD}s?(?!\s+${ATTR})(?:\s+(?!${ATTR})[\w-]{1,40}(?:\.[\w-]{1,40}){0,3}){0,8}?(?:\s*[:=：]|\s+(?:is|was|are|were|has\s+been)\b(?:\s+${CHANGE}\b)?)`,
 		String.raw`${CRED_WORD}s?\s+(?:${CHANGE}|to)\b`,
 		// A comma counts only right after a singular word and before a token with a digit or symbol ("token, ab12-cd"),
@@ -89,9 +89,10 @@ const SAFE_PHRASE = new RegExp(
 		String.raw`^(?:ask|see|contact|request\s+it\s+from)\s+\S`,
 		String.raw`^(?:owned|issued|rotated|revoked|handled|provided|held|scoped|created|generated)\s+(?:by|per|for)\s+\S`,
 		String.raw`^(?:a|an)\s+(?!(?:string|value|literal|word)\b)\S`,
-		String.raw`^the\s+(?!(?:string|value|literal|word)\b)\S+\s+(?:item|entry|vault|note|secret)\b`,
-		String.raw`^\S+\s+(?:item|entry|vault|note)\s+\S`,
-		String.raw`^(?:\w+\s+){0,2}secrets?${STOP}`,
+		// A named secret store as the whole value ("GITHUB_TOKEN: repo secret"); the first word is from this list, never any word.
+		String.raw`^(?:repo|repository|org|organization|environment|actions|ci)\s+secret${STOP}`,
+		// `env NAME`: the strict env-name shape only, and nothing after it.
+		String.raw`^env\s+[A-Z]+(?:_[A-Z]+)+${STOP}`,
 		String.raw`^\d+\s+(?:chars?|characters|digits|bytes|days|hours|minutes|months)\b`,
 		String.raw`^rotate[sd]?\s+(?:daily|weekly|monthly|quarterly|yearly|every\s+\S+)\b`,
 		String.raw`^(?:expired|revoked|rotated|unset|missing|empty|invalid|valid|pending|disabled|enabled|required|optional|short-lived|long-lived|personal|shared|unknown|unchanged)(?:${STOP}|\s+(?:on|in|at|for|from|after|until|since)\s)`,
@@ -102,7 +103,7 @@ const SAFE_PHRASE = new RegExp(
 /** The token at a value position, quotes and trailing punctuation removed, and the phrase it starts. */
 function valueAt(rest: string): { token: string; phrase: string } {
 	let phrase = rest.replace(/^\s+/, "").replace(/^(?:the|a|an)\s+(?:string|value|literal|word)\s+/i, "");
-	const quoted = /^(["'“‘])([^"'”’]*)["'”’]?/.exec(phrase);
+	const quoted = /^(["'“”‘’])([^"'“”‘’]*)["'“”‘’]?/.exec(phrase);
 	if (quoted) phrase = quoted[2];
 	const token = (/^\S*/.exec(phrase)?.[0] ?? "").replace(/[.,;!?)\]}"'”’]+$/, "");
 	return { token, phrase };
