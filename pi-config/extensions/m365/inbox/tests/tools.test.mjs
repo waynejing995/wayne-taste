@@ -40,7 +40,12 @@ async function check(label, fn) {
 		console.log(`FAIL ${label}\n${e.stack}`);
 	}
 }
-const call = async (name, params) => (await tools.get(name).execute("t", params, undefined, undefined, {})).content[0].text;
+const call = async (name, params, signal) => (await tools.get(name).execute("t", params, signal, undefined, {})).content[0].text;
+const fails = (name, params) => call(name, params).then((t) => `succeeded: ${t}`, (e) => e.message);
+const { readAgents } = await jiti.import("../cli/agents.ts");
+const { readTsv, inboxFile } = await jiti.import("../cli/ledger.ts");
+const ledger = () => readTsv(inboxFile("ledger.tsv")).map((r) => [r.id, r.state, r.owner]);
+const names = () => readAgents().map((a) => a.name).sort();
 
 await check("omp registers every inbox tool", () =>
 	deepStrictEqual([...tools.keys()].sort(), [
@@ -93,6 +98,49 @@ await check("a call waiting on the ledger lock leaves the event loop free", asyn
 	clearInterval(timer);
 	ok(ticks.length >= 8, `timer fired ${ticks.length} times`);
 	ok(ticks.slice(0, 8).every((s) => s === false), "the timer fired while the call still waited");
+});
+
+// A value that looks like a flag is data: options go first, positionals after `--` (r7b review).
+await check("agent add with the name --help registers a session called --help", async () => {
+	await call("inbox_agent_add", { name: "--help", mux: "tern", pane: "1", row: "1", then: "t" });
+	deepStrictEqual(names(), ["--help"]);
+});
+
+await check("agent ls keeps the trailing empty fields of its last row", async () => {
+	deepStrictEqual((await call("inbox_agent_ls", {})).split("\t").length, 8);
+});
+
+await check("agent rm with names r7 and --help removes both", async () => {
+	await call("inbox_agent_add", { name: "r7", mux: "tern", pane: "2", row: "1", then: "t" });
+	deepStrictEqual(names(), ["--help", "r7"]);
+	await call("inbox_agent_rm", { names: ["r7", "--help"] });
+	deepStrictEqual(names(), []);
+});
+
+await check("set and done with the id --help are errors and change no row", async () => {
+	const before = ledger();
+	match(await fails("inbox_set", { ids: ["--help"], state: "open" }), /^inbox set: Error: no such id: --help$/);
+	match(await fails("inbox_done", { ids: ["--help"], note: "x" }), /^inbox done: Error: no such live id: --help$/);
+	deepStrictEqual(ledger(), before);
+});
+
+await check("ask and then take text that looks like a flag as text", async () => {
+	deepStrictEqual(await call("inbox_ask", { text: "--help", key: "t3" }), "notify 3 ask-wayne");
+	deepStrictEqual(readTsv(inboxFile("ledger.tsv")).find((r) => r.id === "3")?.subject, "--help");
+	match(await call("inbox_then", { row: "3", when: "at:2099-01-01 00:00", action: "--help" }), /^then 3\.1 waits/);
+});
+
+await check("a cancelled call kills its child: the row is never recorded", async () => {
+	const lock = join(process.env.WAYNE_INBOX_DIR, "ledger.tsv.lock");
+	writeFileSync(lock, "");
+	const abort = new AbortController();
+	const asked = call("inbox_ask", { text: "Cancelled?", key: "t4" }, abort.signal).then(() => "finished", (e) => e.message);
+	await new Promise((r) => setTimeout(r, 300));
+	abort.abort();
+	match(await asked, /^inbox ask: .*abort/i);
+	rmSync(lock);
+	await new Promise((r) => setTimeout(r, 300));
+	ok(!readTsv(inboxFile("ledger.tsv")).some((r) => r.key === "ask-wayne:t4"), "the killed child wrote no row");
 });
 
 rmSync(tmp, { recursive: true, force: true });

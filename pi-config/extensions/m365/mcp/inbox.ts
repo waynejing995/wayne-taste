@@ -12,12 +12,18 @@ import { LAUNCHER } from "../inbox/delivery.ts";
 
 const STATES = ["open", "claimed"];
 
-/** Run `inbox <args>`; a non-zero exit is the tool's error, with the CLI's own message. */
-function inbox(args: string[]): Promise<string> {
+/**
+ * Run `inbox <args>`; a non-zero exit is the tool's error, with the CLI's own message. Callers put options first and
+ * positionals after `--`, so a value like "--help" is data, never a flag. `signal` kills the child when the turn is
+ * cancelled. Only newlines are trimmed (an `agent ls` row ends in empty tab-separated fields), and stderr from a
+ * successful run comes back as `warning:` lines.
+ */
+function inbox(args: string[], signal?: AbortSignal): Promise<string> {
 	const { promise, resolve, reject } = Promise.withResolvers<string>();
-	execFile(LAUNCHER, args, { timeout: 60_000, maxBuffer: 16 << 20 }, (e, stdout, stderr) => {
-		if (e) reject(new Error(`inbox ${args[0]}: ${(stderr || stdout || e.message).trim()}`));
-		else resolve(stdout.trim() || "(no output)");
+	execFile(LAUNCHER, args, { timeout: 60_000, maxBuffer: 16 << 20, signal }, (e, stdout, stderr) => {
+		if (e) return reject(new Error(`inbox ${args[0]}: ${(stderr || stdout || e.message).trim()}`));
+		const warnings = stderr.split("\n").filter((l) => l.trim()).map((l) => `warning: ${l}`);
+		resolve([stdout.replace(/^\n+|\n+$/g, "") || "(no output)", ...warnings].join("\n"));
 	});
 	return promise;
 }
@@ -52,9 +58,9 @@ export const inboxTools: ToolDef[] = [
 			owner: Type.Optional(Type.String({ description: "Only rows this owner holds" })),
 			subject: Type.Optional(Type.String({ description: "Only rows whose subject contains this" })),
 		}),
-		async execute(_id, p) {
+		async execute(_id, p, signal) {
 			const states = ((p.state ?? []) as string[]).flatMap((s) => ["--state", s]);
-			return text(await inbox(["ls", ...states, ...options({ owner: p.owner, subject: p.subject })]));
+			return text(await inbox(["ls", ...states, ...options({ owner: p.owner, subject: p.subject })], signal));
 		},
 	},
 	{
@@ -62,8 +68,8 @@ export const inboxTools: ToolDef[] = [
 		label: "Inbox Ask",
 		description: "Record a question only the user can answer: an `ask-wayne` notify row, open until inbox_done.",
 		parameters: Type.Object(recorded),
-		async execute(_id, p) {
-			return text(await inbox(["ask", p.text, ...options({ key: p.key, source: p.source, note: p.note, link: p.link })]));
+		async execute(_id, p, signal) {
+			return text(await inbox(["ask", ...options({ key: p.key, source: p.source, note: p.note, link: p.link }), "--", p.text], signal));
 		},
 	},
 	{
@@ -77,8 +83,8 @@ export const inboxTools: ToolDef[] = [
 			source: recorded.source,
 			note: Type.Optional(Type.String({ description: "chat, who, and time" })),
 		}),
-		async execute(_id, p) {
-			return text(await inbox(factArgv(p)));
+		async execute(_id, p, signal) {
+			return text(await inbox(factArgv(p), signal));
 		},
 	},
 	{
@@ -86,8 +92,8 @@ export const inboxTools: ToolDef[] = [
 		label: "Inbox Facts",
 		description: "List the standing facts, as `inbox facts` prints them.",
 		parameters: Type.Object({ grep: Type.Optional(Type.String({ description: "Only facts that contain this" })) }),
-		async execute(_id, p) {
-			return text(await inbox(["facts", ...options({ grep: p.grep })]));
+		async execute(_id, p, signal) {
+			return text(await inbox(["facts", ...options({ grep: p.grep })], signal));
 		},
 	},
 	{
@@ -109,8 +115,8 @@ export const inboxTools: ToolDef[] = [
 			owner: Type.Optional(Type.String({ description: "Who handles it; empty clears" })),
 			note: Type.Optional(Type.String()),
 		}),
-		async execute(_id, p) {
-			return text(await inbox(["set", ...(p.ids as string[]), ...options({ state: p.state as string | undefined, owner: p.owner, note: p.note })]));
+		async execute(_id, p, signal) {
+			return text(await inbox(["set", ...options({ state: p.state as string | undefined, owner: p.owner, note: p.note }), "--", ...(p.ids as string[])], signal));
 		},
 	},
 	{
@@ -122,8 +128,8 @@ export const inboxTools: ToolDef[] = [
 			note: Type.Optional(Type.String({ description: "How it ended" })),
 			force: Type.Optional(Type.Boolean()),
 		}),
-		async execute(_id, p) {
-			return text(await inbox(["done", ...(p.ids as string[]), ...options({ note: p.note }), ...(p.force ? ["--force"] : [])]));
+		async execute(_id, p, signal) {
+			return text(await inbox(["done", ...options({ note: p.note }), ...(p.force ? ["--force"] : []), "--", ...(p.ids as string[])], signal));
 		},
 	},
 	{
@@ -136,8 +142,8 @@ export const inboxTools: ToolDef[] = [
 			when: Type.String({ description: "The trigger" }),
 			action: Type.String({ description: "What you owe when it fires" }),
 		}),
-		async execute(_id, p) {
-			return text(await inbox(["then", p.row, "--when", p.when, "--", p.action]));
+		async execute(_id, p, signal) {
+			return text(await inbox(["then", "--when", p.when, "--", p.row, p.action], signal));
 		},
 	},
 	{
@@ -149,8 +155,8 @@ export const inboxTools: ToolDef[] = [
 			n: Type.String({ description: "The then-action's number on that row" }),
 			note: Type.Optional(Type.String()),
 		}),
-		async execute(_id, p) {
-			return text(await inbox(["then-done", p.row, p.n, ...options({ note: p.note })]));
+		async execute(_id, p, signal) {
+			return text(await inbox(["then-done", ...options({ note: p.note }), "--", p.row, p.n], signal));
 		},
 	},
 	{
@@ -173,9 +179,9 @@ export const inboxTools: ToolDef[] = [
 			push: Type.Optional(Type.Boolean({ description: "The session reports its own events (omp wayne-agent-report extension)" })),
 			generation: Type.Optional(Type.String({ description: "The WAYNE_AGENT_GENERATION the session was launched with" })),
 		}),
-		async execute(_id, p) {
+		async execute(_id, p, signal) {
 			const opts = options({ mux: p.mux as string, pane: p.pane, row: p.row, then: p.then, host: p.host, result: p.result, goal: p.goal, generation: p.generation });
-			return text(await inbox(["agent", "add", p.name, ...opts, ...(p.push ? ["--push"] : [])]));
+			return text(await inbox(["agent", "add", ...opts, ...(p.push ? ["--push"] : []), "--", p.name], signal));
 		},
 	},
 	{
@@ -186,8 +192,8 @@ export const inboxTools: ToolDef[] = [
 			names: Type.Array(Type.String(), { minItems: 1, description: "Session names" }),
 			generation: Type.Optional(Type.String({ description: "Remove only this registration generation" })),
 		}),
-		async execute(_id, p) {
-			return text(await inbox(["agent", "rm", ...(p.names as string[]), ...options({ generation: p.generation })]));
+		async execute(_id, p, signal) {
+			return text(await inbox(["agent", "rm", ...options({ generation: p.generation }), "--", ...(p.names as string[])], signal));
 		},
 	},
 	{
@@ -195,8 +201,8 @@ export const inboxTools: ToolDef[] = [
 		label: "Inbox Agent Ls",
 		description: "Watched agent sessions, one per line: name, mux, host, pane, result, since, goal, push.",
 		parameters: Type.Object({}),
-		async execute() {
-			return text(await inbox(["agent", "ls"]));
+		async execute(_id, _p, signal) {
+			return text(await inbox(["agent", "ls"], signal));
 		},
 	},
 ];
