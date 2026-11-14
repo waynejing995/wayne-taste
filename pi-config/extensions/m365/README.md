@@ -78,6 +78,9 @@ kind is `digest`, not `prompt`: a build from before the receipt contract fails o
 keeps `last_ok`, instead of running the new prompt unchecked. An older `prompt` digest fails until
 `bin/inbox rules-migrate` replaces it from the template (a watched-chats prompt also gets a 7-day `backfill_since`).
 Restart every omp/pi session on the new build before running `rules-migrate`, so no old scheduler is left to fire it.
+For the same reason, run `node --experimental-strip-types inbox/cli/migrate-facts.ts --dir ~/.wayne/inbox` again after the last session has restarted: an old
+build keeps writing `teams-fact` ledger rows until it restarts, and only a rerun moves those into `facts.md`. A row it
+refuses (bad key, metadata-shaped text, or text the credential guard flags) stays open and is listed; the run exits 1.
 
 End to end against real Teams (read-only, network, not in `npm test`): `node tests/e2e/digest.mjs --out DIR`. It
 runs `inbox schedule run --job teams-digest` with a real `omp` in temporary inboxes, from the template and from a
