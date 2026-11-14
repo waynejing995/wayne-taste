@@ -92,7 +92,7 @@ if (since) {
 		if (write(["ask", "--key", "build-server", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "Who owns the build server?"])) findings++;
 	} else if (mode === "quoteretry") {
 		// A stray quote: bash refuses the line and runs nothing; the corrected retry writes the same fact.
-		call("bash", { command: "inbox fact --kind endpoint --key build-server --source teams-digest --note 'Ops, lin, 11-10 11:00' -- 'Lin's build server is build.example.com.'" }, "bash: -c: line 1: unexpected EOF while looking for matching `''", true);
+		call("bash", { command: "inbox fact --kind endpoint --key build-server --source teams-digest --note 'Ops, lin, 11-10 11:00' -- 'Lin's build server is build.example.com; ask Ops (or Lin) for access.'" }, "bash: -c: line 1: unexpected EOF while looking for matching `''", true);
 		if (write(args)) findings++;
 	} else if (mode !== "factfail" && write(args)) findings++;
 }
