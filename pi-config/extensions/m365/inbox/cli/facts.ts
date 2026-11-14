@@ -192,7 +192,8 @@ type Migration = { written: number; closed: string[]; refused: { id: string; rea
 export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).split("\n").slice(1).filter(Boolean).map((line) => Object.fromEntries(line.split("\t").map((cell, i) => [["id", "key", "subject", "first_seen", "source", "tag", "action", "state", "owner", "note", "link"][i], cell])) as Row)): Migration {
 	return withLedger((liveRows, save) => {
 		const facts = rows.filter((row) => row.tag === "teams-fact" && row.state !== "done");
-		const redacted = facts.filter((row) => SECRET.test(`${factKey(row)} ${row.subject} ${row.source} ${row.note}`)).map((row) => row.id);
+		// Each field on its own, as checkFact does: a clause-ending value ("password: abc") stops ending its clause once joined.
+		const redacted = facts.filter((row) => [factKey(row), row.subject, row.source, row.note].some((field) => SECRET.test(field))).map((row) => row.id);
 		const refused: { id: string; reason: string }[] = [];
 		for (const row of facts) {
 			if (redacted.includes(row.id)) continue;

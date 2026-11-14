@@ -122,6 +122,12 @@ await check("migration redacts a credential row it skips for a newer fact", asyn
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n8\tteams-fact:db-login\tthe db login moved\t2026-11-13 09:00\tpassword: hunter2\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
 	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
 	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8").includes("hunter2"), "a credential in the skipped row's source reached archive.tsv");
+	for (const [id, subject, source] of [["9", "password: abc", "digest"], ["10", "the db login moved", "password: abc"]]) {
+		rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
+		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n${id}\tteams-fact:db-login\t${subject}\t2026-11-13 09:00\t${source}\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
+		migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+		ok(!/password: abc/.test(readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8")), `a short value in row ${id} reached archive.tsv once its fields were joined`);
+	}
 });
 
 await check("migration refuses a row it cannot store and leaves it open", async () => {
