@@ -115,8 +115,10 @@ and `outlook_*` tool, plus the inbox tools above (from `mcp/inbox.ts`, which run
   refuses to start without it (`run /teams init in omp`). There is no second login.
 - **Pictures** come back as MCP image content, each with the local file path (`[image n saved: <file>]`).
 - **Write tools** (`teams_send`, `teams_react`, `outlook_send`, `outlook_draft`, `outlook_move`, `outlook_mark`,
-  `inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`, `inbox_agent_rm`) have no confirmation of their own in the server: approval is the client's job (Claude
-  Code permissions or `allowedTools`, Codex `approval_mode`, Cursor's tool approval).
+  `inbox_ask`, `inbox_fact`, `inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`,
+  `inbox_agent_rm`, and `inbox_agent_ls`, which may rewrite legacy registrations) have no confirmation of their own
+  in the server: approval is the client's job (Claude Code permissions or `allowedTools`, Codex `approval_mode`,
+  Cursor's tool approval).
 - **Channel**: the server always declares Claude Code's `claude/channel`. A client that can take pushes (it
   advertises `claude/channel`, or it is Claude Code, which as of 2.1.322 advertises nothing and is known by its
   `clientInfo.name`) gets `notifications/claude/channel` events, `<channel source="m365" kind=… chat_id=… sender=… policy=…>`:

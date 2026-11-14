@@ -23,7 +23,8 @@
  * Agent events become inbox rows; their byte cursors and heartbeat state survive restarts.
  * The directory watch and existing backstop drive retries, rule reloads, and dead checks.
  *
- * Every inbox command runs in this process through cli/main.ts, the same code the `bin/inbox` launcher runs.
+ * The plugin's cards and scheduler run inbox commands in this process through cli/main.ts, the same code the
+ * `bin/inbox` launcher runs. The inbox_* agent tools (mcp/inbox.ts) run `bin/inbox` as a child process instead.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";

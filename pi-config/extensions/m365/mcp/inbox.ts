@@ -12,7 +12,11 @@ import { LAUNCHER } from "../inbox/delivery.ts";
 
 const STATES = ["open", "claimed"];
 
-/** Commands that only read: a cancel or the timeout may kill them. Not `agent ls`: it migrates legacy registrations. */
+/**
+ * Commands that only read: a cancel or the timeout may kill them. A kill while `ls` holds ledger.tsv.lock leaves that
+ * lock behind; it clears itself within 10 s (LOCK_STALE_MS), and no data is touched. Not `agent ls`: it migrates
+ * legacy registrations.
+ */
 const READ_ONLY = new Set(["ls"]);
 
 /**
@@ -208,7 +212,7 @@ export const inboxTools: ToolDef[] = [
 	{
 		name: "inbox_agent_ls",
 		label: "Inbox Agent Ls",
-		description: "Watched agent sessions, one per line: name, mux, host, pane, result, since, goal, push.",
+		description: "Watched agent sessions, one per line: name, mux, host, pane, result, since, goal, push. It may rewrite legacy registrations (it gives each a generation id) before listing.",
 		parameters: Type.Object({}),
 		async execute(_id, _p, signal) {
 			return text(await inbox(["agent", "ls"], signal));
