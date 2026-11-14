@@ -201,7 +201,7 @@ await check("a digest read whose middle omp elided passes once the agent reads t
 	}
 });
 
-for (const mode of ["listelided", "factretry", "quoteretry", "helpfirst"])
+for (const mode of ["listelided", "factretry", "quoteretry", "helpfirst", "helpmixed"])
 	await check(`a digest run in mode ${mode} is complete and moves the boundary`, async () => {
 		try {
 			digestJob("2026-11-10 12:00", {}, mode);

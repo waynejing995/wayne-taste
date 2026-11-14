@@ -94,6 +94,10 @@ if (since) {
 		bad[2] = "bogus";
 		write(bad);
 		if (write(["ask", "--key", "build-server", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "Who owns the build server?"])) findings++;
+	} else if (mode === "helpmixed") {
+		// Real agent, Gate 0 r9: a read-only call that greps facts.md and pipes the usage.
+		call("bash", { command: "grep -oE '\\[[a-z0-9-]+\\]' facts.md | sort -u | head -150; inbox fact --help 2>&1 | head -30" }, "Usage: inbox fact TEXT [OPTIONS]");
+		if (write(args)) findings++;
 	} else if (mode === "helpfirst") {
 		// Reading the usage writes nothing, whatever joins the help calls.
 		call("bash", { command: "inbox fact --help; inbox ask --help" }, "Usage: inbox fact TEXT [OPTIONS]\nUsage: inbox ask TEXT [OPTIONS]");

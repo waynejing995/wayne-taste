@@ -187,8 +187,9 @@ function plainWords(command: string): string[] | undefined {
 /** The write a bash call made: a Write, "mixed" when an inbox ask/fact is not the call's one plain command, or undefined for no write. */
 function inboxWrite(command: string, ok: boolean, text = ""): Write | "mixed" | undefined {
 	if (!/\binbox\b/.test(command) || !/\b(ask|fact)\b/.test(command)) return undefined;
-	// Reading the usage (`inbox fact --help; inbox ask --help`) writes nothing; any other piece keeps the call checked.
-	if (command.split(/\s*(?:;|&&|\|\||\n)\s*/).every((part) => /^inbox (?:ask|fact) --help$/.test(part.trim()))) return undefined;
+	// Reading the usage writes nothing, whatever else the call runs (`grep ... facts.md; inbox fact --help | head`):
+	// a call is a write only when some `inbox ask|fact` in it is not just `--help`.
+	if ([...command.matchAll(/\binbox\s+(?:ask|fact)\b(\s+[^\s;&|]+)?/g)].every((m) => m[1]?.trim() === "--help")) return undefined;
 	const words = plainWords(command);
 	if (!words) {
 		// A line with a stray quote ("Wayne's") that bash refused as a syntax error ran nothing at all, whatever `;`
