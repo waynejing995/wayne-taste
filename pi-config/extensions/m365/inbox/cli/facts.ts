@@ -22,7 +22,7 @@ const SECRET = new RegExp(
 	[
 		String.raw`${CRED_WORD}s?\s*[:=]\s*(?!${POINTER})(?:${SYMBOLIC}\S+|[A-Za-z]+(?=\s*(?:[.,;)!"'\]]|$)))`,
 		String.raw`${CRED_WORD}s?\s+(?:is|was|are|were)\s+(?!${POINTER})(?:${SYMBOLIC}\S+|[A-Za-z]+(?=\s*(?:[.,;)!"'\]]|$)))`,
-		String.raw`${CRED_WORD}s?(?:\s+[\w.-]+){1,4}?(?:\s*[:=]|\s+(?:is|was|are|were))\s*(?!${POINTER})${SYMBOLIC}[\x21-\x7e]{4,}`,
+		String.raw`${CRED_WORD}s?(?:\s+[\w.-]+){1,4}?(?:\s*[:=]|\s+(?:is|was|are|were))\s*(?!${POINTER})(?:${SYMBOLIC}\S+|[A-Za-z]+(?=\s*(?:[.,;)!"'\]]|$)))`,
 		String.raw`${CRED_WORD}(?:\s+|-)(?!${POINTER})(?!\b[A-Za-z]+\b)(?![("'\[])(?=[\x21-\x7e]*[\d\W])[\x21-\x7e]{4,}`,
 		String.raw`Bearer\s+[A-Za-z0-9_-]{8,}`,
 		String.raw`\b(?:ghp|sk)[_-][A-Za-z0-9_-]{8,}`,
@@ -223,7 +223,9 @@ export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).sp
 		saveFacts(next.map(scrub));
 		for (const row of liveRows.filter((row) => redacted.includes(row.id))) {
 			row.subject = "[redacted: credential value]";
+			row.source = SECRET.test(row.source) ? "[redacted]" : row.source;
 			row.note = "redacted because the row held a credential value";
+			row.key = SECRET.test(row.key) ? "teams-fact:[redacted]" : row.key;
 		}
 		finishRows(liveRows, redacted, undefined, save);
 		const cleanIds = facts.map((row) => row.id).filter((id) => !skip.has(id));

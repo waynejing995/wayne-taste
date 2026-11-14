@@ -118,6 +118,10 @@ await check("migration redacts a credential row it skips for a newer fact", asyn
 	const { readTsv } = await jiti.import("../cli/ledger.ts");
 	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
 	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8").includes("hunter2"), "the skipped row's credential reached archive.tsv");
+	rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n8\tteams-fact:db-login\tthe db login moved\t2026-11-13 09:00\tpassword: hunter2\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
+	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8").includes("hunter2"), "a credential in the skipped row's source reached archive.tsv");
 });
 
 await check("migration refuses a row it cannot store and leaves it open", async () => {
@@ -187,7 +191,7 @@ await check("secrets are rejected in every field and scrubbed from history", asy
 	for (const text of accepted) await inbox(["fact", "--kind", "info", "--key", `pointer-${accepted.indexOf(text)}`, "--", text]);
 	const rejected = ["the password is hunter2X", "pw is s3cr3t!", "password: hunter2", "token=abc123", "Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature", "api key: sk-live-1234567890abcdef", "ghp_1234567890abcdefghij", "xoxb-1234567890-abcdefghij", "pw is X", "password is abc", "password: 7", "the token = a", "the secret was hunter", "PASSWORD IS Sunshine"];
 	for (const text of rejected) await rejects(() => inbox(["fact", "--kind", "decision", "--key", "release-window", "--", text]), /never its value/);
-	for (const text of ["client_secret=abc123", "access_token=abc123x", "GITHUB_TOKEN: abc123x", "db_password is hunter2", "password: pass_word", "client_secret=abc_def", "the token is my_secret_value today", "The prod DB password for user ci is s3cr3tV4lue", "token for the bot: abc123xyz", "the credentials are hunter2", "creds: hunter2", "passcode is 482913"]) await rejects(() => inbox(["fact", "--kind", "info", "--key", "env-name", "--", text]), /never its value/, text);
+	for (const text of ["client_secret=abc123", "access_token=abc123x", "GITHUB_TOKEN: abc123x", "db_password is hunter2", "password: pass_word", "client_secret=abc_def", "the token is my_secret_value today", "The prod DB password for user ci is s3cr3tV4lue", "token for the bot: abc123xyz", "the credentials are hunter2", "creds: hunter2", "passcode is 482913", "The prod DB password for user ci is abc", "The prod DB password for user ci is 7", "token for the bot: hunter"]) await rejects(() => inbox(["fact", "--kind", "info", "--key", "env-name", "--", text]), /never its value/, text);
 	await rejects(() => inbox(["fact", "--kind", "info", "--key", "token-abc123456789", "--", "rotation owner"]), /never its value/);
 	await rejects(() => inbox(["fact", "--kind", "info", "--key", "owner", "--source", "password: hunter2", "--", "rotation owner"]), /never its value/);
 	const leaked = "## [info:old-secret]\n\npassword: hunter2\n\nsource: digest\nsince: 2026-11-13\n\n";
