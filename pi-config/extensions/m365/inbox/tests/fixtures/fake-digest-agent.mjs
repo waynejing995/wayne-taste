@@ -94,6 +94,10 @@ if (since) {
 		bad[2] = "bogus";
 		write(bad);
 		if (write(["ask", "--key", "build-server", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "Who owns the build server?"])) findings++;
+	} else if (mode === "helpfirst") {
+		// Reading the usage writes nothing, whatever joins the help calls.
+		call("bash", { command: "inbox fact --help; inbox ask --help" }, "Usage: inbox fact TEXT [OPTIONS]\nUsage: inbox ask TEXT [OPTIONS]");
+		if (write(args)) findings++;
 	} else if (mode === "quoteretry") {
 		// A stray quote: bash refuses the line and runs nothing; the corrected retry writes the same fact.
 		call("bash", { command: "inbox fact --kind endpoint --key build-server --source teams-digest --note 'Ops, lin, 11-10 11:00' -- 'Lin's build server is build.example.com; ask Ops (or Lin) for access.'" }, "bash: -c: line 1: unexpected EOF while looking for matching `''", true);
