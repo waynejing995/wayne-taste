@@ -101,7 +101,7 @@ function reaches(value: unknown, end: number): boolean {
 	return value === undefined || (typeof value === "string" && new Date(value).getTime() >= end);
 }
 
-type Truncation = { direction?: string; headRange?: { end: number }; tailRange?: { start: number }; artifactId?: string };
+type Truncation = { direction?: string; totalLines?: number; outputLines?: number; headRange?: { start?: number; end: number }; tailRange?: { start: number; end?: number }; artifactId?: string };
 
 /** The lines `read artifact://ID:...` calls showed, as [first, last] pairs. A read stops at its "Use :X to continue". */
 function artifactReads(all: Call[], id: string): [number, number][] {
@@ -119,13 +119,18 @@ function artifactReads(all: Call[], id: string): [number, number][] {
 	return out;
 }
 
-/** The elided middle of a tool result that no artifact read covered, as a reason; undefined when nothing is missing. */
+/**
+ * The lines omp elided from a tool result that no artifact read covered, as a reason; undefined when nothing is
+ * missing. Any truncation counts: a middle cut, a head-only result (tail cut) or a tail-only one (head cut).
+ */
 function unreadMiddle(read: Call, all: Call[]): string | undefined {
 	const t = (read.details?.meta as { truncation?: Truncation } | undefined)?.truncation;
-	if (t?.direction !== "middle" || !t.headRange || !t.tailRange) return undefined;
+	if (!t?.direction) return undefined;
+	const total = t.totalLines ?? Number.POSITIVE_INFINITY;
+	const from = t.headRange ? t.headRange.end + 1 : 1;
+	const to = t.tailRange ? t.tailRange.start - 1 : total;
+	if (from > to) return undefined;
 	const id = String(t.artifactId ?? "");
-	const from = t.headRange.end + 1;
-	const to = t.tailRange.start - 1;
 	let next = from;
 	for (const [a, b] of artifactReads(all, id).sort((x, y) => x[0] - y[0])) if (a <= next && b >= next) next = b + 1;
 	if (next > to) return undefined;

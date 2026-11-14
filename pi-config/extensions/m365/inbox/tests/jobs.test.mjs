@@ -220,6 +220,7 @@ for (const [mode, chat, reason] of [
 	["exit", "all chats", /exited 1/],
 	["elidedskip", "self-chat", /lines 41-960 .*elided/],
 	["listelidedskip", "chat list", /teams_chats output were elided/],
+	["tailskip", "self-chat", /lines 1-960 .*elided/],
 	["multiwrite", "Ops", /one plain `inbox ask\|fact` per bash call/],
 	["quotedmulti", "Ops", /one plain `inbox ask\|fact` per bash call/],
 	["askmask", "Ops", /inbox write failed/],

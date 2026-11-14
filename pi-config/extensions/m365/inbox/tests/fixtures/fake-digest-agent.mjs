@@ -47,6 +47,10 @@ if (since) {
 			call("read", { path: "artifact://0:41-600" }, "[400 more lines in resource. Use :601 to continue]");
 			call("read", { path: "artifact://0:601-960" }, "[40 more lines in resource. Use :961 to continue]");
 		}
+	} else if (mode === "tailskip") {
+		// omp kept only the tail (head cut, artifactHeadBytes=0) and the agent never reads lines 1-960.
+		const truncation = { direction: "tail", totalLines: 1000, tailRange: { start: 961, end: 1000 }, artifactId: "0" };
+		call("teams_read", { target: "self", ...window, images: false }, "[Showing lines 961-1000 of 1000. Read artifact://0 for full output]", false, { meta: { truncation } });
 	} else call("teams_read", { target: "self", ...window, images: false }, "(no messages)");
 	if (mode === "readfail") {
 		call("teams_read", { chat_id: "19:ops@thread.v2", ...window, images: false }, "Graph 503 Service Unavailable", true);
