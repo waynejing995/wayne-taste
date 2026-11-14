@@ -105,16 +105,18 @@ type Truncation = { direction?: string; totalLines?: number; outputLines?: numbe
 
 /** The lines `read artifact://ID:...` calls showed, as [first, last] pairs. A read stops at its "Use :X to continue". */
 function artifactReads(all: Call[], id: string): [number, number][] {
-	// The read tool's selectors: `:A-B`, `:A+C`, `:A-` / `:A` (from A on); with `:raw`, a bare `:A` is that one line.
-	const path = new RegExp(`^artifact://${id}(:raw)?:(\\d+)(?:(-)(\\d*)|\\+(\\d+))?$`);
+	// The read tool's selectors: none (the whole output), `:A-B`, `:A+C`, `:A-` / `:A` (from A on), with `:raw`
+	// before or after the range; with `:raw`, a bare `:A` is that one line.
+	const path = new RegExp(`^artifact://${id}(?:(:raw)?:(\\d+)(?:(-)(\\d*)|\\+(\\d+))?(:raw)?|(:raw)?)$`);
 	const out: [number, number][] = [];
 	for (const c of all) {
 		if (c.name !== "read" || !c.ok) continue;
 		const m = path.exec(String(c.args.path ?? ""));
 		if (!m) continue;
-		const [, raw, a, dash, b, count] = m;
-		const first = Number(a);
-		const asked = b ? Number(b) : count ? first + Number(count) - 1 : raw && !dash ? first : Number.POSITIVE_INFINITY;
+		const [, rawBefore, a, dash, b, count, rawAfter] = m;
+		const raw = Boolean(rawBefore || rawAfter);
+		const first = a ? Number(a) : 1;
+		const asked = b ? Number(b) : count ? first + Number(count) - 1 : raw && a && !dash ? first : Number.POSITIVE_INFINITY;
 		// Never past what came back: omp's "Use :N to continue" marks the first line not returned, and the result holds
 		// at most as many lines as its text has (notice lines included, so this bound only ever errs long by them).
 		const more = /Use :(\d+) to continue\]\s*$/.exec(c.text);

@@ -41,7 +41,7 @@ if (since) {
 		call("teams_chats", { active_since: since }, "2 chat(s)\n[Showing lines 1-1 and 3-3 of 3; 1 middle lines elided. Read artifact://1 for full output]\n- Lin  [oneOnOne]  id: 19:lin@unq.gbl.spaces", false, { meta: { truncation } });
 		if (mode === "listelided") call("read", { path: "artifact://1:2-2" }, "- Ops  [group]  id: 19:ops@thread.v2");
 	} else call("teams_chats", { active_since: since }, "2 chat(s)\n- Ops  [group]  id: 19:ops@thread.v2\n- Lin  [oneOnOne]  id: 19:lin@unq.gbl.spaces");
-	if (mode === "elided" || mode === "elidedskip" || mode === "rawone" || mode === "shortread") {
+	if (mode === "elided" || mode === "elidedskip" || mode === "rawone" || mode === "shortread" || mode === "rawafter" || mode === "wholeread" || mode === "wholeshort") {
 		const truncation = { direction: "middle", totalLines: 1000, headRange: { start: 1, end: 40 }, tailRange: { start: 961, end: 1000 }, elidedLines: 920, artifactId: "0" };
 		call("teams_read", { target: "self", ...window, images: false }, "self-chat (48:notes) — 300 message(s)\n[Showing lines 1-40 and 961-1000 of 1000; 920 middle lines elided. Read artifact://0 for full output]", false, { meta: { truncation } });
 		const lines = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => `[11-10 10:${String(i % 60).padStart(2, "0")}] me: line ${a + i}`).join("\n");
@@ -50,6 +50,9 @@ if (since) {
 			call("read", { path: "artifact://0:601-960" }, `${lines(601, 960)}\n\n[40 more lines in resource. Use :961 to continue]`);
 		}
 		if (mode === "rawone") call("read", { path: "artifact://0:raw:41" }, lines(41, 41));
+		if (mode === "rawafter") call("read", { path: "artifact://0:41-960:raw" }, lines(41, 960));
+		if (mode === "wholeread") call("read", { path: "artifact://0" }, lines(1, 1000));
+		if (mode === "wholeshort") call("read", { path: "artifact://0" }, `${lines(1, 500)}\n\n[500 more lines in resource. Use :501 to continue]`);
 		if (mode === "shortread") call("read", { path: "artifact://0:41-960" }, lines(41, 50));
 	} else if (mode === "tailskip") {
 		// omp kept only the tail (head cut, artifactHeadBytes=0) and the agent never reads lines 1-960.
