@@ -15,7 +15,11 @@ export const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
 // Up to four words, within one sentence, may sit between it and is/:/= ("password for user ci is ...", "token for the bot: ...").
 // When the word after the credential word names an attribute of it (ATTR: "token owner is Lin", "secret store is Vault",
 // "password expiry is 90 days"), the sentence is about that attribute, not the value.
-const CRED_WORD = String.raw`(?<![A-Za-z])(?:password|passwd|passphrase|passcode|pw|secret|token|credentials?|creds|api[-_ ]?key)`;
+// Identifier forms count too: glued (PGPASSWORD, accessToken, clientSecret), joined by `_`/`-` (MYSQL_PWD,
+// aws_secret_access_key). `pass` alone is a credential word only before `:`/`=` (DB_PASS=..., pass: x), as are 密码/口令.
+const CORE = String.raw`password|passwd|passphrase|passcode|pwd|pw|secret|token|credentials?|creds|api[-_ ]?key|access[-_]?key`;
+const CRED_WORD = String.raw`(?<![A-Za-z0-9])(?:[A-Za-z0-9]*?(?:password|passwd|pwd|secret|token)|(?:[A-Za-z0-9]+[_-])*(?:${CORE}))(?:[_-][A-Za-z0-9]+)*(?![A-Za-z0-9])`;
+const CRED_ASSIGN = String.raw`(?:${CRED_WORD}|(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*pass(?![A-Za-z0-9])|密码|口令)`;
 const POINTER = String.raw`(?:in|inside|at|on|under|behind|stored|kept|owned|held|located|saved|managed|shared|issued|set|rotated|revoked|expired|reset|changed|required|needed|missing|valid|invalid|unknown|pending|deployed|not|no|none|now|still|being|available|the|per|via|from|by|with|only|also|handled|provided|generated|lives|goes|used|configured|scoped|created|leaked|exposed|empty|here|there|ready|fine|ok|wrong|correct|broken|gone|done|live|active|disabled|enabled|working|unchanged|same|different|new|old|exported|loaded|read|written|passed|sent|derived|copied|fetched|injected|mounted|checked|verified|ask|asked|see|use|request|requested|contact|rotate|delegated)\b`;
 // A bare word is a value too, even with words after it ("password is abc for prod"), unless a pointer word
 // follows it ("token: Graph delegated via az cli").
@@ -24,14 +28,23 @@ const ALPHA = String.raw`[A-Za-z]+\b(?!\s+${POINTER})`;
 const ATTR = String.raw`(?:owners?|stores?|storage|rotations?|budget|expiry|expiration|quotas?|polic(?:y|ies)|location|vault|manager|limits?|length|format|scopes?|ttl|lifetime|age|name|type|count|size|field|file|path|env|variable|holder|team|process|service|provider|requirements?|rules?|status|issuer|refresh|reset|schedule|cadence|usage|cost|plan|page|docs?|ticket|flow|prompt)\b`;
 // A digit or any non-letter (`_` included: pass_word, abc_def) marks a token as a value, not a word.
 const SYMBOLIC = String.raw`(?=\S*(?:\d|[^A-Za-z\s]))`;
+const VALUE = String.raw`(?!${POINTER})(?:${SYMBOLIC}\S+|${ALPHA})`;
+// `:`, `=`, a full-width colon, or a spaced dash ("password - x").
+const SEP = String.raw`(?:\s*[:=：]|\s+-)`;
 const SECRET = new RegExp(
 	[
-		String.raw`${CRED_WORD}s?\s*[:=]\s*(?!${POINTER})(?:${SYMBOLIC}\S+|${ALPHA})`,
-		String.raw`${CRED_WORD}s?\s+(?:is|was|are|were)\s+(?!${POINTER})(?:${SYMBOLIC}\S+|${ALPHA})`,
-		String.raw`${CRED_WORD}s?(?!\s+${ATTR})(?:\s+(?!${ATTR})[\w-]+(?:\.[\w-]+)*){1,4}?(?:\s*[:=]|\s+(?:is|was|are|were))\s*(?!${POINTER})(?:${SYMBOLIC}\S+|${ALPHA})`,
-		String.raw`${CRED_WORD}(?:\s+|-)(?!${POINTER})(?!\b[A-Za-z]+\b)(?![("'\[])(?=[\x21-\x7e]*[\d\W])[\x21-\x7e]{4,}`,
-		String.raw`Bearer\s+[A-Za-z0-9_-]{8,}`,
+		String.raw`${CRED_ASSIGN}${SEP}\s*${VALUE}`,
+		String.raw`${CRED_ASSIGN}${SEP}?\s*(?:"(?!${POINTER})[^"\s]+"|'(?!${POINTER})[^'\s]+')`,
+		String.raw`${CRED_WORD}\s+(?:is|was|are|were)\s+${VALUE}`,
+		String.raw`${CRED_WORD}(?!\s+${ATTR})(?:\s+(?!${ATTR})[\w-]+(?:\.[\w-]+)*){1,4}?(?:\s*[:=：]|\s+(?:is|was|are|were))\s*${VALUE}`,
+		String.raw`${CRED_WORD}(?<![sS])(?:\s+|-)(?!${POINTER})(?!\b[A-Za-z]+\b)(?![("'\[])(?=[\x21-\x7e]*[\d\W])[\x21-\x7e]{4,}`,
+		// URL userinfo (scheme://user:pass@host), HTTP auth headers, sshpass -p, vendor token prefixes.
+		String.raw`\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@`,
+		String.raw`\b(?:Basic|Bearer)\s+[A-Za-z0-9+/_=-]{8,}`,
+		String.raw`Authorization:\s*(?:Basic|Bearer|Token|Digest)\s+\S{4,}`,
+		String.raw`\bsshpass\s+(?:-\w\s+)*-p\s*\S+`,
 		String.raw`\b(?:ghp|sk)[_-][A-Za-z0-9_-]{8,}`,
+		String.raw`\bgithub_pat_[A-Za-z0-9_]{8,}`,
 		String.raw`\bxox[bp]-[A-Za-z0-9-]{8,}`,
 	].join("|"),
 	"i",
