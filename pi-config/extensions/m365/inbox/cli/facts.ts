@@ -15,35 +15,42 @@ export const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
 //   sentence between ("password for the new prod db is ...");
 //   "now" or "to" right after it ("token now X", "changed the CI password to X");
 //   是/为 after 密码/口令; "with password X", "user NAME password X".
-// The token there (up to whitespace; quotes and a trailing stop removed) is a value unless it or the phrase it starts
-// is a safe pointer (SAFE_TOKEN, SAFE_PHRASE): a path or URL, an env name, a place or holder ("in Vault",
-// "stored in ...", "owned by Ops", "ask Lin", "1Password item X"), a description ("a PAT", "a reference to Vault",
-// "16 chars", "repo secret"), or a status that is the whole clause ("expired.", "TBD"). An article skips to the
-// next word only in "the string X"/"the value X", which is a value.
+// The text there (quotes and "the string" removed) is a value unless it is made only of safe pointer forms, each
+// bounded to one place, holder, description or status, with nothing else after it: a path or URL, an env name, a
+// place or holder ("in Vault", "stored in ...", "owned by Ops", "ask Lin"), a known description ("a PAT", "a
+// reference to Vault", "repo secret"), or a status ("expired", "TBD", "not needed", "rotated yesterday"). After any
+// safe form the rest of the text is judged again, so `password: TBD hunter2` or `in Vault, but use X` is a value.
 // An attribute noun right after the credential word ("token owner is Lin", "token endpoint is https://...") leaves
 // no value position. The credential word may be an identifier: glued (PGPASSWORD, accessToken), `_`/`-` joined
 // (MYSQL_PWD, aws_secret_access_key), after a digit or `_` (client_secret). `pass` alone, 密码 and 口令 count only
 // before a separator. Without a separator, a credential word right before an ASCII token with a digit or symbol
 // ("password hunter2!") is a value too. Keys are checked for vendor token shapes only: a key names a fact.
-const CORE = String.raw`password|passwd|passphrase|passcode|pwd|pw|secret|token|credentials?|creds|api[-_ ]?key|access[-_]?key`;
+const CORE = String.raw`password|passwd|passphrase|passcode|pwd|pw|secret|token|credentials?|creds|api[-_ ]?key|access[-_]?key|pin|psk|otp|(?:recovery|backup)[-_ ]codes?|private[-_ ]keys?`;
 // Repeats are bounded so a long `a-a-a-...` token cannot make matching quadratic.
 const CRED_WORD = String.raw`(?<![A-Za-z0-9])(?:[A-Za-z0-9]{0,24}?(?:password|passwd|pwd|secret|token)|(?:[A-Za-z0-9]{1,24}[_-]){0,4}(?:${CORE}))(?:[_-][A-Za-z0-9]{1,24}){0,4}s?(?![A-Za-z0-9])`;
 const CRED_ASSIGN = String.raw`(?:${CRED_WORD}|(?<![A-Za-z0-9])(?:[A-Za-z0-9]{1,24}[_-]){0,4}pass(?![A-Za-z0-9])|密码|口令)`;
 const ATTR = String.raw`(?:owners?|stores?|storage|rotations?|budget|expiry|expiration|quotas?|polic(?:y|ies)|location|vault|manager|limits?|length|format|scopes?|ttl|lifetime|age|name|type|count|size|field|file|path|env|variable|holder|team|process|service|provider|requirements?|rules?|status|issuer|refresh|reset|schedule|cadence|usage|cost|plan|page|docs?|ticket|flow|prompt|endpoints?|url|uri|headers?|prefix|claims?|audience)\b`;
+// Words of the same sentence between a credential word and is/:/=. A host:port or a time is one word, so its colon
+// never reads as the separator ("password for db.internal:5432 is in Vault").
+const BETWEEN = String.raw`(?:\s+(?!${ATTR})[\w-]{1,40}(?:\.[\w-]{1,40}){0,3}(?::\d{1,5})?){0,8}?`;
 const QUALIFIER = String.raw`(?:\s*[(\[][^)\]\n]{0,40}[)\]])?`;
-const SEP = String.raw`(?:\s*[:=：]|\s+-(?=\s))`;
-const CHANGE = String.raw`(?:now|still|currently|(?:been\s+)?(?:set|changed|updated|reset|rotated)\s+to)`;
+const SEP = String.raw`(?:\s*[:=：]|\s*(?:→|->|=>|—|–|--)|\s+-(?=\s))`;
+const CHANGE = String.raw`(?:now|still|currently|became|becomes|(?:been\s+)?(?:set|changed|updated|reset|rotated)\s+to)`;
 const VALUE_AT = new RegExp(
 	[
 		String.raw`${CRED_ASSIGN}s?${QUALIFIER}${SEP}`,
-		String.raw`${CRED_ASSIGN}s?${QUALIFIER}(?=\s*["'“”‘’])`,
-		String.raw`${CRED_WORD}s?(?!\s+${ATTR})(?:\s+(?!${ATTR})[\w-]{1,40}(?:\.[\w-]{1,40}){0,3}){0,8}?(?:\s*[:=：]|\s+(?:is|was|are|were|has\s+been)\b(?:\s+${CHANGE}\b)?)`,
-		String.raw`${CRED_WORD}s?\s+(?:${CHANGE}|to)\b`,
+		// An opening quote (one followed by text): `"API tokens" button` ends with a closing one.
+		String.raw`${CRED_ASSIGN}s?${QUALIFIER}(?=\s*["'“”‘’\x60]+[^\s"'“”‘’\x60])`,
+		String.raw`${CRED_WORD}s?(?!\s+${ATTR})${BETWEEN}(?:\s*[:=：](?!\d)|\s*(?:→|->|=>|—|–)|\s+(?:is|was|are|were|has\s+been)\b(?:\s+${CHANGE}\b)?)`,
+		// "to" alone is a destination ("move the password to Vault"); only a change verb makes it an assignment,
+		// after the credential word ("token now X") or before it ("changed the CI password to X").
+		String.raw`${CRED_WORD}s?\s+${CHANGE}\b`,
+		String.raw`\b(?:set|changed?|update[sd]?|reset|rotated)\s+(?:[\w-]{1,40}\s+){0,4}?${CRED_WORD}\s+to\b`,
 		// A comma counts only right after a singular word and before a token with a digit or symbol ("token, ab12-cd"),
 		// since "token, and ..." and "pass, merge it" are lists.
 		String.raw`${CRED_WORD}(?<![sS]),\s*(?=[A-Za-z0-9]*[\d_!@#$%^&*+=/~-])`,
-		String.raw`(?:密码|口令)\s*(?:是|为)`,
-		String.raw`(?:\bwith|\buser\s+\S{1,40})\s+${CRED_WORD}(?=\s)`,
+		String.raw`(?:密码|口令)\s*(?:是|为)?(?=\s*\S)`,
+		String.raw`(?:\bwith|\buser\s+\S{1,40})\s+${CRED_ASSIGN}(?=\s)`,
 	].join("|"),
 	"gi",
 );
@@ -68,50 +75,95 @@ const SHAPED = new RegExp(
 	].join("|"),
 	"i",
 );
-const SAFE_TOKEN = new RegExp(
-	[
-		String.raw`^~?/\S`,
-		String.raw`^https?://\S`,
-		String.raw`^env:[A-Za-z_]\w*$`,
-		String.raw`^\$\{?[A-Za-z_]\w*\}?$`,
-		String.raw`^\d+(?:\.\d+)?(?:/\d+|%)$`,
-		String.raw`^(?:n/a|tbd|none|unset|yes|no)$`,
-	].join("|"),
+// A place or holder: an optional article, one word, then up to three more plain words ("the team vault", "Lin for
+// it"). A word with a digit or symbol, or a joining word, ends it, so "in Vault hunter2" and "via Vault or X" leave
+// a rest that is judged again.
+const PLACE = String.raw`(?:(?:the|a|an|our|my|your|their)\s+)?[^\s,;()]+(?:\s+(?!(?:or|and|but|then|use|old|until|contains|currently|value|it'?s|in|at|on|by|from|for|to|via|after|before|since|with|so|which)\b)[A-Za-z.][A-Za-z.-]*){0,3}`;
+const STATUS = String.raw`(?:expired|revoked|rotated|unset|missing|empty|invalid|valid|pending|disabled|enabled|required|optional|needed|configured|short-lived|long-lived|personal|shared|unknown|unchanged|read-only|per-user|per-team|broken|working|ready|available|locked|blocked)`;
+const WHEN = String.raw`(?:yesterday|today|recently|daily|weekly|monthly|last\s+\w+|(?:on|at|after|until|since)\s+[^\s,;()]+|(?:in|for|from|by)\s+${PLACE})`;
+// A place form may carry a time or second place ("derived from the app DB password at startup").
+const THEN = String.raw`(?:\s+(?:at|on|after|during|before)\s+(?:the\s+)?(?:app\s+)?(?:startup|boot|deploy|login|runtime|start))?`;
+// One safe pointer form at the start of the text. Each is bounded; whatever follows is judged again.
+const SAFE_FORM = new RegExp(
+	"^(?:" +
+		[
+			String.raw`~?/[^\s,;()]+`,
+			String.raw`https?://[^\s,;()]+`,
+			String.raw`env:[A-Za-z_]\w*`,
+			String.raw`\$\{?[A-Za-z_]\w*\}?`,
+			String.raw`\d+(?:\.\d+)?(?:/\d+|%)`,
+			// Before the bare words below, so "no longer configured" is not read as "no" plus a rest.
+			String.raw`(?:not|no\s+longer)\s+(?:${STATUS}|an?\s+env(?:ironment)?\s+var(?:iable)?)`,
+			String.raw`(?:n/a|tbd|none|unset|yes|no)`,
+			String.raw`(?:in|inside|at|from|under|behind|via|on)\s+${PLACE}`,
+			String.raw`(?:stored|kept|held|saved|located|managed|exported|set|loaded|configured|defined|derived|generated|injected|mounted|lives|sits)\s+(?:(?:automatically|manually)\s+)?(?:(?:in|at|on|under|behind|by|from|via|through)\s+${PLACE}${THEN}|locally|elsewhere|separately|only)`,
+			String.raw`(?:ask|see|contact|request\s+it\s+from)\s+${PLACE}(?:\s+for\s+(?:it|access|one))?`,
+			String.raw`(?:owned|issued|rotated|revoked|handled|provided|held|scoped|created|generated)\s+(?:by|per|for)\s+${PLACE}`,
+			// "a/an" only before a known description, never any word: `password: a hunter2` is a value.
+			String.raw`(?:a|an)\s+(?:(?:personal\s+access|OAuth|bot|service\s+account|API|access|refresh|session)\s+)?(?:PAT|JWT|token|key|secret|password|reference\s+to\s+${PLACE})`,
+			String.raw`(?:repo|repository|org|organization|environment|actions|ci)\s+secret`,
+			String.raw`env\s+[A-Z]+(?:_[A-Z]+)+`,
+			String.raw`\d+\s+(?:chars?|characters|digits|bytes|days|hours|minutes|months)`,
+			String.raw`rotate[sd]?\s+(?:daily|weekly|monthly|quarterly|yearly|every\s+[^\s,;()]+)`,
+			String.raw`${STATUS}(?:\s+${WHEN})?`,
+			String.raw`(?:the\s+)?same\s+as\s+${PLACE}`,
+			String.raw`the\s+one`,
+		].join("|") +
+		String.raw`)(?=[\s.,;!?)\]}"'”’\x60]|$)`,
 	"i",
 );
-// A status or description phrase ends the text, or the whole word is followed by a preposition: punctuation inside a
-// token ("expired!abc") never ends it, and nothing may follow it in the same clause.
-const STOP = String.raw`[.,;!)]*\s*$`;
-const SAFE_PHRASE = new RegExp(
-	[
-		String.raw`^(?:in|inside|at|from|under|behind|via)\s+\S`,
-		String.raw`^(?:stored|kept|held|saved|located|managed|exported|set|loaded|configured|defined|derived|generated|injected|mounted)\s+(?:(?:in|at|on|under|behind|by|from|via|through)\s+\S|(?:locally|elsewhere|separately|only)\b)`,
-		String.raw`^(?:ask|see|contact|request\s+it\s+from)\s+\S`,
-		String.raw`^(?:owned|issued|rotated|revoked|handled|provided|held|scoped|created|generated)\s+(?:by|per|for)\s+\S`,
-		String.raw`^(?:a|an)\s+(?!(?:string|value|literal|word)\b)\S`,
-		// A named secret store as the whole value ("GITHUB_TOKEN: repo secret"); the first word is from this list, never any word.
-		String.raw`^(?:repo|repository|org|organization|environment|actions|ci)\s+secret${STOP}`,
-		// `env NAME`: the strict env-name shape only, and nothing after it.
-		String.raw`^env\s+[A-Z]+(?:_[A-Z]+)+${STOP}`,
-		String.raw`^\d+\s+(?:chars?|characters|digits|bytes|days|hours|minutes|months)\b`,
-		String.raw`^rotate[sd]?\s+(?:daily|weekly|monthly|quarterly|yearly|every\s+\S+)\b`,
-		String.raw`^(?:expired|revoked|rotated|unset|missing|empty|invalid|valid|pending|disabled|enabled|required|optional|short-lived|long-lived|personal|shared|unknown|unchanged)(?:${STOP}|\s+(?:on|in|at|for|from|after|until|since)\s)`,
-	].join("|"),
-	"i",
-);
+// An env name is upper case on purpose: pass_word and my_secret_value are values.
+const ENV_NAME = /^[A-Z]+(?:_[A-Z]+)+(?=[\s.,;!?)\]}"'”’`]|$)/;
+const STOP = /^[\s.,;!?)\]}"'”’`]+/;
 
-/** The token at a value position, quotes and trailing punctuation removed, and the phrase it starts. */
-function valueAt(rest: string): { token: string; phrase: string } {
-	let phrase = rest.replace(/^\s+/, "").replace(/^(?:the|a|an)\s+(?:string|value|literal|word)\s+/i, "");
-	const quoted = /^(["'“”‘’])([^"'“”‘’]*)["'“”‘’]?/.exec(phrase);
-	if (quoted) phrase = quoted[2];
-	const token = (/^\S*/.exec(phrase)?.[0] ?? "").replace(/[.,;!?)\]}"'”’]+$/, "");
-	return { token, phrase };
+/**
+ * The text at a value position, up to the end of its sentence: quotes opened there and "the string"/"the value"
+ * removed. A sentence ends at `.`/`;`/`!`/`?` before a capitalised word that does not label a value ("Old: X" does).
+ */
+function valueAt(rest: string): string {
+	const phrase = rest.replace(/^\s+/, "").replace(/^(?:the|a|an)\s+(?:string|value|literal|word)\s+/i, "");
+	const quoted = /^(["'“”‘’`]+)([^"'“”‘’`]*)["'“”‘’`]*/.exec(phrase);
+	const text = quoted ? `${quoted[2]} ${phrase.slice(quoted[0].length)}` : phrase;
+	const end = /[.;!?]\s+(?=[A-Z][\w-]*(?:\s|$))|\n/.exec(text);
+	return end ? text.slice(0, end.index + 1) : text;
 }
 
-// An env name is upper case on purpose: pass_word and my_secret_value are values.
-const ENV_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
-const safe = ({ token, phrase }: { token: string; phrase: string }) => SAFE_TOKEN.test(token) || ENV_NAME.test(token) || SAFE_PHRASE.test(phrase);
+// After a safe form the rest is judged again. It is safe when it is another safe form ("derived from the app password
+// and set at startup"), or a clause of its own: it opens with a joining word (so, which, since, no, the, ...), every
+// word is a plain word, an env name or a path, none hands over a value (use, it's, old, value, contains, currently,
+// or, but, then), and the whole guard finds no value in it ("..., so shells must load those exports", "; no manual
+// secret"). Anything else ("TBD hunter2", "n/a, X", "in Vault, but until then use X", "Old: X", "(currently X)") is a value.
+const AND = /^(?:,\s*)?\s*and\s+/i;
+const OPENER = /^(?:so|which|that|since|because|as|while|when|where|unless|before|after|and|never|no|the|its|it|this|there|requires?|needs?)$/i;
+// A parenthetical of plain words ("(TRACE_X removed)", a quoted remark) is skipped; one with a digit, a symbol or a
+// hand-over word ("(currently X)", "(it's X)", "(old one X)") is not.
+const ASIDE = /^\s*\(([^()]{1,200})\)\s*:?/;
+const plainWords = (text: string) => text.split(/\s+/).map((w) => w.replace(/^["'“”‘’`(\[]+|["'“”‘’`)\].,;:!?]+$/g, "")).filter(Boolean).every((w) => !HANDOVER.test(w) && (/^[\p{L}][\p{L}'-]*$/u.test(w) || ENV_NAME.test(w)));
+const HANDOVER = /^(?:use|it['’]s|old|value|contains|currently|or|but|then)$/i;
+function plainClause(rest: string): boolean {
+	const words = rest.replace(/^[\s,;:(]+/, "").split(/\s+/).map((w) => w.replace(/^["'“”‘’`(\[]+|["'“”‘’`)\].,;:!?]+$/g, "")).filter(Boolean);
+	if (!(words.length >= 3 && OPENER.test(words[0]) && words.every((w) => !HANDOVER.test(w) && (/^[\p{L}][\p{L}'-]*$/u.test(w) || ENV_NAME.test(w) || /^~?\/\S+$/.test(w) || /^\.\w+$/.test(w))))) return false;
+	// "which is hunter", "it is hunter": whatever a copula in the clause names is judged as a value too.
+	for (const m of rest.matchAll(/\b(?:is|was|are|were|be)\s+/gi)) if (!pointerOnly(rest.slice(m.index + m[0].length))) return false;
+	return !holdsCredential(rest);
+}
+
+/** Whether the text is nothing but safe pointer forms: each form is consumed and the rest judged again. */
+function pointerOnly(phrase: string): boolean {
+	let rest = phrase;
+	for (let i = 0; i < 12; i++) {
+		const aside = i > 0 && ASIDE.exec(rest);
+		if (aside && plainWords(aside[1])) rest = rest.slice(aside[0].length);
+		if (i > 0 && /^[\s,;:(]/.test(rest) && plainClause(rest)) return true;
+		if (i > 0) rest = rest.replace(AND, "");
+		rest = rest.replace(STOP, "");
+		if (!rest) return true;
+		const form = SAFE_FORM.exec(rest) ?? ENV_NAME.exec(rest);
+		if (!form) return false;
+		rest = rest.slice(form[0].length);
+	}
+	return false;
+}
 
 /** The longest text the guard checks; longer fact text is refused before it gets here. */
 export const MAX_FACT_CHARS = 2000;
@@ -122,12 +174,13 @@ export function holdsCredential(text: string, key = false): boolean {
 	if (SHAPED.test(checked)) return true;
 	if (key) return false;
 	for (const m of checked.matchAll(VALUE_AT)) {
-		const value = valueAt(checked.slice(m.index + m[0].length));
-		if (value.token && !safe(value)) return true;
+		const phrase = valueAt(checked.slice(m.index + m[0].length));
+		if (phrase.trim() && !pointerOnly(phrase)) return true;
 	}
 	for (const m of checked.matchAll(BARE_AT)) {
-		const value = valueAt(checked.slice(m.index + m[0].length));
-		if (/^[\x21-\x7e]{4,}$/.test(value.token) && /^[^([{"'`]/.test(value.token) && /[\d\W_]/.test(value.token) && !safe(value)) return true;
+		const phrase = valueAt(checked.slice(m.index + m[0].length));
+		const token = (/^\S*/.exec(phrase)?.[0] ?? "").replace(/[.,;!?)\]}"'”’]+$/, "");
+		if (/^[\x21-\x7e]{4,}$/.test(token) && /^[^([{"'`]/.test(token) && /[\d\W_]/.test(token) && !pointerOnly(phrase)) return true;
 	}
 	return false;
 }
