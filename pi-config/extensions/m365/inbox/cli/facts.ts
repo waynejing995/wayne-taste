@@ -12,7 +12,9 @@ export const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
 // a value. After `:`/`=` or is/was, a value is a token with a digit or symbol, or a bare word that ends the clause
 // ("password is abc.", "token: hunter"); "token: ask Lin for it" is a pointer. Right after the word, an ASCII token with a digit or symbol.
 // The word may follow `_` or a digit (client_secret, GITHUB_TOKEN, db_password), so it starts after any non-letter.
-const CRED_WORD = String.raw`(?<![A-Za-z])(?:password|passwd|passphrase|pw|secret|token|api[-_ ]?key)`;
+// Up to four words may sit between it and is/:/= ("password for user ci is ...", "token for the bot: ..."); then only
+// a token with a digit or symbol counts, so "token rotation is weekly" stays a pointer.
+const CRED_WORD = String.raw`(?<![A-Za-z])(?:password|passwd|passphrase|passcode|pw|secret|token|credentials?|creds|api[-_ ]?key)`;
 const POINTER = String.raw`(?:in|inside|at|on|under|behind|stored|kept|owned|held|located|saved|managed|shared|issued|set|rotated|revoked|expired|reset|changed|required|needed|missing|valid|invalid|unknown|pending|deployed|not|no|none|now|still|being|available|the|per|via|from|by|with|only|also|handled|provided|generated|lives|goes|used|configured|scoped|created|leaked|exposed|empty|here|there|ready|fine|ok|wrong|correct|broken|gone|done|live|active|disabled|enabled|working|unchanged|same|different|new|old|exported|loaded|read|written|passed|sent|derived|copied|fetched|injected|mounted|checked|verified)\b`;
 // A digit or any non-letter (`_` included: pass_word, abc_def) marks a token as a value, not a word.
 const SYMBOLIC = String.raw`(?=\S*(?:\d|[^A-Za-z\s]))`;
@@ -20,6 +22,7 @@ const SECRET = new RegExp(
 	[
 		String.raw`${CRED_WORD}s?\s*[:=]\s*(?!${POINTER})(?:${SYMBOLIC}\S+|[A-Za-z]+(?=\s*(?:[.,;)!"'\]]|$)))`,
 		String.raw`${CRED_WORD}s?\s+(?:is|was|are|were)\s+(?!${POINTER})(?:${SYMBOLIC}\S+|[A-Za-z]+(?=\s*(?:[.,;)!"'\]]|$)))`,
+		String.raw`${CRED_WORD}s?(?:\s+[\w.-]+){1,4}?(?:\s*[:=]|\s+(?:is|was|are|were))\s*(?!${POINTER})${SYMBOLIC}[\x21-\x7e]{4,}`,
 		String.raw`${CRED_WORD}(?:\s+|-)(?!${POINTER})(?!\b[A-Za-z]+\b)(?![("'\[])(?=[\x21-\x7e]*[\d\W])[\x21-\x7e]{4,}`,
 		String.raw`Bearer\s+[A-Za-z0-9_-]{8,}`,
 		String.raw`\b(?:ghp|sk)[_-][A-Za-z0-9_-]{8,}`,
