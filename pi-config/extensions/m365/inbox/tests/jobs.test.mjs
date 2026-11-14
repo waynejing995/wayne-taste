@@ -201,7 +201,7 @@ await check("a digest read whose middle omp elided passes once the agent reads t
 	}
 });
 
-for (const mode of ["listelided", "factretry", "quoteretry", "helpfirst", "helpmixed", "whichinbox", "factshelp", "credkind", "rawafter", "wholeread", "nativeretry", "nativebash"])
+for (const mode of ["listelided", "factretry", "quoteretry", "helpfirst", "helpmixed", "whichinbox", "factshelp", "rawafter", "wholeread", "nativeretry", "nativebash"])
 	await check(`a digest run in mode ${mode} is complete and moves the boundary`, async () => {
 		try {
 			digestJob("2026-11-10 12:00", {}, mode);
@@ -221,7 +221,6 @@ for (const [mode, chat, reason] of [
 	["elidedskip", "self-chat", /lines 41-960 .*elided/],
 	["listelidedskip", "chat list", /teams_chats output were elided/],
 	["tailskip", "self-chat", /lines 1-960 .*elided/],
-	["credreject", "Ops", /inbox write failed: .*never its value/],
 	["rawone", "self-chat", /lines 41-960 .*elided/],
 	["shortread", "self-chat", /lines 41-960 .*elided/],
 	["wholeshort", "self-chat", /lines 501-960 .*elided|lines 41-960 .*elided/],
@@ -235,7 +234,6 @@ for (const [mode, chat, reason] of [
 	["splitname", "Ops", /inbox write failed/],
 	["askmask", "Ops", /inbox write failed/],
 	["nativefail", "Ops", /inbox write failed/],
-	["nativerefused", "Ops", /inbox write failed: refused/],
 ])
 	await check(`a digest run in mode ${mode} keeps the old boundary and names ${chat} in a do row`, async () => {
 		try {

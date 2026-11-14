@@ -89,7 +89,7 @@ const COMMANDS: Record<string, Command> = {
 	},
 	ask: direct("ask-wayne", "notify", "coordinator"),
 	fact: {
-		help: "Record one standing fact in facts.md. The same kind and key replaces the text and keeps the old text as superseded.",
+		help: "Record one standing fact in facts.md. The same kind and key replaces the text and keeps the old text as superseded. Never record secret values (passwords, tokens, keys); record where they live instead.",
 		args: ["text"],
 		opts: {
 			kind: { required: true, choices: FACT_KINDS, help: "endpoint, cred, decision, owed, or info" },

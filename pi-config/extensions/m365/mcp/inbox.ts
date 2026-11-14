@@ -67,7 +67,7 @@ export const inboxTools: ToolDef[] = [
 	{
 		name: "inbox_fact",
 		label: "Inbox Fact",
-		description: "Record a standing fact: something that stays true and later work should know (an endpoint, where a credential lives, a decision, something owed).",
+		description: "Record a standing fact: something that stays true and later work should know (an endpoint, where a credential lives, a decision, something owed). Never record secret values (passwords, tokens, keys); record where they live instead.",
 		parameters: Type.Object({
 			text: recorded.text,
 			key: recorded.key,

@@ -88,15 +88,8 @@ if (since) {
 	// The fail modes use their own key: the run's ordinary bash fact (build-server) is not a retry of them.
 	if (mode === "nativefail") call("inbox_fact", { ...native, key: "build-owner", kind: "bogus" }, "Error: --kind must be one of endpoint, cred, decision, owed, info", true);
 	if (mode === "nativeretry" || mode === "nativebash") call("inbox_fact", { ...native, kind: "bogus" }, "Error: --kind must be one of endpoint, cred, decision, owed, info", true);
-	if (mode === "nativerefused") call("inbox_fact", { ...native, key: "build-owner", text: "password: hunter2" }, "refused: a fact names where the credential lives, never its value");
 	if (mode === "nativeretry") call("inbox_fact", native, "added endpoint:build-server");
 	if (mode === "nativebash") write(args);
-	if (mode === "credreject") write(["fact", "--kind", "cred", "--key", "ops-db", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "password: hunter2"]);
-	// Gate 0 r10: a decision fact the guard refused, rewritten as a pointer and stored under kind cred.
-	if (mode === "credkind") {
-		write(["fact", "--kind", "decision", "--key", "ops-db", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "password: hunter2"]);
-		write(["fact", "--kind", "cred", "--key", "ops-db", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "The ops db password is in Vault."]);
-	}
 	// Gate 0 r10 on 7c4fd55: the real agent lists facts and reads the usage in one call; nothing is written.
 	if (mode === "factshelp") call("bash", { command: "inbox facts 2>&1 | head -80; inbox fact --help 2>&1 | head -30" }, "Usage: inbox fact TEXT [OPTIONS]");
 	if (mode === "multiwrite") {

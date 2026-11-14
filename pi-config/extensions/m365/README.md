@@ -80,7 +80,7 @@ keeps `last_ok`, instead of running the new prompt unchecked. An older `prompt` 
 Restart every omp/pi session on the new build before running `rules-migrate`, so no old scheduler is left to fire it.
 For the same reason, run `node --experimental-strip-types inbox/cli/migrate-facts.ts --dir ~/.wayne/inbox` again after the last session has restarted: an old
 build keeps writing `teams-fact` ledger rows until it restarts, and only a rerun moves those into `facts.md`. A row it
-refuses (bad key, metadata-shaped text, or text the credential guard flags) stays open and is listed; the run exits 1.
+refuses (bad key or metadata-shaped text) stays open and is listed; the run exits 1.
 
 End to end against real Teams (read-only, network, not in `npm test`): `node tests/e2e/digest.mjs --out DIR`. It
 runs `inbox schedule run --job teams-digest` with a real `omp` in temporary inboxes, from the template and from a

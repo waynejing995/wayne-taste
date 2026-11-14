@@ -35,10 +35,8 @@ await check("upsert replaces one key and keeps superseded text", async () => {
 	strictEqual(fact.since, stamp().slice(0, 10));
 });
 
-await check("cred stores a location and rejects a value", async () => {
-	await inbox(["fact", "--kind", "cred", "--key", "ci-token", "--", "CI token lives in the release vault"]);
-	await rejects(() => inbox(["fact", "--kind", "cred", "--key", "ci-token", "--", "token: abc123secret"]), /never its value/);
-	await rejects(() => inbox(["fact", "--kind", "cred", "--key", "ci-token", "--", "the token abc123secret is live"]), /never its value/);
+await check("cred stores where a credential lives", async () => {
+	strictEqual(await inbox(["fact", "--kind", "cred", "--key", "ci-token", "--", "CI token lives in the release vault"]), "added cred:ci-token");
 });
 
 await check("fact writes use the ledger lock", async () => {
@@ -106,50 +104,9 @@ await check("migration leaves a fact it does not write as stored", async () => {
 	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
 	const host = readFacts().find((fact) => fact.key === "build-host");
 	strictEqual(host?.text, "release host is build-01");
-	strictEqual(host?.superseded.join("|"), "password: hunter2", "the guard can be wrong; another fact's text is never rewritten");
+	strictEqual(host?.superseded.join("|"), "password: hunter2", "another fact's text is never rewritten");
 });
 
-await check("migration refuses a row that may hold a credential and leaves it open, text intact", async () => {
-	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
-	const { migrateFacts } = await jiti.import("../cli/facts.ts");
-	const { readTsv } = await jiti.import("../cli/ledger.ts");
-	const cases = [["3", "password: hunter2", "digest", ""], ["8", "the db login moved", "password: hunter2", ""], ["9", "password: abc", "digest", ""], ["11", "The password is abc for production.", "digest", ""], ["15", "The password is abc in production.", "digest", ""], ["17", "password=expired.R7!", "digest", ""], ["16", "the db login moved", "the token is abc with the CI bot", ""], ["12", "the build dashboard moved", "digest", "https://ci.example.com/board?access_token=abc123x"]];
-	for (const [id, subject, source, link] of cases) {
-		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:db-login]\n\nthe db login lives in the vault\n\nsource: digest\nsince: 2026-11-14\nupdated: 2026-11-14 09:00\n\n");
-		rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
-		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n${id}\tteams-fact:db-login\t${subject}\t2026-11-13 09:00\t${source}\tteams-fact\tlog\topen\t\tOps Ada\t${link}\n`);
-		const result = migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
-		strictEqual(result.refused.map((r) => r.id).join(","), id, `row ${id} is refused`);
-		const open = readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))[0];
-		strictEqual(`${open?.subject}|${open?.source}|${open?.link}`, `${subject}|${source}|${link}`, `row ${id} stays open with its text`);
-		ok(!/hunter2|abc123x|password(: | is )abc/.test(readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8")), `row ${id}'s value reached facts.md`);
-	}
-	// r10 V2 3: columns clean on their own, but the source the migration writes joins source, note and time.
-	const { planMigration } = await jiti.import("../cli/facts.ts");
-	for (const [id, source, note] of [["18", "password", "is R7!"], ["19", "digest password:", "R7!"]]) {
-		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
-		const row = `${header}\n${id}\tteams-fact:joined-${id}\tthe db login moved\t2026-11-13 09:00\t${source}\tteams-fact\tlog\topen\t\t${note}\t\n`;
-		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), row);
-		strictEqual(planMigration(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused.map((r) => r.id).join(","), id, `dry run refuses joined row ${id}`);
-		strictEqual(migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused.map((r) => r.id).join(","), id, `joined row ${id} is refused`);
-		ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("R7!"), `joined row ${id}'s value reached facts.md`);
-		strictEqual(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))[0]?.state, "open");
-	}
-	// r10 advisory: the guard reads the first 2000 characters, so an over-long owner or link hides a tail credential.
-	for (const [id, owner, link] of [["20", `Ops ${"a".repeat(2000)} access_token=abc123x`, ""], ["21", "Ops Ada", `https://ci.example.com/${"a".repeat(2000)}?access_token=abc123x`]]) {
-		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
-		rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
-		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n${id}\tteams-fact:long-${id}\tthe build dashboard moved\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t${owner}\tOps Ada\t${link}\n`);
-		strictEqual(planMigration(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused.map((r) => r.id).join(","), id, `dry run refuses long row ${id}`);
-		strictEqual(migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused.map((r) => r.id).join(","), id, `long row ${id} is refused`);
-		ok(!existsSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv")) || !readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8").includes("abc123x"), `long row ${id}'s tail reached archive.tsv`);
-		strictEqual(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))[0]?.state, "open");
-	}
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n14\tteams-fact:token-owner\tThe Jira token owner is Lin.\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
-	strictEqual(migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).written, 1, "a pointer fact migrates with its text");
-	strictEqual(readFacts()[0]?.text, "The Jira token owner is Lin.");
-});
 
 await check("migration refuses a row it cannot store and leaves it open", async () => {
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
@@ -188,11 +145,11 @@ await check("migrate-facts --dry-run reports the refusals and counts a real run 
 	const script = new URL("../cli/migrate-facts.ts", import.meta.url);
 	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n1\tteams-fact:host\trelease host is build-01\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n2\tteams-fact:db\tpassword: hunter2\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n3\tteams-fact:old\tgone\t2026-11-13 09:00\tdigest\tteams-fact\tlog\tdone\t\tOps Ada\t\n`);
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n1\tteams-fact:host\trelease host is build-01\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n2\tteams-fact:db\tsource: the vendor docs\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n3\tteams-fact:old\tgone\t2026-11-13 09:00\tdigest\tteams-fact\tlog\tdone\t\tOps Ada\t\n`);
 	const run = (...extra) => spawnSync(process.execPath, ["--no-warnings", "--experimental-strip-types", script.pathname, "--dir", process.env.WAYNE_INBOX_DIR, ...extra], { encoding: "utf8" });
 	const dry = run("--dry-run");
 	strictEqual(dry.stdout.trim(), "would write 1 facts and close 1 rows");
-	ok(dry.status === 1 && /would refuse row 2, left open: its subject may hold a credential value/.test(dry.stderr), dry.stderr);
+	ok(dry.status === 1 && /would refuse row 2, left open: its text would read back as facts.md metadata/.test(dry.stderr), dry.stderr);
 	strictEqual(readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8"), "", "a dry run writes nothing");
 	const real = run();
 	strictEqual(real.stdout.trim(), "wrote 1 facts and closed 1 rows");
@@ -229,63 +186,6 @@ await check("malformed keys and metadata-shaped text are rejected or round-trip"
 	}
 });
 
-await check("after any safe pointer form the rest of the clause is judged again", async () => {
-	const { holdsCredential } = await jiti.import("../cli/facts.ts");
-	// r10 V1 8, 9, 11, 13: a safe first token or phrase never exempts what follows it.
-	const leaks = ["password: TBD hunter2", "password=TBD; hunter2", "password: none; hunter2", "password: n/a, hunter2", "password: unset, use Xk9mPq27", "token: unset (old one Xk9mPq27)", "password: yes, Xk9mPq27", "password: $DB_PASS (currently Xk9mPq27)", "password: ~/.pgpass, contains Xk9mPq27", "password: env:DB_PASS, value Xk9mPq27", "password: a hunter2", "password is an Xk9mPq27", "password: in Vault, but until then use Xk9mPq27", "password: in Vault. Old: hunter2", "password: via Vault or Xk9mPq27", "password: ask Lin (it's Xk9mPq27)", "password: stored in Vault Xk9mPq27", "password: owned by Ops Xk9mPq27", "password: a temp one, Xk9mPq27", "password: 12 chars hunter2", "password: rotated by Ops Xk9mPq27", "password → Xk9mPq27", "password — Xk9mPq27", "password -> hunter2", "password => hunter2", "password – hunter2", "password -- hunter2", "pw `hunter2`", "password ```hunter2```", "密码 R7!kX9pz", "登录密码 Xk9mPq27", "password became hunter2", "user admin pass hunter2", "PIN: 482913", "vpn psk: Xk9mPq27", "otp: 123456", "recovery code: abcd-efgh", "private key: abc123"];
-	const pointers = ["the password for db.internal:5432 is in Vault", "DB password for db01:5432 is in Vault", "token for the 09:00 job is in Vault", "Ada owes: move the deploy password to Vault", "Lin will send the API token to Ops", "send the API key to Lin", "token now lives in Vault", "password changed to the one in Vault", "password is not needed", "the token is not required", "password is the same as staging", "token was rotated yesterday", "API token was revoked yesterday", "password: same as Jira", "the token is read-only", "token: per-user", "password: in Vault", "password: TBD", "password: $DB_PASS", "token is a PAT", "password: ask Lin", "the PIN pad is broken", "The classifier read-only DB account must stay a separate login with its own pool, because any role can RESET ROLE back to the app identity; only the manual password step was removed.", "The TRACE classifier read-only DB login password is no longer configured by hand; the app derives it from its existing database password and sets it on every startup.", "The TRACE classifier read-only DB account credential is held by the TRACE app itself (derived at app startup), not in the prod .env file."];
-	strictEqual(leaks.filter((text) => !holdsCredential(text)).join(" | "), "", "a value after a safe form is still a value");
-	strictEqual(pointers.filter((text) => holdsCredential(text)).join(" | "), "", "a pointer fact is not a value");
-	// Gate 0 legacy window 1 on e9d7518: two more real rewordings of the same decision.
-	pointers.push("The classifier read-only DB account must stay a separate login with its own connection pool because any user can RESET ROLE; TRACE_AGENT_READER_PASSWORD was removed and the password is now derived from the app DB password at app startup.", "The classifier read-only DB account stays a separate login with its own connection pool because any user can RESET ROLE; its credential is no longer a manual .env setting but is derived by the TRACE app at startup from the existing app DB credential.", "In #827/#830/#842 TRACE_AGENT_READER_PASSWORD was dropped: the read-only classifier role stays a separate login with its own pool, its password is derived from the app DB password at startup, and the app DB user therefore needs CREATEROLE.", "In #827/#830/#842 the classifier read-only DB role stays a separate login with its own pool, and its credential is no longer hand-configured but derived from the app DB credential at app startup, which requires CREATEROLE for the app DB user.");
-	leaks.push("password: in Vault and the old one is hunter2", "password was removed but is hunter2", "password is now hunter2");
-	strictEqual(leaks.filter((text) => !holdsCredential(text)).join(" | "), "", "a value after a joined safe form is still a value");
-	strictEqual(pointers.filter((text) => holdsCredential(text)).join(" | "), "", "a reworded pointer fact is not a value");
-	// A clause after a pointer is judged again: what its copula names is a value unless it is a pointer too.
-	const clauses = ["password: in Vault, which is hunter", "password: ask Lin for it, it is hunter", "password: in Vault, so it is hunter2", "password: in Vault (it's Xk9mPq27)", "password: ask Lin (abc123)", "password: TBD, so the value is abc", "password: in Vault hunter", "password: owned by Ops abc", "password: from the team vault hunter", "password: ask Lin abc"];
-	strictEqual(clauses.filter((text) => !holdsCredential(text)).join(" | "), "", "a clause after a pointer can still hold a value");
-	const prose = ["the token is in Vault, so non-interactive shells must load those exports", "password is derived from the app DB password at startup, so TRACE_READER_PASSWORD is no longer configured.", "password is no longer an env var (TRACE_READER_PASSWORD removed); the app derives it at startup"];
-	strictEqual(prose.filter((text) => holdsCredential(text)).join(" | "), "", "a pointer with a plain clause after it is not a value");
-});
-
-await check("secrets are rejected in every field and scrubbed from history", async () => {
-	const accepted = ["CI token lives in the release vault", "the password is in the team vault", "the API key is stored in 1Password under ci-bot", "token rotation is owned by Ops", "password reset goes through the IT portal", "the CI token is expired", "the deploy token was rotated by Ops", "tokens are issued per team", "the pw is kept in the safe", "The Jira token: ask Lin for it", "secret: rotate monthly", "Teams token: from Graph via az cli", "password is env DB_PASSWORD", "token: env CI_TOKEN", "API key = env API_KEY", "The password is /opt/team/vault/db", "OAuth token endpoint is https://login.microsoftonline.com/common/oauth2/v2.0/token", "token endpoint: https://login.example.com/token", "Jira token: ~/.config/jira/token", "GITHUB_TOKEN: repo secret", "token is a PAT", "The access token is a JWT in the Authorization header", "API token is JIRA_TOKEN in .env", "the password is 16 chars", "token is short-lived", "token is personal", "token header is X-Api-Key", "pwd: /work/repo", "test pass: 45/50", "pass: yes", "token = TBD", "password: n/a", "sk-learn-pipeline", "the sk-hynix-contract is signed", "ghp-dashboard-team", "Basic authentication enabled", "API key is env:CI_API_KEY", "The token is a reference to Vault", "the token is $CI_TOKEN", "password: ~/.config/ci/pass", "token=see 1Password item ci-bot", "token rotation is weekly", "The Jira token owner is Lin.", "Decision: the CI secret store is Vault.", "Wayne decided the token budget is fixed", "The deploy password expiry is 90 days.", "API key quota is high for staging.", "the secretary is Ann", "pass the build: it is green", "the boarding pass is ready", "the build pass rate is 90%"];
-	for (const text of accepted) await inbox(["fact", "--kind", "info", "--key", `pointer-${accepted.indexOf(text)}`, "--", text]);
-	const rejected = ["the password is hunter2X", "pw is s3cr3t!", "password: hunter2", "token=abc123", "Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature", "api key: sk-live-1234567890abcdef", "ghp_1234567890abcdefghij", "xoxb-1234567890-abcdefghij", "pw is X", "password=R7! note it down", "password is R7! note this somewhere", "token=K9! item ci", "secret=Q8! entry build", "password: the R7! item", "password: R7! repo secret", "password “R7!”", "password ‘R7!’", "password: “R7!”", "password is env R7!x", "password is abc", "password: 7", "the token = a", "the secret was hunter", "PASSWORD IS Sunshine"];
-	for (const text of rejected) await rejects(() => inbox(["fact", "--kind", "decision", "--key", "release-window", "--", text]), /never its value/);
-	for (const text of ["client_secret=abc123", "access_token=abc123x", "GITHUB_TOKEN: abc123x", "db_password is hunter2", "password: pass_word", "client_secret=abc_def", "the token is my_secret_value today", "The prod DB password for user ci is s3cr3tV4lue", "token for the bot: abc123xyz", "the credentials are hunter2", "creds: hunter2", "passcode is 482913", "The prod DB password for user ci is abc", "The prod DB password for user ci is 7", "token for the bot: hunter", "The password is abc for production.", "token: hunter for the prod bot", "the token for prod is abc today", "password=in-R7!", "password=expired.R7!", "token: valid.hunter2", "password is expired; hunter2", "secret: repo secret!x9", "password is now hunter2", "password is still hunter2", "password is set to hunter2", "password was changed to hunter2", "password changed to hunter2", "token is now abc123x9", "I changed the CI password to Spring2026!", "password for the new prod db is hunter2", "password: correct horse battery staple", "the password is the string abc123", "password (prod): hunter2", "password [prod]: hunter2", "token, abc123x9", "passwords: a1, b2", "密码是hunter2", "jira token now abc123x9", "curl -u admin:hunter2 http://x", "mysql -u root -phunter2", "user admin password admin", "ssh root@host with password toor", "AKIAIOSFODNN7EXAMPLE", "AIzaSyA1234567890abcdefghijklmnopqrstu", "ATATT3xFfGF0abcdefghij123", "-----BEGIN RSA PRIVATE KEY-----", "password=expired-R7!", "password is abc stored in Vault", "password is hunter rotated weekly", "password is abc managed by Ops", "Teams token: Graph delegated via az cli", "the token is ask-me-9", "The password is abc in production.", "the token is abc with the CI bot", "password: abc by default", "secret was hunter from the vendor", "PGPASSWORD=x", "MYSQL_PWD=x", "DB_PASS=abc123", "pwd: x", "pass: x", "accessToken: x", "clientSecret=x", "aws_secret_access_key=x", "postgres://ci:pw@db.example:5432/app", "Authorization: Basic Y2k6aHVudGVyMg==", "sshpass -p x ssh ci@db", "password - x", 'password "x"', "github_pat_11ABCDEFG0123456789abcdef", "密码: x", "password：x", "口令：hunter2"]) await rejects(() => inbox(["fact", "--kind", "info", "--key", "env-name", "--", text]), /never its value/, text);
-	await rejects(() => inbox(["fact", "--kind", "info", "--key", "sk-proj-abc123def456ghi789", "--", "rotation owner"]), /never its value/);
-	strictEqual(await inbox(["fact", "--kind", "info", "--key", "token-rotation-2026", "--", "rotation owner"]), "added info:token-rotation-2026");
-	strictEqual(await inbox(["fact", "--kind", "info", "--key", "token-2026-11", "--", "rotation owner"]), "added info:token-2026-11");
-	strictEqual(await inbox(["fact", "--kind", "info", "--key", "password-policy-2026", "--", "rotation owner"]), "added info:password-policy-2026");
-	const started = Date.now();
-	await rejects(() => inbox(["fact", "--kind", "info", "--key", "long", "--", `token ${"a-".repeat(20000)}!`]), /under 2000 characters/);
-	ok(Date.now() - started < 3000, "a long line is refused quickly");
-	await rejects(() => inbox(["fact", "--kind", "info", "--key", "owner", "--source", "password: hunter2", "--", "rotation owner"]), /never its value/);
-	await rejects(() => inbox(["fact", "--kind", "info", "--key", "owner", "--source", "The password is abc for production.", "--", "rotation owner"]), /never its value/);
-	await rejects(() => inbox(["fact", "--kind", "info", "--key", "owner", "--source", "password=expired.R7!", "--", "rotation owner"]), /never its value/);
-	await rejects(() => inbox(["fact", "--kind", "info", "--key", "owner", "--source", "The password is abc in production.", "--", "rotation owner"]), /never its value/);
-	const leaked = "## [info:old-secret]\n\npassword: hunter2\n\nsource: digest\nsince: 2026-11-13\n\n";
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), leaked);
-	strictEqual(await inbox(["fact", "--kind", "info", "--key", "safe-note", "--source", "digest", "--", "plain status"]), "added info:safe-note");
-	strictEqual(readFacts().find((fact) => fact.key === "old-secret")?.text, "password: hunter2", "a write leaves every other stored fact as it was");
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:old-secret]\n\nplain status\n\nsource: digest\nsince: 2026-11-13\nsuperseded: token=abc123\n\n");
-	await inbox(["fact", "--kind", "info", "--key", "old-secret", "--source", "digest", "--", "plain status"]);
-	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("token=abc123"));
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:old-secret]\n\nplain status\n\nsource: digest\nsince: 2026-11-13\nsuperseded: password is abc\n\n");
-	await inbox(["fact", "--kind", "info", "--key", "old-secret", "--source", "digest", "--", "plain status"]);
-	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("password is abc"), "a short prose value stayed in history");
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:old-secret]\n\nplain status\n\nsource: digest\nsince: 2026-11-13\nsuperseded: The password is abc in production.\nsuperseded: password=expired.R7!\n\n");
-	await inbox(["fact", "--kind", "info", "--key", "old-secret", "--source", "digest", "--", "plain status"]);
-	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("password is abc in") && !readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("expired.R7!"), "a value followed by 'in' stayed in history");
-	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n7\tteams-fact:leaked\tthe password is hunter2X\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\twayne\t\t\n`);
-	const { migrateFacts } = await jiti.import("../cli/facts.ts");
-	const { readTsv } = await jiti.import("../cli/ledger.ts");
-	strictEqual(migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused[0]?.id, "7");
-	ok(!readFacts().some((fact) => fact.key === "leaked"));
-	strictEqual(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))[0]?.subject, "the password is hunter2X", "a refused row stays open with its text");
-});
 
 await check("an identical fact refreshes its source without history", async () => {
 	await inbox(["fact", "--kind", "decision", "--key", "deploy-window", "--source", "Ops Ada", "--", "Deploy after 18:00"]);
