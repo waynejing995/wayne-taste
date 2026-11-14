@@ -231,6 +231,8 @@ for (const [mode, chat, reason] of [
 	["pathhelp", "Ops", /one plain `inbox ask\|fact` per bash call/],
 	["bashchelp", "Ops", /one plain `inbox ask\|fact` per bash call/],
 	["quotedfail", "Ops", /inbox write failed/],
+	["splitsub", "Ops", /inbox write failed/],
+	["splitname", "Ops", /inbox write failed/],
 	["askmask", "Ops", /inbox write failed/],
 	["nativefail", "Ops", /inbox write failed/],
 	["nativerefused", "Ops", /inbox write failed: refused/],

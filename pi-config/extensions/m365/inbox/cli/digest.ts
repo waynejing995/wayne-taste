@@ -230,8 +230,12 @@ function commandsOf(command: string): string[][] {
 
 /** The write a bash call made: a Write, "mixed" when an inbox ask/fact is not the call's one plain command, or undefined for no write. */
 function inboxWrite(command: string, ok: boolean, text = ""): Write | "mixed" | undefined {
-	// A write needs `inbox` followed by ask/fact, quoted or not; `which inbox` or `grep inbox facts.md` writes nothing.
-	if (!/inbox["'\s]+(?:ask|fact)\b/.test(command)) return undefined;
+	// Judge the shell words, never the raw text: `inbox f'a'ct` and `i''nbox fact` run a write, while `which inbox` or
+	// `grep 'fact|inbox' facts.md` do not. A call writes when a command runs inbox (by path too) with ask/fact as its
+	// subcommand, or a word holds an inbox ask/fact line for a nested shell (`bash -c "inbox fact ..."`).
+	const commands = commandsOf(command);
+	const runsWrite = (words: string[]) => words.some((w, i) => (/(?:^|\/)inbox$/.test(w) && /^(?:ask|fact)$/.test(words[i + 1] ?? "")) || /(?:^|[\s/;&|])inbox\s+["']?(?:ask|fact)\b/.test(w));
+	if (!commands.some(runsWrite)) return undefined;
 	// Reading the usage writes nothing, whatever else the call runs (`grep ... facts.md; inbox fact --help | head`).
 	// The exemption needs proof: at least one command names inbox (by path, `~/bin/inbox`, or inside a quoted
 	// `bash -c "inbox ..."`), and every command that does, quotes removed, is exactly `inbox ask|fact --help` (a
