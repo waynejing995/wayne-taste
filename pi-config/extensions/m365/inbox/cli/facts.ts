@@ -284,7 +284,9 @@ export function refusals(facts: Row[]): { id: string; reason: string }[] {
 		const column = (["key", "subject", "source", "owner", "note", "link"] as const).find((field) => holdsCredential(row[field] ?? "", field === "key"));
 		const source = clean([row.source, row.note, row.first_seen].filter(Boolean).join(" "));
 		const long = Math.max(row.subject.length, source.length) > MAX_FACT_CHARS ? `its text or source is over ${MAX_FACT_CHARS} characters` : undefined;
-		const reason = column ? `its ${column} may hold a credential value; record where the credential lives instead` : long ?? unstorable(factKey(row), clean(row.subject), source);
+		// The text and source the migration writes, checked as checkFact checks them: joined columns can make a value.
+		const written = !column && [clean(row.subject), source].some((value) => holdsCredential(value)) ? "the source it would write (source, note and time joined) may hold a credential value; record where the credential lives instead" : undefined;
+		const reason = column ? `its ${column} may hold a credential value; record where the credential lives instead` : (written ?? long ?? unstorable(factKey(row), clean(row.subject), source));
 		if (reason) refused.push({ id: row.id, reason });
 	}
 	return refused;

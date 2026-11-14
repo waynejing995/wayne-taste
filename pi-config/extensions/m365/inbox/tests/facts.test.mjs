@@ -124,6 +124,17 @@ await check("migration refuses a row that may hold a credential and leaves it op
 		strictEqual(`${open?.subject}|${open?.source}|${open?.link}`, `${subject}|${source}|${link}`, `row ${id} stays open with its text`);
 		ok(!/hunter2|abc123x|password(: | is )abc/.test(readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8")), `row ${id}'s value reached facts.md`);
 	}
+	// r10 V2 3: columns clean on their own, but the source the migration writes joins source, note and time.
+	const { planMigration } = await jiti.import("../cli/facts.ts");
+	for (const [id, source, note] of [["18", "password", "is R7!"], ["19", "digest password:", "R7!"]]) {
+		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
+		const row = `${header}\n${id}\tteams-fact:joined-${id}\tthe db login moved\t2026-11-13 09:00\t${source}\tteams-fact\tlog\topen\t\t${note}\t\n`;
+		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), row);
+		strictEqual(planMigration(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused.map((r) => r.id).join(","), id, `dry run refuses joined row ${id}`);
+		strictEqual(migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused.map((r) => r.id).join(","), id, `joined row ${id} is refused`);
+		ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("R7!"), `joined row ${id}'s value reached facts.md`);
+		strictEqual(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))[0]?.state, "open");
+	}
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n14\tteams-fact:token-owner\tThe Jira token owner is Lin.\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
 	strictEqual(migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).written, 1, "a pointer fact migrates with its text");
