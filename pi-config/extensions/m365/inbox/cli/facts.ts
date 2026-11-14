@@ -82,7 +82,7 @@ const SHAPED = new RegExp(
 const PLACE_NOUN = String.raw`(?:vault|safe|store|portal|cli|manager|item|entry|file|\.?env|repo|repository|config|secret|password|header|keychain|keyring|db|database|bucket|account|team|channel|chat|wiki|doc|docs|page|note|server|host|pipeline|settings|profile|container|cluster|service|startup|boot|runtime|deploy)`;
 // A place noun "item"/"entry" may carry its one-word name ("1Password item ci-bot").
 const PLACE = String.raw`(?:(?:(?:the|our|my|your|their|its)\s+)?(?:[^\s,;()]+\s+){0,3}${PLACE_NOUN}(?:(?<=item|entry)\s+[^\s,;()]+)?|[^\s,;()]+)(?=[\s.,;!?)\]}"'”’\x60]|$)`;
-const STATUS = String.raw`(?:expired|revoked|rotated|unset|missing|empty|invalid|valid|pending|disabled|enabled|required|optional|needed|configured|short-lived|long-lived|personal|shared|unknown|unchanged|read-only|per-user|per-team|broken|working|ready|available|locked|blocked)`;
+const STATUS = String.raw`(?:expired|revoked|rotated|unset|missing|empty|invalid|valid|pending|disabled|enabled|required|optional|needed|configured|short-lived|long-lived|personal|shared|unknown|unchanged|read-only|per-user|per-team|broken|working|ready|available|locked|blocked|removed|deleted|dropped|gone|retired|deprecated)`;
 const WHEN = String.raw`(?:yesterday|today|recently|daily|weekly|monthly|last\s+\w+|(?:on|at|after|until|since)\s+[^\s,;()]+|(?:in|for|from|by)\s+${PLACE})`;
 // A place form may carry a time or second place ("derived from the app DB password at startup").
 const THEN = String.raw`(?:\s+(?:at|on|after|during|before)\s+(?:the\s+)?(?:app\s+)?(?:startup|boot|deploy|login|runtime|start))?`;
