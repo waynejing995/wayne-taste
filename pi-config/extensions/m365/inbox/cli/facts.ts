@@ -280,13 +280,17 @@ type Migration = { written: number; closed: string[]; refused: { id: string; rea
 export function refusals(facts: Row[]): { id: string; reason: string }[] {
 	const refused: { id: string; reason: string }[] = [];
 	for (const row of facts) {
-		// Every column that can carry raw text, each on its own as checkFact does; the key names the fact.
-		const column = (["key", "subject", "source", "owner", "note", "link"] as const).find((field) => holdsCredential(row[field] ?? "", field === "key"));
+		// The guard reads only the first MAX_FACT_CHARS of a value, so any longer column (or the joined source) is refused
+		// before it is checked: a credential past the limit would otherwise reach facts.md or archive.tsv unread.
 		const source = clean([row.source, row.note, row.first_seen].filter(Boolean).join(" "));
-		const long = Math.max(row.subject.length, source.length) > MAX_FACT_CHARS ? `its text or source is over ${MAX_FACT_CHARS} characters` : undefined;
+		const fields = ["key", "subject", "source", "owner", "note", "link"] as const;
+		const longest = fields.find((field) => (row[field] ?? "").length > MAX_FACT_CHARS) ?? (source.length > MAX_FACT_CHARS ? "joined source" : undefined);
+		const long = longest ? `its ${longest} is over ${MAX_FACT_CHARS} characters` : undefined;
+		// Every column that can carry raw text, each on its own as checkFact does; the key names the fact.
+		const column = (long ? undefined : fields.find((field) => holdsCredential(row[field] ?? "", field === "key")));
 		// The text and source the migration writes, checked as checkFact checks them: joined columns can make a value.
-		const written = !column && [clean(row.subject), source].some((value) => holdsCredential(value)) ? "the source it would write (source, note and time joined) may hold a credential value; record where the credential lives instead" : undefined;
-		const reason = column ? `its ${column} may hold a credential value; record where the credential lives instead` : (written ?? long ?? unstorable(factKey(row), clean(row.subject), source));
+		const written = !long && !column && [clean(row.subject), source].some((value) => holdsCredential(value)) ? "the source it would write (source, note and time joined) may hold a credential value; record where the credential lives instead" : undefined;
+		const reason = long ?? (column ? `its ${column} may hold a credential value; record where the credential lives instead` : (written ?? unstorable(factKey(row), clean(row.subject), source)));
 		if (reason) refused.push({ id: row.id, reason });
 	}
 	return refused;

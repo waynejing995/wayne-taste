@@ -3,7 +3,7 @@
  *
  * Synthetic facts only. No live inbox data.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ok, strictEqual, rejects } from "node:assert/strict";
@@ -133,6 +133,16 @@ await check("migration refuses a row that may hold a credential and leaves it op
 		strictEqual(planMigration(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused.map((r) => r.id).join(","), id, `dry run refuses joined row ${id}`);
 		strictEqual(migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused.map((r) => r.id).join(","), id, `joined row ${id} is refused`);
 		ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("R7!"), `joined row ${id}'s value reached facts.md`);
+		strictEqual(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))[0]?.state, "open");
+	}
+	// r10 advisory: the guard reads the first 2000 characters, so an over-long owner or link hides a tail credential.
+	for (const [id, owner, link] of [["20", `Ops ${"a".repeat(2000)} access_token=abc123x`, ""], ["21", "Ops Ada", `https://ci.example.com/${"a".repeat(2000)}?access_token=abc123x`]]) {
+		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
+		rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
+		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n${id}\tteams-fact:long-${id}\tthe build dashboard moved\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t${owner}\tOps Ada\t${link}\n`);
+		strictEqual(planMigration(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused.map((r) => r.id).join(","), id, `dry run refuses long row ${id}`);
+		strictEqual(migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))).refused.map((r) => r.id).join(","), id, `long row ${id} is refused`);
+		ok(!existsSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv")) || !readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8").includes("abc123x"), `long row ${id}'s tail reached archive.tsv`);
 		strictEqual(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))[0]?.state, "open");
 	}
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
