@@ -171,32 +171,51 @@ function factKey(row: Row): string {
 	return row.key.replace(/^teams-fact:/, "");
 }
 
-/** Move open teams-fact rows into facts.md. Newest repeated key wins; archived facts stay archived. */
-export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).split("\n").slice(1).filter(Boolean).map((line) => Object.fromEntries(line.split("\t").map((cell, i) => [["id", "key", "subject", "first_seen", "source", "tag", "action", "state", "owner", "note", "link"][i], cell])) as Row)): { written: number; closed: string[] } {
+/** Why a teams-fact row cannot become a fact facts.md can read back, or undefined when it can. */
+function unstorable(key: string, text: string, source: string): string | undefined {
+	if (!KEY_RE.test(key)) return `key ${JSON.stringify(key)} is not lowercase words, digits, dots, underscores, or dashes`;
+	if (!text || META_RE.test(text)) return "its text would read back as facts.md metadata";
+	if (META_RE.test(source)) return "its source would read back as facts.md metadata";
+	return undefined;
+}
+
+type Migration = { written: number; closed: string[]; refused: { id: string; reason: string }[] };
+
+/**
+ * Move open teams-fact rows into facts.md. Newest repeated key wins; archived facts stay archived. Every row is
+ * credential-checked before it is archived, whether or not it wins. A row facts.md could not read back (a bad key,
+ * text that parses as metadata) is refused: not written, left open, and named in `refused`.
+ */
+export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).split("\n").slice(1).filter(Boolean).map((line) => Object.fromEntries(line.split("\t").map((cell, i) => [["id", "key", "subject", "first_seen", "source", "tag", "action", "state", "owner", "note", "link"][i], cell])) as Row)): Migration {
 	return withLedger((liveRows, save) => {
 		const facts = rows.filter((row) => row.tag === "teams-fact" && row.state !== "done");
-		const newest = new Map<string, Row>();
+		const redacted = facts.filter((row) => SECRET.test(`${factKey(row)} ${row.subject} ${row.source} ${row.note}`)).map((row) => row.id);
+		const refused: { id: string; reason: string }[] = [];
 		for (const row of facts) {
+			if (redacted.includes(row.id)) continue;
+			const source = clean([row.source, row.note, row.first_seen].filter(Boolean).join(" "));
+			const reason = unstorable(factKey(row), clean(row.subject), source);
+			if (reason) refused.push({ id: row.id, reason });
+		}
+		const skip = new Set([...redacted, ...refused.map((r) => r.id)]);
+		const newest = new Map<string, Row>();
+		for (const row of facts.filter((row) => !skip.has(row.id))) {
 			const key = factKey(row);
 			const old = newest.get(key);
 			if (!old || row.first_seen > old.first_seen || (row.first_seen === old.first_seen && Number(row.id) > Number(old.id))) newest.set(key, row);
 		}
-		const existing = readFacts();
-		const redacted: string[] = [];
-		const next = [...existing];
+		const next = [...readFacts()];
+		let written = 0;
 		for (const row of newest.values()) {
 			const key = factKey(row);
 			const current = next.find((fact) => fact.key === key);
 			if (current && (current.updated || current.since) >= row.first_seen) continue;
-			if (SECRET.test(`${key} ${row.subject} ${row.source} ${row.note}`)) {
-				redacted.push(row.id);
-				continue;
-			}
 			const kind = current?.kind ?? mappedKind(row);
 			const source = [row.source, row.note, row.first_seen].filter(Boolean).join(" ");
 			const fact: Fact = { kind, key, text: clean(row.subject), source: clean(source), since: current?.since ?? row.first_seen.slice(0, 10), updated: row.first_seen, superseded: current && current.text !== row.subject ? [current.text, ...current.superseded] : current?.superseded ?? [] };
 			if (current) next[next.indexOf(current)] = fact;
 			else next.push(fact);
+			written++;
 		}
 		saveFacts(next.map(scrub));
 		for (const row of liveRows.filter((row) => redacted.includes(row.id))) {
@@ -204,13 +223,13 @@ export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).sp
 			row.note = "redacted because the row held a credential value";
 		}
 		finishRows(liveRows, redacted, undefined, save);
-		const cleanIds = facts.map((row) => row.id).filter((id) => !redacted.includes(id));
+		const cleanIds = facts.map((row) => row.id).filter((id) => !skip.has(id));
 		finishRows(liveRows.filter((row) => !redacted.includes(row.id)), cleanIds, "moved to facts.md", save);
-		return { written: newest.size - redacted.length, closed: facts.map((row) => row.id) };
+		return { written, closed: [...redacted, ...cleanIds], refused };
 	});
 }
 /** Read rows directly for the migration script, including a copied inbox directory. */
-export function migrateFile(dir = inboxFile()): { written: number; closed: string[] } {
+export function migrateFile(dir = inboxFile()): Migration {
 	const rows = readTsv(`${dir}/ledger.tsv`).filter((row) => row.tag === "teams-fact");
 	return migrateFacts(rows);
 }

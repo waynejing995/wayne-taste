@@ -109,6 +109,31 @@ await check("migration keeps a fact whose history held a credential, minus that 
 	strictEqual(host?.superseded.length, 0);
 });
 
+await check("migration redacts a credential row it skips for a newer fact", async () => {
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "## [info:db-login]\n\nthe db login lives in the vault\n\nsource: digest\nsince: 2026-11-14\nupdated: 2026-11-14 09:00\n\n");
+	rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
+	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n3\tteams-fact:db-login\tpassword: hunter2\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
+	const { migrateFacts } = await jiti.import("../cli/facts.ts");
+	const { readTsv } = await jiti.import("../cli/ledger.ts");
+	migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+	ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8").includes("hunter2"), "the skipped row's credential reached archive.tsv");
+});
+
+await check("migration refuses a row it cannot store and leaves it open", async () => {
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
+	rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
+	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n4\tteams-fact:release]host\trelease host is build-01\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n5\tteams-fact:meta-text\tsource: the vendor docs\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n6\tteams-fact:good-one\tdeploys need a ticket\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n`);
+	const { migrateFacts } = await jiti.import("../cli/facts.ts");
+	const { readTsv } = await jiti.import("../cli/ledger.ts");
+	const result = migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+	strictEqual(readFacts().map((fact) => fact.key).join(","), "good-one", "facts.md stays readable and holds only the good row");
+	const open = readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")).map((row) => row.id).sort().join(",");
+	strictEqual(open, "4,5", "rows it could not store stay open");
+	strictEqual(result.refused.map((r) => r.id).sort().join(","), "4,5");
+});
+
 await check("migration keeps a recorded legacy kind", async () => {
 	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n1\tteams-fact:release-host\t[endpoint:release-host] release host\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\t\n`);

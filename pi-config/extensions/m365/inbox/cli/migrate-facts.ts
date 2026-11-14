@@ -21,4 +21,6 @@ if (args.includes("--dry-run")) {
 } else {
 	const result = migrateFacts(openFacts);
 	console.log(`wrote ${result.written} facts and closed ${result.closed.length} rows`);
+	for (const r of result.refused) console.error(`refused row ${r.id}, left open: ${r.reason}`);
+	if (result.refused.length) process.exitCode = 1;
 }
