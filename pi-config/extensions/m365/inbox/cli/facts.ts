@@ -14,7 +14,8 @@ export const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
 // The word may follow `_` or a digit (client_secret, GITHUB_TOKEN, db_password), so it starts after any non-letter.
 const CRED_WORD = String.raw`(?<![A-Za-z])(?:password|passwd|passphrase|pw|secret|token|api[-_ ]?key)`;
 const POINTER = String.raw`(?:in|inside|at|on|under|behind|stored|kept|owned|held|located|saved|managed|shared|issued|set|rotated|revoked|expired|reset|changed|required|needed|missing|valid|invalid|unknown|pending|deployed|not|no|none|now|still|being|available|the|per|via|from|by|with|only|also|handled|provided|generated|lives|goes|used|configured|scoped|created|leaked|exposed|empty|here|there|ready|fine|ok|wrong|correct|broken|gone|done|live|active|disabled|enabled|working|unchanged|same|different|new|old|exported|loaded|read|written|passed|sent|derived|copied|fetched|injected|mounted|checked|verified)\b`;
-const SYMBOLIC = String.raw`(?=\S*(?:\d|[^\w\s]))`;
+// A digit or any non-letter (`_` included: pass_word, abc_def) marks a token as a value, not a word.
+const SYMBOLIC = String.raw`(?=\S*(?:\d|[^A-Za-z\s]))`;
 const SECRET = new RegExp(
 	[
 		String.raw`${CRED_WORD}s?\s*[:=]\s*(?!${POINTER})(?:${SYMBOLIC}\S+|[A-Za-z]+(?=\s*(?:[.,;)!"'\]]|$)))`,
