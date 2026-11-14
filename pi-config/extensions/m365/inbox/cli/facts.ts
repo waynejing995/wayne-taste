@@ -195,8 +195,10 @@ type Migration = { written: number; closed: string[]; refused: { id: string; rea
 export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).split("\n").slice(1).filter(Boolean).map((line) => Object.fromEntries(line.split("\t").map((cell, i) => [["id", "key", "subject", "first_seen", "source", "tag", "action", "state", "owner", "note", "link"][i], cell])) as Row)): Migration {
 	return withLedger((liveRows, save) => {
 		const facts = rows.filter((row) => row.tag === "teams-fact" && row.state !== "done");
-		// Each field on its own, as checkFact does: a clause-ending value ("password: abc") stops ending its clause once joined.
-		const redacted = facts.filter((row) => [factKey(row), row.subject, row.source, row.note].some((field) => SECRET.test(field))).map((row) => row.id);
+		// Every column that can carry raw text (link included), each on its own as checkFact does: a clause-ending value
+		// ("password: abc") stops ending its clause once joined. A row redacted earlier is checked again.
+		const raw = (row: Row) => [factKey(row), row.subject, row.source, row.owner, row.note, row.link];
+		const redacted = facts.filter((row) => raw(row).some((field) => SECRET.test(field ?? ""))).map((row) => row.id);
 		const refused: { id: string; reason: string }[] = [];
 		for (const row of facts) {
 			if (redacted.includes(row.id)) continue;
@@ -226,10 +228,9 @@ export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).sp
 		}
 		saveFacts(next.map(scrub));
 		for (const row of liveRows.filter((row) => redacted.includes(row.id))) {
-			row.subject = "[redacted: credential value]";
-			row.source = SECRET.test(row.source) ? "[redacted]" : row.source;
+			row.subject = REDACTED;
 			row.note = "redacted because the row held a credential value";
-			row.key = SECRET.test(row.key) ? "teams-fact:[redacted]" : row.key;
+			for (const field of ["key", "source", "owner", "link"] as const) if (SECRET.test(row[field] ?? "")) row[field] = field === "key" ? "teams-fact:[redacted]" : "[redacted]";
 		}
 		finishRows(liveRows, redacted, undefined, save);
 		const cleanIds = facts.map((row) => row.id).filter((id) => !skip.has(id));

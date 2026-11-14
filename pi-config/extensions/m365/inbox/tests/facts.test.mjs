@@ -128,6 +128,14 @@ await check("migration redacts a credential row it skips for a newer fact", asyn
 		migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
 		ok(!/password(: | is )abc/.test(readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8")), `a short value in row ${id} reached archive.tsv once its fields were joined`);
 	}
+	for (const [id, subject] of [["12", "the build dashboard moved"], ["13", "[redacted: credential value]"]]) {
+		rmSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), { force: true });
+		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "");
+		writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n${id}\tteams-fact:dashboard\t${subject}\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\t\tOps Ada\thttps://ci.example.com/board?access_token=abc123x\n`);
+		migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")));
+		ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "archive.tsv"), "utf8").includes("abc123x"), `row ${id}'s credential link reached archive.tsv`);
+		ok(!readFileSync(join(process.env.WAYNE_INBOX_DIR, "facts.md"), "utf8").includes("abc123x"), `row ${id}'s credential link reached facts.md`);
+	}
 });
 
 await check("migration refuses a row it cannot store and leaves it open", async () => {
