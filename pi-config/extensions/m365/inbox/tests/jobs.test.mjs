@@ -447,6 +447,98 @@ await check("day fields are OR only when both are restricted (cronie)", async ()
 	ok(!jobs.cronMatches("0 9 1 * */1", at("2026-11-17 09:00")));
 });
 
+const RETRY_AGENT = join(bin, "retry-agent");
+writeFileSync(
+	RETRY_AGENT,
+	[
+		"#!/usr/bin/env node",
+		'import { appendFileSync, readFileSync } from "node:fs";',
+		"const calls = process.env.RETRY_CALLS;",
+		'appendFileSync(calls, "x");',
+		'const seen = readFileSync(calls, "utf8").length;',
+		"const mode = process.env.RETRY_MODE;",
+		'if (mode === "warnings") {',
+		'\tprocess.stderr.write("Warning: MCP server obsidian: connect ECONNREFUSED\\n".repeat(20) + "real failure: connection lost mid-reply\\n");',
+		"\tprocess.exit(1);",
+		"}",
+		'if (mode === "transient-once" && seen === 1) {',
+		'\tprocess.stderr.write("Warning: MCP server obsidian: connect ECONNREFUSED\\nWarning: MCP server atlassian: 401\\nstopReason=error errorMessage=\\"Copilot: connection lost mid-reply (http2: client connection lost)\\"\\n");',
+		"\tprocess.exit(1);",
+		"}",
+		'if (mode === "stdout-transient" && seen === 1) {',
+		'\tprocess.stderr.write("Warning: MCP server obsidian: connect ECONNREFUSED\\n".repeat(20));',
+		'\tprocess.stdout.write("connection lost mid-reply\\n");',
+		"\tprocess.exit(1);",
+		"}",
+		'if (mode === "permanent") {',
+		'\tprocess.stderr.write("prompt rejected: invalid request\\n");',
+		"\tprocess.exit(1);",
+		"}",
+		'process.stdout.write("prompt recovered\\n");',
+		"",
+	].join("\n"),
+);
+chmodSync(RETRY_AGENT, 0o755);
+
+function retryJob(name, mode) {
+	process.env.INBOX_AGENT = RETRY_AGENT;
+	process.env.RETRY_MODE = mode;
+	process.env.RETRY_CALLS = join(home, "calls.txt");
+	writeFileSync(process.env.RETRY_CALLS, "");
+	jobs.writeJobs([{ name, enabled: true, every: "1m", next_fire: "2026-11-10 12:00", action: { kind: "prompt", text: "hello" }, quiet: false }]);
+}
+
+await check("a prompt error keeps the tail after dropping MCP warnings", async () => {
+	retryJob("warn", "warnings");
+	const line = (await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0];
+	ok(line.includes("real failure: connection lost mid-reply"), line);
+	ok(!line.includes("obsidian"), line);
+	process.env.INBOX_AGENT = agent;
+	delete process.env.RETRY_MODE;
+});
+
+await check("a transient prompt failure succeeds after one retry", async () => {
+	retryJob("retry", "transient-once");
+	const line = (await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0];
+	ok(line.startsWith("ok retry"), line);
+	strictEqual(readFileSync(process.env.RETRY_CALLS, "utf8"), "xx");
+	ok(rows()[0].note.includes("prompt recovered"));
+	process.env.INBOX_AGENT = agent;
+	delete process.env.RETRY_MODE;
+});
+
+await check("a non-transient prompt failure is not retried", async () => {
+	retryJob("once", "permanent");
+	const line = (await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0];
+	ok(line.startsWith("fail once"), line);
+	strictEqual(readFileSync(process.env.RETRY_CALLS, "utf8"), "x");
+	ok(rows()[0].note.includes("invalid request"));
+	process.env.INBOX_AGENT = agent;
+	delete process.env.RETRY_MODE;
+});
+
+await check("a stdout connection loss retries when stderr has only MCP warnings", async () => {
+	retryJob("stdout", "stdout-transient");
+	const line = (await jobs.runDue({ session: false }, at("2026-11-10 12:00")))[0];
+	ok(line.startsWith("ok stdout"), line);
+	ok(!line.includes("obsidian"), line);
+	strictEqual(readFileSync(process.env.RETRY_CALLS, "utf8"), "xx");
+	ok(rows()[0].note.includes("prompt recovered"));
+	process.env.INBOX_AGENT = agent;
+	delete process.env.RETRY_MODE;
+});
+
+await check("a transient judge failure does not rerun a successful prompt", async () => {
+	retryJob("judged", "success");
+	jobs.writeJobs([{ name: "judged", enabled: true, every: "1m", next_fire: "2026-11-10 12:00", action: { kind: "prompt", text: "hello" }, judge: "on", judge_prompt: "judge it", quiet: false }]);
+	const line = (await jobs.runDue({ session: true, judge: async () => { throw new Error("judge ECONNRESET"); } }, at("2026-11-10 12:00")))[0];
+	ok(line.startsWith("fail judged"), line);
+	ok(line.includes("judge ECONNRESET"), line);
+	strictEqual(readFileSync(process.env.RETRY_CALLS, "utf8"), "x");
+	process.env.INBOX_AGENT = agent;
+	delete process.env.RETRY_MODE;
+});
+
 await check("bad input is an error", async () => {
 	await rejects(() => run("schedule", "add", "Bad", "--every", "1", "--kind", "prompt", "--action", "x"), /job name/);
 	await rejects(() => run("schedule", "add", "both", "--every", "1", "--cron", "* * * * *", "--kind", "prompt", "--action", "x"), /exactly one/);

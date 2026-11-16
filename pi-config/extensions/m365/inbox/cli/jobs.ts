@@ -62,6 +62,16 @@ const NAMES = /^[a-z][a-z0-9-]{0,40}$/;
 export const KINDS = ["prompt", "shell", "tool"];
 const CLAIM_STALE_MS = 15 * 60_000;
 const OUTPUT_CAP = 4000;
+/** How much of a failed process's output an error keeps. The tail, because warnings come first. */
+const ERROR_TAIL = 500;
+/** MCP startup noise. Dropped from an error only when a real line remains. */
+const MCP_WARNING = /^Warning: MCP server\b/;
+/**
+ * Provider failures worth one retry. A prompt job exits 1 with no output when its connection drops, so the match is
+ * the text omp logged: connection lost, a reset or hung socket, an http/2 failure, or a 502/503/504 or overload.
+ */
+const TRANSIENT = /connection lost|ECONNRESET|ETIMEDOUT|http2|socket hang up|\b50[234]\b|overloaded/i;
+
 /** Where the `inbox` launcher lives; shell jobs get it on PATH. */
 export const BIN_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "bin");
 
@@ -267,11 +277,25 @@ export function runProcess(argv: string[], timeoutS: number, what: string, cwd?:
 	child.on("close", (code) => {
 		clearTimeout(timer);
 		if (timedOut) reject(new InboxError(`${what} timed out after ${timeoutS}s`));
-		else if (code !== 0) reject(new InboxError(`${what} exited ${code}: ${(stderr.trim() || stdout.trim()).slice(0, 500)}`));
+		else if (code !== 0) reject(new InboxError(`${what} exited ${code}: ${errorDetail(stderr, stdout)}`));
 		else resolve(stdout.trim());
 	});
 	return promise;
 }
+/** The failed process's own last lines: MCP startup warnings go, then the last 500 characters stay. */
+function errorDetail(stderr: string, stdout: string): string {
+	const kept = (text: string) => text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !MCP_WARNING.test(line));
+	const lines = kept(stderr);
+	if (!lines.length) lines.push(...kept(stdout));
+	if (!lines.length) lines.push(...stderr.trim().split(/\r?\n/).filter(Boolean));
+	return lines.join("\n").slice(-ERROR_TAIL);
+}
+
+/** One retry for a dropped provider connection; any other failure stands. */
+function transient(e: unknown): boolean {
+	return e instanceof Error && TRANSIENT.test(e.message);
+}
+
 
 /** The first of the names that is an executable on PATH, or undefined. */
 export function onPath(...names: string[]): string | undefined {
@@ -371,11 +395,22 @@ async function runDigest(job: Job, text: string, at: Date, o: RunOptions): Promi
 	const argv = agentArgv(o.agent, prompt, job.tools);
 	argv.splice(1, 0, "--mode", "json");
 	try {
-		return digestOutcome(await runProcess(argv, timeoutSec(job), "prompt", inboxDir()), since, until);
+		return digestOutcome(await runPromptProcess(job, argv, timeoutSec(job), inboxDir()), since, until);
 	} catch (e) {
 		if (e instanceof InboxError && "gaps" in e) throw e;
 		const reason = e instanceof Error ? e.message : String(e);
 		throw digestFailure(`teams digest failed: ${reason}`, since, [{ chat: "all chats", reason }]);
+	}
+}
+
+/** Run one prompt process, retrying once only when that process dies on a transient provider failure. */
+async function runPromptProcess(job: Job, argv: string[], timeoutS: number, cwd?: string): Promise<string> {
+	try {
+		return await runProcess(argv, timeoutS, "prompt", cwd);
+	} catch (e) {
+		if (!transient(e)) throw e;
+		console.warn(`[inbox schedule] ${job.name}: transient provider failure, retrying once: ${e instanceof Error ? e.message : String(e)}`);
+		return runProcess(argv, timeoutS, "prompt", cwd);
 	}
 }
 
@@ -391,7 +426,7 @@ async function execute(job: Job, o: RunOptions, at: Date): Promise<Outcome> {
 	if (a.kind === "shell") output = await runProcess(a.argv, timeoutSec(job), "shell");
 	else if (a.kind === "digest" || (a.kind === "prompt" && job.name === DIGEST)) return runDigest(job, a.text, at, o);
 	else if (a.kind === "prompt") {
-		output = await runProcess(agentArgv(o.agent, a.text.replaceAll("{{since}}", boundary(job)), job.tools), timeoutSec(job), "prompt", inboxDir());
+		output = await runPromptProcess(job, agentArgv(o.agent, a.text.replaceAll("{{since}}", boundary(job)), job.tools), timeoutSec(job), inboxDir());
 	} else if (a.kind === "tool") {
 		if (!o.tool) throw new InboxError("tool jobs run only inside a live omp or pi session");
 		output = (await o.tool(a.name, a.args ?? {})).slice(0, OUTPUT_CAP);
