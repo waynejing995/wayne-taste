@@ -114,6 +114,26 @@ await check("critical review on head blocks on review-clean", () => {
 	equal(result.stdout.trim().split("\n").at(-1), "NOT READY: review-clean");
 });
 
+await check("a formal review's commit.oid proves the head when the body names no sha", () => {
+	const body = "Multi-source auto-review: no critical issues found (Primary + Voice 1 + Voice 2).";
+	const fixture = { ...pr([]), reviews: [{ submittedAt: "2026-11-10T09:00:00Z", body, commit: { oid: HEAD } }] };
+	const result = runReady(fixture);
+	equal(gate(result.stdout, "review-head"), "ok", result.stdout);
+	equal(result.stdout.trim().split("\n").at(-1), "READY");
+});
+
+await check("a merge-base(...)...sha range names the reviewed commit", () => {
+	const body = `Multi-source auto-review: no critical issues found. Reviewed frozen range merge-base(origin/main)...${HEAD.slice(0, 9)}.`;
+	equal(gate(runReady(pr([["2026-11-10T09:00:00Z", body]])).stdout, "review-head"), "ok");
+});
+
+await check("a body naming an older frozen sha beats a commit.oid stamped with the newer head", () => {
+	const body = "Multi-source auto-review: no critical issues found. Reviewed frozen range 00913b76c...abcdef012.";
+	const fixture = { ...pr([]), reviews: [{ submittedAt: "2026-11-10T09:00:00Z", body, commit: { oid: HEAD } }] };
+	const result = runReady(fixture);
+	equal(gate(result.stdout, "review-head"), "FAIL", result.stdout);
+});
+
 // Body shapes of real TRACE auto-reviews (#849 @ 2e80d336b, #833 @ 4d6a8d9, #859, #842), on this fixture's head.
 const NO_NEW = `Multi-source auto-review of ${HEAD.slice(0, 9)} (frozen three-dot diff \`00913b76c...${HEAD.slice(0, 9)}\`).\n\n` +
 	"Since f572cd7f1, the only change is `captain-pi/src/pg-storage.ts:216`.\n\n" +

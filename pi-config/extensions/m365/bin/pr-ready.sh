@@ -17,9 +17,10 @@ repo=$1 pr=$2
 
 data=$(gh pr view "$pr" -R "$repo" --json headRefOid,mergeable,reviews,comments,statusCheckRollup)
 head=$(jq -r .headRefOid <<<"$data")
-# Latest auto-review over reviews and PR comments, as {at, body}; null when there is none.
+# Latest auto-review over reviews and PR comments, as {at, body, oid}; null when there is none. A formal review's
+# commit.oid is GitHub's record of the head when the review was posted; comments have none.
 latest=$(jq -c --arg auto "$AUTO" '
-  [(.reviews[]? | {at: .submittedAt, body}), (.comments[]? | {at: .createdAt, body})]
+  [(.reviews[]? | {at: .submittedAt, body, oid: (.commit.oid // "")}), (.comments[]? | {at: .createdAt, body, oid: ""})]
   | map(select(.body // "" | contains($auto))) | sort_by(.at) | last' <<<"$data")
 
 gates=() # "<gate> <status> <evidence>"
@@ -29,7 +30,9 @@ if [ "$latest" = null ]; then
 else
   fields=$(jq -r --arg auto "$AUTO" "$AUTO_JQ" <<<"$latest")
   verdict=$(sed -n 's/^verdict=//p' <<<"$fields")
+  # The body's frozen sha wins; the oid counts only when the body names no sha.
   commit=$(sed -n 's/^commit=//p' <<<"$fields")
+  [ -n "$commit" ] || commit=$(jq -r '.oid[0:9]' <<<"$latest")
   at=$(jq -r .at <<<"$latest")
   if [ -z "$commit" ]; then
     gates+=("review-head FAIL auto-review at $at names no commit (head ${head:0:9})")

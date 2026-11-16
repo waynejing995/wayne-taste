@@ -12,7 +12,7 @@
 #     already posted inline", "Not approving while these remain open"). "are still fixed", "No remaining critical
 #     issues" and "No critical issues remain open" are not.
 # else critical.
-# commit: the reviewed sha, first of `@ sha`, `head sha`, the end of a `base..sha` range, `of|at sha`,
+# commit: the reviewed sha, first of `@ sha`, `head sha`, the end of a `base..sha` or `merge-base(...)...sha` range, `of|at sha`,
 # searched from the phrase on; cut to 9 characters.
 AUTO='Multi-source auto-review'
 AUTO_JQ='
@@ -28,5 +28,5 @@ AUTO_JQ='
                   then "clean" else "critical" end),
     ([$s | capture("@\\s*`?(?<c>[0-9a-f]{7,40})\\b"),
            capture("\\bhead\\s+`?(?<c>[0-9a-f]{7,40})\\b"; "i"),
-           capture("[0-9a-f]{7,40}\\.{2,3}`?(?<c>[0-9a-f]{7,40})\\b"),
+           capture("(?:[0-9a-f]{7,40}|\\))\\.{2,3}`?(?<c>[0-9a-f]{7,40})\\b"),
            capture("\\b(?:of|at)\\s+`?(?<c>[0-9a-f]{7,40})\\b")] | first | select(.) | "commit=" + .c[0:9])'
