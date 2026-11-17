@@ -504,7 +504,7 @@ await check("a finished push session gets only a digest line and is not removed"
 	}),
 );
 
-await check("a legacy probe registration is migrated and removed on completion", () =>
+await check("a legacy probe registration is migrated and kept after completion", () =>
 	withFixture(async (f) => {
 		f.watch("alpha", finished);
 		const rules = YAML.parse(fs.readFileSync(path.join(f.dir, "rules.yaml"), "utf8"));
@@ -512,7 +512,7 @@ await check("a legacy probe registration is migrated and removed on completion",
 		fs.writeFileSync(path.join(f.dir, "rules.yaml"), YAML.stringify(rules));
 		await f.run();
 		ok(!f.ledgerKeys().some((key) => key.endsWith(":gone")), f.ledgerKeys().join(","));
-		deepStrictEqual(f.watchedNames(), []);
+		deepStrictEqual(f.watchedNames(), ["alpha"]);
 	}),
 );
 
@@ -574,16 +574,16 @@ await check("a pane session's digest line uses the last non-empty pane line", ()
 	}),
 );
 
-for (const [label, behaviour] of [
+for (const [label, behaviour, calls = 0, digest = false] of [
 	["all-dead", dead],
-	["finished-this-run", finished],
+	["finished-this-run", finished, 1, true],
 ]) {
-	await check(`nothing running (${label}) sends no digest`, () =>
+	await check(`nothing running (${label}) sends ${calls ? "a digest and keeps the watch" : "no digest"}`, () =>
 		withFixture(async (f) => {
 			f.watch("alpha", behaviour);
 			await f.run();
-			strictEqual(f.calls().length, 0);
-			ok(!("_digest" in f.state()));
+			strictEqual(f.calls().length, calls);
+			if (!digest) ok(!("_digest" in f.state()));
 		}),
 	);
 }
@@ -596,28 +596,73 @@ await check("no sessions watched sends nothing", () =>
 	}),
 );
 
-await check("a finished session is left out of the digest", () =>
+await check("a finished session stays in the digest", () =>
 	withFixture(async (f) => {
 		f.watch("alpha", finished);
 		f.watch("beta", ompLive);
 		await f.run();
 		const [digest] = f.sent();
-		ok(!digest.includes("- alpha"), digest);
-		ok(digest.split("\n")[1].startsWith(`- beta${DOT}local${DOT}working${DOT}`));
+		ok(digest.includes(`- alpha${DOT}local${DOT}done${DOT}`), digest);
+		ok(digest.split("\n").some((line) => line.startsWith(`- beta${DOT}local${DOT}working${DOT}`)));
 	}),
 );
 
-await check("a rewritten result with the same status and open items makes no second card", () =>
+await check("with no open then, a RESULT makes one card per file version and said", () =>
 	withFixture(async (f) => {
-		f.watch("alpha", partialResult("h-url"));
+		const prefix = "agents:alpha:11111111-1111-4111-8111-111111111111:result:";
+		f.watch("alpha", (now, want) => ({ ...partialResult("h-url")(now, want), rversion: "1793973600.000000000 1793973600.000000000" }));
 		await f.run();
 		f.now = T0 + 120;
 		await f.run();
-		strictEqual(f.ledgerKeys("agents:alpha:11111111-1111-4111-8111-111111111111:result:").length, 1, "same status and open items, new mtime: no card");
-		f.watch("alpha", partialResult("h-rollout"));
+		deepStrictEqual(f.ledgerKeys(prefix), [`${prefix}1793973600-000000000-1793973600-000000000`], "same file version: one card");
+		f.watch("alpha", (now, want) => ({ ...partialResult("h-rollout")(now, want), rversion: "1793973600.500000000 1793973600.500000000" }));
 		f.now = T0 + 240;
 		await f.run();
-		deepStrictEqual(f.ledgerKeys("agents:alpha:11111111-1111-4111-8111-111111111111:result:"), [`agents:alpha:11111111-1111-4111-8111-111111111111:result:${T0}`, `agents:alpha:11111111-1111-4111-8111-111111111111:result:${T0 + 240}`]);
+		deepStrictEqual(f.ledgerKeys(prefix), [`${prefix}1793973600-000000000-1793973600-000000000`, `${prefix}1793973600-500000000-1793973600-500000000`], "a rewrite in the same second is its own row");
+	}),
+);
+
+const GEN = "11111111-1111-4111-8111-111111111111";
+const V1 = "1793973600.000000000 1793973600.000000000";
+/** An armed agent-result then for alpha, with the RESULT file version it was armed against. */
+const arm = (f, version, said) => fs.writeFileSync(path.join(f.dir, "thens.json"), JSON.stringify([
+	{ row: "7", n: 1, when: "agent-result:alpha", action: "round 2", added: "2026-11-06 14:00", after: 0, generation: GEN, baseline: { version, said } },
+]));
+
+await check("4c. a then armed on an unchanged RESULT waits; a rewrite in the same second is the new round", () =>
+	withFixture(async (f) => {
+		const prefix = `agents:alpha:${GEN}:result:`;
+		f.watch("alpha", (now, want) => ({ ...partialResult("h-url")(now, want), rversion: V1 }));
+		arm(f, V1, "partial:h-url");
+		await f.run();
+		f.now = T0 + 120;
+		await f.run();
+		deepStrictEqual(f.ledgerKeys(prefix), [], "the RESULT from before the then is not its answer");
+		f.watch("alpha", (now, want) => ({ ...partialResult("h-url")(now, want), rversion: "1793973600.700000000 1793973600.700000000" }));
+		f.now = T0 + 240;
+		await f.run();
+		deepStrictEqual(f.ledgerKeys(prefix), [`${prefix}1793973600-700000000-1793973600-700000000`], "same status and open, rewritten: one row");
+		f.now = T0 + 360;
+		await f.run();
+		strictEqual(f.ledgerKeys(prefix).length, 1, "the next probe (a fresh process, state on disk) adds nothing");
+	}),
+);
+
+await check("5c. after a done RESULT the watch still reports blocked and gone", () =>
+	withFixture(async (f) => {
+		const done = (p) => ({ ...p, rmtime: T0, rstatus: "done", rversion: V1 });
+		f.watch("alpha", (now, want) => done(ompLive(now, want)));
+		await f.run();
+		strictEqual(f.ledgerKeys(`agents:alpha:${GEN}:result:`).length, 1);
+		f.watch("alpha", (now, want) => done(blocked(false)(now, want)));
+		f.now = T0 + 120;
+		await f.run();
+		strictEqual(f.ledgerKeys(`agents:alpha:${GEN}:blocked:`).length, 1, "blocked after done");
+		f.watch("alpha", (now) => done(dead(now)));
+		f.now = T0 + 240;
+		await f.run();
+		strictEqual(f.ledgerKeys(`agents:alpha:${GEN}:gone`).length, 1, "gone after done");
+		deepStrictEqual(f.watchedNames(), ["alpha"], "the watch stays");
 	}),
 );
 
@@ -983,7 +1028,8 @@ await check("a live hc pane returns JSON without command output", () =>
 await check("a missing tmux binary is an operational error", () =>
 	withFixture(async (f) => {
 		const bin = path.join(f.dir, "bin");
-		fs.rmSync(path.join(bin, "tmux"), { force: true });
+		fs.writeFileSync(path.join(bin, "tmux"), "#!/bin/sh\necho missing >&2\nexit 127\n", { mode: 0o755 });
+		process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
 		await failsWith(runProbe({ name: "alpha", mux: "tmux", pane: "1", host: "local", result: "" }, false), "probe command failed");
 	}),
 );

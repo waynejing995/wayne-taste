@@ -3,6 +3,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { clean, InboxError, stamp, withRulesLock } from "./ledger.ts";
+import { resultVersion } from "./jobs.ts";
 import { addThen } from "./thens.ts";
 import { AGENT_LIST, readList, writeList } from "./lists.ts";
 
@@ -47,7 +48,7 @@ export function writeAgents(agents: AgentEntry[]): void {
  * expects, whom it tells and how, what it closes) is a then on the live row the session works for, fired by the
  * session's next RESULT: the result card comes back with the plan, and the row cannot be closed until it is done.
  */
-export function addAgent(a: { name: string; mux: string; pane: string; row: string; then: string; host?: string; result?: string; goal?: string; push?: boolean; generation?: string }): string {
+export async function addAgent(a: { name: string; mux: string; pane: string; row: string; then: string; host?: string; result?: string; goal?: string; push?: boolean; generation?: string }): Promise<string> {
 	if (!MUXES.includes(a.mux)) throw new InboxError(`--mux must be one of ${MUXES.join(", ")}`);
 	if (a.generation !== undefined && !/^[A-Za-z0-9-]{8,64}$/.test(a.generation)) throw new InboxError(`--generation must be 8-64 letters, digits or dashes, as WAYNE_AGENT_GENERATION was`);
 	const entry: AgentEntry = { name: a.name, mux: a.mux, host: a.host || "local", pane: a.pane };
@@ -60,13 +61,14 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 	entry.generation = a.generation ?? randomUUID();
 	if (a.generation) entry.stamped = true;
 	entry.instance = randomUUID();
+	const baseline = a.push === true ? undefined : await resultVersion({ host: a.host, result: a.result });
 	// Under the rules lock, so the plan is armed only for the registration that is written, and a racing add of the
 	// same name cannot cancel a plan it did not replace.
 	return withRulesLock(() => {
 		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
 		const old = agents.find((e) => e.name === a.name);
 		// The registration and its plan change together: see addThen's `commit`.
-		const then = addThen(a.row, `agent-result:${a.name}`, a.then, { generation: entry.generation!, replaces: old?.generation, replacesLegacy: old?.migratedGeneration === "legacy" }, () => {
+		const then = addThen(a.row, `agent-result:${a.name}`, a.then, { generation: entry.generation!, replaces: old?.generation, replacesLegacy: old?.migratedGeneration === "legacy", baseline }, () => {
 			writeAgents([...agents.filter((e) => e.name !== a.name), entry]);
 			return () => writeAgents(agents);
 		});
@@ -74,16 +76,18 @@ export function addAgent(a: { name: string; mux: string; pane: string; row: stri
 	});
 }
 
-export function removeAgents(entries: { name: string; generation?: string }[]): string {
-	const removed: string[] = [];
-	withRulesLock(() => {
-		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
-		const matched = entries.filter((e) => e.generation && agents.some((a) => a.name === e.name && a.generation === e.generation));
-		for (const e of entries) if (!matched.includes(e)) console.warn(`agent cleanup skipped ${e.name}: missing or changed generation`);
-		removed.push(...matched.map((e) => e.name));
-		writeAgents(agents.filter((a) => !matched.some((e) => e.name === a.name && e.generation === a.generation)));
-	});
+/** Drop the named registrations. The caller already holds the rules lock. */
+export function removeAgentsUnlocked(entries: { name: string; generation?: string }[]): string {
+	const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
+	const matched = entries.filter((e) => e.generation && agents.some((a) => a.name === e.name && a.generation === e.generation));
+	for (const e of entries) if (!matched.includes(e)) console.warn(`agent cleanup skipped ${e.name}: missing or changed generation`);
+	const removed = matched.map((e) => e.name);
+	writeAgents(agents.filter((a) => !matched.some((e) => e.name === a.name && e.generation === a.generation)));
 	return `stopped ${removed.join(" ")}`;
+}
+
+export function removeAgents(entries: { name: string; generation?: string }[]): string {
+	return withRulesLock(() => removeAgentsUnlocked(entries));
 }
 
 export function removeAgentsByName(names: string[], generation?: string): string {

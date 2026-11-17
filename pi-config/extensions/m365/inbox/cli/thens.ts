@@ -10,16 +10,18 @@
  * (`gh run view` says completed), `at:<YYYY-MM-DD HH:MM>` (local time).
  *
  * When the trigger happens, one `do` row (tag `then`) starts a turn: "Trigger X happened; you owe: <action>". A fired
- * then not closed with `inbox then-done <row-id> <n>` within 10 minutes gets one reminder row. `inbox done <row-id>`
- * refuses while a fired then of that row is open (`--force --note <why>` closes them). An unfired then stays armed
- * after its row is done: the obligation is the trigger's, not the row's.
+ * then left open is reminded at 10 minutes, 1 hour, 4 hours, then every 24 hours, until `inbox then-done`.
+ * `inbox done <row-id>` refuses while a fired then of that row is open (`--force --note <why>` closes them). An unfired then stays armed
+ * after its row is done: the obligation is the trigger's, not the row's. Closing the last open then of a registration's
+ * generation removes that registration.
  *
  * State: thens.json in the inbox directory, rewritten whole (tmp + rename) under thens.json.lock. The ledger rows
  * themselves are unchanged, so ledger.tsv keeps its format.
  */
 import * as fs from "node:fs";
-import { clean, InboxError, inboxFile, readTsv, recordDirect, stamp, withLock, type Row } from "./ledger.ts";
+import { clean, InboxError, inboxFile, readTsv, recordDirect, stamp, withLock, withRulesLock, type Row } from "./ledger.ts";
 import { parseStamp, runProcess } from "./jobs.ts";
+import { readAgents, removeAgentsUnlocked } from "./agents.ts";
 
 export interface Then {
 	row: string;
@@ -32,14 +34,16 @@ export interface Then {
 	fired?: string;
 	/** What happened, e.g. `RESULT status: done` or `conclusion success`. */
 	why?: string;
-	reminded?: string;
+	/** How many reminders have been recorded. An old file may say `true` or a stamp instead of a count; both mean one. */
+	reminded?: number | string | boolean;
 	done?: string;
 	note?: string;
 	/** Set by `agent add`: the registration whose plan this is. A re-registration cancels only that plan. */
 	generation?: string;
+	/** Set for a probe-watched name: the RESULT file's version and status at arm time. A push name has none. */
+	baseline?: { version: string; said: string };
 }
-
-const REMIND_MIN = 10;
+const REMIND_MIN = [10, 60, 240];
 const TRIGGERS: [RegExp, string][] = [
 	[/^pr-merged:[\w.-]+\/[\w.-]+#\d+$/, "pr-merged:<owner/repo>#<n>"],
 	[/^gh-run:[\w.-]+\/[\w.-]+:\d+$/, "gh-run:<owner/repo>:<run-id>"],
@@ -76,13 +80,14 @@ const label = (t: Then) => `${t.row}.${t.n}`;
 
 /**
  * `agent` marks a registration's plan: its generation is stored, and `replaces` (the generation it supersedes)
- * cancels that registration's unfired plan. A then added by hand is never cancelled this way.
+ * cancels that registration's unfired plan. A plain `agent-result` then stamps the generation of the registration
+ * that exists now, and is refused when that name is not watched.
  *
  * A registration from before generations (`replacesLegacy`) armed its plan with no generation, exactly like a then
- * added by hand, so nothing tells them apart: every such open then is kept and listed as ambiguous for the caller to
+ * added by hand before this contract, so nothing tells them apart: every such open then is kept and listed as ambiguous for the caller to
  * close with `then-done`.
  */
-type AgentPlan = { generation: string; replaces?: string; replacesLegacy?: boolean };
+type AgentPlan = { generation: string; replaces?: string; replacesLegacy?: boolean; baseline?: Then["baseline"] };
 const open = (t: Then, when: string) => t.when === when && !t.fired && !t.done;
 
 /**
@@ -99,12 +104,20 @@ export function addThen(row: string, when: string, action: string, agent?: Agent
 	const live = readTsv(inboxFile("ledger.tsv"));
 	if (!live.some((r) => r.id === row)) throw new InboxError(`no such live id: ${row}`);
 	const after = allRows().reduce((max, r) => Math.max(max, Number(r.id)), 0);
+	let generation = agent?.generation;
+	const baseline = agent?.baseline;
+	if (!generation && when.startsWith("agent-result:")) {
+		const name = when.slice("agent-result:".length);
+		const watched = readAgents().find((a) => a.name === name);
+		if (!watched) throw new InboxError(`not watched: ${name}. Run \`inbox agent add\` first.`);
+		generation = watched.generation;
+	}
 	return withThens((thens, save) => {
 		const ambiguous = agent?.replacesLegacy ? thens.filter((t) => open(t, when) && t.generation === undefined) : [];
 		const prior = agent?.replaces ? thens.filter((t) => open(t, when) && t.generation === agent.replaces) : [];
 		for (const t of prior) Object.assign(t, { done: stamp(), note: "replaced by a new registration" });
 		const n = thens.filter((t) => t.row === row).reduce((max, t) => Math.max(max, t.n), 0) + 1;
-		thens.push({ row, n, when, action, added: stamp(), after, ...(agent ? { generation: agent.generation } : {}) });
+		thens.push({ row, n, when, action, added: stamp(), after, ...(generation ? { generation } : {}), ...(baseline ? { baseline } : {}) });
 		const undo = commit?.();
 		try {
 			save();
@@ -117,16 +130,27 @@ export function addThen(row: string, when: string, action: string, agent?: Agent
 	});
 }
 
+/**
+ * Closing the last open then of a registration's generation removes that registration. Locks are taken rules → thens,
+ * the same order as `agent add`, so a concurrent add and then-done never wait on each other.
+ */
 export function thenDone(row: string, n: string, note = ""): string {
-	return withThens((thens, save) => {
+	return withRulesLock(() => withThens((thens, save) => {
 		const t = thens.find((x) => x.row === row && String(x.n) === n);
 		if (!t) throw new InboxError(`no then ${row}.${n}`);
 		if (t.done) throw new InboxError(`then ${row}.${n} is already done (${t.done})`);
 		t.done = stamp();
 		if (note) t.note = clean(note);
+		const name = t.when.startsWith("agent-result:") ? t.when.slice("agent-result:".length) : "";
+		const last = !!name && !!t.generation && !thens.some((x) => x.when === t.when && x.generation === t.generation && !x.done);
+		// Only a registration that still exists: one already replaced or removed (`agent rm`, a re-add) is nothing to undo.
+		const registered = last && readAgents().some((a) => a.name === name && a.generation === t.generation);
+		// Registration first: if thens.json then fails to save, the then stays open and a retry closes it; a removed
+		// registration with an open then is what the sweep reports as `then-dead`, never a silent loss.
+		if (registered) removeAgentsUnlocked([{ name, generation: t.generation }]);
 		save();
 		return `then-done ${row}.${n}${t.fired ? "" : " (cancelled before it fired)"}`;
-	});
+	}));
 }
 
 /** Called by `done`: refuse while a fired then of these rows is open; `force` closes them with the note instead. */
@@ -157,7 +181,8 @@ async function happened(t: Then, rows: Row[], now: Date, gh: boolean): Promise<s
 	if (kind === "at") return parseStamp(arg) <= now ? `it is ${stamp(now)}` : undefined;
 	if (kind === "agent-result") {
 		const prefix = t.generation ? `agents:${arg}:${t.generation}:` : `agents:${arg}:`;
-		const hit = rows.find((r) => Number(r.id) > t.after && r.source === "agents" && r.key.startsWith(prefix) && r.note.startsWith("RESULT status:"));
+		// Only rows the tailer or probe recorded as a RESULT; `inbox set` / `done --note` rewrite notes, never tags.
+		const hit = rows.find((r) => Number(r.id) > t.after && r.source === "agents" && r.key.startsWith(prefix) && r.tag === "agent-result");
 		return hit ? `${/^RESULT status: [a-z_]+/.exec(hit.note)?.[0] ?? "RESULT"} (row #${hit.id})` : undefined;
 	}
 	if (kind === "gh-run" && gh) {
@@ -193,7 +218,12 @@ export async function checkThens(o: CheckOptions = {}): Promise<string[]> {
 			lines.push(`fail then ${label(t)}: ${(e as Error).message}`);
 		}
 	}
-	const remindDue = (t: Then) => !!t.fired && !t.reminded && now.getTime() - parseStamp(t.fired).getTime() >= REMIND_MIN * 60_000;
+	const remindDue = (t: Then) => {
+		if (!t.fired) return false;
+		const n = typeof t.reminded === "number" ? t.reminded : t.reminded ? 1 : 0;
+		const minutes = n < REMIND_MIN.length ? REMIND_MIN[n]! : REMIND_MIN[REMIND_MIN.length - 1]! + (n - REMIND_MIN.length + 1) * 24 * 60;
+		return now.getTime() >= parseStamp(t.fired).getTime() + minutes * 60_000;
+	};
 	// Nothing to write: do not even take the lock (the delivering session watches the directory, and the lock file is a change).
 	if (!fired.size && !pending.some(remindDue)) return lines;
 	withThens((thens, save) => {
@@ -209,9 +239,10 @@ export async function checkThens(o: CheckOptions = {}): Promise<string[]> {
 				lines.push(`fired ${label(t)}: ${out}`);
 				changed = true;
 			} else if (remindDue(t)) {
-				const out = recordDirect("then", "do", `${label(t)}:remind`, `then #${label(t)} reminder: ${t.when}`, "then",
-					`Reminder: trigger ${t.when} happened at ${t.fired}; you still owe: ${t.action} [row #${t.row}; close with \`inbox then-done ${t.row} ${t.n}\`]`, "", "coordinator");
-				t.reminded = stamp(now);
+				const n = (typeof t.reminded === "number" ? t.reminded : t.reminded ? 1 : 0) + 1;
+				const out = recordDirect("then", "do", `${label(t)}:remind:${n}`, `then #${label(t)} reminder ${n}: ${t.when}`, "then",
+					`Reminder ${n}: trigger ${t.when} happened at ${t.fired}; you still owe: ${t.action} [row #${t.row}; close with \`inbox then-done ${t.row} ${t.n}\`]`, "", "coordinator");
+				t.reminded = n;
 				lines.push(`reminded ${label(t)}: ${out}`);
 				changed = true;
 			}

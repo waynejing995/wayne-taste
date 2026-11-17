@@ -13,6 +13,7 @@ const jiti = createJiti(import.meta.url, { interopDefault: true });
 const { inbox } = await jiti.import("../cli/main.ts");
 const { readFacts } = await jiti.import("../cli/facts.ts");
 const { readTsv, stamp, withLock } = await jiti.import("../cli/ledger.ts");
+const { addThen } = await jiti.import("../cli/thens.ts");
 
 let failed = 0;
 async function check(label, fn) {
@@ -221,6 +222,20 @@ await check("migration keeps a newer same-day fact and one kind", async () => {
 	finally { delete process.env.INBOX_LOCK_WAIT_MS; }
 	rmSync(lock, { recursive: true });
 	strictEqual(readFileSync(facts, "utf8"), before);
+});
+
+await check("migration refuses a row whose fired then is still open", async () => {
+	const header = "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink";
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"), `${header}\n7\tteams-fact:release-window\tRelease after 19:00\t2026-11-13 09:00\tdigest\tteams-fact\tlog\topen\twayne\t\t\n`);
+	addThen("7", "at:2099-01-01 00:00", "tell the team", undefined);
+	const { readThens } = await jiti.import("../cli/thens.ts");
+	const [armed] = readThens();
+	armed.fired = "2026-11-13 09:10";
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "thens.json"), JSON.stringify([armed]));
+	const { migrateFacts } = await jiti.import("../cli/facts.ts");
+	try { migrateFacts(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv"))); ok(false, "migration archived a row with an open then"); }
+	catch (error) { ok(error instanceof Error && /open then-actions/.test(error.message), error instanceof Error ? error.message : error); }
+	strictEqual(readTsv(join(process.env.WAYNE_INBOX_DIR, "ledger.tsv")).map((row) => row.id).join(","), "7");
 });
 
 if (failed) process.exit(1);

@@ -182,6 +182,60 @@ await check("4. agent_end willContinue:true writes nothing", async () => {
 	);
 });
 
+await check("4b. agent_end willContinue with awaitingAsyncWork writes nothing", async () => {
+	const { handlers, file } = await load({ watch: "w" });
+	handlers.session_start({}, ui);
+	handlers.agent_start({}, ui);
+	handlers.agent_end(
+		{
+			willContinue: true,
+			awaitingAsyncWork: true,
+			messages: [{ role: "assistant", stopReason: "aborted", content: [] }],
+		},
+		ui,
+	);
+	deepStrictEqual(
+		events(file).map((e) => e.type),
+		["started", "working"],
+	);
+	ok(timeouts.every((t) => t.cleared || t.ms !== 2500), "pause is not a hold");
+});
+
+await check("5b. aborted end held for the next run", async () => {
+	const abortEnd = {
+		messages: [{ role: "assistant", stopReason: "aborted", content: [] }],
+	};
+
+	const a = await load({ watch: "w" });
+	a.handlers.session_start({}, ui);
+	a.handlers.agent_start({}, ui);
+	a.handlers.agent_end(abortEnd, ui);
+	deepStrictEqual(
+		events(a.file).map((e) => e.type),
+		["started", "working"],
+		"nothing immediately",
+	);
+	a.handlers.agent_start({}, ui);
+	for (const t of timeouts) if (!t.cleared) t.fn();
+	deepStrictEqual(
+		events(a.file).map((e) => e.type),
+		["started", "working"],
+		"agent_start before hold: no idle",
+	);
+
+	const b = await load({ watch: "w" });
+	b.handlers.session_start({}, ui);
+	b.handlers.agent_start({}, ui);
+	b.handlers.agent_end(abortEnd, ui);
+	const held = timeouts.filter((t) => !t.cleared);
+	ok(held.length === 1 && held[0].ms === 2500, "2500 ms hold");
+	held[0].fn();
+	deepStrictEqual(
+		events(b.file).map((e) => e.type),
+		["started", "working", "idle"],
+	);
+});
+
 await check("5. retryable error held", async () => {
 	const retryEnd = {
 		messages: [{ role: "assistant", stopReason: "error", errorMessage: "429 rate limit" }],

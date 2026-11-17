@@ -68,8 +68,12 @@ function lastAssistantText(messages: unknown): string | undefined {
 	if (parts.length) return parts.join(" ");
 }
 
-function retryableErrorMessage(event: { messages?: unknown }): string | undefined {
+/** Why agent_end should wait instead of settling. A retryable provider error, or an abort
+ * from a new prompt (omp sends agent_end with stopReason "aborted", then agent_start).
+ */
+function holdReason(event: { messages?: unknown }): string | undefined {
 	const assistant = lastAssistant(event?.messages);
+	if (assistant?.stopReason === "aborted") return "aborted";
 	if (assistant?.stopReason !== "error") return;
 	const errorMessage = String(assistant.errorMessage ?? "");
 	if (!retryableErrorPattern.test(errorMessage)) return;
@@ -338,7 +342,8 @@ export default function (pi: ExtensionAPI) {
 			if (!agentActive) return;
 			if (event?.willContinue === true) return;
 			agentActive = false;
-			if (retryableErrorMessage(event)) {
+			const reason = holdReason(event);
+			if (reason) {
 				clearRetry();
 				retryTimer = setTimeout(() => {
 					retryTimer = undefined;

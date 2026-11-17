@@ -4,14 +4,15 @@
  * Every command returns its stdout text. A data or usage error is an InboxError: `Error: <message>` on stderr, exit 1.
  */
 import * as fs from "node:fs";
-import { addAgent, listAgents, MUXES, removeAgentsByName } from "./agents.ts";
-import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
+import { addAgent, listAgents, MUXES, readAgents, removeAgentsByName } from "./agents.ts";
+import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, resultVersion, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
 import { addEvent, doneRows, InboxError, inboxFile, listRows, places, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
 import { dropFact, FACT_KINDS, listFacts, upsertFact } from "./facts.ts";
 import { probeAgents } from "./probe.ts";
 import { migrateRules, migrateRulesText } from "./migrate-rules.ts";
 import { setup } from "./setup.ts";
 import { addThen, checkThens, guardDone, openThenLines, thenDone } from "./thens.ts";
+import { sweep } from "./sweep.ts";
 
 function minutes(value: string, flag: string): number {
 	const n = Number(value);
@@ -75,10 +76,18 @@ const COMMANDS: Record<string, Command> = {
 		help: "Attach a deferred action to a live row: when the trigger happens, a `do` card says you owe it. Triggers: pr-merged:<owner/repo>#<n>, gh-run:<owner/repo>:<run-id>, agent-result:<name>, at:<YYYY-MM-DD HH:MM>.",
 		args: ["row-id", "action..."],
 		opts: { when: { required: true, help: "the trigger" } },
-		run: (p) => addThen(p.args[0], p.opts.when!, p.args.slice(1).join(" ")),
+		run: async (p) => {
+			const when = p.opts.when!;
+			let baseline: { version: string; said: string } | undefined;
+			if (when.startsWith("agent-result:")) {
+				const watched = readAgents().find((a) => a.name === when.slice("agent-result:".length));
+				if (watched && watched.push !== true) baseline = await resultVersion(watched);
+			}
+			return addThen(p.args[0], when, p.args.slice(1).join(" "), baseline ? { generation: "", baseline } : undefined);
+		},
 	},
 	"then check": {
-		help: "Fire the then-actions whose trigger happened, remind fired ones left open for 10 minutes (the scheduler runs this every minute).",
+		help: "Fire the then-actions whose trigger happened, and remind fired ones at 10 minutes, 1 hour, 4 hours, then every 24 hours (the scheduler runs this every minute).",
 		run: async () => (await checkThens({ gh: true })).join("\n"),
 	},
 	"then-done": {
@@ -86,6 +95,11 @@ const COMMANDS: Record<string, Command> = {
 		args: ["row-id", "n"],
 		opts: { note: { default: "" } },
 		run: (p) => thenDone(p.args[0], p.args[1], p.opts.note),
+	},
+	sweep: {
+		help: "Print findings about overdue thens, dead watches, and held events. `--apply` records each once; the default changes nothing and never closes a row.",
+		opts: { apply: { flag: true, help: "record the findings" } },
+		run: (p) => sweep(p.flags.apply),
 	},
 	ask: direct("ask-wayne", "notify", "coordinator"),
 	fact: {

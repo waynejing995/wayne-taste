@@ -52,19 +52,9 @@ interface NameState {
 	status?: string;
 	/** Events that arrived before the name was registered; replayed on registration. */
 	pending?: { host: string; event: Event }[];
-	/** Retired by `result done` → `agent rm`: later events for this name make no rows until it is registered again. */
+	/** The name was taken off the list (`agent rm`, or the last open then of its generation closed). Later events wait until it is registered again. */
 	removed?: boolean;
-	/**
-	 * The `result done` that retired the name. That session's later events are its finished round settling and exiting,
-	 * never rows, unless a prompt starts a new round (`working` not marked `prompted: false`, `resumed`): a follow-up
-	 * sent to it, delivered once the name is registered again. A turn an extension started (an advisor message) is the
-	 * same round going on, so its `result done` repeats the one that retired the name. A new session reporting under
-	 * the name (`superseded`) makes the old session a finished run for good.
-	 * A re-registration while a session is still reporting under the old registration marks that session's last event
-	 * the same way: the round belongs to the registration it started under, so its result never retires the new one.
-	 */
-	retiredAt?: { session: string; seq: number; said?: string; unmarked?: boolean; checked?: boolean; resumed?: boolean; superseded?: boolean };
-	/** What the last card added for this name said (rowSays with type and state); an identical next card is skipped. */
+	/** What the last card added for this name said (type, state, and what it says). An identical next card is skipped until a prompt starts a new round. */
 	lastCard?: string;
 }
 interface Cursor { offset: number; inode?: number }
@@ -333,7 +323,7 @@ export class AgentTailer {
 		}
 		for (const gone of previous) {
 			if (this.entries.some((entry) => entry.name === gone.name)) continue;
-			// Pending is kept: a follow-up read in the same batch as the `result done` that removed the entry waits here.
+			// Pending is kept: a follow-up read in the same batch as the removal waits here.
 			const state = this.names[gone.name];
 			if (state) state.removed = true;
 		}
@@ -348,16 +338,14 @@ export class AgentTailer {
 			}
 			const sameHost = (old?.pending ?? []).filter((item) => item.host === entry.host);
 			if (sameHost.length < (old?.pending?.length ?? 0)) this.warn(`${entry.name}: dropped events from another host that arrived before registration`);
-			const pending = sameHost.filter((item) => owns(entry, item.event));
-			if (pending.length < sameHost.length) this.warn(`${entry.name}: dropped ${sameHost.length - pending.length} held events of another launch than registration ${entry.generation}`);
-			// Only a session that reported under an earlier registration; events held before any registration are its own.
-			const running = old?.generation !== undefined && old.session !== undefined && !old.removed && old.session !== old.retiredAt?.session;
-			const retiredAt = running ? { session: old.session!, seq: old.seq ?? 0 } : old?.retiredAt;
+			const owned = sameHost.filter((item) => owns(entry, item.event));
+			if (owned.length < sameHost.length) this.warn(`${entry.name}: dropped ${sameHost.length - owned.length} held events of another launch than registration ${entry.generation}`);
+			// Held events replay on registration, so a session that finished before `agent add` still reports. For an
+			// unstamped registration, apply drops the turn ends from before the add.
 			this.names[entry.name] = {
 				state: "registered", lastSeen: this.now(), host: entry.host, since: entry.since, generation: entry.generation,
 				...(entry.instance ? { instance: entry.instance } : {}),
-				...(pending.length > 0 ? { pending } : {}),
-				...(retiredAt ? { retiredAt } : {}),
+				...(owned.length > 0 ? { pending: owned } : {}),
 			};
 		}
 		this.syncStreams();
@@ -492,13 +480,16 @@ export class AgentTailer {
 	 * One event: its row if it makes one, then the name's state. Throws, changing nothing, when the row is not recorded.
 	 * A name registered on another host is that host's business: this stream's events for it are ignored.
 	 * `held`: the event arrived while the name was not registered and is replayed now that it is.
+	 * A `result done` does not remove the watch. The registration stays until its last open then is closed, or until
+	 * `agent rm`. A `working` event whose turn was prompted (`prompted` absent counts: an older reporter) starts a new
+	 * round, so the next card is recorded even when it says what the last one said.
 	 */
 	private async apply(ev: Event, host: string, held = false): Promise<void> {
 		const entry = this.entries.find((item) => item.name === ev.name);
 		if (entry && entry.host !== host) return;
 		const seen = Date.parse(ev.ts) || this.now();
 		if (entry && !owns(entry, ev)) {
-			// Another launch's event: never this registration's row, removal or state. It may be a newer launch reporting
+			// Another launch's event: never this registration's row or state. It may be a newer launch reporting
 			// before its own `agent add`, so it is held; a registration it does not belong to drops it (refresh).
 			const state: NameState = this.names[ev.name] ?? { state: "registered", lastSeen: seen, host, since: entry.since, generation: entry.generation };
 			if (!held && ev.type !== "hb") this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} from ${ev.generation ? `launch ${ev.generation}` : "a reporter with no generation"} is not registration ${entry.generation}; held until a registration it belongs to`);
@@ -508,69 +499,33 @@ export class AgentTailer {
 			this.names[ev.name] = state;
 			return;
 		}
+		// An unstamped registration owns every event with no generation, including the turns that ended before `agent add`
+		// (a re-add for the next round on a session that already went idle). `since`, the add's local time in rules.yaml,
+		// is the baseline: a turn end older than it is an earlier round's, whether it was held or not yet read. A stamped
+		// registration's events are this launch's by their generation, so its turns that ended before the add still count.
+		// "YYYY-MM-DD HH:MM[:SS]" with a T and no offset parses as local time.
+		if (entry?.since && !entry.stamped && (ev.type === "result" || ev.type === "idle") && Date.parse(ev.ts) < new Date(entry.since.replace(" ", "T")).getTime()) {
+			this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} at ${ev.ts} ended before registration ${entry.since}; not recorded`);
+			return;
+		}
 		const current: NameState = this.names[ev.name] ?? { state: "registered", lastSeen: seen, host };
 		const row = rowFor(ev);
 		// No repeats: a card saying what the last card for this name said (same question, same RESULT status and open items,
-		// same idle output) carries no new information. `ended` always goes out.
+		// same idle output) carries no new information. `ended` always goes out. A prompted turn clears that memory.
 		const said = row && ev.type !== "ended" ? `${ev.type}\n${row.state}\n${rowSays(ev)}` : undefined;
-		const retiredAt = current.retiredAt;
-		if (retiredAt && ev.session !== retiredAt.session) retiredAt.superseded = true;
 		const newRound = ev.type === "working" && ev.prompted !== false;
-		if (retiredAt && ev.session === retiredAt.session && ev.seq > retiredAt.seq && newRound) {
-			retiredAt.resumed = true;
-			if (ev.prompted === undefined) retiredAt.unmarked = true;
-		}
-		// A reporter older than `prompted` cannot tell a follow-up from an advisor's continuation. The continuation comes
-		// first, held until the next registration, and shows itself by repeating the `result done` that retired the name
-		// with nothing said in between. Only the first held result is checked, and an ask or idle before it marks a real
-		// round, so the follow-up's own result, saying the same, still counts.
-		const after = retiredAt !== undefined && ev.session === retiredAt.session && ev.seq > retiredAt.seq;
-		if (after && row && ev.type !== "result" && ev.type !== "ended") retiredAt.checked = true;
-		const firstHeldResult = held && after && ev.type === "result" && retiredAt.unmarked === true && retiredAt.checked !== true;
-		if (firstHeldResult) retiredAt.checked = true;
-		const repeatsRetired = firstHeldResult && said === retiredAt.said;
-		const finished = retiredAt !== undefined && ev.session === retiredAt.session
-			&& (retiredAt.superseded === true || ev.seq <= retiredAt.seq || retiredAt.resumed !== true || repeatsRetired);
-		// Its exit (`ended`) is expected; anything else it says is dropped, and said so.
-		if (finished && row && ev.type !== "ended") this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} belongs to the round that retired the name at seq ${retiredAt.seq}; not added`);
-		// `entries` is re-read only between batches: a `result done` earlier in this batch already retired the name.
+		if (newRound) delete current.lastCard;
+		// `entries` is re-read only between batches. An explicit removal (`agent rm`) sets `removed`.
 		const live = entry !== undefined && !current.removed ? entry : undefined;
-		let retire = false;
 		const repeat = said !== undefined && said === current.lastCard;
-		if (repeat && live && !finished) this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} repeats the last card; not added`);
-		const generation = live?.generation;
-		if (live && row && !finished && !repeat) {
+		if (repeat && live) this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} repeats the last card; not added`);
+		if (live && row && !repeat) {
 			// The row names the registration it was recorded for: that registration's plan (an agent-result then) fires on it.
 			await this.add(live, `agents:${ev.name}:${live.generation}:${ev.session}:${ev.seq}`, ev.type, row.state, row.note, ev.result?.path ?? "");
 			current.lastCard = said;
-			if (ev.type === "result" && row.state === "done") {
-				retire = true;
-				try {
-					await this.refresh(true);
-					const replacement = this.names[ev.name];
-					const currentEntry = this.entries.find((item) => item.name === ev.name);
-					if (generation && currentEntry?.generation === generation) {
-						await this.inbox(["agent", "rm", ev.name, "--generation", generation]);
-						current.removed = true;
-						current.retiredAt = { session: ev.session, seq: ev.seq, said };
-						delete current.pending;
-					}
-					this.clearError(`rm:${ev.name}`);
-					if (replacement && replacement.generation !== generation) {
-						// This session's round retired the old registration, not the replacement: its later events are that
-						// round settling (see retiredAt) and must not retire the replacement.
-						replacement.retiredAt = { session: ev.session, seq: ev.seq, said };
-						this.names[ev.name] = replacement;
-						return;
-					}
-				} catch (e) {
-					this.fail(`rm:${ev.name}`, e);
-				}
-			}
 		}
 		const dead = current.state === "dead";
-		const supersededRun = retiredAt?.superseded === true && ev.session === retiredAt.session;
-		if (!supersededRun && !(dead && seen <= current.lastSeen)) {
+		if (!(dead && seen <= current.lastSeen)) {
 			current.lastSeen = seen;
 			current.host = host;
 			current.pid = ev.pid;
@@ -582,12 +537,8 @@ export class AgentTailer {
 			} else if (dead || current.state === "registered") current.state = "working";
 		}
 		this.names[ev.name] = current;
-		if (retire && current.generation === generation) {
-			current.removed = true;
-			current.retiredAt = { session: ev.session, seq: ev.seq, said };
-			delete current.pending;
-		} else if (!live && ev.type !== "hb" && !finished) {
-			// Not registered (yet, or again after retiring): kept until the name is registered, then recorded in order.
+		if (!live && ev.type !== "hb") {
+			// Not registered (yet, or again after `agent rm`): kept until the name is registered, then recorded in order.
 			hold(current, host, ev, this.warn);
 		}
 	}
@@ -691,7 +642,7 @@ export class AgentTailer {
 			const state = this.names[entry.name];
 			const connected = this.connectedSince.get(entry.host);
 			if (!state || connected === undefined || now - connected <= this.deadMs || now - state.lastSeen <= this.deadMs) continue;
-			if (state.state === "ended" || state.state === "dead" || (state.state === "result" && state.status === "done")) continue;
+			if (state.state === "ended" || state.state === "dead") continue;
 			const never = state.state === "registered";
 			const note = never
 				? `reporter never started (WAYNE_AGENT_WATCH not set at launch, or wayne-agent-report.ts not linked on ${entry.host})`

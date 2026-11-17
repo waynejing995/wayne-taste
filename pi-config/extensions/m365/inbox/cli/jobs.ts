@@ -11,6 +11,7 @@
  */
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkDigest, receiptInstructions, type FailedChat } from "./digest.ts";
@@ -281,6 +282,47 @@ export function runProcess(argv: string[], timeoutS: number, what: string, cwd?:
 		else resolve(stdout.trim());
 	});
 	return promise;
+
+}
+
+const STAT_TIMEOUT_S = 60;
+const shellQuote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
+
+/** Nanosecond mtime and ctime of a RESULT file, read where the pane lives. A missing file is version "". Anything else fails loudly. */
+export async function resultVersion(a: { host?: string; result?: string }): Promise<{ version: string; said: string }> {
+	const file = a.result ?? "";
+	if (!file) return { version: "", said: "" };
+	const host = a.host || "local";
+	const local = host === "local";
+	const target = local ? file.replace(/^~(?=\/|$)/, os.homedir()) : file;
+	const remote = `f=${shellQuote(target)}; if [ -f "$f" ]; then stat -c '%.9Y %.9Z' "$f" || exit 1; printf '\\n'; tr -d '\\r' < "$f"; elif [ -e "$f" ]; then echo "not a file" >&2; exit 1; fi`;
+	const argv = local
+		? ["bash", "-c", remote]
+		: /^(?!-)[A-Za-z0-9._@:-]+$/.test(host)
+			? ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host, remote]
+			: null;
+	if (!argv) throw new InboxError(`bad ssh host: ${host}`);
+	const { promise, resolve, reject } = Promise.withResolvers<string>();
+	const child = spawn(argv[0], argv.slice(1), { stdio: ["ignore", "pipe", "pipe"] });
+	let stdout = "";
+	let stderr = "";
+	child.stdout.on("data", (d) => (stdout += d));
+	child.stderr.on("data", (d) => (stderr += d));
+	const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new InboxError(`stat on ${host} timed out after ${STAT_TIMEOUT_S}s`)); }, STAT_TIMEOUT_S * 1000);
+	child.on("error", (e) => { clearTimeout(timer); reject(new InboxError(`stat on ${host} failed to start: ${e.message}`)); });
+	child.on("close", (code) => {
+		clearTimeout(timer);
+		if (code !== 0) reject(new InboxError(`stat on ${host} exited ${code}: ${errorDetail(stderr, stdout)}`));
+		else resolve(stdout);
+	});
+	const out = await promise;
+	const nl = out.indexOf("\n");
+	const version = (nl < 0 ? out : out.slice(0, nl)).trim();
+	const body = nl < 0 ? "" : out.slice(nl + 1);
+	const block = body.split(/\n(?=\s*result\s*$)/i).at(-1) ?? "";
+	const status = [...block.matchAll(/^ *([-*] )?(\*\*status(\*\*:?|:\*\*)|`status`:|`status:`|status:) *([a-z_][a-z_]*).*$/gim)].at(-1)?.[4] ?? "";
+	const open = block.match(/^ *([-*] )?(\*\*open(\*\*:?|:\*\*)|`open`:|`open:`|open:) *(\S+).*$/im)?.[4] ?? "";
+	return { version, said: status ? `${status}:${open}` : "" };
 }
 /** The failed process's own last lines: MCP startup warnings go, then the last 500 characters stay. */
 function errorDetail(stderr: string, stdout: string): string {

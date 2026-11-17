@@ -6,6 +6,7 @@
 import * as fs from "node:fs";
 import { clean, finishRows, inboxFile, ledgerLockWaitMs, listRows, readTsv, stamp, withLedger, withLock, type Row } from "./ledger.ts";
 import { InboxError } from "./ledger.ts";
+import { guardDone } from "./thens.ts";
 
 export const FACT_KINDS = ["endpoint", "cred", "decision", "owed", "info"];
 export interface Fact {
@@ -171,6 +172,7 @@ export function migrateFacts(rows = listRows({ states: ["open", "claimed"] }).sp
 	return withLedger((liveRows, save) => {
 		const plan = planMigration(rows);
 		saveFacts(plan.facts);
+		guardDone(plan.closed, false, undefined);
 		finishRows(liveRows, plan.closed, "moved to facts.md", save);
 		return { written: plan.written, closed: plan.closed, refused: plan.refused };
 	});

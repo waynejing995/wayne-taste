@@ -103,9 +103,10 @@ if [ -n "$session" ]; then
       esac ;;
   esac
 fi
-rmtime=0 rstatus= ropen= ropen_text= rquestions=false
+rmtime=0 rversion= rstatus= ropen= ropen_text= rquestions=false
 if [ -n "$result" ] && [ -f "$result" ]; then
   rmtime=$(stat -c %Y "$result")
+  rversion=$(stat -c '%.9Y %.9Z' "$result")
   # The contract block is the last one that carries a status line: a later bare `Result` heading in the body
   # (prose, not the contract) must not replace it.
   block=$(tr -d '\r' < "$result" | awk '
@@ -129,5 +130,5 @@ if [ "$want" = 1 ]; then
   extra=",\"kind\":\"$kind\",\"tail\":\"$tail64\""
 fi
 b64() { printf %s "$1" | base64 -w0; }
-printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rstatus":"%s","ropen":"%s","ropen_text":"%s","rquestions":%s,"now":%s%s}\n' \
-  "$alive" "$(b64 "$agent")" "$(b64 "$state")" "$(b64 "$session")" "$smtime" "$waiting" "$text" "$rmtime" "$(b64 "$rstatus")" "$ropen" "$(b64 "$ropen_text")" "$rquestions" "$(date +%s)" "$extra"
+printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rversion":"%s","rstatus":"%s","ropen":"%s","ropen_text":"%s","rquestions":%s,"now":%s%s}\n' \
+  "$alive" "$(b64 "$agent")" "$(b64 "$state")" "$(b64 "$session")" "$smtime" "$waiting" "$text" "$rmtime" "$rversion" "$(b64 "$rstatus")" "$ropen" "$(b64 "$ropen_text")" "$rquestions" "$(date +%s)" "$extra"

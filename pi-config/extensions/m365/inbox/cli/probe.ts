@@ -14,8 +14,8 @@
  *   event=stalled state=quiet                  no output for --stall-min minutes; once per quiet spell
  *   event=blocked state=waiting                herdr or hc says the agent waits, or omp's last message is a pending ask
  *   event=idle    state=no-result              the turn ended and the RESULT has no status line; once per idle spell
- * A session whose RESULT says `done` is taken off the list once its event is recorded. Entries with `push: true`
- * report their own events (the m365 inbox extension tails them); they only get a digest line.
+ * A session whose RESULT says `done` stays on the list. It comes off when its last open then is closed, or by `agent rm`.
+ * Sessions that push their own events (the m365 inbox extension tails them) only get a digest line.
  *
  * Progress digest (every --digest-min minutes): one self-chat progress card, sent by a headless omp or pi through
  * `teams_send` (`agents`: one row per session, status, idle minutes, the tail behind a tap; sessions that need the
@@ -33,7 +33,8 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { gunzipSync } from "node:zlib";
 import type { AgentRow, AgentStatus } from "../../teams/card.ts";
-import { readAgents, removeAgents, type AgentEntry } from "./agents.ts";
+import { readAgents, type AgentEntry } from "./agents.ts";
+import { readThens } from "./thens.ts";
 import { agentArgv, runProcess } from "./jobs.ts";
 import { addEvent, inboxFile, InboxError, readTsv } from "./ledger.ts";
 
@@ -46,7 +47,8 @@ export interface Probe {
 	waiting: boolean;
 	text: string;
 	rmtime: number;
-	rstatus: string;
+	/** `stat -c '%.9Y %.9Z'` of the RESULT file. Empty when the file is missing. Older probe.sh builds omit it. */
+	rversion?: string;
 	ropen?: string;
 	ropen_text?: string;
 	rquestions?: boolean;
@@ -61,7 +63,8 @@ interface SessionState {
 	alive?: boolean;
 	text?: string;
 	result_said?: string;
-	digested?: string;
+	/** The RESULT file version the current round was armed against. A rewrite (a different version) can make one result event. */
+	round_baseline?: string;
 }
 type State = Record<string, SessionState | { at: number }>;
 type Event = { key: string; event: string; state: string; note: string };
@@ -264,21 +267,33 @@ async function check(a: AgentEntry, st: SessionState, stallS: number, want: bool
 	if (p.state === "working") active = Math.max(active, now);
 	st.last_active = Math.max(st.last_active ?? now, active);
 	let said: string | undefined;
-	if (p.rmtime && p.rstatus) {
-		// A RESULT rewritten with the same status and open items is not news; mtime alone never makes a card.
-		said = `${p.rstatus}:${p.ropen ?? ""}`;
-		if (said !== st.result_said) events.push({ key: `result:${p.rmtime}`, event: "result", state: p.rstatus, note: `RESULT status: ${p.rstatus}` });
-	} else if (!p.alive) {
+	const version = p.rversion ?? (p.rmtime ? String(p.rmtime) : "");
+	const armed = readThens()
+		.filter((t) => t.when === `agent-result:${a.name}` && t.generation === a.generation && !t.fired && !t.done && t.baseline)
+		.at(-1);
+	if (armed && armed.baseline!.version !== st.round_baseline) {
+		st.round_baseline = armed.baseline!.version;
+		delete st.result_said;
+	}
+	said = p.rstatus ? `${p.rstatus}:${p.ropen ?? ""}` : undefined;
+	const fresh = !!said && !!version && said !== st.result_said;
+	if (fresh && (!armed || version !== (st.round_baseline ?? ""))) {
+		const key = p.rversion ? `result:${p.rversion.replaceAll(".", "-").replaceAll(" ", "-")}` : `result:${p.rmtime}`;
+		events.push({ key, event: "result", state: p.rstatus!, note: `RESULT status: ${p.rstatus}` });
+		st.result_said = said;
+	}
+	if (!armed && version !== (st.round_baseline ?? "")) st.round_baseline = version;
+	if (!p.alive) {
 		const legacy = a.migratedGeneration === "legacy";
 		const known = legacy && [...readTsv(inboxFile("ledger.tsv")), ...readTsv(inboxFile("archive.tsv"))].some((row) => row.key === `agents:${a.name}:gone`);
 		if (!known) events.push({ key: "gone", event: "gone", state: "exited", note: "the pane ended with no RESULT" });
-	}
-	else if (p.state === "blocked") events.push({ key: `blocked:${st.last_active}`, event: "blocked", state: "waiting", note: `${a.mux}: waiting on an approval or a question` });
+	} else if (p.state === "blocked") events.push({ key: `blocked:${st.last_active}`, event: "blocked", state: "waiting", note: `${a.mux}: waiting on an approval or a question` });
 	const quiet = now - st.last_active;
 	const waiting = p.waiting || p.state === "idle" || p.state === "done";
-	if (p.alive && !p.rstatus && p.state !== "blocked" && !waiting && quiet >= stallS)
+	const answered = !!armed && !!p.rstatus && version !== armed.baseline!.version;
+	if (p.alive && !answered && p.state !== "blocked" && !waiting && quiet >= stallS)
 		events.push({ key: `stalled:${st.last_active}`, event: "stalled", state: "quiet", note: `no output for ${Math.floor(quiet / 60)} min` });
-	if (p.alive && !p.rstatus && p.state !== "blocked" && waiting)
+	if (p.alive && !answered && p.state !== "blocked" && waiting)
 		events.push({ key: `idle:${st.last_active}`, event: "idle", state: "no-result", note: "turn ended with no RESULT block" });
 	st.last_seen = now;
 	st.alive = p.alive;
@@ -310,7 +325,6 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 	const last = (state[DIGEST] as { at?: number } | undefined)?.at;
 	const digestDue = !o.noDigest && (last === undefined || now - last >= o.digestMin * 60);
 	const sessions = (name: string) => (state[name] ??= {}) as SessionState;
-	const finished: { name: string; generation?: string }[] = [];
 	const lines: [string, Entry][] = [];
 	const errors: string[] = [];
 	const fail = (name: string, e: unknown) => errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
@@ -349,7 +363,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 			continue;
 		}
 		if (!("events" in r) || !r.events || !r.p) continue;
-		if (digestDue && r.p.alive && !r.events.some((e) => e.event === "result" && e.state === "done")) {
+		if (digestDue && r.p.alive) {
 			try {
 				lines.push([a.name, sessionEntry(a, st, r.p)]);
 			} catch (e) {
@@ -357,11 +371,8 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 			}
 		}
 		try {
-			for (const e of r.events) {
-				log(`${a.name}: ${e.event} ${e.state} -> ${record(a, e)}`);
-				if (e.event === "result") st.result_said = r.said;
-				if (e.event === "result" && e.state === "done") finished.push({ name: a.name, generation: a.generation });
-			}
+			for (const e of r.events) log(`${a.name}: ${e.event} ${e.state} -> ${record(a, e)}`);
+
 		} catch (e) {
 			fail(a.name, e);
 		}
@@ -382,14 +393,10 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 		}
 	}
 	const keep = new Set([...agents.map((a) => a.name), DIGEST]);
-	const saved = Object.fromEntries(Object.entries(state).filter(([k]) => keep.has(k) && !finished.some((f) => f.name === k)));
+	const saved = Object.fromEntries(Object.entries(state).filter(([k]) => keep.has(k)));
 	fs.mkdirSync(path.dirname(stateFile), { recursive: true });
 	fs.writeFileSync(`${stateFile}.tmp`, JSON.stringify(saved, null, 1));
 	fs.renameSync(`${stateFile}.tmp`, stateFile);
-	if (finished.length) {
-		removeAgents(finished);
-		log(`done, no longer watched: ${finished.map((f) => f.name).join(" ")}`);
-	}
 	if (errors.length) throw new InboxError([...out, ...errors].join("\n"));
 	return out.join("\n");
 }
