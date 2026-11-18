@@ -449,32 +449,40 @@ await check("a pending done result replayed on registration is recorded and keep
 }));
 
 // Live bug (layerfs-impl rows 1365-1372): an old reporter (no generation, WAYNE_AGENT_RESULT fixed at launch) re-added
-// for the next round while idle. Its last round's result, held or still unread, must not become the new round's row.
+// for the next round while idle. A turn end held while the name was unwatched is the add's own: it is recorded on
+// registration even though it ended before the add's `since`.
 const oldReporter = (f, type, seq, ts, extra = {}) => ({ ...f.event(type, seq, extra), ts: new Date(ts).toISOString() });
 const done = { result: { status: "done", path: "/home/w/runs/x/RESULT.md" } };
 
-await check("an unstamped re-add does not record a turn that ended before the add, held or unread; the next turn records", () => withFixture(async (f) => {
+await check("a re-add records the turn end held while the name was unwatched, though it ended before the add", () => withFixture(async (f) => {
 	const t0 = Date.parse("2026-11-09T00:00:00.000Z");
-	const first = { ...f.watched("one", "local", f.since()), generation: "round-1", instance: "a", result: "~/runs/x/RESULT.md" };
-	await f.start([first]);
-	f.append(oldReporter(f, "result", 1, t0 + 1_000, { text: "round 1", ...done }));
+	await f.start([]);
+	f.append(oldReporter(f, "result", 1, t0 + 1_000, { text: "round 1 ended unwatched", ...done }));
 	await f.tailer.poke();
-	equal(f.rows.size, 1, "round 1 is recorded");
-	// Round 1 rows are read; later an old idle and a repeat of the result sit unread when round 2 is added.
-	f.append(oldReporter(f, "idle", 2, t0 + 2_000, { text: "chatting" }));
-	f.append(oldReporter(f, "result", 3, t0 + 3_000, { text: "round 1 again", ...done }));
+	equal(f.rows.size, 0, "held while unwatched");
 	f.advance(60_000);
-	f.writeRules([{ ...f.watched("one", "local", f.since()), generation: "round-2", instance: "b", result: "~/runs/x/RESULT.md" }]);
+	f.writeRules([{ ...f.watched("one", "local", f.since()), generation: "round-2" }]);
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()].filter((k) => k.includes("round-2")), [], "nothing from before the add");
-	match(f.warnings.join("\n"), /result seq 3 .* ended before registration/);
-	f.append(oldReporter(f, "working", 4, t0 + 61_000, { prompted: true }));
-	f.append(oldReporter(f, "result", 5, t0 + 62_000, { text: "round 2", ...done }));
-	await f.tailer.poke();
-	const round2 = [...f.rows.entries()].filter(([k]) => k.includes("round-2"));
-	equal(round2.length, 1, "the next turn's RESULT is a row");
-	match(arg(round2[0][1], "--note"), /round 2/);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:round-2:session:1"]);
+	match(arg([...f.rows.values()][0], "--note"), /round 1 ended unwatched/);
+	ok(!f.warnings.some((w) => /ended before registration/.test(w)), f.warnings.join("\n"));
 }));
+
+await check("a replayed held event with an old timestamp does not rewind lastSeen, so no dead row follows", () => withFixture(async (f) => {
+	const t0 = Date.parse("2026-11-09T00:00:00.000Z");
+	await f.start([]);
+	f.append(f.event("working", 1, { ts: new Date(t0 - 3600_000).toISOString() }));
+	await f.tailer.poke();
+	equal(f.saved().names.one.pending.length, 1);
+	f.advance(400_000);
+	f.writeRules([f.watched("one")]);
+	await f.tailer.poke();
+	equal(f.saved().names.one.lastSeen, t0 + 400_000, "the held event's old time does not move lastSeen back");
+	f.advance(100_000);
+	await f.tailer.tick();
+	equal(f.rows.size, 0, "no dead row: the session was silent for 100 s, not for an hour");
+}));
+
 
 await check("an unstamped add replays a held turn that ended after the add's time, and a stamped add replays its launch's earlier turn", () => withFixture(async (f) => {
 	const t0 = Date.parse("2026-11-09T00:00:00.000Z");

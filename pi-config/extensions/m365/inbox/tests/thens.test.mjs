@@ -15,7 +15,7 @@ const jiti = createJiti(import.meta.url, { interopDefault: true });
 const { inbox } = await jiti.import("../cli/main.ts");
 const { checkThens, readThens } = await jiti.import("../cli/thens.ts");
 const { sweep } = await jiti.import("../cli/sweep.ts");
-const { readAgents, removeAgents, writeAgents } = await jiti.import("../cli/agents.ts");
+const { readAgents, writeAgents } = await jiti.import("../cli/agents.ts");
 const { readTsv } = await jiti.import("../cli/ledger.ts");
 const { parseStamp } = await jiti.import("../cli/jobs.ts");
 const { AgentTailer } = await jiti.import("../agents.ts");
@@ -158,25 +158,6 @@ await check("agent rm rejects a missing name without removing others", async () 
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);
 	await rejects(() => inbox(["agent", "rm", "fixer", "missing"]), /not watched: missing/);
 	ok((await inbox(["agent", "ls"])).startsWith("fixer\t"));
-});
-
-await check("completion cleanup removes only its generation", async () => {
-	const id = await row();
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);
-	const old = readAgents()[0];
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "second"]);
-	removeAgents([{ name: old.name, generation: old.generation }]);
-	const current = readAgents();
-	strictEqual(current.length, 1);
-	ok(current[0].generation !== old.generation);
-});
-
-await check("completion cleanup without a generation does not remove a re-registration", async () => {
-	const id = await row();
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);
-	const current = readAgents();
-	removeAgents([{ name: "fixer" }]);
-	deepStrictEqual(readAgents(), current);
 });
 
 await check("a legacy registration is migrated during add and rm", async () => {
@@ -348,7 +329,7 @@ await check("sweep reports an overdue then, a dead generation, a dead watch and 
 	ok(applied.includes("sweep"), applied);
 	strictEqual(await sweep(true, plus(25 * 60)), `seen sweep:then-overdue:${id}.1:2026-11-12`);
 	await inbox(["then-done", id, "1"]);
-	strictEqual(readAgents().length, 0, "the last open then of the generation removes the watch");
+	strictEqual(readAgents().length, 1, "closing the then leaves the watch");
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "check again"]);
 	const [{ generation: next }] = readAgents();
 	writeAgents([]);
@@ -364,15 +345,15 @@ await check("sweep reports an overdue then, a dead generation, a dead watch and 
 	ok(both.includes("would sweep:held:fixer:s9"), both);
 });
 
-await check("5. then-done of the last open then of a generation removes the watch; with another open then it stays", async () => {
+await check("closing the last open then of a watch leaves the watch in rules.yaml", async () => {
 	const id = await row();
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "round 1 plan"]);
 	await inbox(["then", id, "--when", "agent-result:fixer", "--", "round 2 plan"]);
 	await inbox(["then-done", id, "1"]);
-	strictEqual(readAgents().length, 1, "another open then of the generation keeps the watch");
-	await inbox(["then-done", id, "2"]);
-	strictEqual(readAgents().length, 0, "the last one removes it");
-	await rejects(inbox(["then", id, "--when", "agent-result:fixer", "--", "x"]), /not watched: fixer/);
+	strictEqual(readAgents().length, 1, "another open then of the watch keeps it");
+	strictEqual(await inbox(["then-done", id, "2"]), `then-done ${id}.2 (cancelled before it fired); watch fixer stays`);
+	strictEqual(readAgents().length, 1, "the last open then does not remove the watch");
+	strictEqual(readAgents()[0].name, "fixer");
 });
 
 await check("concurrent agent add and then-done in two processes: neither times out, state stays consistent", async () => {
@@ -397,7 +378,8 @@ await check("concurrent agent add and then-done in two processes: neither times 
 	}
 	const open = readThens().filter((t) => !t.done).map((t) => t.when);
 	const watched = readAgents().map((a) => a.name).sort();
-	deepStrictEqual(watched, [...new Set(open.map((w) => w.slice("agent-result:".length)))].sort(), "every watch has an open then and every open then a watch");
+	ok(open.every((w) => watched.includes(w.slice("agent-result:".length))), "every open then has a watch");
+	ok(watched.includes("fixer"), "closing the then leaves fixer watched");
 });
 
 console.log(failed === 0 ? "all green" : `${failed} failed`);

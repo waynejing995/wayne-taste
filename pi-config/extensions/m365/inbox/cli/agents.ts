@@ -76,20 +76,6 @@ export async function addAgent(a: { name: string; mux: string; pane: string; row
 	});
 }
 
-/** Drop the named registrations. The caller already holds the rules lock. */
-export function removeAgentsUnlocked(entries: { name: string; generation?: string }[]): string {
-	const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
-	const matched = entries.filter((e) => e.generation && agents.some((a) => a.name === e.name && a.generation === e.generation));
-	for (const e of entries) if (!matched.includes(e)) console.warn(`agent cleanup skipped ${e.name}: missing or changed generation`);
-	const removed = matched.map((e) => e.name);
-	writeAgents(agents.filter((a) => !matched.some((e) => e.name === a.name && e.generation === a.generation)));
-	return `stopped ${removed.join(" ")}`;
-}
-
-export function removeAgents(entries: { name: string; generation?: string }[]): string {
-	return withRulesLock(() => removeAgentsUnlocked(entries));
-}
-
 export function removeAgentsByName(names: string[], generation?: string): string {
 	withRulesLock(() => {
 		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);

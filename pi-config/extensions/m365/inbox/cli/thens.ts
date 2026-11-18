@@ -12,16 +12,15 @@
  * When the trigger happens, one `do` row (tag `then`) starts a turn: "Trigger X happened; you owe: <action>". A fired
  * then left open is reminded at 10 minutes, 1 hour, 4 hours, then every 24 hours, until `inbox then-done`.
  * `inbox done <row-id>` refuses while a fired then of that row is open (`--force --note <why>` closes them). An unfired then stays armed
- * after its row is done: the obligation is the trigger's, not the row's. Closing the last open then of a registration's
- * generation removes that registration.
+ * after its row is done: the obligation is the trigger's, not the row's. A watch is never removed by closing its thens: only `inbox agent rm` ends it.
  *
  * State: thens.json in the inbox directory, rewritten whole (tmp + rename) under thens.json.lock. The ledger rows
  * themselves are unchanged, so ledger.tsv keeps its format.
  */
 import * as fs from "node:fs";
-import { clean, InboxError, inboxFile, readTsv, recordDirect, stamp, withLock, withRulesLock, type Row } from "./ledger.ts";
+import { clean, InboxError, inboxFile, readTsv, recordDirect, stamp, withLock, type Row } from "./ledger.ts";
 import { parseStamp, runProcess } from "./jobs.ts";
-import { readAgents, removeAgentsUnlocked } from "./agents.ts";
+import { readAgents } from "./agents.ts";
 
 export interface Then {
 	row: string;
@@ -131,26 +130,23 @@ export function addThen(row: string, when: string, action: string, agent?: Agent
 }
 
 /**
- * Closing the last open then of a registration's generation removes that registration. Locks are taken rules → thens,
- * the same order as `agent add`, so a concurrent add and then-done never wait on each other.
+ * Close one then. A watch is not touched: `then-done` of the last open then of a watched name ends with `; watch <name> stays`,
+ * so the caller sees the registration is still there. The watch is read before the thens lock: `readAgents` migrates a legacy
+ * list under the rules lock, and `agent add` already holds rules → thens, so taking thens first would deadlock the two.
  */
 export function thenDone(row: string, n: string, note = ""): string {
-	return withRulesLock(() => withThens((thens, save) => {
+	const watched = new Set(readAgents().map((a) => a.name));
+	return withThens((thens, save) => {
 		const t = thens.find((x) => x.row === row && String(x.n) === n);
 		if (!t) throw new InboxError(`no then ${row}.${n}`);
 		if (t.done) throw new InboxError(`then ${row}.${n} is already done (${t.done})`);
+		const name = t.when.startsWith("agent-result:") ? t.when.slice("agent-result:".length) : "";
 		t.done = stamp();
 		if (note) t.note = clean(note);
-		const name = t.when.startsWith("agent-result:") ? t.when.slice("agent-result:".length) : "";
-		const last = !!name && !!t.generation && !thens.some((x) => x.when === t.when && x.generation === t.generation && !x.done);
-		// Only a registration that still exists: one already replaced or removed (`agent rm`, a re-add) is nothing to undo.
-		const registered = last && readAgents().some((a) => a.name === name && a.generation === t.generation);
-		// Registration first: if thens.json then fails to save, the then stays open and a retry closes it; a removed
-		// registration with an open then is what the sweep reports as `then-dead`, never a silent loss.
-		if (registered) removeAgentsUnlocked([{ name, generation: t.generation }]);
 		save();
-		return `then-done ${row}.${n}${t.fired ? "" : " (cancelled before it fired)"}`;
-	}));
+		const last = name !== "" && watched.has(name) && !thens.some((x) => x.when === t.when && !x.done);
+		return `then-done ${row}.${n}${t.fired ? "" : " (cancelled before it fired)"}${last ? `; watch ${name} stays` : ""}`;
+	});
 }
 
 /** Called by `done`: refuse while a fired then of these rows is open; `force` closes them with the note instead. */

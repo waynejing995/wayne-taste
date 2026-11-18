@@ -14,7 +14,7 @@
  *   event=stalled state=quiet                  no output for --stall-min minutes; once per quiet spell
  *   event=blocked state=waiting                herdr or hc says the agent waits, or omp's last message is a pending ask
  *   event=idle    state=no-result              the turn ended and the RESULT has no status line; once per idle spell
- * A session whose RESULT says `done` stays on the list. It comes off when its last open then is closed, or by `agent rm`.
+ * A session whose RESULT says `done` stays on the list. It comes off only by `agent rm`.
  * Sessions that push their own events (the m365 inbox extension tails them) only get a digest line.
  *
  * Progress digest (every --digest-min minutes): one self-chat progress card, sent by a headless omp or pi through

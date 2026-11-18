@@ -52,7 +52,7 @@ interface NameState {
 	status?: string;
 	/** Events that arrived before the name was registered; replayed on registration. */
 	pending?: { host: string; event: Event }[];
-	/** The name was taken off the list (`agent rm`, or the last open then of its generation closed). Later events wait until it is registered again. */
+	/** The name was taken off the list (`agent rm`). Later events wait until it is registered again. */
 	removed?: boolean;
 	/** What the last card added for this name said (type, state, and what it says). An identical next card is skipped until a prompt starts a new round. */
 	lastCard?: string;
@@ -340,8 +340,7 @@ export class AgentTailer {
 			if (sameHost.length < (old?.pending?.length ?? 0)) this.warn(`${entry.name}: dropped events from another host that arrived before registration`);
 			const owned = sameHost.filter((item) => owns(entry, item.event));
 			if (owned.length < sameHost.length) this.warn(`${entry.name}: dropped ${sameHost.length - owned.length} held events of another launch than registration ${entry.generation}`);
-			// Held events replay on registration, so a session that finished before `agent add` still reports. For an
-			// unstamped registration, apply drops the turn ends from before the add.
+			// Held events replay on registration, so a session that finished before `agent add` still reports.
 			this.names[entry.name] = {
 				state: "registered", lastSeen: this.now(), host: entry.host, since: entry.since, generation: entry.generation,
 				...(entry.instance ? { instance: entry.instance } : {}),
@@ -480,9 +479,9 @@ export class AgentTailer {
 	 * One event: its row if it makes one, then the name's state. Throws, changing nothing, when the row is not recorded.
 	 * A name registered on another host is that host's business: this stream's events for it are ignored.
 	 * `held`: the event arrived while the name was not registered and is replayed now that it is.
-	 * A `result done` does not remove the watch. The registration stays until its last open then is closed, or until
-	 * `agent rm`. A `working` event whose turn was prompted (`prompted` absent counts: an older reporter) starts a new
-	 * round, so the next card is recorded even when it says what the last one said.
+	 * A `result done` does not remove the watch. The registration stays until `agent rm`. A `working` event whose turn was
+	 * prompted (`prompted` absent counts: an older reporter) starts a new round, so the next card is recorded even when it
+	 * says what the last one said.
 	 */
 	private async apply(ev: Event, host: string, held = false): Promise<void> {
 		const entry = this.entries.find((item) => item.name === ev.name);
@@ -497,15 +496,6 @@ export class AgentTailer {
 			// fill the queue and push out a newer launch's early events.
 			if (ev.type !== "hb") hold(state, host, ev, this.warn);
 			this.names[ev.name] = state;
-			return;
-		}
-		// An unstamped registration owns every event with no generation, including the turns that ended before `agent add`
-		// (a re-add for the next round on a session that already went idle). `since`, the add's local time in rules.yaml,
-		// is the baseline: a turn end older than it is an earlier round's, whether it was held or not yet read. A stamped
-		// registration's events are this launch's by their generation, so its turns that ended before the add still count.
-		// "YYYY-MM-DD HH:MM[:SS]" with a T and no offset parses as local time.
-		if (entry?.since && !entry.stamped && (ev.type === "result" || ev.type === "idle") && Date.parse(ev.ts) < new Date(entry.since.replace(" ", "T")).getTime()) {
-			this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} at ${ev.ts} ended before registration ${entry.since}; not recorded`);
 			return;
 		}
 		const current: NameState = this.names[ev.name] ?? { state: "registered", lastSeen: seen, host };
@@ -525,8 +515,10 @@ export class AgentTailer {
 			current.lastCard = said;
 		}
 		const dead = current.state === "dead";
+		// An event only ever moves liveness forward: a replayed held event carries the time it happened, and rewinding
+		// `lastSeen` to it would let `checkDead` fire on a session that has been heard from since.
 		if (!(dead && seen <= current.lastSeen)) {
-			current.lastSeen = seen;
+			current.lastSeen = Math.max(current.lastSeen, seen);
 			current.host = host;
 			current.pid = ev.pid;
 			current.session = ev.session;
