@@ -10,7 +10,8 @@ import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import YAML from "yaml";
-import { readAgents } from "./cli/agents.ts";
+import { legacyReported, readAgents } from "./cli/agents.ts";
+import { resultOf } from "./cli/probe.ts";
 
 
 export interface Deps {
@@ -24,6 +25,8 @@ export interface Deps {
 	backoffMs?: number;
 	onChange?: () => void;
 	warn?: (msg: string) => void;
+	/** The newest RESULT of a watch. A failure throws, so the event line is retried like a failed `inbox add`. */
+	result?: (entry: Entry) => Promise<{ version: string; status: string; open: string; mtime: number }>;
 }
 
 /** `stamped`: added with `--generation`, the id its launch's reporter stamps on every event (WAYNE_AGENT_GENERATION). */
@@ -35,7 +38,7 @@ interface Event {
 	/** On `working`: false when no prompt started the turn (an extension's message did). Absent from older reporters. */
 	prompted?: boolean;
 	ask?: { kind: string; question: string; options?: string[] };
-	result?: { path?: string; status: string; open?: string };
+	result?: { path?: string; status: string; open?: string; version?: string };
 }
 interface NameState {
 	state: string;
@@ -54,8 +57,6 @@ interface NameState {
 	pending?: { host: string; event: Event }[];
 	/** The name was taken off the list (`agent rm`). Later events wait until it is registered again. */
 	removed?: boolean;
-	/** What the last card added for this name said (type, state, and what it says). An identical next card is skipped until a prompt starts a new round. */
-	lastCard?: string;
 }
 interface Cursor { offset: number; inode?: number }
 interface Stream {
@@ -106,12 +107,6 @@ function rowFor(ev: Event): { state: string; note: string } | undefined {
 	}
 }
 
-/** What a card says, minus incidental wording: the question and options, or the RESULT status and open items, or the output. */
-function rowSays(ev: Event): string {
-	if (ev.type === "ask") return `${ev.ask?.question ?? ev.text ?? ""}\n${(ev.ask?.options ?? []).join("\n")}`;
-	if (ev.type === "result") return ev.result?.open ?? "";
-	return ev.text ?? "";
-}
 
 /**
  * Whose event is it? A registration added with `--generation` owns only the events its launch stamped with that id;
@@ -479,9 +474,7 @@ export class AgentTailer {
 	 * One event: its row if it makes one, then the name's state. Throws, changing nothing, when the row is not recorded.
 	 * A name registered on another host is that host's business: this stream's events for it are ignored.
 	 * `held`: the event arrived while the name was not registered and is replayed now that it is.
-	 * A `result done` does not remove the watch. The registration stays until `agent rm`. A `working` event whose turn was
-	 * prompted (`prompted` absent counts: an older reporter) starts a new round, so the next card is recorded even when it
-	 * says what the last one said.
+	 * A `result done` does not remove the watch. The registration stays until `agent rm`.
 	 */
 	private async apply(ev: Event, host: string, held = false): Promise<void> {
 		const entry = this.entries.find((item) => item.name === ev.name);
@@ -500,19 +493,21 @@ export class AgentTailer {
 		}
 		const current: NameState = this.names[ev.name] ?? { state: "registered", lastSeen: seen, host };
 		const row = rowFor(ev);
-		// No repeats: a card saying what the last card for this name said (same question, same RESULT status and open items,
-		// same idle output) carries no new information. `ended` always goes out. A prompted turn clears that memory.
-		const said = row && ev.type !== "ended" ? `${ev.type}\n${row.state}\n${rowSays(ev)}` : undefined;
-		const newRound = ev.type === "working" && ev.prompted !== false;
-		if (newRound) delete current.lastCard;
 		// `entries` is re-read only between batches. An explicit removal (`agent rm`) sets `removed`.
 		const live = entry !== undefined && !current.removed ? entry : undefined;
-		const repeat = said !== undefined && said === current.lastCard;
-		if (repeat && live) this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} repeats the last card; not added`);
-		if (live && row && !repeat) {
-			// The row names the registration it was recorded for: that registration's plan (an agent-result then) fires on it.
+		if (live && (ev.type === "result" || ev.type === "idle")) {
+			// The event's own version only names the RESULT; whether it is new is the ledger key's answer (`seen`).
+			const found = ev.result?.version ? { version: ev.result.version, status: ev.result.status, open: ev.result.open ?? "", mtime: 0 } : await (this.deps.result ?? resultOf)(live);
+			const text = (ev.text ?? "").length <= 1500 ? (ev.text ?? "") : `\u2026${(ev.text ?? "").slice(-1499)}`;
+			let made = false;
+			if (found.status && found.version && !legacyReported(live.name, found.mtime)) {
+				const open = found.open ? ` Open: ${found.open}.` : "";
+				const out = await this.add(live, `agents:${ev.name}:result:${found.version}`, "result", found.status, `RESULT status: ${found.status}.${open} Last output: ${text}`, ev.result?.path ?? "");
+				made = out.startsWith("do ") || out.startsWith("notify ");
+			}
+			if (!made) await this.add(live, `agents:${ev.name}:${live.generation}:${ev.session}:${ev.seq}`, "idle", "no-result", `turn ended with no new RESULT. Last output: ${text}`, "");
+		} else if (live && row) {
 			await this.add(live, `agents:${ev.name}:${live.generation}:${ev.session}:${ev.seq}`, ev.type, row.state, row.note, ev.result?.path ?? "");
-			current.lastCard = said;
 		}
 		const dead = current.state === "dead";
 		// An event only ever moves liveness forward: a replayed held event carries the time it happened, and rewinding

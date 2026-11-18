@@ -9,11 +9,11 @@
  *     next prompt is idle, never stalled; idle with no RESULT means it ended its turn without writing one.
  *
  * Events (source `agents`, place = the session name):
- *   event=result  state=done|partial|blocked   once per RESULT status + open items
+ *   event=result  state=<status>               one row per RESULT version (sha256 of the newest RESULT*.md)
  *   event=gone    state=exited                 the pane or agent ended with no RESULT
  *   event=stalled state=quiet                  no output for --stall-min minutes; once per quiet spell
  *   event=blocked state=waiting                herdr or hc says the agent waits, or omp's last message is a pending ask
- *   event=idle    state=no-result              the turn ended and the RESULT has no status line; once per idle spell
+ *   event=idle    state=no-result              a turn ended and made no new result row
  * A session whose RESULT says `done` stays on the list. It comes off only by `agent rm`.
  * Sessions that push their own events (the m365 inbox extension tails them) only get a digest line.
  *
@@ -33,10 +33,10 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { gunzipSync } from "node:zlib";
 import type { AgentRow, AgentStatus } from "../../teams/card.ts";
-import { readAgents, type AgentEntry } from "./agents.ts";
-import { readThens } from "./thens.ts";
+import { legacyReported, readAgents, recordAgentRow, type AgentEntry } from "./agents.ts";
 import { agentArgv, runProcess } from "./jobs.ts";
-import { addEvent, inboxFile, InboxError, readTsv } from "./ledger.ts";
+import { inboxFile, InboxError, readTsv } from "./ledger.ts";
+import { checkThens } from "./thens.ts";
 
 export interface Probe {
 	alive: boolean;
@@ -47,11 +47,16 @@ export interface Probe {
 	waiting: boolean;
 	text: string;
 	rmtime: number;
-	/** `stat -c '%.9Y %.9Z'` of the RESULT file. Empty when the file is missing. Older probe.sh builds omit it. */
-	rversion?: string;
+	/** Path of the newest RESULT*.md in the run directory. Empty when none exists. */
+	rfile?: string;
+	/** First 16 hex of that file's sha256. Empty when none exists. */
+	rhash?: string;
+	rstatus?: string;
 	ropen?: string;
 	ropen_text?: string;
 	rquestions?: boolean;
+	/** gzip+base64 of the newest assistant line with a text item. Empty when the session has none. */
+	last?: string;
 	now: number;
 	kind?: "jsonl" | "pane";
 	tail?: string;
@@ -62,12 +67,11 @@ interface SessionState {
 	last_seen?: number;
 	alive?: boolean;
 	text?: string;
-	result_said?: string;
-	/** The RESULT file version the current round was armed against. A rewrite (a different version) can make one result event. */
-	round_baseline?: string;
+	/** The `last_active` of the turn end whose RESULT made a row: that turn end is not also a no-result row. */
+	result_turn?: number;
 }
 type State = Record<string, SessionState | { at: number }>;
-type Event = { key: string; event: string; state: string; note: string };
+type Event = { key: string; event: string; state: string; note: string; link?: string };
 
 export interface ProbeOptions {
 	stallMin: number;
@@ -113,11 +117,26 @@ export async function runProbe(a: AgentEntry, want = false): Promise<Probe> {
 	const line = out.split("\n").at(-1) ?? "";
 	if (!line.startsWith("{")) throw new InboxError(`probe on ${host} printed no JSON: ${out.slice(0, 200)}`);
 	const probe = JSON.parse(line) as Probe;
-	for (const key of ["agent", "state", "session", "rstatus", "ropen_text"] as const) {
+	for (const key of ["agent", "state", "session", "rstatus", "ropen_text", "rfile"] as const) {
 		const value = probe[key];
 		if (typeof value === "string") probe[key] = Buffer.from(value, "base64").toString("utf8");
 	}
 	return probe;
+}
+
+export interface ResultOf {
+	version: string;
+	status: string;
+	open: string;
+	file: string;
+	mtime: number;
+}
+
+/** The newest RESULT*.md of a watch, read where the pane lives. All empty/0 when `result` is unset or no file exists. mux `none` touches no pane. */
+export async function resultOf(a: { host?: string; result?: string }): Promise<ResultOf> {
+	if (!a.result) return { version: "", status: "", open: "", file: "", mtime: 0 };
+	const p = await runProbe({ name: "", mux: "none", pane: "", host: a.host || "local", result: a.result }, false);
+	return { version: p.rhash ?? "", status: p.rstatus ?? "", open: p.ropen_text ?? "", file: p.rfile ?? "", mtime: p.rmtime || 0 };
 }
 
 /** Whitespace collapsed to single spaces, the newest CLIP characters, with a leading … when cut. */
@@ -253,8 +272,18 @@ async function postDigest(digest: string, rows: AgentRow[], agent: string | unde
 	return verifySend(await runSend(DIGEST_PROMPT + digest, agent), { message: digest, target: "self" }, SELF_RECEIPT);
 }
 
+const LAST_CAP = 1500;
+
+/** The session's last assistant text: the newest LAST_CAP characters, with a leading … when cut. None is `no text`. */
+function lastOutput(p: Probe): string {
+	if (!p.last) return "no text";
+	const raw = gunzipSync(Buffer.from(p.last, "base64")).toString("utf8");
+	const text = latestLine(raw).replace(/ \[todo .*$/, "");
+	return text.length <= LAST_CAP ? text : `\u2026${text.slice(-(LAST_CAP - 1))}`;
+}
+
 /** The events this run owes one session, and its probe. Updates `st` in place. */
-async function check(a: AgentEntry, st: SessionState, stallS: number, want: boolean, probe: NonNullable<ProbeOptions["probe"]>): Promise<{ events: Event[]; p: Probe; said?: string }> {
+async function check(a: AgentEntry, st: SessionState, stallS: number, want: boolean, probe: NonNullable<ProbeOptions["probe"]>): Promise<{ events: Event[]; p: Probe }> {
 	const p = await probe(a, want);
 	const now = p.now;
 	const events: Event[] = [];
@@ -266,48 +295,41 @@ async function check(a: AgentEntry, st: SessionState, stallS: number, want: bool
 	}
 	if (p.state === "working") active = Math.max(active, now);
 	st.last_active = Math.max(st.last_active ?? now, active);
-	let said: string | undefined;
-	const version = p.rversion ?? (p.rmtime ? String(p.rmtime) : "");
-	const armed = readThens()
-		.filter((t) => t.when === `agent-result:${a.name}` && t.generation === a.generation && !t.fired && !t.done && t.baseline)
-		.at(-1);
-	if (armed && armed.baseline!.version !== st.round_baseline) {
-		st.round_baseline = armed.baseline!.version;
-		delete st.result_said;
+	const version = p.rhash ?? "";
+	const settled = !p.alive || p.waiting || ["idle", "done", "blocked"].includes(p.state) || (!p.session && !p.state);
+	if (p.rstatus && version && settled && !legacyReported(a.name, p.rmtime)) {
+		const file = p.rfile && p.rfile !== (a.result ?? "") ? ` File: ${p.rfile}.` : "";
+		const open = p.ropen_text ? ` Open: ${p.ropen_text}.` : "";
+		events.push({ key: `result:${version}`, event: "result", state: p.rstatus, note: `RESULT status: ${p.rstatus}.${open}${file}`, link: p.rfile || a.result || "" });
 	}
-	said = p.rstatus ? `${p.rstatus}:${p.ropen ?? ""}` : undefined;
-	const fresh = !!said && !!version && said !== st.result_said;
-	if (fresh && (!armed || version !== (st.round_baseline ?? ""))) {
-		const key = p.rversion ? `result:${p.rversion.replaceAll(".", "-").replaceAll(" ", "-")}` : `result:${p.rmtime}`;
-		events.push({ key, event: "result", state: p.rstatus!, note: `RESULT status: ${p.rstatus}` });
-		st.result_said = said;
-	}
-	if (!armed && version !== (st.round_baseline ?? "")) st.round_baseline = version;
 	if (!p.alive) {
 		const legacy = a.migratedGeneration === "legacy";
-		const known = legacy && [...readTsv(inboxFile("ledger.tsv")), ...readTsv(inboxFile("archive.tsv"))].some((row) => row.key === `agents:${a.name}:gone`);
-		if (!known) events.push({ key: "gone", event: "gone", state: "exited", note: "the pane ended with no RESULT" });
-	} else if (p.state === "blocked") events.push({ key: `blocked:${st.last_active}`, event: "blocked", state: "waiting", note: `${a.mux}: waiting on an approval or a question` });
+		const knownGone = legacy && [...readTsv(inboxFile("ledger.tsv")), ...readTsv(inboxFile("archive.tsv"))].some((row) => row.key === `agents:${a.name}:gone`);
+		if (!knownGone) events.push({ key: "gone", event: "gone", state: "exited", note: "the pane ended with no RESULT" });
+	} else if (p.state === "blocked") {
+		events.push({ key: `blocked:${st.last_active}`, event: "blocked", state: "waiting", note: `${a.mux}: waiting on an approval or a question. Last output: ${lastOutput(p)}` });
+	}
 	const quiet = now - st.last_active;
 	const waiting = p.waiting || p.state === "idle" || p.state === "done";
-	const answered = !!armed && !!p.rstatus && version !== armed.baseline!.version;
-	if (p.alive && !answered && p.state !== "blocked" && !waiting && quiet >= stallS)
+	if (p.alive && p.state !== "blocked" && !waiting && quiet >= stallS)
 		events.push({ key: `stalled:${st.last_active}`, event: "stalled", state: "quiet", note: `no output for ${Math.floor(quiet / 60)} min` });
-	if (p.alive && !answered && p.state !== "blocked" && waiting)
-		events.push({ key: `idle:${st.last_active}`, event: "idle", state: "no-result", note: "turn ended with no RESULT block" });
+	// A turn that ended without a new result row is read and given a verdict, so it is never silent. The caller drops
+	// this event when the pass made a result row; `result_turn` is the turn end that already has one.
+	if (p.alive && p.state !== "blocked" && waiting && st.result_turn !== st.last_active)
+		events.push({ key: `idle:${st.last_active}`, event: "idle", state: "no-result", note: `turn ended with no new RESULT. Last output: ${lastOutput(p)}` });
 	st.last_seen = now;
 	st.alive = p.alive;
-	return { events, p, said };
+	return { events, p };
 }
 
 function record(a: AgentEntry, e: Event): string {
-	return addEvent({
+	return recordAgentRow({
 		source: "agents",
 		place: a.name,
-		key: `agents:${a.name}:${a.generation}:${e.key}`,
+		key: e.event === "result" ? `agents:${a.name}:${e.key}` : `agents:${a.name}:${a.generation}:${e.key}`,
 		subject: `agent ${a.name}`,
-		note: a.goal ? `${e.note}. Goal: ${a.goal}` : e.note,
-		link: a.result ?? "",
+		note: a.goal ? `${e.note.replace(/\.$/, "")}. Goal: ${a.goal}` : e.note,
+		link: e.link || a.result || "",
 		fields: [`event=${e.event}`, `state=${e.state}`, `mux=${a.mux}`, `host=${a.host || "local"}`],
 	});
 }
@@ -371,8 +393,26 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 			}
 		}
 		try {
-			for (const e of r.events) log(`${a.name}: ${e.event} ${e.state} -> ${record(a, e)}`);
-
+			const made: string[] = [];
+			let recorded = false;
+			let resultNew = false;
+			const add = (e: Event) => {
+				const out = record(a, e);
+				if (/^(do|notify) /.test(out)) {
+					recorded = true;
+					if (e.event === "result") resultNew = true;
+				}
+				made.push(`${a.name}: ${e.event} ${e.state} -> ${out}`);
+			};
+			for (const e of r.events.filter((event) => event.event !== "idle")) add(e);
+			if (resultNew) st.result_turn = st.last_active;
+			else for (const e of r.events.filter((event) => event.event === "idle")) add(e);
+			for (const line of made) log(line);
+			if (recorded) {
+				// The probe child runs this build. A coordinator that has not restarted still matches a generation-prefixed
+				// key and would not fire on a version row, so the then is checked here, in this process.
+				for (const line of await checkThens()) log(line);
+			}
 		} catch (e) {
 			fail(a.name, e);
 		}

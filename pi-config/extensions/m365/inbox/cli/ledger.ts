@@ -204,6 +204,28 @@ export function finishRows(rows: Row[], ids: string[], note: string | undefined,
 	writeTsv(archive, [...readTsv(archive), ...finished]);
 	save(rows.filter((row) => !ids.includes(row.id)));
 }
+
+/**
+ * Archive the other live rows of one session. A claimed row stays. `keep` is the new row's id; `skip` are rows of a
+ * fired, open then, which stay until that then is closed. The archived note keeps what it said plus who replaced it.
+ */
+export function supersedeSession(place: string, keep: string, skip: string[]): string[] {
+	const prefix = `agents:${place}:`;
+	return withLedger((rows, save) => {
+		const gone = rows.filter((row) => row.source === "agents" && row.key.startsWith(prefix) && row.state === "open" && row.id !== keep && !skip.includes(row.id));
+		for (const row of gone) {
+			row.state = "done";
+			row.note = clean(`${row.note} [superseded by #${keep}]`);
+		}
+		if (gone.length) {
+			const archive = inboxFile("archive.tsv");
+			writeTsv(archive, [...readTsv(archive), ...gone]);
+			const ids = new Set(gone.map((row) => row.id));
+			save(rows.filter((row) => !ids.has(row.id)));
+		}
+		return gone.map((row) => row.id);
+	});
+}
 /** Adds one row unless its key is already live or archived. Returns `seen <id>` or the new id. */
 function insert(row: Omit<Row, "id">): { id: string; seen: boolean; tag: string } {
 	return withLedger((rows, save) => {

@@ -2,9 +2,9 @@
  * The watched agent sessions: the `agent_watch` list in rules.yaml.
  */
 import { randomUUID } from "node:crypto";
-import { clean, InboxError, stamp, withRulesLock } from "./ledger.ts";
-import { resultVersion } from "./jobs.ts";
-import { addThen } from "./thens.ts";
+import { addEvent, clean, InboxError, inboxFile, readTsv, stamp, supersedeSession, withRulesLock, type AddEvent } from "./ledger.ts";
+import { resultOf } from "./probe.ts";
+import { addThen, readThens } from "./thens.ts";
 import { AGENT_LIST, readList, writeList } from "./lists.ts";
 
 export const MUXES = ["hc", "herdr", "tern", "tmux"];
@@ -61,7 +61,8 @@ export async function addAgent(a: { name: string; mux: string; pane: string; row
 	entry.generation = a.generation ?? randomUUID();
 	if (a.generation) entry.stamped = true;
 	entry.instance = randomUUID();
-	const baseline = a.push === true ? undefined : await resultVersion({ host: a.host, result: a.result });
+	const version = (await resultOf({ host: a.host, result: a.result })).version;
+	const baseline = version ? { version } : undefined;
 	// Under the rules lock, so the plan is armed only for the registration that is written, and a racing add of the
 	// same name cannot cancel a plan it did not replace.
 	return withRulesLock(() => {
@@ -87,6 +88,39 @@ export function removeAgentsByName(names: string[], generation?: string): string
 	});
 	return `stopped ${names.join(" ")}`;
 }
+
+const VERSION_KEY = /^agents:[^:]+:result:[0-9a-f]{16}$/;
+
+/** A local minute stamp (`YYYY-MM-DD HH:MM`) is at least the minute of `mtime` (epoch seconds). */
+function minuteAtLeast(stampText: string, mtime: number): boolean {
+	const at = Date.parse(stampText.replace(" ", "T"));
+	return Number.isFinite(at) && at + 60_000 > mtime * 1000;
+}
+
+/**
+ * True when an older build already reported this RESULT version. Match the agent-result tag, never the note:
+ * `inbox done --note` rewrites notes. Old keys are `agents:<name>:<generation>:<session>:<seq>`,
+ * `agents:<name>:<generation>:result:<stat>` and `agents:<name>:result:<epoch>`; a version key is not one of them.
+ */
+export function legacyReported(name: string, mtime: number): boolean {
+	if (!mtime) return false;
+	const prefix = `agents:${name}:`;
+	const rows = [...readTsv(inboxFile("ledger.tsv")), ...readTsv(inboxFile("archive.tsv"))];
+	return rows.some((row) => row.source === "agents" && row.tag === "agent-result" && row.key.startsWith(prefix) && !VERSION_KEY.test(row.key) && minuteAtLeast(row.first_seen, mtime));
+}
+
+/**
+ * Record one agent event, then leave at most the new row live for that session. A known key changes nothing.
+ * The parent row of a fired, open then stays: its plan is still owed.
+ */
+export function recordAgentRow(ev: AddEvent): string {
+	const out = addEvent(ev);
+	const made = /^(do|notify) (\d+) /.exec(out);
+	if (!made) return out;
+	supersedeSession(ev.place, made[2]!, readThens().filter((t) => t.fired && !t.done).map((t) => t.row));
+	return out;
+}
+
 
 
 /** One tab-separated line per session: name, mux, host, pane, result, since, goal, push. */

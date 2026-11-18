@@ -5,12 +5,13 @@
  *
  * Triggers: `pr-merged:<owner/repo>#<n>` (the PR watch recorded the merge: a ledger or archive row keyed
  * `github:<repo>#<n>:merged`, so the repo's rules must record `event: merged`, `log` is enough),
- * `agent-result:<name>` (a RESULT row for that agent session added after the then; an `agent add` plan, which carries
- * its registration's generation, only by a row keyed `agents:<name>:<generation>:`), `gh-run:<owner/repo>:<run-id>`
+ * `agent-result:<name>` (a RESULT row for that agent session added after the then, other than the RESULT version the
+ * then was armed on; a stored generation is ignored), `gh-run:<owner/repo>:<run-id>`
  * (`gh run view` says completed), `at:<YYYY-MM-DD HH:MM>` (local time).
  *
  * When the trigger happens, one `do` row (tag `then`) starts a turn: "Trigger X happened; you owe: <action>". A fired
- * then left open is reminded at 10 minutes, 1 hour, 4 hours, then every 24 hours, until `inbox then-done`.
+ * then left open gets one reminder per check, due 10 minutes, 1 hour, 4 hours, then every 24 hours after its last card,
+ * until `inbox then-done`. `inbox done` refuses a then's live card, `--force` or not: close it with `inbox then-done`.
  * `inbox done <row-id>` refuses while a fired then of that row is open (`--force --note <why>` closes them). An unfired then stays armed
  * after its row is done: the obligation is the trigger's, not the row's. A watch is never removed by closing its thens: only `inbox agent rm` ends it.
  *
@@ -18,7 +19,7 @@
  * themselves are unchanged, so ledger.tsv keeps its format.
  */
 import * as fs from "node:fs";
-import { clean, InboxError, inboxFile, readTsv, recordDirect, stamp, withLock, type Row } from "./ledger.ts";
+import { clean, finishRows, InboxError, inboxFile, readTsv, recordDirect, stamp, withLedger, withLock, type Row } from "./ledger.ts";
 import { parseStamp, runProcess } from "./jobs.ts";
 import { readAgents } from "./agents.ts";
 
@@ -35,14 +36,16 @@ export interface Then {
 	why?: string;
 	/** How many reminders have been recorded. An old file may say `true` or a stamp instead of a count; both mean one. */
 	reminded?: number | string | boolean;
+	/** Stamp of the last reminder. Absent means the fire is the last card. */
+	remindedAt?: string;
 	done?: string;
 	note?: string;
 	/** Set by `agent add`: the registration whose plan this is. A re-registration cancels only that plan. */
 	generation?: string;
-	/** Set for a probe-watched name: the RESULT file's version and status at arm time. A push name has none. */
-	baseline?: { version: string; said: string };
+	/** Set for a watched name: the RESULT version at arm time. A push name has none. Old objects may also carry `said`. */
+	baseline?: { version: string; said?: string };
 }
-const REMIND_MIN = [10, 60, 240];
+const REMIND_MIN = [10, 50, 180];
 const TRIGGERS: [RegExp, string][] = [
 	[/^pr-merged:[\w.-]+\/[\w.-]+#\d+$/, "pr-merged:<owner/repo>#<n>"],
 	[/^gh-run:[\w.-]+\/[\w.-]+:\d+$/, "gh-run:<owner/repo>:<run-id>"],
@@ -144,13 +147,41 @@ export function thenDone(row: string, n: string, note = ""): string {
 		t.done = stamp();
 		if (note) t.note = clean(note);
 		save();
+		archiveThenCards(row, n, `[then-done]${note ? ` ${clean(note)}` : ""}`);
 		const last = name !== "" && watched.has(name) && !thens.some((x) => x.when === t.when && !x.done);
 		return `then-done ${row}.${n}${t.fired ? "" : " (cancelled before it fired)"}${last ? `; watch ${name} stays` : ""}`;
 	});
 }
 
-/** Called by `done`: refuse while a fired then of these rows is open; `force` closes them with the note instead. */
+/** Archive every live card of one then. The note replaces the card's, so a `--note` is kept with the close mark. */
+function archiveThenCards(row: string, n: string, note: string): void {
+	const prefix = `then:${row}.${n}:`;
+	withLedger((rows, save) => {
+		const ids = rows.filter((r) => r.key.startsWith(prefix)).map((r) => r.id);
+		if (ids.length) finishRows(rows, ids, note, save);
+	});
+}
+
+/** One live card per then: the previous unclaimed cards are archived naming the reminder that replaced them. */
+function supersedeThenCards(ids: string[], by: string): void {
+	if (!ids.length) return;
+	withLedger((rows, save) => {
+		const gone = rows.filter((row) => ids.includes(row.id) && row.state === "open");
+		for (const row of gone) row.note = clean(`${row.note} [superseded by #${by}]`);
+		if (gone.length) finishRows(rows, gone.map((row) => row.id), undefined, save);
+	});
+}
+
+/** Called by `done`: refuse a then's live card, and refuse while a fired then of these rows is open. */
 export function guardDone(ids: string[], force: boolean, note: string | undefined): void {
+	const live = readTsv(inboxFile("ledger.tsv"));
+	for (const id of ids) {
+		const row = live.find((r) => r.id === id);
+		const card = row && /^then:(\d+)\.(\d+):/.exec(row.key);
+		if (!card) continue;
+		const cardThen = readThens().find((t) => t.row === card[1] && String(t.n) === card[2] && !t.done);
+		if (cardThen) throw new InboxError(`#${id} is the card of then ${card[1]}.${card[2]}: close it with \`inbox then-done ${card[1]} ${card[2]}\``);
+	}
 	const open = readThens().filter((t) => ids.includes(t.row) && t.fired && !t.done);
 	if (!open.length) return;
 	const list = open.map((t) => `${label(t)} (fired ${t.fired}): ${t.action}`).join("; ");
@@ -176,9 +207,11 @@ async function happened(t: Then, rows: Row[], now: Date, gh: boolean): Promise<s
 	if (kind === "pr-merged") return rows.some((r) => r.key === `github:${arg}:merged`) ? "merged" : undefined;
 	if (kind === "at") return parseStamp(arg) <= now ? `it is ${stamp(now)}` : undefined;
 	if (kind === "agent-result") {
-		const prefix = t.generation ? `agents:${arg}:${t.generation}:` : `agents:${arg}:`;
-		// Only rows the tailer or probe recorded as a RESULT; `inbox set` / `done --note` rewrite notes, never tags.
-		const hit = rows.find((r) => Number(r.id) > t.after && r.source === "agents" && r.key.startsWith(prefix) && r.tag === "agent-result");
+		const prefix = `agents:${arg}:`;
+		const baseline = t.baseline?.version ? `${prefix}result:${t.baseline.version}` : "";
+		// Only rows recorded as a RESULT; `inbox set` / `done --note` rewrite notes, never tags. A stored generation is
+		// ignored: a version row has none, and an older row's generation is not the version.
+		const hit = rows.find((r) => Number(r.id) > t.after && r.source === "agents" && r.tag === "agent-result" && r.key.startsWith(prefix) && r.key !== baseline);
 		return hit ? `${/^RESULT status: [a-z_]+/.exec(hit.note)?.[0] ?? "RESULT"} (row #${hit.id})` : undefined;
 	}
 	if (kind === "gh-run" && gh) {
@@ -216,9 +249,10 @@ export async function checkThens(o: CheckOptions = {}): Promise<string[]> {
 	}
 	const remindDue = (t: Then) => {
 		if (!t.fired) return false;
-		const n = typeof t.reminded === "number" ? t.reminded : t.reminded ? 1 : 0;
-		const minutes = n < REMIND_MIN.length ? REMIND_MIN[n]! : REMIND_MIN[REMIND_MIN.length - 1]! + (n - REMIND_MIN.length + 1) * 24 * 60;
-		return now.getTime() >= parseStamp(t.fired).getTime() + minutes * 60_000;
+		const count = typeof t.reminded === "number" ? t.reminded : t.reminded ? 1 : 0;
+		const gap = count < REMIND_MIN.length ? REMIND_MIN[count]! : 1440;
+		const last = t.remindedAt ?? t.fired;
+		return now.getTime() >= parseStamp(last).getTime() + gap * 60_000;
 	};
 	// Nothing to write: do not even take the lock (the delivering session watches the directory, and the lock file is a change).
 	if (!fired.size && !pending.some(remindDue)) return lines;
@@ -235,10 +269,13 @@ export async function checkThens(o: CheckOptions = {}): Promise<string[]> {
 				lines.push(`fired ${label(t)}: ${out}`);
 				changed = true;
 			} else if (remindDue(t)) {
-				const n = (typeof t.reminded === "number" ? t.reminded : t.reminded ? 1 : 0) + 1;
-				const out = recordDirect("then", "do", `${label(t)}:remind:${n}`, `then #${label(t)} reminder ${n}: ${t.when}`, "then",
-					`Reminder ${n}: trigger ${t.when} happened at ${t.fired}; you still owe: ${t.action} [row #${t.row}; close with \`inbox then-done ${t.row} ${t.n}\`]`, "", "coordinator");
-				t.reminded = n;
+				const count = (typeof t.reminded === "number" ? t.reminded : t.reminded ? 1 : 0) + 1;
+				const previous = readTsv(inboxFile("ledger.tsv")).filter((r) => r.key.startsWith(`then:${label(t)}:`) && r.state === "open").map((r) => r.id);
+				const out = recordDirect("then", "do", `${label(t)}:remind:${count}`, `then #${label(t)} reminder ${count}: ${t.when}`, "then",
+					`Reminder ${count}: trigger ${t.when} happened at ${t.fired}; you still owe: ${t.action} [row #${t.row}; close with \`inbox then-done ${t.row} ${t.n}\`]`, "", "coordinator");
+				const made = /^(do|notify) (\d+) /.exec(out);
+				if (made) supersedeThenCards(previous, made[2]!);
+				Object.assign(t, { reminded: count, remindedAt: stamp(now) });
 				lines.push(`reminded ${label(t)}: ${out}`);
 				changed = true;
 			}

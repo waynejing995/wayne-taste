@@ -167,6 +167,17 @@ function makeFixture(dir) {
 			if (!fs.existsSync(ledgerFile)) return [];
 			return fs.readFileSync(ledgerFile, "utf8").split("\n").slice(1).filter(Boolean).map((l) => l.split("\t")[1]).filter((k) => k.startsWith(prefix));
 		},
+		/** Every key ever recorded with `prefix`, archived rows first: one live row per session archives the earlier ones. */
+		reportedKeys(prefix) {
+			const keys = (file) => (fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").slice(1).filter(Boolean).map((l) => l.split("\t")[1]) : []);
+			return [...keys(path.join(dir, "archive.tsv")), ...keys(ledgerFile)].filter((k) => k.startsWith(prefix));
+		},
+		/** The live rules tag a result row `agent-result`, which is what fires an agent-result then. */
+		tagResults() {
+			const rules = YAML.parse(fs.readFileSync(rulesFile, "utf8"));
+			rules.agents["*"].unshift({ when: { event: "result" }, action: "do", tag: "agent-result" });
+			fs.writeFileSync(rulesFile, YAML.stringify(rules));
+		},
 		watchedNames() {
 			return YAML.parse(fs.readFileSync(rulesFile, "utf8")).agent_watch.map((a) => a.name);
 		},
@@ -532,7 +543,8 @@ await check("a new generation emits gone after an archived legacy key", () =>
 		await f.run();
 		f.watch("alpha", dead);
 		await f.run();
-		deepStrictEqual(f.ledgerKeys("agents:alpha:"), ["agents:alpha:legacy-generation:gone", "agents:alpha:11111111-1111-4111-8111-111111111111:gone"]);
+		deepStrictEqual(f.reportedKeys("agents:alpha:"), ["agents:alpha:gone", "agents:alpha:legacy-generation:gone", "agents:alpha:11111111-1111-4111-8111-111111111111:gone"]);
+		deepStrictEqual(f.ledgerKeys("agents:alpha:"), ["agents:alpha:11111111-1111-4111-8111-111111111111:gone"], "one live row per session");
 	}),
 );
 
@@ -607,53 +619,57 @@ await check("a finished session stays in the digest", () =>
 	}),
 );
 
-await check("with no open then, a RESULT makes one card per file version and said", () =>
+await check("a RESULT version makes one row, and the same version again makes none", () =>
 	withFixture(async (f) => {
-		const prefix = "agents:alpha:11111111-1111-4111-8111-111111111111:result:";
-		f.watch("alpha", (now, want) => ({ ...partialResult("h-url")(now, want), rversion: "1793973600.000000000 1793973600.000000000" }));
+		const hash = "1".repeat(16);
+		f.watch("alpha", (now, want) => ({ ...partialResult("h-url")(now, want), waiting: true, rhash: hash, rfile: "/runs/RESULT.md" }));
 		await f.run();
 		f.now = T0 + 120;
 		await f.run();
-		deepStrictEqual(f.ledgerKeys(prefix), [`${prefix}1793973600-000000000-1793973600-000000000`], "same file version: one card");
-		f.watch("alpha", (now, want) => ({ ...partialResult("h-rollout")(now, want), rversion: "1793973600.500000000 1793973600.500000000" }));
+		deepStrictEqual(f.reportedKeys("agents:alpha:result:"), [`agents:alpha:result:${hash}`], "same version: one row");
+		const next = "2".repeat(16);
+		f.watch("alpha", (now, want) => ({ ...partialResult("h-rollout")(now, want), waiting: true, rhash: next, rfile: "/runs/RESULT-p2.md" }));
 		f.now = T0 + 240;
 		await f.run();
-		deepStrictEqual(f.ledgerKeys(prefix), [`${prefix}1793973600-000000000-1793973600-000000000`, `${prefix}1793973600-500000000-1793973600-500000000`], "a rewrite in the same second is its own row");
+		deepStrictEqual(f.reportedKeys("agents:alpha:result:"), [`agents:alpha:result:${hash}`, `agents:alpha:result:${next}`], "a new version is its own row");
 	}),
 );
 
 const GEN = "11111111-1111-4111-8111-111111111111";
-const V1 = "1793973600.000000000 1793973600.000000000";
-/** An armed agent-result then for alpha, with the RESULT file version it was armed against. */
-const arm = (f, version, said) => fs.writeFileSync(path.join(f.dir, "thens.json"), JSON.stringify([
-	{ row: "7", n: 1, when: "agent-result:alpha", action: "round 2", added: "2026-11-06 14:00", after: 0, generation: GEN, baseline: { version, said } },
-]));
+const HASH = "3".repeat(16);
 
-await check("4c. a then armed on an unchanged RESULT waits; a rewrite in the same second is the new round", () =>
+await check("a then armed on a RESULT version does not fire on its row; the next version fires it", () =>
 	withFixture(async (f) => {
-		const prefix = `agents:alpha:${GEN}:result:`;
-		f.watch("alpha", (now, want) => ({ ...partialResult("h-url")(now, want), rversion: V1 }));
-		arm(f, V1, "partial:h-url");
+		const thens = path.join(f.dir, "thens.json");
+		fs.writeFileSync(thens, JSON.stringify([
+			{ row: "7", n: 1, when: "agent-result:alpha", action: "round 2", added: "2026-11-06 14:00", after: 0, generation: GEN, baseline: { version: HASH } },
+		]));
+		f.watch("alpha", (now, want) => ({ ...partialResult("h-url")(now, want), waiting: true, rhash: HASH, rfile: "/runs/RESULT.md" }));
+		f.tagResults();
 		await f.run();
 		f.now = T0 + 120;
 		await f.run();
-		deepStrictEqual(f.ledgerKeys(prefix), [], "the RESULT from before the then is not its answer");
-		f.watch("alpha", (now, want) => ({ ...partialResult("h-url")(now, want), rversion: "1793973600.700000000 1793973600.700000000" }));
+		deepStrictEqual(f.reportedKeys("agents:alpha:result:"), [`agents:alpha:result:${HASH}`], "the version no row reported makes its one row");
+		strictEqual(JSON.parse(fs.readFileSync(thens, "utf8"))[0].fired, undefined, "the RESULT version from before the then is not its answer");
+		const next = "4".repeat(16);
+		f.watch("alpha", (now, want) => ({ ...partialResult("h-url")(now, want), waiting: true, rhash: next, rfile: "/runs/RESULT.md" }));
+		f.tagResults();
 		f.now = T0 + 240;
 		await f.run();
-		deepStrictEqual(f.ledgerKeys(prefix), [`${prefix}1793973600-700000000-1793973600-700000000`], "same status and open, rewritten: one row");
+		deepStrictEqual(f.reportedKeys("agents:alpha:result:"), [`agents:alpha:result:${HASH}`, `agents:alpha:result:${next}`], "same status and open, new version: one row");
+		ok(JSON.parse(fs.readFileSync(thens, "utf8"))[0].fired, "the next version fires the then");
 		f.now = T0 + 360;
 		await f.run();
-		strictEqual(f.ledgerKeys(prefix).length, 1, "the next probe (a fresh process, state on disk) adds nothing");
+		strictEqual(f.reportedKeys("agents:alpha:result:").length, 2, "the next probe adds nothing");
 	}),
 );
 
-await check("5c. after a done RESULT the watch still reports blocked and gone", () =>
+await check("after a done RESULT the watch still reports blocked and gone", () =>
 	withFixture(async (f) => {
-		const done = (p) => ({ ...p, rmtime: T0, rstatus: "done", rversion: V1 });
+		const done = (p) => ({ ...p, rmtime: T0, rstatus: "done", rhash: HASH, waiting: true });
 		f.watch("alpha", (now, want) => done(ompLive(now, want)));
 		await f.run();
-		strictEqual(f.ledgerKeys(`agents:alpha:${GEN}:result:`).length, 1);
+		strictEqual(f.ledgerKeys("agents:alpha:result:").length, 1);
 		f.watch("alpha", (now, want) => done(blocked(false)(now, want)));
 		f.now = T0 + 120;
 		await f.run();
@@ -1064,6 +1080,107 @@ await check("real tern capture keeps trailing newlines and status", () => withFi
 	strictEqual(r.alive, true);
 	strictEqual(decodeTail(r).endsWith("pane\n\n"), true);
 }));
+await check("RESULT version: same content twice is one row; a rename is not new; a new file is", () =>
+	withFixture(async (f) => {
+		const dir = path.join(f.dir, "run");
+		fs.mkdirSync(dir);
+		const result = path.join(dir, "RESULT.md");
+		fs.writeFileSync(result, "RESULT\nstatus: done\n");
+		const hash = createHash("sha256").update(fs.readFileSync(result)).digest("hex").slice(0, 16);
+		const key = `agents:alpha:result:${hash}`;
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "done", rhash: hash, rfile: result }));
+		f.watch = ((watch) => (name, behaviour, ...rest) => {
+			watch(name, behaviour, ...rest);
+			const rules = YAML.parse(fs.readFileSync(path.join(f.dir, "rules.yaml"), "utf8"));
+			rules.agent_watch[0].result = result;
+			fs.writeFileSync(path.join(f.dir, "rules.yaml"), YAML.stringify(rules));
+		})(f.watch.bind(f));
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "done", rhash: hash, rfile: result }));
+		await f.run({ noDigest: true });
+		f.now = T0 + 120;
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.reportedKeys("agents:alpha:result:"), [key], "same content twice: one result row");
+		const renamed = path.join(dir, "RESULT-round1.md");
+		fs.renameSync(result, renamed);
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "done", rhash: hash, rfile: renamed }));
+		f.now = T0 + 240;
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.reportedKeys("agents:alpha:result:"), [key], "a rename of the same content is not a new result");
+		const next = path.join(dir, "RESULT-p4.md");
+		fs.writeFileSync(next, "RESULT\nstatus: partial\n");
+		const nextHash = createHash("sha256").update(fs.readFileSync(next)).digest("hex").slice(0, 16);
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "partial", rhash: nextHash, rfile: next }));
+		f.now = T0 + 360;
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.reportedKeys("agents:alpha:result:"), [key, `agents:alpha:result:${nextHash}`], "a new RESULT file with a status is one row");
+	}),
+);
+
+await check("a turn end with an unchanged RESULT makes no result row and one no-result row carrying the last output", () =>
+	withFixture(async (f) => {
+		const hash = "a".repeat(16);
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "done", rhash: hash, rfile: "/runs/RESULT.md", last: gzipSync(Buffer.from(jsonl(assistant(textItem("still the same answer"))))).toString("base64") }));
+		await f.run({ noDigest: true });
+		f.now = T0 + 120;
+		await f.run({ noDigest: true });
+		strictEqual(f.reportedKeys("agents:alpha:result:").length, 1, "the unchanged RESULT is not a second result row");
+		const idle = f.ledgerKeys("agents:alpha:").filter((k) => k.includes(":idle:"));
+		strictEqual(idle.length, 1, "one no-result row for the turn end");
+		const note = fs.readFileSync(path.join(f.dir, "ledger.tsv"), "utf8").split("\n").find((line) => line.includes(":idle:"));
+		ok(note.includes("turn ended with no new RESULT. Last output: still the same answer"), note);
+	}),
+);
+
+await check("legacyReported suppresses the first version row after a deploy", () =>
+	withFixture(async (f) => {
+		const hash = "b".repeat(16);
+		const minute = new Date(T0 * 1000);
+		const stamp = `${minute.getFullYear()}-${pad(minute.getMonth() + 1)}-${pad(minute.getDate())} ${pad(minute.getHours())}:${pad(minute.getMinutes())}`;
+		fs.writeFileSync(path.join(f.dir, "archive.tsv"), `id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink\n1\tagents:alpha:${GEN}:s1:1\tagent alpha\t${stamp}\tagents\tagent-result\tdo\tdone\tcoordinator\tclosed with a rewritten note\t\n`);
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: T0, rstatus: "done", rhash: hash, rfile: "/runs/RESULT.md" }));
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.ledgerKeys("agents:alpha:result:"), [], "a version the old build already reported makes no row");
+	}),
+);
+
+await check("one live row per session: a second row archives the first, a claimed row stays", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), state: "blocked" }));
+		await f.run({ noDigest: true });
+		const ledger = fs.readFileSync(path.join(f.dir, "ledger.tsv"), "utf8").split("\n");
+		const blocked = ledger.find((line) => line.includes(":blocked:"));
+		ok(blocked, ledger.join("\n"));
+		const claimed = blocked.replace("\topen\t", "\tclaimed\t");
+		fs.writeFileSync(path.join(f.dir, "ledger.tsv"), ledger.map((line) => (line === blocked ? claimed : line)).join("\n"));
+		const hash = "c".repeat(16);
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "done", rhash: hash, rfile: "/runs/RESULT.md" }));
+		f.now = T0 + 120;
+		await f.run({ noDigest: true });
+		const live = fs.readFileSync(path.join(f.dir, "ledger.tsv"), "utf8");
+		ok(live.includes(":blocked:") && live.includes("claimed"), "a claimed row stays live");
+		ok(live.includes(`agents:alpha:result:${hash}`), live);
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true }));
+		f.now = T0 + 240;
+		await f.run({ noDigest: true });
+		const archive = fs.readFileSync(path.join(f.dir, "archive.tsv"), "utf8");
+		ok(archive.includes(`agents:alpha:result:${hash}`) && archive.includes("superseded by #"), archive);
+		ok(!fs.readFileSync(path.join(f.dir, "ledger.tsv"), "utf8").includes(`agents:alpha:result:${hash}`), "the superseded result row left the ledger");
+	}),
+);
+
+await check("a probe that recorded a row runs checkThens in the same process", () =>
+	withFixture(async (f) => {
+		fs.writeFileSync(path.join(f.dir, "ledger.tsv"), "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink\n7\task:row\trow\t2026-11-06 14:00\tcoordinator\task-wayne\tnotify\topen\twayne\t\t\n");
+		fs.writeFileSync(path.join(f.dir, "thens.json"), JSON.stringify([
+			{ row: "7", n: 1, when: "agent-result:alpha", action: "report it", added: "2026-11-06 14:00", after: 0, generation: GEN, baseline: { version: "0".repeat(16) } },
+		]));
+		const hash = "d".repeat(16);
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "done", rhash: hash, rfile: "/runs/RESULT.md" }));
+		f.tagResults();
+		await f.run({ noDigest: true });
+		ok(f.logs.some((line) => line.startsWith("fired 7.1")), f.logs.join("\n"));
+	}),
+);
 
 await check("an agent idle awaiting review is not counted as needing the user", () =>
 	withFixture(async (f) => {

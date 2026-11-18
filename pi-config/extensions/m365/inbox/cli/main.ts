@@ -4,11 +4,11 @@
  * Every command returns its stdout text. A data or usage error is an InboxError: `Error: <message>` on stderr, exit 1.
  */
 import * as fs from "node:fs";
-import { addAgent, listAgents, MUXES, readAgents, removeAgentsByName } from "./agents.ts";
-import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, resultVersion, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
+import { addAgent, listAgents, MUXES, readAgents, recordAgentRow, removeAgentsByName } from "./agents.ts";
+import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
 import { addEvent, doneRows, InboxError, inboxFile, listRows, places, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
 import { dropFact, FACT_KINDS, listFacts, upsertFact } from "./facts.ts";
-import { probeAgents } from "./probe.ts";
+import { probeAgents, resultOf } from "./probe.ts";
 import { migrateRules, migrateRulesText } from "./migrate-rules.ts";
 import { setup } from "./setup.ts";
 import { addThen, checkThens, guardDone, openThenLines, thenDone } from "./thens.ts";
@@ -64,7 +64,9 @@ const COMMANDS: Record<string, Command> = {
 			note: { default: "" },
 			link: { default: "" },
 		},
-		run: (p) => addEvent({ source: p.opts.source!, place: p.opts.place!, key: p.opts.key!, subject: p.opts.subject!, fields: p.many.field, note: p.opts.note, link: p.opts.link }),
+		run: (p) => p.opts.source === "agents"
+			? recordAgentRow({ source: p.opts.source, place: p.opts.place!, key: p.opts.key!, subject: p.opts.subject!, fields: p.many.field, note: p.opts.note, link: p.opts.link })
+			: addEvent({ source: p.opts.source!, place: p.opts.place!, key: p.opts.key!, subject: p.opts.subject!, fields: p.many.field, note: p.opts.note, link: p.opts.link }),
 	},
 	set: {
 		help: "Edit live rows in place (state, owner, note).",
@@ -78,16 +80,19 @@ const COMMANDS: Record<string, Command> = {
 		opts: { when: { required: true, help: "the trigger" } },
 		run: async (p) => {
 			const when = p.opts.when!;
-			let baseline: { version: string; said: string } | undefined;
+			let baseline: { version: string } | undefined;
 			if (when.startsWith("agent-result:")) {
 				const watched = readAgents().find((a) => a.name === when.slice("agent-result:".length));
-				if (watched && watched.push !== true) baseline = await resultVersion(watched);
+				if (watched) {
+					const version = (await resultOf(watched)).version;
+					if (version) baseline = { version };
+				}
 			}
 			return addThen(p.args[0], when, p.args.slice(1).join(" "), baseline ? { generation: "", baseline } : undefined);
 		},
 	},
 	"then check": {
-		help: "Fire the then-actions whose trigger happened, and remind fired ones at 10 minutes, 1 hour, 4 hours, then every 24 hours (the scheduler runs this every minute).",
+		help: "Fire the then-actions whose trigger happened, and remind a fired one once per check: 10 minutes, 1 hour, 4 hours, then every 24 hours after its last card (the scheduler runs this every minute).",
 		run: async () => (await checkThens({ gh: true })).join("\n"),
 	},
 	"then-done": {

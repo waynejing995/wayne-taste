@@ -3,6 +3,8 @@
 # `$HOME/.local/bin` and `$HOME/.bun/bin` hold tern and omp on hosts where they are installed per user.
 # WANT=1 adds `kind` and `tail` (gzip, base64 -w0): from the whole omp session, its newest assistant lines that carry
 # text and its newest todo result (a long tool-only run cannot push them out), else the pane text.
+# RESULT is a path. The file read is the newest `RESULT*.md` in its directory: a run directory belongs to one watch,
+# so two watches must not share one. None means no result.
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
 mux=$1 pane=$2 result=$3 want=$4
 # `cap` is the one capture per run. `printf x` keeps its trailing newlines, so the hash matches the old pipe.
@@ -103,13 +105,18 @@ if [ -n "$session" ]; then
       esac ;;
   esac
 fi
-rmtime=0 rversion= rstatus= ropen= ropen_text= rquestions=false
-if [ -n "$result" ] && [ -f "$result" ]; then
-  rmtime=$(stat -c %Y "$result")
-  rversion=$(stat -c '%.9Y %.9Z' "$result")
+rmtime=0 rstatus= ropen= ropen_text= rquestions=false rfile= rhash=
+if [ -n "$result" ]; then
+  rdir=$(dirname "$result")
+  # Newest by mtime. A run directory belongs to one watch, so the newest RESULT*.md is this watch's.
+  rfile=$(ls -t "$rdir"/RESULT*.md 2>/dev/null | head -1)
+fi
+if [ -n "$rfile" ] && [ -f "$rfile" ]; then
+  rmtime=$(stat -c %Y "$rfile")
+  rhash=$(sha256sum "$rfile" | cut -c1-16)
   # The contract block is the last one that carries a status line: a later bare `Result` heading in the body
   # (prose, not the contract) must not replace it.
-  block=$(tr -d '\r' < "$result" | awk '
+  block=$(tr -d '\r' < "$rfile" | awk '
     function keep() { if (tolower(buf) ~ /(^|\n)[ \t]*([-*] )?[*`]*status[*`]*:/) last = buf }
     tolower($0) ~ /^[[:space:]]*result[[:space:]]*$/ { keep(); buf = ""; next }
     { buf = buf $0 "\n" }
@@ -120,6 +127,13 @@ if [ -n "$result" ] && [ -f "$result" ]; then
   ropen=$(printf '%s' "$ropen_text" | md5sum | cut -c1-16)
 fi
 extra=
+# The newest assistant line that carries a text item, from the same 200 KB tail the wait check reads.
+last64=
+if [ -n "$session" ]; then
+  last64=$(tail -c 200000 "$session" | awk '
+    /"message":\{"role":"assistant"/ && /"type":"text"/ { line = $0 }
+    END { printf "%s", line }' | gzip -c | base64 -w0)
+fi
 if [ "$want" = 1 ]; then
   if [ -n "$session" ]; then
     kind=jsonl
@@ -130,5 +144,5 @@ if [ "$want" = 1 ]; then
   extra=",\"kind\":\"$kind\",\"tail\":\"$tail64\""
 fi
 b64() { printf %s "$1" | base64 -w0; }
-printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rversion":"%s","rstatus":"%s","ropen":"%s","ropen_text":"%s","rquestions":%s,"now":%s%s}\n' \
-  "$alive" "$(b64 "$agent")" "$(b64 "$state")" "$(b64 "$session")" "$smtime" "$waiting" "$text" "$rmtime" "$rversion" "$(b64 "$rstatus")" "$ropen" "$(b64 "$ropen_text")" "$rquestions" "$(date +%s)" "$extra"
+printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rfile":"%s","rhash":"%s","rstatus":"%s","ropen":"%s","ropen_text":"%s","rquestions":%s,"last":"%s","now":%s%s}\n' \
+  "$alive" "$(b64 "$agent")" "$(b64 "$state")" "$(b64 "$session")" "$smtime" "$waiting" "$text" "$rmtime" "$(b64 "$rfile")" "$rhash" "$(b64 "$rstatus")" "$ropen" "$(b64 "$ropen_text")" "$rquestions" "$last64" "$(date +%s)" "$extra"

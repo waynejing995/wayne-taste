@@ -119,11 +119,12 @@ await check("ask maps question, options, goal and fields", () => withFixture(asy
 await check("idle and done result map output and keep the watch", () => withFixture(async (f) => {
 	await f.start();
 	f.append(f.event("idle", 1, { text: "clipped last text" }));
-	f.append(f.event("result", 2, { text: "finished", result: { status: "done", path: "/answer" } }));
+	f.append(f.event("result", 2, { text: "finished", result: { status: "done", path: "/answer", version: "abc123" } }));
 	await f.tailer.poke();
 	const [idle, result] = [...f.rows.values()];
-	equal(arg(idle, "--note"), "turn ended with no RESULT. Last output: clipped last text");
+	equal(arg(idle, "--note"), "turn ended with no new RESULT. Last output: clipped last text");
 	deepStrictEqual(fields(idle).slice(0, 2), ["event=idle", "state=no-result"]);
+	equal(arg(result, "--key"), "agents:one:result:abc123");
 	equal(arg(result, "--note"), "RESULT status: done. Last output: finished");
 	equal(arg(result, "--link"), "/answer");
 	deepStrictEqual(f.calls.filter((c) => c[0] === "agent" && c[1] === "rm"), [], "a done RESULT does not remove the watch");
@@ -253,21 +254,21 @@ await check("a late result from the session that retired the old registration ke
 	deepStrictEqual(f.calls.filter((c) => c[0] === "agent" && c[1] === "rm"), []);
 }));
 
-await check("an unchanged status makes no second card; a changed one does", () => withFixture(async (f) => {
+await check("each RESULT version makes its row; the same version again does not", () => withFixture(async (f) => {
 	await f.start();
-	const partial = (seq, open, text) => f.event("result", seq, { text, result: { status: "partial", path: "/r", open } });
+	const partial = (seq, open, text) => f.event("result", seq, { text, result: { status: "partial", path: "/r", open, version: String(seq === 2 ? 1 : seq).padStart(16, "0") } });
 	f.append(partial(1, "confirm TRACE_PUBLIC_URL in prod .env", "waiting"));
 	f.append(partial(2, "confirm TRACE_PUBLIC_URL in prod .env", "still waiting, other words"));
 	await f.tailer.poke();
-	equal(f.rows.size, 1);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:2"], "the same version again is a no-result row");
 	match(arg([...f.rows.values()][0], "--note"), /Open: confirm TRACE_PUBLIC_URL in prod \.env\./);
+	equal(arg([...f.rows.values()][1], "--note"), "turn ended with no new RESULT. Last output: still waiting, other words");
 	f.append(partial(3, "decide the #830 rollout switch", "new blocker"));
 	f.append(f.event("ask", 4, { ask: { kind: "ask", question: "Go?", options: ["yes", "no"] } }));
 	f.append(f.event("ask", 5, { ask: { kind: "ask", question: "Go?", options: ["yes", "no"] } }));
 	f.append(f.event("ended", 6));
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:11111111-1111-4111-8111-111111111111:session:1", "agents:one:11111111-1111-4111-8111-111111111111:session:3", "agents:one:11111111-1111-4111-8111-111111111111:session:4", "agents:one:11111111-1111-4111-8111-111111111111:session:6"]);
-	ok(f.warnings.some((w) => w.includes("seq 2 repeats")), "the skipped card is logged");
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:2", "agents:one:result:0000000000000003", "agents:one:11111111-1111-4111-8111-111111111111:session:4", "agents:one:11111111-1111-4111-8111-111111111111:session:5", "agents:one:11111111-1111-4111-8111-111111111111:session:6"]);
 }));
 
 await check("ssh gets a validated host after -- and rejects an option-shaped host", () => {
@@ -283,13 +284,14 @@ await check("ssh gets a validated host after -- and rejects an option-shaped hos
 	}, { spawn: (cmd, args) => { calls.push([cmd, args]); const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true; return child; } });
 });
 
-await check("duplicate sequence is deduplicated", () => withFixture(async (f) => {
+await check("a repeated turn end of the same RESULT version is one result row and one no-result row", () => withFixture(async (f) => {
 	await f.start();
-	const event = f.event("idle", 7, { text: "same" });
-	f.append(event); f.append(event);
+	const event = f.event("result", 7, { text: "same", result: { status: "done", path: "/r", version: "0000000000000007" } });
+	f.append(event); f.append({ ...event, seq: 8 });
 	await f.tailer.poke();
-	equal(f.rows.size, 1);
-	equal(f.calls.filter((call) => call[0] === "add").length, 1);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000007", "agents:one:11111111-1111-4111-8111-111111111111:session:8"]);
+	deepStrictEqual(fields([...f.rows.values()][1]).slice(0, 2), ["event=idle", "state=no-result"]);
+	equal(f.calls.filter((call) => call[0] === "add").length, 3, "the second turn end: the version is seen, then exactly one no-result add");
 }));
 
 await check("heartbeat and activity events do not add rows", () => withFixture(async (f) => {
@@ -495,29 +497,28 @@ await check("an unstamped add replays a held turn that ended after the add's tim
 	equal(f.rows.size, 2);
 }));
 
-await check("a finished session's repeat is not a second card; a new round is", () => withFixture(async (f) => {
+await check("the same RESULT version again is a no-result row, not a second result card; the exit is recorded", () => withFixture(async (f) => {
 	await f.start();
-	f.append(f.event("result", 1, { text: "done", result: { status: "done", path: "/answer" } }));
+	f.append(f.event("result", 1, { text: "done", result: { status: "done", path: "/answer", version: "0000000000000001" } }));
 	await f.tailer.poke();
 	equal(f.rows.size, 1);
 	deepStrictEqual(f.calls.filter((c) => c[0] === "agent"), [], "the watch stays");
-	// The finished run settling again (a late agent_end, then its exit) is not a follow-up: no turn started.
-	f.append(f.event("result", 2, { text: "late", result: { status: "done", path: "/answer" } }));
+	f.append(f.event("result", 2, { text: "late", result: { status: "done", path: "/answer", version: "0000000000000001" } }));
 	f.append(f.event("ended", 3));
 	await f.tailer.poke();
-	equal(f.rows.size, 2, "the late result repeats the card; the exit is recorded");
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:2", "agents:one:11111111-1111-4111-8111-111111111111:session:3"], "the same version is seen; the exit is recorded");
 	equal(f.saved().names.one.removed, undefined);
 	equal(f.saved().names.one.pending, undefined);
 	f.advance(1000);
 	f.writeRules([f.watched("one", "local", f.since())]);
 	await f.tailer.poke();
-	equal(f.rows.size, 2, "re-registration does not add a card for events already recorded");
+	equal(f.rows.size, 3, "re-registration does not add a card for events already recorded");
 	equal(f.saved().names.one.removed, undefined);
 	f.append(f.event("started", 4, { session: "new" }));
 	f.append(f.event("ask", 5, { session: "new", ask: { kind: "ask", question: "Again?" } }));
 	await f.tailer.poke();
-	equal(f.rows.size, 3, "the new session's ask is recorded");
-	equal(arg([...f.rows.values()][1], "--key"), "agents:one:11111111-1111-4111-8111-111111111111:session:3");
+	equal(f.rows.size, 4, "the new session's ask is recorded");
+	equal(arg([...f.rows.values()][3], "--key"), "agents:one:11111111-1111-4111-8111-111111111111:new:5");
 }));
 
 await check("follow-up sent before re-registration (delegate skill order): its ask arrives on registration", () => withFixture(async (f) => {
@@ -599,7 +600,7 @@ await check("a retired name registered again while the coordinator is down: the 
 	f.advance(60_000);
 	await f.restart();
 	equal(f.rows.size, 3);
-	deepStrictEqual([...f.rows.values()].map((row) => fields(row)[0]), ["event=result", "event=ask", "event=result"]);
+	deepStrictEqual([...f.rows.values()].map((row) => fields(row)[0]), ["event=idle", "event=ask", "event=idle"]);
 }));
 
 await check("agent-push-smart, reporters with `prompted`: an agent-started continuation after done is not a round; the follow-up's result is", () => withFixture(async (f) => {
@@ -608,7 +609,7 @@ await check("agent-push-smart, reporters with `prompted`: an agent-started conti
 	const name = "agent-push-smart";
 	const session = "01a1c313-0982-718e-b686-6bf23cddede2";
 	const ev = (type, seq, ts, extra = {}) => f.event(type, 1794274167959000 + seq, { name, session, ts, pid: 4059262, ...extra });
-	const done = (seq, ts, text) => ev("result", seq, ts, { text, result: { status: "done", path: "/runs/agent-push-smart/RESULT.md" } });
+	const done = (seq, ts, text) => ev("result", seq, ts, { text, result: { status: "done", path: "/runs/agent-push-smart/RESULT.md", version: String(seq).padStart(16, "0") } });
 	await f.start([f.watched(name, "local", "2026-11-10 09:29:20")]);
 	f.append(done(72, "2026-11-10T02:35:33.557Z", "round 1 done"));
 	await f.tailer.poke();
@@ -623,10 +624,10 @@ await check("agent-push-smart, reporters with `prompted`: an agent-started conti
 	f.append(ev("working", 248, "2026-11-10T05:27:11.014Z", { prompted: false }));
 	f.append(done(249, "2026-11-10T05:27:26.268Z", "retro done, again"));
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], [`agents:${name}:11111111-1111-4111-8111-111111111111:${session}:1794274167959072`, `agents:${name}:11111111-1111-4111-8111-111111111111:${session}:1794274167959247`]);
+	deepStrictEqual([...f.rows.keys()], [`agents:${name}:result:${"72".padStart(16, "0")}`, `agents:${name}:result:${"75".padStart(16, "0")}`, `agents:${name}:result:${"247".padStart(16, "0")}`, `agents:${name}:result:${"249".padStart(16, "0")}`]);
 	equal(f.calls.filter((call) => call[0] === "agent").length, 0, "247 does not remove the watch");
 	equal(f.saved().names[name].pending, undefined);
-	for (const seq of [1794274167959075, 1794274167959249]) ok(f.warnings.some((w) => w.includes(`seq ${seq}`)), `the dropped ${seq} is logged`);
+	ok(!f.warnings.some((w) => /seq (1794274167959075|1794274167959249)/.test(w)), "a new version is a row, not a dropped card");
 }));
 
 await check("agent-push-smart 2026-11-10, the stream as written (no `prompted`): 075 is dropped loudly and 247 makes its card", () => withFixture(async (f) => {
@@ -635,9 +636,9 @@ await check("agent-push-smart 2026-11-10, the stream as written (no `prompted`):
 	// the name, and 247 was held forever with no card and no warning.
 	const name = "agent-push-smart";
 	const session = "00000000-0000-4000-8000-000000000001";
-	const result = { path: "/tmp/demo/RESULT.md", status: "done" };
-	const real = (seq, type, ts) => ({ v: 1, ts, name, host: "example-host", pid: 1001, session, seq: 1794274167959000 + seq, type, ...(type === "result" ? { result } : {}) });
-	const key = (seq) => `agents:${name}:11111111-1111-4111-8111-111111111111:${session}:${1794274167959000 + seq}`;
+	const result = (seq) => ({ path: "/tmp/demo/RESULT.md", status: "done", version: String(seq).padStart(16, "0") });
+	const real = (seq, type, ts) => ({ v: 1, ts, name, host: "example-host", pid: 1001, session, seq: 1794274167959000 + seq, type, ...(type === "result" ? { result: result(seq) } : {}) });
+	const key = (seq) => `agents:${name}:result:${String(seq).padStart(16, "0")}`;
 	await f.start([f.watched(name, "local", "2026-11-10 09:29:20")]);
 	f.append(real(62, "working", "2026-11-10T02:26:58.181Z"));
 	f.append(real(72, "result", "2026-11-10T02:35:33.557Z"));
@@ -672,16 +673,16 @@ await check("agent-push-smart 2026-11-10, the stream as written (no `prompted`):
 
 await check("no `prompted`: a follow-up whose result repeats the retiring one still makes its card when it asked first", () => withFixture(async (f) => {
 	await f.start();
-	f.append(f.event("result", 1, { text: "done", result: { status: "done", path: "/answer" } }));
+	f.append(f.event("result", 1, { text: "done", result: { status: "done", path: "/answer", version: "0000000000000001" } }));
 	await f.tailer.poke();
 	f.append(f.event("working", 2));
 	f.append(f.event("ask", 3, { ask: { kind: "ask", question: "Which branch?" } }));
-	f.append(f.event("result", 4, { text: "again", result: { status: "done", path: "/answer" } }));
+	f.append(f.event("result", 4, { text: "again", result: { status: "done", path: "/answer", version: "0000000000000004" } }));
 	await f.tailer.poke();
 	f.advance(1000);
 	f.writeRules([f.watched("one", "local", f.since())]);
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:11111111-1111-4111-8111-111111111111:session:1", "agents:one:11111111-1111-4111-8111-111111111111:session:3", "agents:one:11111111-1111-4111-8111-111111111111:session:4"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:3", "agents:one:result:0000000000000004"]);
 	equal(f.warnings.length, 0);
 }));
 
@@ -699,18 +700,18 @@ await check("events held for a registration that never comes are dropped with a 
 
 await check("a prompted follow-up that finishes before re-registration still makes its cards", () => withFixture(async (f) => {
 	await f.start();
-	f.append(f.event("result", 1, { text: "done", result: { status: "done", path: "/answer" } }));
+	f.append(f.event("result", 1, { text: "done", result: { status: "done", path: "/answer", version: "0000000000000001" } }));
 	await f.tailer.poke();
 	// The same shape as 073-075 above, but the coordinator's prompt started it: [working, ask, result done], all before `agent add`.
 	f.append(f.event("working", 2, { prompted: true }));
 	f.append(f.event("ask", 3, { ask: { kind: "ask", question: "Which branch?" } }));
-	f.append(f.event("result", 4, { text: "again", result: { status: "done", path: "/answer", open: "none" } }));
+	f.append(f.event("result", 4, { text: "again", result: { status: "done", path: "/answer", open: "none", version: "0000000000000004" } }));
 	await f.tailer.poke();
 	equal(f.rows.size, 3, "the follow-up is recorded as it happens");
 	f.advance(1000);
 	f.writeRules([f.watched("one", "local", f.since())]);
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:11111111-1111-4111-8111-111111111111:session:1", "agents:one:11111111-1111-4111-8111-111111111111:session:3", "agents:one:11111111-1111-4111-8111-111111111111:session:4"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:3", "agents:one:result:0000000000000004"]);
 	equal(f.calls.filter((call) => call[0] === "agent").length, 0);
 	equal(f.warnings.length, 0);
 }));

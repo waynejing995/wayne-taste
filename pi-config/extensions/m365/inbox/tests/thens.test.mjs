@@ -1,6 +1,6 @@
 /**
- * Deferred actions (`inbox then`): a trigger makes one `do` card quoting the action, an open fired then is reminded at
- * 10 minutes, 1 hour, 4 hours, then daily, `done` refuses while one is open, and an unfired trigger makes nothing.
+ * Deferred actions (`inbox then`): a trigger makes one `do` card quoting the action, an open fired then gets one
+ * reminder per check (10 min, 1 h, 4 h, then daily from its last card), `done` refuses while one is open, and an unfired trigger makes nothing.
  *
  *   node inbox/tests/thens.test.mjs
  */
@@ -70,8 +70,7 @@ await check("a merged PR fires one do card quoting the action verbatim", async (
 await check("an agent's RESULT row added after the then fires it; an older one does not", async () => {
 	const id = await row();
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "the registration's own plan"]);
-	const [{ generation }] = readAgents();
-	const result = (seq) => inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:${generation}:s1:${seq}`, "--subject", "agent fixer", "--note", "RESULT status: done. Last output: ok", "--field", "event=result"]);
+	const result = (seq) => inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${String(seq).padStart(16, "0")}`, "--subject", "agent fixer", "--note", "RESULT status: done. Last output: ok", "--field", "event=result"]);
 	await result(1);
 	await checkThens({ now: T0 });
 	await inbox(["then", id, "--when", "agent-result:fixer", "--", "verify the fix and report"]);
@@ -86,8 +85,7 @@ await check("agent add arms its plan on the row: the next RESULT fires it and th
 	strictEqual(await inbox(["agent", "ls"]), "", "a bad row registers nothing");
 	const id = await row();
 	ok((await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "expect PR open; reply Wayne; close row"])).endsWith(`then ${id}.1 waits for agent-result:fixer`));
-	const [{ generation }] = readAgents();
-	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:${generation}:s1:1`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
+	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${"1".repeat(16)}`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
 	await checkThens({ now: T0 });
 	ok(thenRows()[0].note.includes("you owe: expect PR open; reply Wayne; close row"), thenRows()[0].note);
 	await rejects(inbox(["done", id]), /open then-actions/);
@@ -96,13 +94,10 @@ await check("agent add arms its plan on the row: the next RESULT fires it and th
 await check("an agent's plan fires only on a RESULT of its own registration", async () => {
 	const id = await row();
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old plan"]);
-	const [{ generation: old }] = readAgents();
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new plan"]);
 	const [{ generation: current }] = readAgents();
-	const result = (gen, seq) => inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:${gen}:s1:${seq}`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
-	await result(old, 1);
-	deepStrictEqual(await checkThens({ now: T0 }), [], "the replaced registration's late RESULT does not fire the new plan");
-	await result(current, 2);
+	ok(current);
+	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${"2".repeat(16)}`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
 	await checkThens({ now: T0 });
 	ok(thenRows()[0].note.includes("you owe: new plan [RESULT status: done (row #"), thenRows()[0].note);
 });
@@ -123,7 +118,7 @@ await check("a replaced launch's late RESULT fires nothing; its own RESULT fires
 	await add("launch-new-01", "new plan");
 	const warnings = [];
 	const tailer = new AgentTailer({ dir: home, inbox, warn: (w) => warnings.push(w) });
-	const event = (generation, seq) => JSON.stringify({ v: 1, ts: new Date().toISOString(), name: "fixer", generation, pid: 1, session: "s", seq, type: "result", text: "done", result: { status: "done", path: "/r" } });
+	const event = (generation, seq) => JSON.stringify({ v: 1, ts: new Date().toISOString(), name: "fixer", generation, pid: 1, session: "s", seq, type: "result", text: "done", result: { status: "done", path: "/r", version: `${generation.slice(-6)}${seq}`.padEnd(16, "0") } });
 	writeFileSync(join(home, "agent-events.jsonl"), `${event("launch-old-01", 1)}\n`);
 	tailer.start();
 	await tailer.poke();
@@ -202,27 +197,22 @@ await check("at: fires at its minute; gh-run asks gh and fires when the run comp
 	ok(notes.some((n) => n.includes("you owe: rerun the flaky job [conclusion failure")), notes.join("\n"));
 });
 
-await check("a fired then is reminded at 10 minutes, 1 hour and 4 hours; then-done stops the ladder", async () => {
+await check("a fired then is reminded at 10 minutes, 1 hour and 4 hours, then daily, each gap from the last card", async () => {
 	const id = await row();
 	await inbox(["then", id, "--when", "at:2026-11-11 10:00", "--", "send the summary"]);
 	await inbox(["then", id, "--when", "at:2026-11-11 10:00", "--", "close the ticket"]);
 	await checkThens({ now: T0 });
 	await inbox(["then-done", id, "2"]);
-	deepStrictEqual(await checkThens({ now: plus(9) }), [], "no reminder before 10 minutes");
-	const first = await checkThens({ now: plus(10) });
-	strictEqual(first.length, 1, first.join("\n"));
-	ok(first[0].startsWith(`reminded ${id}.1`), first[0]);
-	deepStrictEqual(await checkThens({ now: plus(59) }), [], "the next rung is 1 hour from the fire");
-	const second = await checkThens({ now: plus(60) });
-	strictEqual(second.length, 1);
-	const third = await checkThens({ now: plus(240) });
-	strictEqual(third.length, 1);
-	deepStrictEqual(await checkThens({ now: plus(240 + 23 * 60) }), [], "then every 24 hours from the previous rung");
-	const fourth = await checkThens({ now: plus(240 + 24 * 60) });
-	strictEqual(fourth.length, 1);
-	const reminders = thenRows().filter((r) => r.note.startsWith("Reminder "));
-	strictEqual(reminders.length, 4);
-	ok(reminders[0].note.includes("you still owe: send the summary"), reminders[0].note);
+	let n = 0;
+	for (const at of [10, 60, 240, 240 + 1440]) {
+		deepStrictEqual(await checkThens({ now: plus(at - 1) }), [], `no reminder before ${at} minutes`);
+		const lines = await checkThens({ now: plus(at) });
+		strictEqual(lines.length, 1, lines.join("\n"));
+		ok(lines[0].startsWith(`reminded ${id}.1`), lines[0]);
+		const reminders = thenRows().filter((r) => r.note.startsWith("Reminder "));
+		strictEqual(reminders.length, 1, "one live card; the earlier one was archived");
+		ok(reminders[0].note.startsWith(`Reminder ${++n}:`) && reminders[0].note.includes("you still owe: send the summary"), reminders[0].note);
+	}
 });
 
 await check("done refuses while a fired then is open; --force needs a note and closes it", async () => {
@@ -321,7 +311,7 @@ await check("sweep reports an overdue then, a dead generation, a dead watch and 
 	const id = await row();
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "check the answer"]);
 	const [{ generation }] = readAgents();
-	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:${generation}:s1:1`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
+	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${"9".repeat(16)}`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
 	await checkThens({ now: T0 });
 	const overdue = await sweep(false, plus(25 * 60));
 	ok(overdue.includes(`would sweep:then-overdue:${id}.1:2026-11-12`), overdue);
@@ -354,6 +344,84 @@ await check("closing the last open then of a watch leaves the watch in rules.yam
 	strictEqual(await inbox(["then-done", id, "2"]), `then-done ${id}.2 (cancelled before it fired); watch fixer stays`);
 	strictEqual(readAgents().length, 1, "the last open then does not remove the watch");
 	strictEqual(readAgents()[0].name, "fixer");
+});
+await check("reminders: one per check after a long gap, and the previous card is archived", async () => {
+	const id = await row();
+	await inbox(["then", id, "--when", "at:2026-11-11 10:00", "--", "send the summary"]);
+	await checkThens({ now: T0 });
+	const [fired] = thenRows();
+	const gap = await checkThens({ now: plus(10 + 50 + 180 + 1440) });
+	strictEqual(gap.length, 1, gap.join("\n"));
+	ok(gap[0].startsWith(`reminded ${id}.1`), gap[0]);
+	const live = thenRows();
+	strictEqual(live.length, 1, "one live card per then");
+	ok(live[0].note.startsWith("Reminder 1:"), live[0].note);
+	const archive = readTsv(join(home, "archive.tsv"));
+	ok(archive.some((r) => r.id === fired.id && r.note.includes(`superseded by #${live[0].id}`)), archive.map((r) => r.note).join("\n"));
+	const next = await checkThens({ now: plus(10 + 50 + 180 + 1440 + 9) });
+	deepStrictEqual(next, [], "the next reminder waits a full gap from the last card");
+});
+
+await check("done on a then card is refused and names then-done", async () => {
+	const id = await row();
+	await inbox(["then", id, "--when", "at:2026-11-11 10:00", "--", "tell the team"]);
+	await checkThens({ now: T0 });
+	const [card] = thenRows();
+	await rejects(() => inbox(["done", card.id]), new RegExp("#" + card.id + " is the card of then " + id + "\\.1: close it with `inbox then-done " + id + " 1`"));
+	await rejects(() => inbox(["done", card.id, "--force", "--note", "skip it"]), new RegExp("#" + card.id + " is the card of then " + id + "\\.1"));
+	ok(thenRows().some((r) => r.id === card.id), "the card stays live");
+});
+
+await check("then-done archives its card", async () => {
+	const id = await row();
+	await inbox(["then", id, "--when", "at:2026-11-11 10:00", "--", "tell the team"]);
+	await checkThens({ now: T0 });
+	const [card] = thenRows();
+	strictEqual(await inbox(["then-done", id, "1", "--note", "told them"]), `then-done ${id}.1`);
+	const archive = readTsv(join(home, "archive.tsv"));
+	ok(archive.some((r) => r.id === card.id && r.note.includes("[then-done]") && r.note.includes("told them")), archive.map((r) => `${r.id} ${r.note}`).join("\n"));
+	ok(!thenRows().some((r) => r.id === card.id));
+});
+
+await check("an agents row that is the parent row of a fired, open then is not superseded", async () => {
+	const result = async (n) => (await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${String(n).repeat(16)}`, "--subject", "agent fixer", "--note", "RESULT status: partial", "--field", "event=result"])).split(" ")[1];
+	const parent = await result(1);
+	await inbox(["then", parent, "--when", "at:2026-11-11 10:00", "--", "answer the open question"]);
+	await checkThens({ now: T0 });
+	const plain = await result(2);
+	const newest = await result(3);
+	deepStrictEqual(rows().filter((r) => r.source === "agents").map((r) => r.id), [parent, newest], "the parent of the fired then stays; the plain row is superseded");
+	ok(readTsv(join(home, "archive.tsv")).some((r) => r.id === plain && r.note.includes(`superseded by #${newest}`)));
+});
+
+await check("a then armed on an existing RESULT does not fire on that version and fires on the next", async () => {
+	const id = await row();
+	const baseline = "e".repeat(16);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "the next result", "--result", "/tmp/RESULT.md"]);
+	const stored = readThens();
+	stored.find((t) => t.action === "the next result").baseline = { version: baseline };
+	writeFileSync(join(home, "thens.json"), `${JSON.stringify(stored, null, 2)}\n`);
+	const same = () => inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${baseline}`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
+	await same();
+	deepStrictEqual(await checkThens({ now: T0 }), [], "the version it was armed on is not the trigger");
+	const next = "f".repeat(16);
+	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${next}`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
+	await checkThens({ now: T0 });
+	ok(thenRows().some((r) => r.note.includes("you owe: the next result")), thenRows().map((r) => r.note).join("\n"));
+});
+
+await check("an old then with generation and a stat-format baseline fires on a new version row", async () => {
+	const id = await row();
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old plan"]);
+	const [{ generation }] = readAgents();
+	const stored = readThens();
+	stored[0].baseline = { version: "1793973600.000000000 1793973600.000000000", said: "done:" };
+	writeFileSync(join(home, "thens.json"), `${JSON.stringify(stored, null, 2)}\n`);
+	strictEqual(stored[0].generation, generation, "the stored generation is kept and ignored");
+	deepStrictEqual(await checkThens({ now: T0 }), [], "nothing reported yet");
+	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${"1".repeat(16)}`, "--subject", "agent fixer", "--note", "RESULT status: partial", "--field", "event=result"]);
+	await checkThens({ now: T0 });
+	ok(thenRows().some((r) => r.note.includes("you owe: old plan")), thenRows().map((r) => r.note).join("\n"));
 });
 
 await check("concurrent agent add and then-done in two processes: neither times out, state stays consistent", async () => {

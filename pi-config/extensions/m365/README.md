@@ -95,10 +95,13 @@ incremental run, the backfill window by window, and each failure path; `DIR/summ
 step's files sit beside it.
 
 `inbox then <id> --when <trigger> -- <action>` keeps a promised follow-up on a live row (`pr-merged:`, `gh-run:`,
-`agent-result:`, `at:` triggers): when the trigger happens, a `do` card names what is owed; one reminder after 10
-minutes; `inbox then-done <id> <n>` closes it, and `inbox done` refuses the row while it is open. `inbox agent add`
-requires `--row <id> --then <plan>`: the dispatcher's plan for the session's result (expected outcome, whom to reply
-to, what to close) is armed as an `agent-result:<name>` then on that row.
+`agent-result:`, `at:` triggers): when the trigger happens, a `do` card names what is owed. A fired then left open
+gets one reminder per check, due 10 minutes, 1 hour, 4 hours, then daily after its last card, and that reminder
+archives the previous card. `inbox then-done <id> <n>` closes the then and archives its card. `inbox done` refuses
+that card (`--force` or not) and names `inbox then-done`; it also refuses the row while a fired then is open.
+`inbox agent add` requires `--row <id> --then <plan>`: the dispatcher's plan for the session's result (expected
+outcome, whom to reply to, what to close) is armed as an `agent-result:<name>` then on that row, against the RESULT
+version that already exists. A result row is one per RESULT version, and a session keeps one live attention row.
 
 An optional `card-note.md` in the inbox directory is said on every inbox and Teams watch card (the user's own
 standing instructions for the agent that receives them).
