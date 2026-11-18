@@ -411,7 +411,7 @@ await check("re-adding a legacy registration keeps and reports its unmarked plan
 	deepStrictEqual(readThens().filter((t) => !t.done).map((t) => t.action), ["old plan", "verify by hand", "newer plan"]);
 });
 
-await check("sweep reports an overdue then, a dead generation, a dead watch and held events, once", async () => {
+await check("sweep reports an overdue then and a dead generation, once", async () => {
 	const id = await row();
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "check the answer"]);
 	const [{ generation }] = readAgents();
@@ -425,18 +425,13 @@ await check("sweep reports an overdue then, a dead generation, a dead watch and 
 	await inbox(["then-done", id, "1"]);
 	strictEqual(readAgents().length, 1, "closing the then leaves the watch");
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "check again"]);
-	const [{ generation: next }] = readAgents();
 	writeAgents([]);
 	const dead = await sweep(false, T0);
 	ok(dead.includes(`would sweep:then-dead:${id}.2`), dead);
+	// What an older tailer left in its cursor file (a dead name, held events) is not read any more.
 	mkdirSync(join(home, "cursors"), { recursive: true });
-	writeFileSync(join(home, "cursors", "agent-events.json"), JSON.stringify({
-		names: { fixer: { state: "dead", generation: next, pending: [{ event: { session: "s9" } }] }, other: { pending: [{ event: { session: "s8" } }] } },
-	}));
-	const both = await sweep(false, T0);
-	ok(both.includes(`would sweep:watch-dead:fixer:${next}`), both);
-	ok(both.includes("would sweep:held:other:s8"), both);
-	ok(both.includes("would sweep:held:fixer:s9"), both);
+	writeFileSync(join(home, "cursors", "agent-events.json"), JSON.stringify({ names: { fixer: { state: "dead", pending: [{ event: { session: "s9" } }] } } }));
+	strictEqual(await sweep(false, T0), dead);
 });
 
 await check("closing the last open then of a watch leaves the watch in rules.yaml", async () => {

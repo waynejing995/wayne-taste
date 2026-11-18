@@ -79,8 +79,12 @@ await check("a bad trigger is the CLI's own error", async () => {
 await check("agent add, ls and close register and drop a session", async () => {
 	const result = join(tmp, "run", "RESULT-r7-r1.md");
 	match(await call("inbox_agent_add", { name: "r7", mux: "tern", pane: "42", row: "1", then: "reply in self-chat", result, push: true }), /r7/);
-	const line = (await call("inbox_agent_ls", {})).split("\t");
-	deepStrictEqual([line[0], line[1], line[2], line[3], line[4], line.at(-1)], ["r7", "tern", "local", "42", result, "push"]);
+	const columns = async () => { const line = (await call("inbox_agent_ls", {})).split("\t"); return [line[0], line[1], line[2], line[3], line[4], line.at(-1)]; };
+	deepStrictEqual(await columns(), ["r7", "tern", "local", "42", result, ""], "not observed yet: no phase");
+	// The last column is the phase of the watch's record, as a sensor last wrote it.
+	mkdirSync(join(process.env.WAYNE_INBOX_DIR, "cursors"), { recursive: true });
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "cursors", "agents.json"), JSON.stringify({ watches: { r7: { phase: "idle", at: 1, by: "probe" } } }));
+	deepStrictEqual(await columns(), ["r7", "tern", "local", "42", result, "idle"]);
 	const report = await fails("inbox_agent_close", { name: "r7" });
 	match(report, /^inbox agent close: Error: r7: gone, phase gone, idle \? min, tern pane 42 on local\nRESULT none, version none\n/);
 	match(report, /Not closed\. .* inbox agent close r7 --ack none --note <what you verified>$/);

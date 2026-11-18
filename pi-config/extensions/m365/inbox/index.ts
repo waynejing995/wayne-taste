@@ -19,9 +19,10 @@
  * decides it like any other event. One poller, because only the lease holder polls. No top-level `outlook:` in
  * rules.yaml means mail is not watched at all: no Graph call.
  *
- * The lease holder also tails push-watched agent sessions, locally or over one SSH stream per host.
- * Agent events become inbox rows; their byte cursors and heartbeat state survive restarts.
- * The directory watch and existing backstop drive retries, rule reloads, and dead checks.
+ * The lease holder also tails the reporter events of watched agent sessions, locally or over one SSH stream per host.
+ * An event changes the watch's record (cli/observed.ts), and a change that needs attention becomes an inbox row;
+ * only the byte cursors are the tailer's own state. The directory watch and existing backstop drive retries and
+ * rule reloads.
  *
  * The plugin's cards and scheduler run inbox commands in this process through cli/main.ts, the same code the
  * `bin/inbox` launcher runs. The inbox_* agent tools (mcp/inbox.ts) run `bin/inbox` as a child process instead.

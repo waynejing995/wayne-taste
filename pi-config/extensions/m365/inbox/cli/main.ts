@@ -102,7 +102,7 @@ const COMMANDS: Record<string, Command> = {
 		run: (p) => thenDone(p.args[0], p.args[1], p.opts.note),
 	},
 	sweep: {
-		help: "Print findings about overdue thens, dead watches, and held events. `--apply` records each once; the default changes nothing and never closes a row.",
+		help: "Print findings about overdue thens and thens whose watch is gone. `--apply` records each once; the default changes nothing and never closes a row.",
 		opts: { apply: { flag: true, help: "record the findings" } },
 		run: (p) => sweep(p.flags.apply),
 	},
@@ -161,7 +161,7 @@ const COMMANDS: Record<string, Command> = {
 			host: { default: "local", help: "local, or the ssh host the pane lives on" },
 			result: { default: "", help: "the file the session writes its RESULT to" },
 			goal: { default: "", help: "one line: what it was asked to do" },
-			push: { flag: true, help: "the session reports its own events (omp wayne-agent-report extension)" },
+			push: { flag: true, help: "accepted and stored; every watch is probed and tailed alike" },
 			generation: { help: "the WAYNE_AGENT_GENERATION the session was launched with: only events stamped with it count" },
 		},
 		run: (p) => addAgent({ name: p.args[0], mux: p.opts.mux!, pane: p.opts.pane!, row: p.opts.row!, then: p.opts.then!, host: p.opts.host, result: p.opts.result, goal: p.opts.goal, push: p.flags.push, generation: p.opts.generation || undefined }),
@@ -175,9 +175,9 @@ const COMMANDS: Record<string, Command> = {
 		},
 		run: (p) => closeAgent(p.args[0], { ack: p.opts.ack, note: p.opts.note }),
 	},
-	"agent ls": { help: "Watched sessions: name, mux, host, pane, result, since, goal, push.", run: () => listAgents() },
+	"agent ls": { help: "Watched sessions: name, mux, host, pane, result, since, goal, phase (as last observed, plus ` closing`).", run: () => listAgents() },
 	"agent probe": {
-		help: "Probe every watched session once: record result / gone / stalled / blocked / idle events, send the progress digest when due.",
+		help: "Probe every watched session once: record result / ended / stalled / ask / idle events, send the progress digest when due.",
 		opts: {
 			"stall-min": { default: "30", help: "minutes with no output before a session counts as stalled" },
 			"digest-min": { default: "30", help: "minutes between progress digests" },

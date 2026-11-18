@@ -2,21 +2,25 @@
  * `inbox agent probe`: look at every watched agent session once and record what changed. A schedule job runs it.
  *
  * Per session it looks at three things, nothing in between (probe.sh does the looking, where the pane lives):
- *   - the start: is the pane (and the agent in it) still there;
+ *   - the start: is the pane still there, and is an agent process in it (tern, tmux: a pane back at its shell is gone);
  *   - the end:   has the RESULT file got its status line, and which;
  *   - the middle: is it still producing output. omp: the age of its session jsonl. herdr / hc: the agent state
- *     they report. tmux / anything else: whether the pane text changed since the last run. An agent waiting for its
- *     next prompt is idle, never stalled; idle with no RESULT means it ended its turn without writing one.
+ *     they report. A pane with no session file: whether the pane text changed since the last run. An agent waiting
+ *     for its next prompt is idle, never stalled; idle with no new RESULT means it ended its turn without one.
+ *
+ * What it saw goes into the watch's record (cli/observed.ts), the same record the event tailer writes, and a row is
+ * made when the record changes, so a turn end both sensors see is one row. A watch seen for the first time makes no
+ * row but a RESULT version nobody reported.
  *
  * Events (source `agents`, place = the session name):
  *   event=result  state=<status>               one row per RESULT version (sha256 of the newest RESULT*.md)
- *   event=gone    state=exited                 the pane or agent ended with no RESULT
- *   event=stalled state=quiet                  no output for --stall-min minutes; once per quiet spell
- *   event=blocked state=waiting                herdr or hc says the agent waits, or omp's last message is a pending ask
+ *   event=ended   state=gone                   no agent process in the pane any more; the note says how to resume it
+ *   event=stalled state=quiet                  working, and no output for --stall-min minutes; once per quiet spell
+ *   event=ask     state=<kind>                 the session waits on an answer; recorded on the second sighting
  *   event=idle    state=no-result              a turn ended and made no new result row
- * A session whose RESULT says `done` stays on the list. It comes off only by `inbox agent close`: an entry it marked
- * `closing` is probed on every pass, records only a new RESULT version, and is removed once its pane is gone.
- * Sessions that push their own events (the m365 inbox extension tails them) only get a digest line.
+ * A session that stops asking has its live ask rows archived. A session whose RESULT says `done` stays on the list.
+ * It comes off only by `inbox agent close`: an entry it marked `closing` records only a new RESULT version, and is
+ * removed once no agent is left in its pane.
  *
  * Progress digest (every --digest-min minutes): one self-chat progress card, sent by a headless omp or pi through
  * `teams_send` (`agents`: one row per session, status, idle minutes, the tail behind a tap; sessions that need the
@@ -24,7 +28,6 @@
  * plus its line without the `last activity` time, so a session turning to `waiting on question` with the same tail
  * is news. A card send that fails is logged and the same digest goes out as plain text. A send counts only when the
  * agent's JSON event stream shows one successful self-chat `teams_send` with the receipt and the arguments verbatim.
- * Run state is cursors/agent-watch.json, never rules.yaml.
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -34,9 +37,10 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { gunzipSync } from "node:zlib";
 import type { AgentRow, AgentStatus } from "../../teams/card.ts";
-import { legacyReported, readAgents, recordAgentRow, removeClosed, type AgentEntry } from "./agents.ts";
+import { askShown, legacyReported, minuteAtLeast, readAgents, recordAgentRow, removeClosed, resolveAsks, type AgentEntry } from "./agents.ts";
 import { agentArgv, runProcess } from "./jobs.ts";
 import { inboxFile, InboxError, readTsv } from "./ledger.ts";
+import { readObserved, updateObserved, type Observed, type Phase } from "./observed.ts";
 import { checkThens } from "./thens.ts";
 
 export interface Probe {
@@ -60,20 +64,17 @@ export interface Probe {
 	rquestions?: boolean;
 	/** gzip+base64 of the newest assistant line with a text item. Empty when the session has none. */
 	last?: string;
+	/** gzip+base64 of the session's last assistant line, when that line is an `ask` call still pending. */
+	ask?: string;
+	/** tern, tmux: the agent process in the pane, 0 when it holds only shells. Other muxes do not say. */
+	agent_pid?: number;
+	/** That process's working directory. */
+	cwd?: string;
 	now: number;
 	kind?: "jsonl" | "pane";
 	tail?: string;
 }
 
-interface SessionState {
-	last_active?: number;
-	last_seen?: number;
-	alive?: boolean;
-	text?: string;
-	/** The `last_active` of the turn end whose RESULT made a row: that turn end is not also a no-result row. */
-	result_turn?: number;
-}
-type State = Record<string, SessionState | { at: number }>;
 type Event = { key: string; event: string; state: string; note: string; link?: string };
 
 export interface ProbeOptions {
@@ -120,16 +121,16 @@ export async function runProbe(a: AgentEntry, want = false): Promise<Probe> {
 	const line = out.split("\n").at(-1) ?? "";
 	if (!line.startsWith("{")) throw new InboxError(`probe on ${host} printed no JSON: ${out.slice(0, 200)}`);
 	const probe = JSON.parse(line) as Probe;
-	for (const key of ["agent", "state", "session", "rstatus", "ropen_text", "rverified", "rfile"] as const) {
+	for (const key of ["agent", "state", "session", "rstatus", "ropen_text", "rverified", "rfile", "cwd"] as const) {
 		const value = probe[key];
 		if (typeof value === "string") probe[key] = Buffer.from(value, "base64").toString("utf8");
 	}
 	return probe;
 }
 
-/** What the session is doing, from one probe: the pane is gone, it waits on an answer, its turn ended, or it runs. */
-export function phaseOf(p: Probe): "working" | "asking" | "idle" | "gone" {
-	if (!p.alive) return "gone";
+/** What the session is doing, from one probe: no agent is left in the pane, it waits on an answer, its turn ended, or it runs. */
+export function phaseOf(p: Probe): Phase {
+	if (!p.alive || p.agent_pid === 0) return "gone";
 	if (p.state === "blocked") return "asking";
 	return p.waiting || p.state === "idle" || p.state === "done" ? "idle" : "working";
 }
@@ -202,9 +203,9 @@ const hhmm = (epoch: number) => {
 /** A session's digest line and its progress-card row. */
 type Entry = { line: string; row: AgentRow };
 
-/** One progress-card row (teams_send `agents`). */
-export function cardRow(a: AgentEntry, st: SessionState, now: number, status: AgentStatus, tail: string): AgentRow {
-	const idle = Math.floor(Math.max(0, now - (st.last_active ?? now)) / 60);
+/** One progress-card row (teams_send `agents`). `active`: epoch seconds of the session's last output, when known. */
+export function cardRow(a: AgentEntry, active: number | undefined, now: number, status: AgentStatus, tail: string): AgentRow {
+	const idle = Math.floor(Math.max(0, now - (active ?? now)) / 60);
 	return { name: a.name, host: a.host || "local", idle_min: idle, status, tail };
 }
 
@@ -222,11 +223,11 @@ export function cardStatus(p: Probe): AgentStatus {
 }
 
 /** A running session's entry, from the probe's tail. The tail may start mid-line; latestLine skips that. */
-function sessionEntry(a: AgentEntry, st: SessionState, p: Probe): Entry {
+function sessionEntry(a: AgentEntry, active: number | undefined, p: Probe): Entry {
 	const text = gunzipSync(Buffer.from(p.tail ?? "", "base64")).toString("utf8");
 	const latest = p.kind === "jsonl" ? latestLine(text) : paneLine(text);
-	const line = `- ${a.name} \u00b7 ${a.host || "local"} \u00b7 last activity ${hhmm(st.last_active ?? p.now)} \u00b7 ${latest}`;
-	return { line, row: cardRow(a, st, p.now, cardStatus(p), latest) };
+	const line = `- ${a.name} \u00b7 ${a.host || "local"} \u00b7 last activity ${hhmm(active ?? p.now)} \u00b7 ${latest}`;
+	return { line, row: cardRow(a, active, p.now, cardStatus(p), latest) };
 }
 
 /** What an entry says, minus its `last activity` time: the part compared with the last digest sent. The card status
@@ -292,51 +293,91 @@ function lastOutput(p: Probe): string {
 	return text.length <= LAST_CAP ? text : `\u2026${text.slice(-(LAST_CAP - 1))}`;
 }
 
-/** The events this run owes one session, and its probe. Updates `st` in place. */
-async function check(a: AgentEntry, st: SessionState, stallS: number, want: boolean, probe: NonNullable<ProbeOptions["probe"]>): Promise<{ events: Event[]; p: Probe }> {
-	const p = await probe(a, want);
+/** The pending ask a probe saw: the tool call's id and its question (omp `ask`: `questions[0]`, or the text of `html`). */
+function askOf(p: Probe): { id?: string; question?: string; options: string[] } {
+	if (!p.ask) return { options: [] };
+	const message = JSON.parse(gunzipSync(Buffer.from(p.ask, "base64")).toString("utf8"))?.message as { content?: unknown } | undefined;
+	const items = (Array.isArray(message?.content) ? message.content : []) as { type?: string; name?: string; id?: string; arguments?: { html?: unknown; questions?: unknown } }[];
+	const call = items.findLast((item) => item?.type === "toolCall" && item.name === "ask");
+	const first = (Array.isArray(call?.arguments?.questions) ? call.arguments.questions[0] : undefined) as { question?: unknown; options?: unknown } | undefined;
+	const html = call?.arguments?.html;
+	const question = typeof first?.question === "string" ? first.question : typeof html === "string" ? html.replace(/<[^>]*>/g, " ") : "";
+	const options = (Array.isArray(first?.options) ? first.options : [])
+		.map((o) => (typeof o === "string" ? o : String((o as { label?: unknown } | null)?.label ?? "")))
+		.filter(Boolean);
+	return { id: call?.id, question: oneLine(question) || undefined, options };
+}
+
+/** The id in an omp session file name (`<time>_<id>.jsonl`). */
+const sessionId = (file: string) => path.basename(file, ".jsonl").split("_").at(-1) ?? "";
+
+/**
+ * One probe against the watch's record: the record as it is after this probe, and the events the change owes.
+ * `prev` undefined is a first observation: it owes nothing but a RESULT version nobody reported.
+ */
+function observe(a: AgentEntry, prev: Observed | undefined, p: Probe, stallS: number): { next: Observed; events: Event[] } {
 	const now = p.now;
+	const phase = phaseOf(p);
+	const next: Observed = { ...prev, phase, at: now * 1000, by: "probe" };
 	const events: Event[] = [];
 	let active = p.smtime || 0;
-	// An empty capture (omp panes in tern give none) hashes the same every time and says nothing.
-	if (p.text && p.text !== EMPTY && p.text !== st.text) {
+	// A pane with no session file shows life only as changed text. An empty capture hashes the same every time and says nothing.
+	if (!p.session && p.text && p.text !== EMPTY && p.text !== prev?.text) {
 		active = Math.max(active, now);
-		st.text = p.text;
+		next.text = p.text;
 	}
 	if (p.state === "working") active = Math.max(active, now);
-	st.last_active = Math.max(st.last_active ?? now, active);
+	active = Math.max(prev?.active ?? now, active);
+	next.active = active;
+	// Kept when the agent is gone: the resume line needs it.
+	if (p.agent_pid) next.agent = { pid: p.agent_pid, session: sessionId(p.session), sessionFile: p.session, cwd: p.cwd ?? "" };
 	const version = p.rhash ?? "";
-	const settled = !p.alive || p.waiting || ["idle", "done", "blocked"].includes(p.state) || (!p.session && !p.state);
+	const settled = phase !== "working" || (!p.session && !p.state);
 	if (p.rstatus && version && settled && !legacyReported(a.name, p.rmtime)) {
 		const file = p.rfile && p.rfile !== (a.result ?? "") ? ` File: ${p.rfile}.` : "";
 		const open = p.ropen_text ? ` Open: ${p.ropen_text}.` : "";
 		events.push({ key: `result:${version}`, event: "result", state: p.rstatus, note: `RESULT status: ${p.rstatus}.${open}${file}`, link: p.rfile || a.result || "" });
 	}
-	if (!p.alive) {
-		const legacy = a.migratedGeneration === "legacy";
-		const knownGone = legacy && [...readTsv(inboxFile("ledger.tsv")), ...readTsv(inboxFile("archive.tsv"))].some((row) => row.key === `agents:${a.name}:gone`);
-		if (!knownGone) events.push({ key: "gone", event: "gone", state: "exited", note: "the pane ended with no RESULT" });
-	} else if (p.state === "blocked") {
-		events.push({ key: `blocked:${st.last_active}`, event: "blocked", state: "waiting", note: `${a.mux}: waiting on an approval or a question. Last output: ${lastOutput(p)}` });
+	if (phase !== "asking") delete next.ask;
+	// Asking with no sightings: the event tailer recorded this ask when it happened.
+	else if (!(prev?.phase === "asking" && !prev.ask)) {
+		const ask = askOf(p);
+		// A mux that only says "blocked" names no ask: the spell is one ask, from its first sighting.
+		const id = ask.id ?? prev?.ask?.id ?? String(active);
+		const sightings = prev?.ask?.id === id ? prev.ask.sightings + 1 : 1;
+		next.ask = { id, sightings };
+		// The second sighting: an ask answered between two probes is no row.
+		if (sightings === 2) {
+			const options = ask.options.length ? ` [options: ${ask.options.join(" | ")}]` : "";
+			events.push(ask.question
+				? { key: `ask:${id}`, event: "ask", state: "ask", note: `waiting on ask: ${ask.question}${options}` }
+				: { key: `ask:${id}`, event: "ask", state: "approval", note: `waiting on approval: ${a.mux} says the agent waits on an approval or a question. Last output: ${lastOutput(p)}` });
+		}
 	}
-	const quiet = now - st.last_active;
-	const waiting = p.waiting || p.state === "idle" || p.state === "done";
-	if (p.alive && p.state !== "blocked" && !waiting && quiet >= stallS)
-		events.push({ key: `stalled:${st.last_active}`, event: "stalled", state: "quiet", note: `no output for ${Math.floor(quiet / 60)} min` });
-	// A turn that ended without a new result row is read and given a verdict, so it is never silent. The caller drops
-	// this event when the pass made a result row; `result_turn` is the turn end that already has one.
-	if (p.alive && p.state !== "blocked" && waiting && st.result_turn !== st.last_active)
-		events.push({ key: `idle:${st.last_active}`, event: "idle", state: "no-result", note: `turn ended with no new RESULT. Last output: ${lastOutput(p)}` });
-	st.last_seen = now;
-	st.alive = p.alive;
-	return { events, p };
+	if (!prev) return { next, events };
+	if (phase === "gone" && prev.phase !== "gone") {
+		const agent = next.agent;
+		const resume = agent?.session
+			? ` Resume: ${agent.cwd ? `cd ${agent.cwd} && ` : ""}omp --resume ${agent.session}, then inbox agent add ${a.name} --mux ${a.mux} --pane <new pane>`
+			: "";
+		events.push({ key: `gone:${agent?.pid ?? a.since ?? ""}`, event: "ended", state: "gone", note: `no agent process in ${a.mux} pane ${a.pane} on ${a.host || "local"}. RESULT status: ${p.rstatus || "none"}.${resume}` });
+	}
+	const quiet = now - active;
+	if (phase === "working" && quiet >= stallS)
+		events.push({ key: `stalled:${active}`, event: "stalled", state: "quiet", note: `no output for ${Math.floor(quiet / 60)} min` });
+	// A turn end: the session was running or asking, or (a session with no reporter, whose turn began and ended
+	// between two probes) it was idle and has produced output since. It is read and given a verdict, so it is never
+	// silent; the caller drops this event when the pass made a result row.
+	if (phase === "idle" && (prev.phase === "working" || prev.phase === "asking" || (prev.phase === "idle" && prev.by === "probe" && active > (prev.active ?? 0))))
+		events.push({ key: `idle:${active}`, event: "idle", state: "no-result", note: `turn ended with no new RESULT. Last output: ${lastOutput(p)}` });
+	return { next, events };
 }
 
 function record(a: AgentEntry, e: Event): string {
 	return recordAgentRow({
 		source: "agents",
 		place: a.name,
-		key: e.event === "result" ? `agents:${a.name}:${e.key}` : `agents:${a.name}:${a.generation}:${e.key}`,
+		key: e.event === "stalled" || e.event === "idle" ? `agents:${a.name}:${a.generation}:${e.key}` : `agents:${a.name}:${e.key}`,
 		subject: `agent ${a.name}`,
 		note: a.goal ? `${e.note.replace(/\.$/, "")}. Goal: ${a.goal}` : e.note,
 		link: e.link || a.result || "",
@@ -344,35 +385,35 @@ function record(a: AgentEntry, e: Event): string {
 	});
 }
 
-/** One probe pass over every watched session. Returns the log lines; throws (after saving state) when anything failed. */
+/**
+ * A no-result row of the session was made at or after its last output: a tailer that does not write the record (a
+ * coordinator still running an older build) already reported this turn end. The tag finds a row whose note a
+ * verdict rewrote; the note finds it under rules that tag it otherwise.
+ */
+function turnEndShown(name: string, active: number): boolean {
+	return [...readTsv(inboxFile("ledger.tsv")), ...readTsv(inboxFile("archive.tsv"))].some((row) =>
+		row.source === "agents" && row.key.startsWith(`agents:${name}:`) && (row.tag === "agent-no-result" || row.note.startsWith("turn ended with no ")) && minuteAtLeast(row.first_seen, active));
+}
+
+/** One probe pass over every watched session. Returns the log lines; throws when anything failed. */
 export async function probeAgents(o: ProbeOptions): Promise<string> {
 	const probe = o.probe ?? runProbe;
 	const out: string[] = [];
 	const log = o.log ?? ((l: string) => out.push(l));
 	const post = o.post ?? ((d: string, rows: AgentRow[]) => postDigest(d, rows, o.agent, log));
-	const stateFile = inboxFile("cursors", "agent-watch.json");
 	const agents = readAgents();
-	const state: State = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
+	const before = readObserved();
 	const now = Math.floor((o.now ?? Date.now)() / 1000);
-	const last = (state[DIGEST] as { at?: number } | undefined)?.at;
+	const last = before.digest?.at;
 	const digestDue = !o.noDigest && (last === undefined || now - last >= o.digestMin * 60);
-	const sessions = (name: string) => (state[name] ??= {}) as SessionState;
 	const lines: [string, Entry][] = [];
 	const errors: string[] = [];
 	const fail = (name: string, e: unknown) => errors.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
 	// Probes run side by side (each can wait on ssh); events are recorded in list order.
 	const probed = await Promise.all(
 		agents.map(async (a) => {
-			const st = sessions(a.name);
 			try {
-				if (a.push && !a.closing) {
-					if (!digestDue) return { a };
-					const p = await probe(a, true);
-					st.last_active = Math.max(st.last_active ?? 0, p.smtime || 0) || p.now;
-					st.last_seen = p.now;
-					return { a, entry: p.alive ? sessionEntry(a, st, p) : undefined };
-				}
-				return { a, ...(await check(a, st, o.stallMin * 60, digestDue, probe)) };
+				return { a, p: await probe(a, digestDue) };
 			} catch (e) {
 				return { a, error: e };
 			}
@@ -380,48 +421,57 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 	);
 	for (const r of probed) {
 		const { a } = r;
-		const st = sessions(a.name);
-		if ("error" in r) {
+		if (!("p" in r)) {
 			fail(a.name, r.error);
 			if (digestDue) {
 				const cause = String(r.error instanceof Error ? r.error.message : r.error).slice(0, 200);
 				const line = `- ${a.name} \u00b7 ${a.host || "local"} \u00b7 probe failed: ${cause}`;
-				lines.push([a.name, { line, row: cardRow(a, st, now, "probe failed", cause) }]);
+				lines.push([a.name, { line, row: cardRow(a, before.watches[a.name]?.active, now, "probe failed", cause) }]);
 			}
 			continue;
 		}
-		if ("entry" in r) {
-			if (r.entry) lines.push([a.name, r.entry]);
-			continue;
-		}
-		if (!("events" in r) || !r.events || !r.p) continue;
-		if (digestDue && r.p.alive) {
-			try {
-				lines.push([a.name, sessionEntry(a, st, r.p)]);
-			} catch (e) {
-				fail(`${a.name}: digest line`, e);
-			}
-		}
+		const { p } = r;
 		try {
-			const made: string[] = [];
-			let recorded = false;
-			let resultNew = false;
-			const add = (e: Event) => {
-				const out = record(a, e);
-				if (/^(do|notify) /.test(out)) {
-					recorded = true;
-					if (e.event === "result") resultNew = true;
+			// The record changes and its rows are written under the record's lock, and the record is saved only when
+			// every row was: a failed row is owed again on the next pass, and the tailer cannot report the same change.
+			const seen = await updateObserved((state) => {
+				const prev = state.watches[a.name];
+				// An event newer than this probe already told what happened since.
+				if (prev && prev.at > p.now * 1000) return { made: [], recorded: false, active: prev.active };
+				const { next, events } = observe(a, prev, p, o.stallMin * 60);
+				const made: string[] = [];
+				let recorded = false;
+				let resultNew = false;
+				if (prev?.phase === "asking" && next.phase !== "asking") {
+					const ids = resolveAsks(a.name);
+					if (ids.length) made.push(`${a.name}: ask resolved -> archived ${ids.join(" ")}`);
 				}
-				made.push(`${a.name}: ${e.event} ${e.state} -> ${out}`);
-			};
-			// An acknowledged close owes nothing but a RESULT version it has not reported yet.
-			const events = a.closing ? r.events.filter((event) => event.event === "result") : r.events;
-			for (const e of events.filter((event) => event.event !== "idle")) add(e);
-			if (resultNew) st.result_turn = st.last_active;
-			else for (const e of events.filter((event) => event.event === "idle")) add(e);
-			if (a.closing && !r.p.alive && removeClosed(a)) made.push(`${a.name}: closed, pane gone -> watch removed`);
-			for (const line of made) log(line);
-			if (recorded) {
+				const add = (e: Event) => {
+					const reply = record(a, e);
+					if (/^(do|notify) /.test(reply)) {
+						recorded = true;
+						if (e.event === "result") resultNew = true;
+					}
+					made.push(`${a.name}: ${e.event} ${e.state} -> ${reply}`);
+				};
+				// An acknowledged close owes nothing but a RESULT version it has not reported yet.
+				const owed = (a.closing ? events.filter((e) => e.event === "result") : events)
+					.filter((e) => !(e.event === "ask" && askShown(a.name)) && !(e.event === "idle" && turnEndShown(a.name, next.active ?? 0)));
+				for (const e of owed.filter((event) => event.event !== "idle")) add(e);
+				if (!resultNew) for (const e of owed.filter((event) => event.event === "idle")) add(e);
+				state.watches[a.name] = next;
+				return { made, recorded, active: next.active };
+			});
+			if (digestDue && p.alive) {
+				try {
+					lines.push([a.name, sessionEntry(a, seen.active, p)]);
+				} catch (e) {
+					fail(`${a.name}: digest line`, e);
+				}
+			}
+			if (a.closing && phaseOf(p) === "gone" && removeClosed(a)) seen.made.push(`${a.name}: closed, pane gone -> watch removed`);
+			for (const line of seen.made) log(line);
+			if (seen.recorded) {
 				// The probe child runs this build. A coordinator that has not restarted still matches a generation-prefixed
 				// key and would not fire on a version row, so the then is checked here, in this process.
 				for (const line of await checkThens()) log(line);
@@ -431,25 +481,28 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 		}
 	}
 	// Only new information goes out: an entry equal to the one last sent for that session is dropped.
-	const fresh = lines.filter(([name, e]) => unchanged(e) !== sessions(name).digested);
+	const fresh = lines.filter(([name, e]) => unchanged(e) !== before.watches[name]?.digested);
+	let sent = false;
 	if (digestDue && lines.length && !fresh.length) {
 		log("progress digest due, nothing changed since the last one; not sent");
-		state[DIGEST] = { at: now };
+		sent = true;
 	} else if (digestDue && fresh.length) {
 		const digest = `agent progress ${hhmm(now)} \u00b7 ${fresh.length} changed\n${fresh.map(([, e]) => e.line).join("\n")}`;
 		try {
 			log(`progress digest: ${await post(digest, fresh.map(([, e]) => e.row))}`);
-			state[DIGEST] = { at: now };
-			for (const [name, e] of fresh) sessions(name).digested = unchanged(e);
+			sent = true;
 		} catch (e) {
 			fail("progress digest not sent", e);
 		}
 	}
-	const keep = new Set([...agents.map((a) => a.name), DIGEST]);
-	const saved = Object.fromEntries(Object.entries(state).filter(([k]) => keep.has(k)));
-	fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-	fs.writeFileSync(`${stateFile}.tmp`, JSON.stringify(saved, null, 1));
-	fs.renameSync(`${stateFile}.tmp`, stateFile);
+	await updateObserved((state) => {
+		// A record of a name that is no longer watched is dropped here; the list is read again, for an add made meanwhile.
+		const watched = new Set(readAgents().map((a) => a.name));
+		for (const name of Object.keys(state.watches)) if (!watched.has(name)) delete state.watches[name];
+		if (!sent) return;
+		state.digest = { at: now };
+		for (const [name, e] of fresh) if (state.watches[name]) state.watches[name].digested = unchanged(e);
+	});
 	if (errors.length) throw new InboxError([...out, ...errors].join("\n"));
 	return out.join("\n");
 }

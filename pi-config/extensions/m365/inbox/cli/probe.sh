@@ -5,10 +5,25 @@
 # text and its newest todo result (a long tool-only run cannot push them out), else the pane text.
 # RESULT is a path. The file read is the newest `RESULT*.md` in its directory: a run directory belongs to one watch,
 # so two watches must not share one. None means no result.
+# tern and tmux also say which process in the pane is the agent (`agent_pid`, 0 when the pane holds only shells)
+# and where it runs (`cwd`). `ask` is the session's last assistant line when that line is an `ask` call still pending.
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
 mux=$1 pane=$2 result=$3 want=$4
 # `cap` is the one capture per run. `printf x` keeps its trailing newlines, so the hash matches the old pipe.
-alive=false agent= state= session= text= cap= mux_error=
+alive=false agent= state= session= text= cap= mux_error= agent_pid=0
+# The agent under process $1: among it and every descendant (nearest first), the one that holds a session jsonl,
+# else the first whose command is not a shell. `bash -lc "omp …"` leaves bash in front and omp as its child.
+find_agent() {
+	[ -n "$1" ] || return 0
+	for p in $(ps -eo pid=,ppid= | awk -v root="$1" '
+		{ kids[$2] = kids[$2] " " $1 }
+		END { todo = root; while (todo != "") { n = split(todo, q, " "); todo = ""; for (i = 1; i <= n; i++) { print q[i]; todo = todo kids[q[i]] } } }'); do
+		s=$(ls -l /proc/$p/fd 2>/dev/null | grep -oE '/[^ ]*/sessions/[^/ ]+/[^/ ]+\.jsonl$' | head -1)
+		c=$(cat /proc/$p/comm 2>/dev/null)
+		if [ -n "$s" ]; then session=$s agent=$c agent_pid=$p; break; fi
+		case $c in ''|bash|sh|zsh|fish|dash|ksh) ;; *) [ "$agent_pid" = 0 ] && agent=$c agent_pid=$p ;; esac
+	done
+}
 run_mux() {
 	tmp=$(mktemp)
 	"$@" >"$tmp" 2>&1
@@ -57,12 +72,7 @@ tern)
   elif [ $? -eq 2 ]; then alive=error; fi
   pid=$(printf '%s' "$info" | sed -n 's/.*"foreground": *{ *"pid": *\([0-9]*\).*/\1/p' | head -1)
   [ -z "$pid" ] && pid=$(printf '%s' "$info" | tr -d '\n' | sed -n 's/.*"foreground": *{[^}]*"pid": *\([0-9]*\).*/\1/p')
-  # `bash -lc "omp …"` (how goal sessions are launched) leaves bash in front and omp as its child.
-  for p in $pid $(pgrep -P "$pid" 2>/dev/null); do
-    s=$(ls -l /proc/$p/fd 2>/dev/null | grep -oE '/[^ ]*/sessions/[^/ ]+/[^/ ]+\.jsonl$' | head -1)
-    if [ -n "$s" ]; then session=$s agent=$(cat /proc/$p/comm 2>/dev/null); break; fi
-    [ -z "$agent" ] && agent=$(cat /proc/$p/comm 2>/dev/null)
-  done
+  find_agent "$pid"
   capture_mux tern capture "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { capture_failed; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 herdr)
@@ -84,15 +94,17 @@ hc)
   [ "$mux_status" -eq 0 ] && cap=$(printf %s "$mux_output" | tail -c 20000) || { capture_failed; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 tmux)
-  capture_mux tmux display-message -p -t "$pane" '#{pane_dead}'
-  if [ "$mux_status" -eq 0 ]; then printf %s "$value" | grep -qx 0 && alive=true
+  capture_mux tmux display-message -p -t "$pane" '#{pane_dead} #{pane_pid}'
+  if [ "$mux_status" -eq 0 ]; then
+    case $value in "0 "*|0) alive=true ;; esac
+    find_agent "$(printf %s "$value" | sed -n 's/^[01] \([0-9][0-9]*\).*/\1/p')"
   elif [ "$mux_status" -eq 2 ]; then alive=error; fi
-  agent=$(run_mux tmux display-message -p -t "$pane" '#{pane_current_command}' >/dev/null || true; printf '%s' "$mux_output")
+  [ -z "$agent" ] && agent=$(run_mux tmux display-message -p -t "$pane" '#{pane_current_command}' >/dev/null || true; printf '%s' "$mux_output")
   capture_mux tmux capture-pane -p -t "$pane"; [ "$mux_status" -eq 0 ] && cap=$value || { capture_failed; cap=; }
   text=$(printf '%s' "$cap" | md5sum | cut -c1-16) ;;
 esac
 [ "$alive" = error ] && { printf 'probe command failed: %s\n' "$mux_error" >&2; exit 1; }
-smtime=0 waiting=false
+smtime=0 waiting=false ask64=
 if [ -n "$session" ]; then
   smtime=$(stat -c %Y "$session" 2>/dev/null || echo 0)
   # omp waits for input when its last message is an assistant turn that ended (not a tool call).
@@ -100,7 +112,7 @@ if [ -n "$session" ]; then
   case $last in
     *'"role":"assistant"'*)
       case $last in
-        *'"stopReason":"toolUse"'*) case $last in *'"name":"ask","arguments":'*) [ -z "$state" ] && state=blocked ;; esac ;;
+        *'"stopReason":"toolUse"'*) case $last in *'"name":"ask","arguments":'*) [ -z "$state" ] && state=blocked; ask64=$(printf '%s' "$last" | gzip -c | base64 -w0) ;; esac ;;
         *'"stopReason":"'*) waiting=true ;;
       esac ;;
   esac
@@ -128,6 +140,11 @@ if [ -n "$rfile" ] && [ -f "$rfile" ]; then
   ropen=$(printf '%s' "$ropen_text" | md5sum | cut -c1-16)
 fi
 extra=
+case $mux in tern|tmux)
+  cwd=
+  [ "$agent_pid" != 0 ] && cwd=$(readlink "/proc/$agent_pid/cwd" 2>/dev/null)
+  extra=",\"agent_pid\":$agent_pid,\"cwd\":\"$(printf %s "$cwd" | base64 -w0)\"" ;;
+esac
 # The newest assistant line that carries a text item, from the same 200 KB tail the wait check reads.
 last64=
 if [ -n "$session" ]; then
@@ -142,8 +159,8 @@ if [ "$want" = 1 ]; then
     tail64=$( { grep -F '"message":{"role":"assistant"' "$session" | grep -F '"type":"text"' | tail -n 20
                 grep -F '"message":{"role":"toolResult"' "$session" | grep -F '"toolName":"todo"' | tail -n 1; } | gzip -c | base64 -w0)
   else kind=pane; tail64=$(printf '%s' "$cap" | gzip -c | base64 -w0); fi
-  extra=",\"kind\":\"$kind\",\"tail\":\"$tail64\""
+  extra="$extra,\"kind\":\"$kind\",\"tail\":\"$tail64\""
 fi
 b64() { printf %s "$1" | base64 -w0; }
-printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rfile":"%s","rhash":"%s","rstatus":"%s","ropen":"%s","ropen_text":"%s","rverified":"%s","rquestions":%s,"last":"%s","now":%s%s}\n' \
-  "$alive" "$(b64 "$agent")" "$(b64 "$state")" "$(b64 "$session")" "$smtime" "$waiting" "$text" "$rmtime" "$(b64 "$rfile")" "$rhash" "$(b64 "$rstatus")" "$ropen" "$(b64 "$ropen_text")" "$(b64 "$rverified")" "$rquestions" "$last64" "$(date +%s)" "$extra"
+printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rfile":"%s","rhash":"%s","rstatus":"%s","ropen":"%s","ropen_text":"%s","rverified":"%s","rquestions":%s,"last":"%s","ask":"%s","now":%s%s}\n' \
+  "$alive" "$(b64 "$agent")" "$(b64 "$state")" "$(b64 "$session")" "$smtime" "$waiting" "$text" "$rmtime" "$(b64 "$rfile")" "$rhash" "$(b64 "$rstatus")" "$ropen" "$(b64 "$ropen_text")" "$(b64 "$rverified")" "$rquestions" "$last64" "$ask64" "$(date +%s)" "$extra"

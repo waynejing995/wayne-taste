@@ -3,8 +3,9 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
-import { addEvent, clean, InboxError, inboxFile, readTsv, stamp, supersedeSession, withLock, withRulesLock, type AddEvent } from "./ledger.ts";
+import { addEvent, clean, finishRows, InboxError, inboxFile, readTsv, stamp, supersedeSession, withLedger, withLock, withRulesLock, type AddEvent, type Row } from "./ledger.ts";
 import { phaseOf, resultOf, runProbe, type Probe } from "./probe.ts";
+import { readObserved } from "./observed.ts";
 import { addThen, readThens, thenDone } from "./thens.ts";
 import { AGENT_LIST, readList, writeList } from "./lists.ts";
 
@@ -58,7 +59,7 @@ export async function addAgent(a: { name: string; mux: string; pane: string; row
 	if (a.result) entry.result = a.result;
 	if (a.goal) entry.goal = clean(a.goal);
 	if (a.push) entry.push = true;
-	// Seconds, not minutes: the push tailer tells a re-registration of the same name by a changed `since`.
+	// Seconds, not minutes: a close and the probe tell a re-registration of the same name by a changed `since`.
 	entry.since = stamp(new Date(), true);
 	// The launch's own id when the session was started with WAYNE_AGENT_GENERATION: its events carry it.
 	entry.generation = a.generation ?? randomUUID();
@@ -170,7 +171,7 @@ export function killGuard(command: string, agents: AgentEntry[]): string | undef
 const VERSION_KEY = /^agents:[^:]+:result:[0-9a-f]{16}$/;
 
 /** A local minute stamp (`YYYY-MM-DD HH:MM`) is at least the minute of `mtime` (epoch seconds). */
-function minuteAtLeast(stampText: string, mtime: number): boolean {
+export function minuteAtLeast(stampText: string, mtime: number): boolean {
 	const at = Date.parse(stampText.replace(" ", "T"));
 	return Number.isFinite(at) && at + 60_000 > mtime * 1000;
 }
@@ -231,9 +232,33 @@ function record(ev: AddEvent): string {
 	return out;
 }
 
-/** One tab-separated line per session: name, mux, host, pane, result, since, goal, push. */
+/** A live, unclaimed row of the session that says what it waits on: an ask row of this build, or an older build's ask or blocked row. */
+function isAsk(row: Row, name: string): boolean {
+	const prefix = `agents:${name}:`;
+	if (row.source !== "agents" || row.tag === "ask-wayne" || row.state !== "open" || !row.key.startsWith(prefix)) return false;
+	return row.tag === "agent-ask" || row.key.startsWith(`${prefix}ask:`) || row.key.includes(":blocked:") || row.note.startsWith("waiting on ");
+}
+
+/** A live row already shows the session's ask. */
+export function askShown(name: string): boolean {
+	return readTsv(inboxFile("ledger.tsv")).some((row) => isAsk(row, name));
+}
+
+/** The session stopped asking: its live, unclaimed ask rows are archived. Returns their ids. */
+export function resolveAsks(name: string): string[] {
+	return withLedger((rows, save) => {
+		const asks = rows.filter((row) => isAsk(row, name));
+		const ids = asks.map((row) => row.id);
+		for (const row of asks) row.note = clean(`${row.note} [ask resolved in the session]`);
+		if (ids.length) finishRows(rows, ids, undefined, save);
+		return ids;
+	});
+}
+
+/** One tab-separated line per session: name, mux, host, pane, result, since, goal, phase (plus ` closing`). */
 export function listAgents(): string {
+	const watches = readObserved().watches;
 	return readAgents()
-		.map((a) => [a.name, a.mux, a.host, a.pane, a.result, a.since, a.goal].map((v) => String(v ?? "")).concat(a.push ? "push" : "").join("\t"))
+		.map((a) => [a.name, a.mux, a.host, a.pane, a.result, a.since, a.goal, `${watches[a.name]?.phase ?? ""}${a.closing ? " closing" : ""}`.trim()].map((v) => String(v ?? "")).join("\t"))
 		.join("\n");
 }

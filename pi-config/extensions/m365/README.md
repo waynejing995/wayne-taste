@@ -103,6 +103,27 @@ that card (`--force` or not) and names `inbox then-done`; it also refuses the ro
 outcome, whom to reply to, what to close) is armed as an `agent-result:<name>` then on that row, against the RESULT
 version that already exists. A result row is one per RESULT version, and a session keeps one live attention row.
 
+Each watch has one record in `cursors/agents.json` (`inbox/cli/observed.ts`): its phase (working, asking, idle, gone),
+when and by whom it was last seen, and the agent process last seen in the pane (pid, session, cwd). Two sensors write
+it under one lock, and neither keeps a copy in memory: `inbox agent probe` looks at every watch on each run, and the
+plugin tails the reporter events of every watch (`agent-events.jsonl`, locally or over ssh; its own state is only the
+byte cursors in `cursors/agent-events.json`). An observation older than the record is dropped, and a row is made on a
+change of the record by whichever sensor sees it first, so a turn end both see is one row. A first observation makes
+no row but a RESULT version nobody reported; the record of a name that is no longer watched is deleted on the next
+probe; an event of a name that is not watched is dropped.
+
+| Change | Row |
+| --- | --- |
+| turn end with a new RESULT version | `event=result`, key `agents:<name>:result:<version>` |
+| turn end without one | `event=idle state=no-result`, the note carries the last output |
+| the session asks | `event=ask`, key `agents:<name>:ask:<id>`, the note carries the question and its options. The tailer records it at once, the probe on its second sighting (an ask answered between two probes is no row) and only when no live row already shows it |
+| the session stops asking | its live, unclaimed ask rows are archived (`[ask resolved in the session]`) |
+| no agent process in the pane (probe only; tern and tmux: the pane holds only shells) | `event=ended state=gone`, key `agents:<name>:gone:<agent pid>`, the note says how to resume: `cd <cwd> && omp --resume <session>`, then `inbox agent add` on the new pane |
+| working, and quiet for `--stall-min` | `event=stalled` |
+
+A reporter's heartbeat and exit make no row and no phase: only the probe says a session is gone. `inbox agent ls`
+ends each line with the phase last recorded (plus ` closing`).
+
 Only `inbox agent close <name>` ends a watch. Alone, it probes the session and prints, as its error, whether the pane
 is alive, its phase (working, asking, idle, gone), idle minutes, the newest RESULT file with its version, `status`,
 `open` and `verified` lines, and the watch's open thens; nothing is closed. `--ack <version> --note <what you

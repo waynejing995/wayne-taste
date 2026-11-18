@@ -15,6 +15,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import YAML from "yaml";
+import { AgentTailer } from "../agents.ts";
+import { inbox } from "../cli/main.ts";
 import { CARD_PROMPT, cardStatus, latestLine, paneLine, phaseOf, probeAgents, runProbe } from "../cli/probe.ts";
 
 let failed = 0;
@@ -107,7 +109,7 @@ const ENV_KEYS = ["PATH", "HOME", "WAYNE_INBOX_DIR", "FAKE_OMP_LOG", "FAKE_OMP_M
 
 function makeFixture(dir) {
 	const rulesFile = path.join(dir, "rules.yaml");
-	const stateFile = path.join(dir, "cursors", "agent-watch.json");
+	const stateFile = path.join(dir, "cursors", "agents.json");
 	const ledgerFile = path.join(dir, "ledger.tsv");
 	const f = {
 		dir,
@@ -118,12 +120,12 @@ function makeFixture(dir) {
 		logs: [],
 		children: [],
 		/** Watch `name` with a fake probe; rewrites rules.yaml's agent_watch from every session watched so far. */
-		watch(name, behaviour, push = false, generation = "11111111-1111-4111-8111-111111111111", migrated = false) {
+		watch(name, behaviour, push = false, generation = "11111111-1111-4111-8111-111111111111") {
 			f.behaviour[name] = behaviour;
 			if (push) f.push.add(name);
 			else f.push.delete(name);
 			const rows = Object.keys(f.behaviour).map((n) => ({
-				name: n, mux: "tern", pane: "1", host: "local", result: "", generation, ...(migrated ? { migratedGeneration: "legacy" } : {}), ...(f.push.has(n) ? { push: true } : {}),
+				name: n, mux: "tern", pane: "1", host: "local", result: "", generation, ...(f.push.has(n) ? { push: true } : {}),
 			}));
 			fs.writeFileSync(rulesFile, YAML.stringify({ agents: { "*": [{ action: "notify", tag: "agent" }] }, agent_watch: rows }));
 		},
@@ -429,7 +431,7 @@ await check("first run sends one digest and records its time", () =>
 		const lines = digest.split("\n");
 		strictEqual(lines[0], `agent progress ${HHMM}${DOT}1 changed`);
 		strictEqual(lines[1], `- alpha${DOT}local${DOT}working${DOT}tail latest answer`);
-		strictEqual(f.state()._digest.at, T0);
+		strictEqual(f.state().digest.at, T0);
 	}),
 );
 
@@ -440,7 +442,7 @@ await check("a run two minutes later sends nothing", () =>
 		f.now = T0 + 120;
 		await f.run();
 		strictEqual(f.sent().length, 1);
-		strictEqual(f.state()._digest.at, T0);
+		strictEqual(f.state().digest.at, T0);
 	}),
 );
 
@@ -451,7 +453,7 @@ await check("an unchanged session is not resent and a changed one is", () =>
 		f.now = T0 + 30 * 60;
 		await f.run();
 		strictEqual(f.sent().length, 1, "same line as the last digest: nothing new, nothing sent");
-		strictEqual(f.state()._digest.at, T0 + 30 * 60);
+		strictEqual(f.state().digest.at, T0 + 30 * 60);
 		f.watch("alpha", paneLive);
 		f.now = T0 + 60 * 60;
 		await f.run();
@@ -496,71 +498,27 @@ await check("one probe per session, and the session tail is asked only when a di
 	}),
 );
 
-await check("a finished push session gets only a digest line and is not removed", () =>
-	withFixture(async (f) => {
-		f.watch("alpha", finished, true);
-		await f.run();
-		const [digest] = f.sent();
-		strictEqual(digest.split("\n")[1], `- alpha${DOT}local${DOT}done${DOT}tail latest answer`);
-		deepStrictEqual(f.probes, [["alpha", true]]);
-		strictEqual(f.calls().length, 1);
-		deepStrictEqual(f.state().alpha, { last_active: T0, last_seen: T0, digested: `done:- alpha${DOT}local${DOT}tail latest answer` });
-		deepStrictEqual(f.watchedNames(), ["alpha"]);
-
-		f.now = T0 + 120;
-		await f.run();
-		deepStrictEqual(f.probes, [["alpha", true]]);
-		strictEqual(f.calls().length, 1);
-		ok("alpha" in f.state());
-	}),
-);
-
-await check("a legacy probe registration is migrated and kept after completion", () =>
+await check("a registration with no generation is migrated and kept after completion", () =>
 	withFixture(async (f) => {
 		f.watch("alpha", finished);
 		const rules = YAML.parse(fs.readFileSync(path.join(f.dir, "rules.yaml"), "utf8"));
 		delete rules.agent_watch[0].generation;
 		fs.writeFileSync(path.join(f.dir, "rules.yaml"), YAML.stringify(rules));
 		await f.run();
-		ok(!f.ledgerKeys().some((key) => key.endsWith(":gone")), f.ledgerKeys().join(","));
 		deepStrictEqual(f.watchedNames(), ["alpha"]);
 	}),
 );
 
-await check("an archived legacy gone key is not recorded again", () =>
+await check("a watch first seen with no agent in its pane makes no row: an older build reported it", () =>
 	withFixture(async (f) => {
-		f.watch("alpha", dead, false, "11111111-1111-4111-8111-111111111111", true);
-		fs.writeFileSync(path.join(f.dir, "archive.tsv"), "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink\n1\tagents:alpha:gone\t\t\t\t\t\t\t\t\t\n");
-		await f.run();
-		ok(!f.ledgerKeys().some((key) => key.endsWith(":gone")), f.ledgerKeys().join(","));
-	}),
-);
-
-await check("a new generation emits gone after an archived legacy key", () =>
-	withFixture(async (f) => {
-		fs.writeFileSync(path.join(f.dir, "archive.tsv"), "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink\n1\tagents:alpha:gone\t\t\t\t\t\t\t\t\t\n");
-		f.watch("alpha", dead, false, "legacy-generation");
-		await f.run();
 		f.watch("alpha", dead);
 		await f.run();
-		deepStrictEqual(f.reportedKeys("agents:alpha:"), ["agents:alpha:gone", "agents:alpha:legacy-generation:gone", "agents:alpha:11111111-1111-4111-8111-111111111111:gone"]);
-		deepStrictEqual(f.ledgerKeys("agents:alpha:"), ["agents:alpha:11111111-1111-4111-8111-111111111111:gone"], "one live row per session");
+		f.now = T0 + 120;
+		await f.run();
+		deepStrictEqual(f.reportedKeys("agents:alpha:"), []);
+		strictEqual(f.state().watches.alpha.phase, "gone");
 	}),
 );
-
-for (const [label, behaviour] of [
-	["probe", broken],
-	["line", (now, want) => ({ ...ompLive(now, want), tail: "bad" })],
-]) {
-	await check(`a push session whose ${label} fails reports the probe failure in the digest`, () =>
-		withFixture(async (f) => {
-			f.watch("alpha", behaviour, true);
-			await failsWith(f.run(), "alpha:");
-			strictEqual(f.calls().length, 1);
-			ok(f.sent()[0].split("\n").some((line) => line.startsWith(`- alpha${DOT}local${DOT}probe failed${DOT}`)), f.sent()[0]);
-		}),
-	);
-}
 
 for (const waiting of [false, true]) {
 	await check(`a blocked session (waiting=${waiting}) never emits stalled or idle`, () =>
@@ -571,9 +529,9 @@ for (const waiting of [false, true]) {
 			await f.run();
 			// Event lines read `<name>: <event> <state> -> <ledger reply>`; digest lines are not events.
 			const events = f.logs.filter((l) => l.includes(" -> ")).map((l) => l.replace(/ -> .*/, ""));
-			// Keyed on last_active (first seen at T0), so the same key every run; the ledger keeps one row for it.
-			deepStrictEqual([...new Set(events)], ["alpha: blocked waiting"]);
-			deepStrictEqual(f.ledgerKeys("agents:alpha:"), [`agents:alpha:11111111-1111-4111-8111-111111111111:blocked:${T0}`]);
+			// A mux that names no ask: the spell is keyed on the last output (first seen at T0), recorded on its second sighting.
+			deepStrictEqual(events, ["alpha: ask approval"]);
+			deepStrictEqual(f.ledgerKeys("agents:alpha:"), [`agents:alpha:ask:${T0}`]);
 		}),
 	);
 }
@@ -595,7 +553,7 @@ for (const [label, behaviour, calls = 0, digest = false] of [
 			f.watch("alpha", behaviour);
 			await f.run();
 			strictEqual(f.calls().length, calls);
-			if (!digest) ok(!("_digest" in f.state()));
+			if (!digest) ok(!("digest" in f.state()));
 		}),
 	);
 }
@@ -604,7 +562,7 @@ await check("no sessions watched sends nothing", () =>
 	withFixture(async (f) => {
 		await f.run();
 		strictEqual(f.calls().length, 0);
-		ok(!("_digest" in f.state()));
+		ok(!("digest" in f.state()));
 	}),
 );
 
@@ -664,20 +622,22 @@ await check("a then armed on a RESULT version does not fire on its row; the next
 	}),
 );
 
-await check("after a done RESULT the watch still reports blocked and gone", () =>
+await check("after a done RESULT the watch still reports an ask and the agent's exit", () =>
 	withFixture(async (f) => {
 		const done = (p) => ({ ...p, rmtime: T0, rstatus: "done", rhash: HASH, waiting: true });
 		f.watch("alpha", (now, want) => done(ompLive(now, want)));
 		await f.run();
 		strictEqual(f.ledgerKeys("agents:alpha:result:").length, 1);
 		f.watch("alpha", (now, want) => done(blocked(false)(now, want)));
-		f.now = T0 + 120;
-		await f.run();
-		strictEqual(f.ledgerKeys(`agents:alpha:${GEN}:blocked:`).length, 1, "blocked after done");
+		for (const at of [120, 240]) {
+			f.now = T0 + at;
+			await f.run();
+		}
+		strictEqual(f.ledgerKeys("agents:alpha:ask:").length, 1, "an ask after done");
 		f.watch("alpha", (now) => done(dead(now)));
-		f.now = T0 + 240;
+		f.now = T0 + 360;
 		await f.run();
-		strictEqual(f.ledgerKeys(`agents:alpha:${GEN}:gone`).length, 1, "gone after done");
+		deepStrictEqual(f.ledgerKeys("agents:alpha:"), ["agents:alpha:gone:"], "gone after done; the ask row is archived");
 		deepStrictEqual(f.watchedNames(), ["alpha"], "the watch stays");
 	}),
 );
@@ -696,7 +656,7 @@ await check("a failed first send fails the run and records no digest time", () =
 		f.mode("exit");
 		f.watch("alpha", ompLive);
 		await failsWith(f.run(), "boom: no teams token");
-		ok(!("_digest" in f.state()));
+		ok(!("digest" in f.state()));
 	}),
 );
 
@@ -719,9 +679,9 @@ for (const [label, mode, agent, cause, ran] of FAILED_SENDS) {
 			await failsWith(f.run({ agent }), cause);
 			strictEqual(f.calls().length, ran ? 3 : 1, "card, then text; a failed send is not retried inside the run");
 			const state = f.state();
-			deepStrictEqual(state._digest, { at: T0 });
-			strictEqual(state.alpha.last_seen, T0 + 30 * 60);
-			ok(state.alpha.digested.endsWith("tail latest answer"), "the unsent line is not recorded as sent");
+			deepStrictEqual(state.digest, { at: T0 });
+			strictEqual(state.watches.alpha.at, (T0 + 30 * 60) * 1000);
+			ok(state.watches.alpha.digested.endsWith("tail latest answer"), "the unsent line is not recorded as sent");
 		}),
 	);
 }
@@ -736,7 +696,7 @@ await check("a probe failure for one session still sends the digest", () =>
 		strictEqual(lines[0], `agent progress ${HHMM}${DOT}2 changed`);
 		ok(lines.includes(`- beta${DOT}local${DOT}probe failed${DOT}ssh: connect refused`), digest);
 		ok(lines.includes(`- alpha${DOT}local${DOT}working${DOT}tail latest answer`), digest);
-		strictEqual(f.state()._digest.at, T0);
+		strictEqual(f.state().digest.at, T0);
 	}),
 );
 
@@ -744,9 +704,9 @@ await check("the digest goes out as the progress card", () =>
 	withFixture(async (f) => {
 		f.watch("alpha", ompLive);
 		f.watch("beta", (now, want) => ({ ...ompLive(now, want), state: "blocked", waiting: true, smtime: now - 45 * 60 }));
-		// Seen before with the same pane, active 45 min ago: an unchanged pane is no new activity.
+		// Seen before, active 45 min ago: the idle minutes count from the session's last output.
 		fs.mkdirSync(path.join(f.dir, "cursors"), { recursive: true });
-		fs.writeFileSync(path.join(f.dir, "cursors", "agent-watch.json"), JSON.stringify({ beta: { last_active: T0 - 45 * 60, text: "pane-hash" } }));
+		fs.writeFileSync(path.join(f.dir, "cursors", "agents.json"), JSON.stringify({ watches: { beta: { phase: "asking", at: (T0 - 120) * 1000, by: "probe", active: T0 - 45 * 60 } } }));
 		await f.run();
 		const [card] = f.cards();
 		strictEqual(card.target, "self");
@@ -770,8 +730,8 @@ await check("a refused card falls back to the text digest", () =>
 		const [, text] = f.sent();
 		strictEqual(text.split("\n")[1], `- alpha${DOT}local${DOT}last activity ${HHMM}${DOT}tail latest answer`);
 		ok(f.logs.includes(`progress digest: ${SELF_RECEIPT}`), f.logs.join("\n"));
-		strictEqual(f.state()._digest.at, T0);
-		strictEqual(f.state().alpha.digested, `working:- alpha${DOT}local${DOT}tail latest answer`);
+		strictEqual(f.state().digest.at, T0);
+		strictEqual(f.state().watches.alpha.digested, `working:- alpha${DOT}local${DOT}tail latest answer`);
 	}),
 );
 
@@ -781,7 +741,7 @@ await check("a card or text send whose arguments differ from the digest does not
 		f.watch("alpha", ompLive);
 		await failsWith(f.run(), "teams_send message differs");
 		ok(f.logs.some((l) => l.startsWith("progress card not sent")), f.logs.join("\n"));
-		ok(!("_digest" in f.state()));
+		ok(!("digest" in f.state()));
 	}),
 );
 
@@ -1119,19 +1079,6 @@ await check("a failing tern process query is an operational error", () =>
 	}),
 );
 
-await check("same-second registrations record separate gone events", () =>
-	withFixture(async (f) => {
-		f.behaviour.alpha = () => ({ alive: false, agent: "", state: "", session: "", smtime: 0, waiting: false, text: "", rmtime: 0, rstatus: "", now: f.now });
-		f.behaviour.beta = f.behaviour.alpha;
-		const rows = ["alpha", "beta"].map((name, i) => ({ name, mux: "tern", pane: "1", host: "local", result: "", since: "2026-11-12 20:00:00", generation: `g${i}` }));
-		fs.writeFileSync(path.join(f.dir, "rules.yaml"), YAML.stringify({ agents: { "*": [{ action: "notify", tag: "agent" }] }, agent_watch: rows }));
-		const out = await probeAgents({ stallMin: 30, digestMin: 30, noDigest: true, now: () => f.now * 1000, probe: async (a) => f.behaviour[a.name]() });
-		const keys = fs.readFileSync(path.join(f.dir, "ledger.tsv"), "utf8").split("\n").filter((line) => line.includes("gone"));
-		strictEqual(new Set(keys).size, 2);
-
-	}),
-);
-
 await check("real tern capture keeps trailing newlines and status", () => withFixture(async (f) => {
 	const tern = path.join(process.env.HOME, ".local", "bin", "tern");
 	fs.mkdirSync(path.dirname(tern), { recursive: true });
@@ -1207,8 +1154,10 @@ await check("one live row per session: a second row archives the first, a claime
 	withFixture(async (f) => {
 		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), state: "blocked" }));
 		await f.run({ noDigest: true });
+		f.now = T0 + 60;
+		await f.run({ noDigest: true });
 		const ledger = fs.readFileSync(path.join(f.dir, "ledger.tsv"), "utf8").split("\n");
-		const blocked = ledger.find((line) => line.includes(":blocked:"));
+		const blocked = ledger.find((line) => line.includes(":ask:"));
 		ok(blocked, ledger.join("\n"));
 		const claimed = blocked.replace("\topen\t", "\tclaimed\t");
 		fs.writeFileSync(path.join(f.dir, "ledger.tsv"), ledger.map((line) => (line === blocked ? claimed : line)).join("\n"));
@@ -1217,7 +1166,7 @@ await check("one live row per session: a second row archives the first, a claime
 		f.now = T0 + 120;
 		await f.run({ noDigest: true });
 		const live = fs.readFileSync(path.join(f.dir, "ledger.tsv"), "utf8");
-		ok(live.includes(":blocked:") && live.includes("claimed"), "a claimed row stays live");
+		ok(live.includes(":ask:") && live.includes("claimed"), "a claimed row stays live");
 		ok(live.includes(`agents:alpha:result:${hash}`), live);
 		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true }));
 		f.now = T0 + 240;
@@ -1249,6 +1198,177 @@ await check("an agent idle awaiting review is not counted as needing the user", 
 		await f.run();
 		const [card] = f.cards();
 		deepStrictEqual(card.agents.map((r) => [r.name, r.status]), [["alpha", "idle"], ["beta", "waiting on question"]]);
+	}),
+);
+
+// ---- one state record per watch (cursors/agents.json), written by the probe and by the event tailer ----
+
+const gz = (value) => gzipSync(Buffer.from(value)).toString("base64");
+const askCall = (id, question) => ({ type: "message", message: { role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall", id, name: "ask", arguments: { questions: [{ id: "q", question, options: [{ label: "yes" }, { label: "no" }] }] } }] } });
+const asking = (id, question) => (now, want) => ({ ...ompLive(now, want), state: "blocked", ask: gz(jsonl(askCall(id, question))) });
+const idleNow = (now, want) => ({ ...ompLive(now, want), waiting: true });
+const ledgerLines = (f, file = "ledger.tsv") => (fs.existsSync(path.join(f.dir, file)) ? fs.readFileSync(path.join(f.dir, file), "utf8").split("\n").slice(1).filter(Boolean) : []);
+/** Feed reporter events for `alpha` through the real tailer, recording through the real CLI. */
+async function tail(f, ...events) {
+	fs.appendFileSync(path.join(f.dir, "agent-events.jsonl"), events.map(([type, at, extra = {}], i) => `${JSON.stringify({ v: 1, ts: new Date(at * 1000).toISOString(), name: "alpha", pid: 17, session: "sess", seq: at * 10 + i, type, ...extra })}\n`).join(""));
+	const warnings = [];
+	const tailer = new AgentTailer({ dir: f.dir, inbox, warn: (w) => warnings.push(w) });
+	tailer.start();
+	await tailer.poke();
+	tailer.stop();
+	deepStrictEqual(warnings, []);
+}
+
+await check("both sensors on one turn end make one row", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		await f.run({ noDigest: true });
+		// The probe comes first: the event of the same turn end adds nothing.
+		f.watch("alpha", idleNow);
+		f.now = T0 + 120;
+		await f.run({ noDigest: true });
+		await tail(f, ["idle", T0 + 121, { text: "round one over" }]);
+		strictEqual(f.reportedKeys("agents:alpha:").length, 1, f.reportedKeys("agents:alpha:").join(" "));
+		strictEqual(f.state().watches.alpha.phase, "idle");
+		// The event comes first: the probe that then sees the ended turn adds nothing.
+		await tail(f, ["working", T0 + 180], ["idle", T0 + 200, { text: "round two over" }]);
+		f.now = T0 + 240;
+		await f.run({ noDigest: true });
+		strictEqual(f.reportedKeys("agents:alpha:").length, 2, f.reportedKeys("agents:alpha:").join(" "));
+		strictEqual(f.ledgerKeys("agents:alpha:").length, 1, "one live row per session");
+		ok(ledgerLines(f)[0].includes("Last output: round two over"), ledgerLines(f)[0]);
+	}),
+);
+
+await check("an old event after a newer probe changes nothing", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		await f.run({ noDigest: true });
+		f.now = T0 + 300;
+		await f.run({ noDigest: true });
+		const before = f.state().watches.alpha;
+		await tail(f, ["idle", T0 + 100, { text: "an old turn end" }], ["ask", T0 + 101, { ask: { kind: "ask", question: "old?" } }]);
+		deepStrictEqual(f.reportedKeys("agents:alpha:"), []);
+		deepStrictEqual(f.state().watches.alpha, before);
+		strictEqual(before.by, "probe");
+	}),
+);
+
+await check("gone is a pane that holds only a shell; the row carries the resume line of the stored agent", () =>
+	withFixture(async (f) => {
+		const session = f.writeSession(jsonl(toolTurn()));
+		const pane = path.join(f.dir, "pane.txt");
+		fs.writeFileSync(pane, "pane\n");
+		const agentPid = await f.holdPane(session);
+		f.writeTern(agentPid, pane);
+		f.watch("alpha", null);
+		const real = { noDigest: true, probe: (a, want) => runProbe(a, want) };
+		await f.run(real);
+		const seen = f.state().watches.alpha;
+		strictEqual(seen.phase, "working");
+		deepStrictEqual(seen.agent, { pid: agentPid, session: "s", sessionFile: session, cwd: process.cwd() });
+		// The agent exited; the pane is back at its shell.
+		const shell = spawn("bash", ["-c", "read x; :"], { stdio: ["pipe", "ignore", "ignore"] });
+		f.children.push(shell);
+		f.writeTern(shell.pid, pane);
+		const p = await runProbe({ name: "alpha", mux: "tern", pane: "1", host: "local", result: "" }, false);
+		strictEqual(p.alive, true);
+		strictEqual(p.agent_pid, 0);
+		strictEqual(phaseOf(p), "gone");
+		f.now = T0 + 120;
+		await f.run(real);
+		deepStrictEqual(f.ledgerKeys("agents:alpha:"), [`agents:alpha:gone:${agentPid}`]);
+		const [line] = ledgerLines(f);
+		ok(line.includes(`no agent process in tern pane 1 on local. RESULT status: none. Resume: cd ${process.cwd()} && omp --resume s, then inbox agent add alpha --mux tern --pane <new pane>`), line);
+		ok(f.logs.some((l) => l.startsWith("alpha: ended gone -> ")), f.logs.join("\n"));
+		deepStrictEqual(f.state().watches.alpha.agent, seen.agent, "the agent is kept after gone");
+		f.now = T0 + 240;
+		await f.run(real);
+		strictEqual(f.reportedKeys("agents:alpha:").length, 1, "gone is reported once");
+	}),
+);
+
+await check("a first ask sighting makes no row, the second makes one with the question, a resolved ask archives it", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", asking("toolu_9", "ship it now?"));
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.reportedKeys("agents:alpha:"), []);
+		deepStrictEqual(f.state().watches.alpha.ask, { id: "toolu_9", sightings: 1 });
+		f.now = T0 + 120;
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.ledgerKeys("agents:alpha:"), ["agents:alpha:ask:toolu_9"]);
+		ok(ledgerLines(f)[0].includes("waiting on ask: ship it now? [options: yes | no]"), ledgerLines(f)[0]);
+		ok(f.logs.some((l) => l.startsWith("alpha: ask ask -> ")), f.logs.join("\n"));
+		f.now = T0 + 240;
+		await f.run({ noDigest: true });
+		strictEqual(f.reportedKeys("agents:alpha:").length, 1, "a third sighting adds nothing");
+		f.watch("alpha", ompLive);
+		f.now = T0 + 360;
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.ledgerKeys("agents:alpha:"), []);
+		const [archived] = ledgerLines(f, "archive.tsv");
+		ok(archived.includes("agents:alpha:ask:toolu_9") && archived.includes("[ask resolved in the session]"), archived);
+		strictEqual(f.state().watches.alpha.ask, undefined);
+	}),
+);
+
+await check("a probed ask makes no row while a live row of the session already says what it waits on", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		await f.run({ noDigest: true });
+		await tail(f, ["ask", T0 + 10, { ask: { kind: "ask", question: "ship it now?" } }]);
+		strictEqual(f.ledgerKeys("agents:alpha:ask:").length, 1);
+		f.watch("alpha", asking("toolu_9", "ship it now?"));
+		for (const at of [120, 240, 360]) {
+			f.now = T0 + at;
+			await f.run({ noDigest: true });
+		}
+		strictEqual(f.reportedKeys("agents:alpha:").length, 1, f.reportedKeys("agents:alpha:").join(" "));
+	}),
+);
+
+await check("an ask the session reports is a row at once, and its answer archives the row", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", ompLive);
+		await tail(f, ["ask", T0 + 10, { ask: { id: "toolu_3", kind: "ask", question: "which branch?", options: ["main", "dev"] } }]);
+		deepStrictEqual(f.ledgerKeys("agents:alpha:"), ["agents:alpha:ask:toolu_3"]);
+		ok(ledgerLines(f)[0].includes("waiting on ask: which branch? [options: main | dev]"), ledgerLines(f)[0]);
+		strictEqual(f.state().watches.alpha.phase, "asking");
+		await tail(f, ["ask-resolved", T0 + 20]);
+		deepStrictEqual(f.ledgerKeys("agents:alpha:"), []);
+		ok(ledgerLines(f, "archive.tsv")[0].includes("[ask resolved in the session]"), ledgerLines(f, "archive.tsv")[0]);
+		strictEqual(f.state().watches.alpha.phase, "working");
+	}),
+);
+
+await check("a push entry is probed like any other", () =>
+	withFixture(async (f) => {
+		const hash = "f".repeat(16);
+		f.watch("alpha", (now, want) => ({ ...finished(now, want), waiting: true, rhash: hash, rfile: "/runs/RESULT.md" }), true);
+		await f.run({ noDigest: true });
+		f.now = T0 + 120;
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.probes, [["alpha", false], ["alpha", false]]);
+		deepStrictEqual(f.reportedKeys("agents:alpha:result:"), [`agents:alpha:result:${hash}`]);
+		strictEqual(f.state().watches.alpha.by, "probe");
+	}),
+);
+
+await check("the record of a name that is no longer watched is deleted on the next probe; the old state files are ignored", () =>
+	withFixture(async (f) => {
+		fs.mkdirSync(path.join(f.dir, "cursors"), { recursive: true });
+		fs.writeFileSync(path.join(f.dir, "cursors", "agent-watch.json"), JSON.stringify({ alpha: { last_active: T0 - 7200, alive: true }, _digest: { at: T0 } }));
+		f.watch("alpha", idleNow);
+		f.watch("beta", ompLive);
+		await f.run();
+		strictEqual(f.sent().length, 1, "the old digest time is not read");
+		deepStrictEqual(f.reportedKeys("agents:"), [], "a first observation makes no row");
+		deepStrictEqual(Object.keys(f.state().watches).sort(), ["alpha", "beta"]);
+		delete f.behaviour.alpha;
+		f.watch("beta", ompLive);
+		f.now = T0 + 120;
+		await f.run();
+		deepStrictEqual(Object.keys(f.state().watches), ["beta"]);
 	}),
 );
 

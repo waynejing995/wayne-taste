@@ -28,7 +28,7 @@ outlook: # fields: from, flagged (yes | no). Watched by the session that runs `/
       action: notify
     - action: ignore
 
-agents: # fields: event (result | idle | ask | ended | dead | gone | stalled | blocked), state, mux, host. Place = session name; "*" = any session
+agents: # fields: event (result | idle | ask | ended | stalled), state, mux, host. Place = session name; "*" = any session
   "*":
     - when: { event: result }
       tag: agent-result
@@ -38,15 +38,15 @@ agents: # fields: event (result | idle | ask | ended | dead | gone | stalled | b
       tag: agent-no-result
       action: do
       owner: coordinator
-    - when: { event: ask } # pushed: the session waits on an `ask` or a tool approval; relay the question
+    - when: { event: ask } # the session waits on an `ask` or a tool approval; relay the question
       tag: agent-ask
       action: do
       owner: coordinator
-    - when: { event: [ended, dead] } # pushed: omp exited, or no heartbeat (dead process)
+    - when: { event: [ended, dead] } # no agent process is left in the pane; the note says how to resume it. `dead` is no longer produced
       tag: agent-ended
       action: do
       owner: coordinator
-    - when: { event: [gone, stalled, blocked] } # probed (sessions without push)
+    - when: { event: [gone, stalled, blocked] } # stalled: working, and quiet too long. `gone` and `blocked` are no longer produced
       tag: agent-trouble
       action: notify
 

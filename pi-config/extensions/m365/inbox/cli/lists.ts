@@ -22,7 +22,7 @@ export interface ListSection {
 export const AGENT_LIST: ListSection = {
 	key: "agent_watch",
 	header:
-		"# Agent sessions to watch (tern / herdr / hc / tmux). Written by `inbox agent add|close`; probed by `inbox agent probe`, tailed by the m365 inbox extension (push: true).\n",
+		"# Agent sessions to watch (tern / herdr / hc / tmux). Written by `inbox agent add|close`; probed by `inbox agent probe`, tailed by the m365 inbox extension.\n",
 };
 
 export const SCHEDULE_LIST: ListSection = {

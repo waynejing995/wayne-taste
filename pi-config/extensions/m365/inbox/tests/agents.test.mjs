@@ -57,7 +57,7 @@ function fixture(extra = {}) {
 		rows.set(key, [...args]);
 		return `do ${rows.size} tag`;
 	};
-	const opts = { dir, inbox, now: () => clock, deadSec: 300, warn: (message) => warnings.push(message), onChange: () => { changeCount += 1; changes.emit("change"); }, ...extra };
+	const opts = { dir, inbox, now: () => clock, warn: (message) => warnings.push(message), onChange: () => { changeCount += 1; changes.emit("change"); }, ...extra };
 	let tailer = new AgentTailer(opts);
 	const watched = (name = "one", host = "local", since = "2026-11-09 00:00", generation = "11111111-1111-4111-8111-111111111111") => ({ name, host, since, generation, mux: "tern", pane: name, push: true });
 	const event = (type, seq, overrides = {}) => ({ v: 1, ts: new Date(clock).toISOString(), name: "one", host: "localhost", pid: 17, session: "session", seq, type, ...overrides });
@@ -81,6 +81,13 @@ function fixture(extra = {}) {
 		since() { return new Date(clock + 8 * 3600_000).toISOString().slice(0, 19).replace("T", " "); },
 		fail(value) { failAdd = value; },
 		saved() { return JSON.parse(fs.readFileSync(cursor, "utf8")); },
+		/** The local byte cursor. No cursor file yet is a fresh start, at 0. */
+		offset() { return fs.existsSync(cursor) ? JSON.parse(fs.readFileSync(cursor, "utf8")).hosts.local.offset : 0; },
+		/** The watches' records (cursors/agents.json): the state the tailer shares with the probe. */
+		observed() {
+			const file = path.join(dir, "cursors", "agents.json");
+			return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")).watches : {};
+		},
 		close() { tailer.stop(); fs.rmSync(dir, { recursive: true, force: true }); },
 		changeCount() { return changeCount; },
 	};
@@ -109,7 +116,7 @@ await check("ask maps question, options, goal and fields", () => withFixture(asy
 	f.append(f.event("ask", 1, { ask: { kind: "ask", question: "Choose?", options: ["yes", "no"] } }));
 	await f.tailer.poke();
 	const row = [...f.rows.values()][0];
-	equal(arg(row, "--key"), "agents:one:11111111-1111-4111-8111-111111111111:session:1");
+	equal(arg(row, "--key"), "agents:one:ask:session:1");
 	equal(arg(row, "--subject"), "agent one");
 	equal(arg(row, "--note"), "waiting on ask: Choose? [options: yes | no]. Goal: ship safely");
 	equal(arg(row, "--link"), "/result");
@@ -128,7 +135,7 @@ await check("idle and done result map output and keep the watch", () => withFixt
 	equal(arg(result, "--note"), "RESULT status: done. Last output: finished");
 	equal(arg(result, "--link"), "/answer");
 	deepStrictEqual(f.calls.filter((c) => c[0] === "agent" && c[1] === "rm"), [], "a done RESULT does not remove the watch");
-	equal(f.saved().names.one.status, "done");
+	equal(f.observed().one.phase, "idle");
 }));
 
 await check("a legacy push registration migrates on first start and stays after a done result", () => withFixture(async (f) => {
@@ -141,26 +148,6 @@ await check("a legacy push registration migrates on first start and stays after 
 	f.append(f.event("result", 1, { text: "finished", result: { status: "done", path: "/answer" } }));
 	await f.tailer.poke();
 	ok(f.tailer.entries.length === 1, "a done RESULT leaves the migrated registration");
-}));
-await check("a re-registration survives result cleanup", () => withFixture(async (f) => {
-	const first = { ...f.watched(), generation: "old" };
-	await f.start([first]);
-	let release;
-	const held = new Promise((resolve) => { release = resolve; });
-	f.tailer.add = async () => held;
-	f.append(f.event("result", 1, { text: "finished", result: { status: "done", path: "/answer" } }));
-	const running = f.tailer.poke();
-	await new Promise((resolve) => setTimeout(resolve, 20));
-	const next = { ...f.watched(), generation: "new", since: "2026-11-09 00:01" };
-	f.writeRules([next]);
-	release();
-	await running;
-
-	equal(f.saved().names.one.generation, "old", "the result does not remove it, so the re-registration is not applied mid-add");
-	equal(f.saved().names.one.removed, undefined);
-	equal(f.saved().names.one.state, "result");
-	equal(f.saved().names.one.session, "session");
-	equal(f.saved().names.one.status, "done");
 }));
 
 await check("an old session's first result after a re-registration keeps the replacement", () => withFixture(async (f) => {
@@ -222,7 +209,7 @@ await check("a stamped --host registration whose first event arrives after regis
 			await f.tailer.tick();
 		}
 		deepStrictEqual([...f.rows.values()].filter((row) => fields(row).includes("event=dead")), []);
-		match(f.tailer.describe(), /one@wayne@trace-srdc: started/);
+		equal(f.observed().one?.by, "event", "the remote stream's unstamped events reach the stamped watch");
 	}, { spawn: () => {
 		const child = new EventEmitter();
 		child.stdout = stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true;
@@ -247,16 +234,6 @@ await check("a launch removed after its RESULT and added again in the same secon
 	equal(f.calls.filter((c) => c[0] === "agent").length, 0, "neither round removes the registration");
 }));
 
-await check("heartbeats of a replaced launch are not held, so they cannot push out a newer launch's early events", () => withFixture(async (f) => {
-	await f.start([{ ...f.watched(), generation: "launch-0002", stamped: true }]);
-	f.append(f.event("ask", 1, { generation: "launch-0003", ask: { kind: "ask", question: "which host?" } }));
-	for (let seq = 2; seq < 70; seq++) f.append(f.event("hb", seq, { generation: "launch-0001" }));
-	await f.tailer.poke();
-	f.writeRules([{ ...f.watched(), generation: "launch-0003", stamped: true }]);
-	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:launch-0003:session:1"]);
-}));
-
 await check("a late result from the session that retired the old registration keeps the re-registration", () => withFixture(async (f) => {
 	const first = { ...f.watched(), generation: "old" };
 	await f.start([first]);
@@ -277,7 +254,7 @@ await check("a late result from the session that retired the old registration ke
 	deepStrictEqual(f.calls.filter((c) => c[0] === "agent" && c[1] === "rm"), []);
 }));
 
-await check("each RESULT version makes its row; the same version again does not", () => withFixture(async (f) => {
+await check("each RESULT version makes its row; the same version again does not; an exit makes no row", () => withFixture(async (f) => {
 	await f.start();
 	const partial = (seq, open, text) => f.event("result", seq, { text, result: { status: "partial", path: "/r", open, version: String(seq === 2 ? 1 : seq).padStart(16, "0") } });
 	f.append(partial(1, "confirm TRACE_PUBLIC_URL in prod .env", "waiting"));
@@ -291,7 +268,7 @@ await check("each RESULT version makes its row; the same version again does not"
 	f.append(f.event("ask", 5, { ask: { kind: "ask", question: "Go?", options: ["yes", "no"] } }));
 	f.append(f.event("ended", 6));
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:2", "agents:one:result:0000000000000003", "agents:one:11111111-1111-4111-8111-111111111111:session:4", "agents:one:11111111-1111-4111-8111-111111111111:session:5", "agents:one:11111111-1111-4111-8111-111111111111:session:6"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:2", "agents:one:result:0000000000000003", "agents:one:ask:session:4", "agents:one:ask:session:5"]);
 }));
 
 await check("ssh gets a validated host after -- and rejects an option-shaped host", () => {
@@ -317,12 +294,13 @@ await check("a repeated turn end of the same RESULT version is one result row an
 	equal(f.calls.filter((call) => call[0] === "add").length, 3, "the second turn end: the version is seen, then exactly one no-result add");
 }));
 
-await check("heartbeat and activity events do not add rows", () => withFixture(async (f) => {
+await check("heartbeat and activity events add no row; activity moves the record", () => withFixture(async (f) => {
 	await f.start();
 	for (const [i, type] of ["hb", "working", "started", "ask-resolved"].entries()) f.append(f.event(type, i));
 	await f.tailer.poke();
 	equal(f.rows.size, 0);
-	equal(f.saved().names.one.state, "ask-resolved");
+	const seen = f.observed().one;
+	deepStrictEqual([seen.phase, seen.by, seen.agent], ["working", "event", { pid: 17, session: "session", sessionFile: "", cwd: "" }]);
 }));
 
 await check("partial UTF-8 line waits for its newline", () => withFixture(async (f) => {
@@ -332,7 +310,7 @@ await check("partial UTF-8 line waits for its newline", () => withFixture(async 
 	f.append(bytes.subarray(0, split));
 	await f.tailer.poke();
 	equal(f.rows.size, 0);
-	equal(f.saved().hosts.local.offset, 0);
+	equal(f.offset(), 0);
 	f.append(bytes.subarray(split));
 	await f.tailer.poke();
 	equal(f.rows.size, 1);
@@ -371,7 +349,7 @@ await check("failed add leaves the cursor and retries in order", () => withFixtu
 	f.fail(true);
 	await f.tailer.poke();
 	equal(f.rows.size, 0);
-	equal(f.saved().hosts.local.offset, 0);
+	equal(f.offset(), 0);
 	match(f.tailer.status(), /ledger unavailable/);
 	f.fail(false);
 	await f.tailer.poke();
@@ -379,23 +357,9 @@ await check("failed add leaves the cursor and retries in order", () => withFixtu
 	equal(f.saved().hosts.local.offset, fs.statSync(f.file).size);
 }));
 
-await check("heartbeat expiry emits exactly one dead row", () => withFixture(async (f) => {
-	await f.start();
-	f.append(f.event("working", 1));
-	await f.tailer.poke();
-	f.advance(301_000);
-	await f.tailer.tick();
-	await f.tailer.tick();
-	equal(f.rows.size, 1);
-	const row = [...f.rows.values()][0];
-	deepStrictEqual(fields(row).slice(0, 2), ["event=dead", "state=no-heartbeat"]);
-	match(arg(row, "--note"), /^no heartbeat for 301 s \(last event working at /);
-}));
-
-await check("link down suppresses remote death", () => withFixture(async (f) => {
+await check("a dropped remote stream shows as link down, with ssh's last error, and makes no row", () => withFixture(async (f) => {
 	await f.start([f.watched("one", "fakehost")]);
 	await f.waitUntil(() => f.tailer.status().includes("fakehost link down"));
-	f.advance(900_000);
 	await f.tailer.tick();
 	equal(f.rows.size, 0);
 	match(f.tailer.describe(), /exit 1: disconnected/);
@@ -406,40 +370,18 @@ await check("link down suppresses remote death", () => withFixture(async (f) => 
 	return child;
 } }));
 
-await check("never-started registration produces a diagnostic", () => withFixture(async (f) => {
-	await f.start();
-	f.advance(301_000);
-	await f.tailer.tick();
-	const row = [...f.rows.values()][0];
-	deepStrictEqual(fields(row).slice(0, 2), ["event=dead", "state=never-started"]);
-	match(arg(row, "--note"), /reporter never started .*not linked on local/);
-}));
-
-await check("heartbeat keeps a running reporter alive", () => withFixture(async (f) => {
-	await f.start();
-	f.append(f.event("working", 1));
-	await f.tailer.poke();
-	f.advance(290_000);
-	f.append(f.event("hb", 2));
-	await f.tailer.poke();
-	f.advance(20_000);
-	await f.tailer.tick();
-	equal(f.rows.size, 0);
-}));
-
-await check("events before registration survive restart and replay", () => withFixture(async (f) => {
+await check("an event of a name that is not watched is dropped: a later registration gets no row for it", () => withFixture(async (f) => {
 	await f.start([f.watched("other")]);
 	f.append(f.event("idle", 1, { text: "early" }));
 	await f.tailer.poke();
 	equal(f.rows.size, 0);
-	equal(f.saved().names.one.pending.length, 1);
+	equal(f.offset(), fs.statSync(f.file).size, "the cursor moves past it");
 	await f.restart();
 	f.writeRules([f.watched("other"), f.watched("one")]);
 	await f.tailer.poke();
-	equal(f.rows.size, 1);
-	match(arg([...f.rows.values()][0], "--note"), /early/);
-
-	equal(f.saved().names.one.pending, undefined);
+	equal(f.rows.size, 0);
+	deepStrictEqual(f.observed(), {}, "and no record: the probe is what looks at a session added later");
+	deepStrictEqual(f.warnings, []);
 }));
 
 await check("unchanged rules are not reread", () => withFixture(async (f) => {
@@ -458,90 +400,26 @@ await check("unchanged rules are not reread", () => withFixture(async (f) => {
 	equal(reads, 1);
 }));
 
-await check("a pending done result replayed on registration is recorded and keeps the watch", () => withFixture(async (f) => {
-	await f.start([f.watched("other")]);
-	f.append(f.event("result", 1, { text: "done", result: { status: "done", path: "/answer" } }));
-	f.append(f.event("idle", 2, { text: "after" }));
-	await f.tailer.poke();
-	equal(f.rows.size, 0);
-	f.writeRules([f.watched("other"), f.watched("one")]);
-	await f.tailer.poke();
-	equal(f.rows.size, 2, "the result and the later idle are both recorded");
-	deepStrictEqual(f.calls.filter((c) => c[0] === "agent"), []);
-	equal(f.saved().names.one.removed, undefined);
-	equal(f.saved().names.one.pending, undefined);
-	equal(f.warnings.length, 0);
-}));
-
-// Live bug (layerfs-impl rows 1365-1372): an old reporter (no generation, WAYNE_AGENT_RESULT fixed at launch) re-added
-// for the next round while idle. A turn end held while the name was unwatched is the add's own: it is recorded on
-// registration even though it ended before the add's `since`.
-const oldReporter = (f, type, seq, ts, extra = {}) => ({ ...f.event(type, seq, extra), ts: new Date(ts).toISOString() });
-const done = { result: { status: "done", path: "/home/w/runs/x/RESULT.md" } };
-
-await check("a re-add records the turn end held while the name was unwatched, though it ended before the add", () => withFixture(async (f) => {
-	const t0 = Date.parse("2026-11-09T00:00:00.000Z");
-	await f.start([]);
-	f.append(oldReporter(f, "result", 1, t0 + 1_000, { text: "round 1 ended unwatched", ...done }));
-	await f.tailer.poke();
-	equal(f.rows.size, 0, "held while unwatched");
-	f.advance(60_000);
-	f.writeRules([{ ...f.watched("one", "local", f.since()), generation: "round-2" }]);
-	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:round-2:session:1"]);
-	match(arg([...f.rows.values()][0], "--note"), /round 1 ended unwatched/);
-	ok(!f.warnings.some((w) => /ended before registration/.test(w)), f.warnings.join("\n"));
-}));
-
-await check("a replayed held event with an old timestamp does not rewind lastSeen, so no dead row follows", () => withFixture(async (f) => {
-	const t0 = Date.parse("2026-11-09T00:00:00.000Z");
-	await f.start([]);
-	f.append(f.event("working", 1, { ts: new Date(t0 - 3600_000).toISOString() }));
-	await f.tailer.poke();
-	equal(f.saved().names.one.pending.length, 1);
-	f.advance(400_000);
-	f.writeRules([f.watched("one")]);
-	await f.tailer.poke();
-	equal(f.saved().names.one.lastSeen, t0 + 400_000, "the held event's old time does not move lastSeen back");
-	f.advance(100_000);
-	await f.tailer.tick();
-	equal(f.rows.size, 0, "no dead row: the session was silent for 100 s, not for an hour");
-}));
-
-
-await check("an unstamped add replays a held turn that ended after the add's time, and a stamped add replays its launch's earlier turn", () => withFixture(async (f) => {
-	const t0 = Date.parse("2026-11-09T00:00:00.000Z");
-	await f.start([f.watched("other")]);
-	f.append(oldReporter(f, "result", 1, t0, { text: "same second", ...done }));
-	f.append({ ...oldReporter(f, "result", 2, t0 - 3_600_000, { text: "launch's own, before add", ...done }), name: "two", generation: "launch-2" });
-	await f.tailer.poke();
-	f.writeRules([f.watched("other"), f.watched("one", "local", f.since()), { ...f.watched("two"), generation: "launch-2", stamped: true }]);
-	await f.tailer.poke();
-	equal(f.rows.size, 2);
-}));
-
-await check("the same RESULT version again is a no-result row, not a second result card; the exit is recorded", () => withFixture(async (f) => {
+await check("the same RESULT version again is a no-result row, not a second result card; an exit makes no row", () => withFixture(async (f) => {
 	await f.start();
 	f.append(f.event("result", 1, { text: "done", result: { status: "done", path: "/answer", version: "0000000000000001" } }));
 	await f.tailer.poke();
 	equal(f.rows.size, 1);
-	deepStrictEqual(f.calls.filter((c) => c[0] === "agent"), [], "the watch stays");
 	f.append(f.event("result", 2, { text: "late", result: { status: "done", path: "/answer", version: "0000000000000001" } }));
 	f.append(f.event("ended", 3));
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:2", "agents:one:11111111-1111-4111-8111-111111111111:session:3"], "the same version is seen; the exit is recorded");
-	equal(f.saved().names.one.removed, undefined);
-	equal(f.saved().names.one.pending, undefined);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:2"], "the same version is seen; the exit is no row");
+	equal(f.observed().one.phase, "idle", "an exit says no phase: only the probe sees that no agent is left in the pane");
 	f.advance(1000);
 	f.writeRules([f.watched("one", "local", f.since())]);
 	await f.tailer.poke();
-	equal(f.rows.size, 3, "re-registration does not add a card for events already recorded");
-	equal(f.saved().names.one.removed, undefined);
+	equal(f.rows.size, 2, "re-registration does not add a card for events already recorded");
 	f.append(f.event("started", 4, { session: "new" }));
 	f.append(f.event("ask", 5, { session: "new", ask: { kind: "ask", question: "Again?" } }));
 	await f.tailer.poke();
-	equal(f.rows.size, 4, "the new session's ask is recorded");
-	equal(arg([...f.rows.values()][3], "--key"), "agents:one:11111111-1111-4111-8111-111111111111:new:5");
+	equal(f.rows.size, 3, "the new session's ask is recorded");
+	equal(arg([...f.rows.values()][2], "--key"), "agents:one:ask:new:5");
+	equal(f.observed().one.agent.session, "new", "`started` binds the record to the new session");
 }));
 
 await check("follow-up sent before re-registration (delegate skill order): its ask arrives on registration", () => withFixture(async (f) => {
@@ -559,7 +437,7 @@ await check("follow-up sent before re-registration (delegate skill order): its a
 	await f.tailer.poke();
 	equal(f.rows.size, 2);
 	const row = [...f.rows.values()][1];
-	equal(arg(row, "--key"), "agents:one:11111111-1111-4111-8111-111111111111:session:3");
+	equal(arg(row, "--key"), "agents:one:ask:session:3");
 	match(arg(row, "--note"), /Which branch\?/);
 	f.append(f.event("result", 5, { text: "again", result: { status: "done", path: "/answer" } }));
 	await f.tailer.poke();
@@ -567,7 +445,7 @@ await check("follow-up sent before re-registration (delegate skill order): its a
 	deepStrictEqual(f.calls.filter((c) => c[0] === "agent"), []);
 }));
 
-await check("done, follow-up turn and its ask read in one batch: the ask waits for re-registration", () => withFixture(async (f) => {
+await check("done, follow-up turn and its ask read in one batch: the ask is recorded in that batch", () => withFixture(async (f) => {
 	await f.start();
 	// One append, one poke: `entries` is not re-read between these lines, so the name is still in memory after `agent close`.
 	f.append(
@@ -580,33 +458,32 @@ await check("done, follow-up turn and its ask read in one batch: the ask waits f
 	deepStrictEqual(f.calls.filter((c) => c[0] === "agent"), []);
 	equal(f.saved().hosts.local.offset, fs.statSync(f.file).size);
 	await f.tailer.poke();
-	equal(f.saved().names.one.pending, undefined, "both events were recorded, so nothing is held");
 	f.advance(1000);
 	f.writeRules([f.watched("one", "local", f.since())]);
 	await f.tailer.poke();
 	equal(f.rows.size, 2);
 	const row = [...f.rows.values()][1];
-	equal(arg(row, "--key"), "agents:one:11111111-1111-4111-8111-111111111111:session:3");
+	equal(arg(row, "--key"), "agents:one:ask:session:3");
 	match(arg(row, "--note"), /Which branch\?/);
 }));
 
-await check("an old run's exit read after a new launch and re-registration makes no row for the new run", () => withFixture(async (f) => {
+await check("an old run's exit and a new launch under the same name, read after a restart, make no row", () => withFixture(async (f) => {
 	// Smoke 2026-11-09: the retired child's `ended` was in the file, unread, when a new child started under the same name.
 	await f.start();
 	f.append(f.event("result", 1, { text: "done", result: { status: "done", path: "/answer" } }));
 	await f.tailer.poke();
 	f.tailer.stop();
 	f.append(f.event("ended", 2));
-	f.append(f.event("started", 3, { session: "new" }));
 	f.advance(1000);
+	f.append(f.event("started", 3, { session: "new" }));
 	f.writeRules([f.watched("one", "local", f.since())]);
 	f.tailer.start();
 	await f.tailer.poke();
-	equal(f.rows.size, 2, "the exit of the same registration is recorded");
+	equal(f.rows.size, 1, "neither the exit nor the new start is a row");
+	equal(f.observed().one.agent.session, "new", "the record is bound to the new session");
 	f.append(f.event("ended", 4, { session: "new" }));
 	await f.tailer.poke();
-	equal(f.rows.size, 3, "the new run's exit is a third card");
-	equal(arg([...f.rows.values()][1], "--key"), "agents:one:11111111-1111-4111-8111-111111111111:session:2");
+	equal(f.rows.size, 1, "an exit is the probe's to report: no agent process in the pane");
 }));
 
 await check("a retired name registered again while the coordinator is down: the follow-up's events arrive after restart", () => withFixture(async (f) => {
@@ -649,7 +526,6 @@ await check("agent-push-smart, reporters with `prompted`: an agent-started conti
 	await f.tailer.poke();
 	deepStrictEqual([...f.rows.keys()], [`agents:${name}:result:${"72".padStart(16, "0")}`, `agents:${name}:result:${"75".padStart(16, "0")}`, `agents:${name}:result:${"247".padStart(16, "0")}`, `agents:${name}:result:${"249".padStart(16, "0")}`]);
 	equal(f.calls.filter((call) => call[0] === "agent").length, 0, "247 does not remove the watch");
-	equal(f.saved().names[name].pending, undefined);
 	ok(!f.warnings.some((w) => /seq (1794274167959075|1794274167959249)/.test(w)), "a new version is a row, not a dropped card");
 }));
 
@@ -691,7 +567,6 @@ await check("agent-push-smart 2026-11-10, the stream as written (no `prompted`):
 	await f.tailer.poke();
 	deepStrictEqual([...f.rows.keys()], [key(72), key(75), key(247), key(249)], "249 is a card");
 	ok(!f.warnings.some((w) => w.includes(`seq ${1794274167959249}`)), "249 is a card, not a drop");
-	equal(f.saved().names[name].pending, undefined);
 }));
 
 await check("no `prompted`: a follow-up whose result repeats the retiring one still makes its card when it asked first", () => withFixture(async (f) => {
@@ -705,20 +580,8 @@ await check("no `prompted`: a follow-up whose result repeats the retiring one st
 	f.advance(1000);
 	f.writeRules([f.watched("one", "local", f.since())]);
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:3", "agents:one:result:0000000000000004"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:ask:session:3", "agents:one:result:0000000000000004"]);
 	equal(f.warnings.length, 0);
-}));
-
-await check("events held for a registration that never comes are dropped with a warning", () => withFixture(async (f) => {
-	await f.start([f.watched("other")]);
-	f.append(f.event("ask", 1, { ask: { kind: "ask", question: "Anyone?" } }));
-	await f.tailer.poke();
-	equal(f.saved().names.one.pending.length, 1);
-	f.advance(25 * 3600_000);
-	f.append(f.event("hb", 2, { name: "other" }));
-	await f.tailer.poke();
-	await f.tailer.tick();
-	ok(f.warnings.some((w) => w.includes("one: dropped 1 events held") && w.includes("seq 1")), JSON.stringify(f.warnings));
 }));
 
 await check("a prompted follow-up that finishes before re-registration still makes its cards", () => withFixture(async (f) => {
@@ -734,18 +597,9 @@ await check("a prompted follow-up that finishes before re-registration still mak
 	f.advance(1000);
 	f.writeRules([f.watched("one", "local", f.since())]);
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:3", "agents:one:result:0000000000000004"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:ask:session:3", "agents:one:result:0000000000000004"]);
 	equal(f.calls.filter((call) => call[0] === "agent").length, 0);
 	equal(f.warnings.length, 0);
-}));
-
-await check("a heartbeat after re-registration means a later silence is a death, not never-started", () => withFixture(async (f) => {
-	await f.start();
-	f.append(f.event("hb", 1));
-	await f.tailer.poke();
-	f.advance(301_000);
-	await f.tailer.tick();
-	deepStrictEqual(fields([...f.rows.values()][0]).slice(0, 2), ["event=dead", "state=no-heartbeat"]);
 }));
 
 await check("invalid lines advance but corrupt cursors fail startup", () => withFixture(async (f) => {
@@ -778,7 +632,7 @@ await check("real ssh child reconnects from the advanced byte offset", () => wit
 		process.env.AGENT_TEST_FIXTURE = data;
 		process.env.AGENT_TEST_LOG = log;
 		f.tailer.stop();
-		f.tailer = new AgentTailer({ dir: f.dir, inbox: f.inbox, now: () => f.clock, deadSec: 300, backoffMs: 25, warn: (message) => f.warnings.push(message), onChange: () => f.changes.emit("change") });
+		f.tailer = new AgentTailer({ dir: f.dir, inbox: f.inbox, now: () => f.clock, backoffMs: 25, warn: (message) => f.warnings.push(message), onChange: () => f.changes.emit("change") });
 		await f.start([f.watched("one", "fakehost")]);
 		await f.waitUntil(() => fs.existsSync(log) && fs.readFileSync(log, "utf8").trim().split("\n").length >= 2 && f.tailer.status().includes("link down"));
 		const offsets = fs.readFileSync(log, "utf8").trim().split("\n").map(Number);

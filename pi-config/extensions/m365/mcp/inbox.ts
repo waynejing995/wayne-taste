@@ -191,7 +191,7 @@ export const inboxTools: ToolDef[] = [
 			host: Type.Optional(Type.String({ description: "local (default), or the ssh host the pane lives on" })),
 			result: Type.Optional(Type.String({ description: "The file the session writes its RESULT to" })),
 			goal: Type.Optional(Type.String({ description: "One line: what it was asked to do" })),
-			push: Type.Optional(Type.Boolean({ description: "The session reports its own events (omp wayne-agent-report extension)" })),
+			push: Type.Optional(Type.Boolean({ description: "Accepted and stored; every watch is probed and tailed alike" })),
 			generation: Type.Optional(Type.String({ description: "The WAYNE_AGENT_GENERATION the session was launched with" })),
 		}),
 		async execute(_id, p, signal) {
@@ -219,7 +219,7 @@ export const inboxTools: ToolDef[] = [
 	{
 		name: "inbox_agent_ls",
 		label: "Inbox Agent Ls",
-		description: "Watched agent sessions, one per line: name, mux, host, pane, result, since, goal, push. It may rewrite legacy registrations (it gives each a generation id) before listing.",
+		description: "Watched agent sessions, one per line: name, mux, host, pane, result, since, goal, phase (working, asking, idle or gone as last observed, plus ` closing`). It may rewrite legacy registrations (it gives each a generation id) before listing.",
 		parameters: Type.Object({}),
 		async execute(_id, _p, signal) {
 			return text(await inbox(["agent", "ls"], signal));
