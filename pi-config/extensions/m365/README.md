@@ -118,7 +118,9 @@ A session that stopped without a new RESULT (an idle, ask or blocked row) gets a
 that row, `--force` or not, without `--verdict advanced|waiting-user|nothing-pending --note <text>`. `advanced` and
 `nothing-pending` archive it with the verdict in the note; `waiting-user` keeps the same row live as an `ask-wayne`
 notify row that the session's later rows do not replace, and a plain `inbox done <id> --note …` archives it once
-answered. The card of such a row says so.
+answered. The card of such a row says so. A turn end whose last output equals the previous no-result row's (same
+watch registration, live or closed) makes no new row: a session idle on its own subagents ends a turn per subagent
+message with nothing new to read (`cursors/agent-said.json` keeps what the last one said).
 
 An optional `card-note.md` in the inbox directory is said on every inbox and Teams watch card (the user's own
 standing instructions for the agent that receives them).

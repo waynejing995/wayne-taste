@@ -1,8 +1,9 @@
 /**
  * The watched agent sessions: the `agent_watch` list in rules.yaml.
  */
-import { randomUUID } from "node:crypto";
-import { addEvent, clean, InboxError, inboxFile, readTsv, stamp, supersedeSession, withRulesLock, type AddEvent } from "./ledger.ts";
+import { createHash, randomUUID } from "node:crypto";
+import * as fs from "node:fs";
+import { addEvent, clean, InboxError, inboxFile, readTsv, stamp, supersedeSession, withLock, withRulesLock, type AddEvent } from "./ledger.ts";
 import { phaseOf, resultOf, runProbe, type Probe } from "./probe.ts";
 import { addThen, readThens, thenDone } from "./thens.ts";
 import { AGENT_LIST, readList, writeList } from "./lists.ts";
@@ -186,11 +187,43 @@ export function legacyReported(name: string, mtime: number): boolean {
 	return rows.some((row) => row.source === "agents" && row.tag === "agent-result" && row.key.startsWith(prefix) && !VERSION_KEY.test(row.key) && minuteAtLeast(row.first_seen, mtime));
 }
 
+/** The text after `Last output: ` in a no-result note, without the `. Goal: …` the recorder appends. Empty when absent. */
+function lastOutputOf(note: string): string {
+	const at = note.indexOf("Last output: ");
+	if (at < 0) return "";
+	return note.slice(at + "Last output: ".length).replace(/\.*\s+Goal: [\s\S]*$/, "").replace(/\s+/g, " ").trim();
+}
+
 /**
  * Record one agent event, then leave at most the new row live for that session. A known key changes nothing.
  * The parent row of a fired, open then stays: its plan is still owed.
+ * A no-result row (`event=idle`) whose last output equals the previous no-result row's for the same name and
+ * generation is skipped: a session idle on its own subagents ends a turn per subagent message with nothing new to
+ * read. That previous row may be live or closed (`--verdict nothing-pending` rewrites its note), so what it said is
+ * kept in `cursors/agent-said.json`, not read back from the ledger.
  */
 export function recordAgentRow(ev: AddEvent): string {
+	const said = ev.fields?.includes("event=idle") ? lastOutputOf(ev.note ?? "") : "";
+	if (!said) return record(ev);
+	const generation = ev.key.split(":")[2] ?? "";
+	const hash = createHash("sha256").update(said).digest("hex").slice(0, 16);
+	const file = inboxFile("cursors", "agent-said.json");
+	return withLock(`${file}.lock`, 2000, () => {
+		const all = (fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {}) as Record<string, { generation: string; said: string }>;
+		const prev = all[ev.place];
+		if (prev && prev.generation === generation && prev.said === hash) return `skip repeat: same last output as the previous no-result row of ${ev.place}`;
+		const out = record(ev);
+		if (/^(do|notify) /.test(out)) {
+			all[ev.place] = { generation, said: hash };
+			const tmp = `${file}.tmp`;
+			fs.writeFileSync(tmp, JSON.stringify(all, null, 2));
+			fs.renameSync(tmp, file);
+		}
+		return out;
+	});
+}
+
+function record(ev: AddEvent): string {
 	const out = addEvent(ev);
 	const made = /^(do|notify) (\d+) /.exec(out);
 	if (!made) return out;
