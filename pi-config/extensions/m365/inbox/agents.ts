@@ -109,12 +109,13 @@ function rowFor(ev: Event): { state: string; note: string } | undefined {
 
 
 /**
- * Whose event is it? A registration added with `--generation` owns only the events its launch stamped with that id;
- * one added without (a session launched before generations) owns only events stamped with none. So an event with no
- * generation never reaches a stamped registration, and a replaced launch's late event never reaches its replacement.
+ * Whose event is it? An event stamped with another launch's id never reaches this registration, so a replaced
+ * launch's late event never reaches its replacement. An event with no generation comes from a reporter that cannot
+ * stamp (an older clone, e.g. on a remote host that has not pulled): it belongs to its name's registration, stamped
+ * or not. Refusing it held every event of such a session, so a running session was reported as never started.
  */
 function owns(entry: Entry, ev: Event): boolean {
-	return entry.stamped ? ev.generation === entry.generation : ev.generation === undefined;
+	return ev.generation === undefined || ev.generation === entry.generation;
 }
 
 function hold(state: NameState, host: string, ev: Event, warn: (msg: string) => void): void {

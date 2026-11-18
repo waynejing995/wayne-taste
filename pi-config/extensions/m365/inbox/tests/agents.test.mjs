@@ -197,15 +197,38 @@ await check("a late result from a replaced launch neither records a row nor remo
 	deepStrictEqual([...f.rows.keys()], [], "no row, so no plan of the replacement fires");
 }));
 
-await check("a stamped registration ignores events with no generation; its own events still count", () => withFixture(async (f) => {
+await check("a stamped registration takes events with no generation and its own, never another launch's", () => withFixture(async (f) => {
 	await f.start([{ ...f.watched(), generation: "launch-new", stamped: true }]);
-	f.append(f.event("result", 1, { text: "legacy reporter", result: { status: "done", path: "/old" } }));
+	f.append(f.event("result", 1, { text: "unstamping reporter", result: { status: "done", path: "/old" } }));
 	f.append(f.event("result", 2, { generation: "launch-new", text: "mine", result: { status: "done", path: "/new" } }));
+	f.append(f.event("result", 3, { generation: "launch-old", text: "replaced launch", result: { status: "done", path: "/x" } }));
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:launch-new:session:2"]);
-	deepStrictEqual(f.calls.filter((c) => c[0] === "agent"), [], "its own result does not remove it");
-	ok(f.warnings.some((w) => /no generation/.test(w)), f.warnings.join("\n"));
+	deepStrictEqual([...f.rows.keys()], ["agents:one:launch-new:session:1", "agents:one:launch-new:session:2"]);
 }));
+
+// Field report 11-18 (engai-hld-research #1514, artifact-viewers #1517): stamped --host registrations on trace-srdc,
+// whose reporter clone predates generations, sent heartbeats from launch on and were still reported as never started.
+await check("a stamped --host registration whose first event arrives after registration is never reported as never started", () => {
+	let stdout;
+	return withFixture(async (f) => {
+		await f.start([{ ...f.watched("one", "wayne@trace-srdc"), generation: "hld-1", stamped: true }]);
+		const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+		stdout.write("#start 0 1\n");
+		await settle();
+		for (let i = 1; i <= 12; i++) {
+			f.advance(60_000);
+			stdout.write(`${JSON.stringify(f.event(i === 1 ? "started" : "hb", i))}\n`);
+			await settle();
+			await f.tailer.tick();
+		}
+		deepStrictEqual([...f.rows.values()].filter((row) => fields(row).includes("event=dead")), []);
+		match(f.tailer.describe(), /one@wayne@trace-srdc: started/);
+	}, { spawn: () => {
+		const child = new EventEmitter();
+		child.stdout = stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true;
+		return child;
+	} });
+});
 
 await check("a launch removed after its RESULT and added again in the same second is watched again", () => withFixture(async (f) => {
 	// Same name, same --generation, same second: only the registration's own instance id tells the two adds apart.
