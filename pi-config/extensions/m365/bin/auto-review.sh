@@ -12,8 +12,9 @@
 #     already posted inline", "Not approving while these remain open"). "are still fixed", "No remaining critical
 #     issues" and "No critical issues remain open" are not.
 # else critical.
-# commit: the reviewed sha, first of `@ sha`, `head sha`, the end of a `base..sha` or `merge-base(...)...sha` range, `of|at sha`,
-# searched from the phrase on; cut to 9 characters.
+# commit: the reviewed sha, first of `Reviewed commit: sha`, `@ sha`, `head sha`, the end of a `base..sha`,
+# `ref...sha` or `merge-base(...)...sha` range, `of|at sha` (each sha full or short, backticked or not), searched from
+# the phrase on; cut to 9 characters. The caller compares it to the head by prefix.
 AUTO='Multi-source auto-review'
 AUTO_JQ='
   def says_none: test("\\bno\\s+(?:\\w+\\s+){0,2}critical\\b"; "i");
@@ -26,7 +27,8 @@ AUTO_JQ='
   (.body | split($auto)[1:] | join($auto))[0:600] as $s
   | "verdict=" + (if (.body | says_none) and (.body | has_heading | not) and (.body | persists | not)
                   then "clean" else "critical" end),
-    ([$s | capture("@\\s*`?(?<c>[0-9a-f]{7,40})\\b"),
+    ([$s | capture("\\breviewed\\s+commit:?\\s*`?(?<c>[0-9a-f]{7,40})\\b"; "i"),
+           capture("@\\s*`?(?<c>[0-9a-f]{7,40})\\b"),
            capture("\\bhead\\s+`?(?<c>[0-9a-f]{7,40})\\b"; "i"),
-           capture("(?:[0-9a-f]{7,40}|\\))\\.{2,3}`?(?<c>[0-9a-f]{7,40})\\b"),
+           capture("(?:[0-9a-f]{7,40}|\\)|[A-Za-z][\\w./-]*)\\.{2,3}`?(?<c>[0-9a-f]{7,40})\\b"),
            capture("\\b(?:of|at)\\s+`?(?<c>[0-9a-f]{7,40})\\b")] | first | select(.) | "commit=" + .c[0:9])'

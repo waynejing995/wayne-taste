@@ -134,6 +134,30 @@ await check("a body naming an older frozen sha beats a commit.oid stamped with t
 	equal(gate(result.stdout, "review-head"), "FAIL", result.stdout);
 });
 
+// The first lines of real TRACE auto-review comments (gh pr view 938/937/936 --json comments, 2026-11-18): the sha is
+// named with backticks, full or short. #938 printed "review-head FAIL ... names no commit" before.
+const TRACE_REVIEWS = [
+	["#938 Reviewed commit: full sha", "ef3daca516d79f8e51ebd3eb77daaa8c639f04fb", "2026-11-18T07:04:35Z",
+		"Multi-source auto-review: no critical issues found (Primary + Voice 1 + Voice 2 + design-conformance). Approval could not be submitted because the review identity is the PR author.\n\nReviewed commit: `ef3daca516d79f8e51ebd3eb77daaa8c639f04fb` (`origin/main...ef3daca`, 37 files, +1335/−245). This covers all three commits, including the `DOMAIN\\user` split that the previous auto-review did not see.\n"],
+	["#937 @ short sha", "8fcd88a3c1d2e4f5a6b7c8d9e0f1a2b3c4d5e6f7", "2026-11-18T06:01:25Z",
+		"## Multi-source auto-review — PR #937 @ `8fcd88a`\n\nFrozen diff: `c7206c1...8fcd88a` (merge-base three-dot): 17 files, +746/−168, matching the PR. Sources: Primary (structured), Voice 1, Voice 2 and the design-conformance agent. All four returned.\n"],
+	["#936 frozen range end", "91834197a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5", "2026-11-18T04:13:19Z",
+		"## Multi-source auto-review summary (frozen `6c0ad156e..91834197a`, 10 files, +1056/−76)\n\nSources: Primary (structured) + Voice 1 (review-voice-1) + Voice 2 (review-voice-2) + design-conformance. **No CRITICAL findings survived the hit-rate/impact gate** — approving.\n"],
+];
+for (const [label, head, at, body] of TRACE_REVIEWS) {
+	await check(`a real TRACE review names its commit in backticks (${label}): ok on that head, FAIL on another`, () => {
+		const onHead = runReady({ ...pr([[at, body]]), headRefOid: head });
+		equal(gate(onHead.stdout, "review-head"), "ok", onHead.stdout);
+		const elsewhere = runReady(pr([[at, body]]));
+		match(elsewhere.stdout, new RegExp(`review-head\\s+FAIL\\s+auto-review at ${at} @ ${head.slice(0, 7)}`), elsewhere.stdout);
+	});
+}
+
+await check("a review that names no sha still fails review-head loudly", () => {
+	const result = runReady(pr([["2026-11-10T09:00:00Z", "Multi-source auto-review: no critical issues found."]]));
+	match(result.stdout, /review-head\s+FAIL\s+auto-review at 2026-11-10T09:00:00Z names no commit/, result.stdout);
+});
+
 // Body shapes of real TRACE auto-reviews (#849 @ 2e80d336b, #833 @ 4d6a8d9, #859, #842), on this fixture's head.
 const NO_NEW = `Multi-source auto-review of ${HEAD.slice(0, 9)} (frozen three-dot diff \`00913b76c...${HEAD.slice(0, 9)}\`).\n\n` +
 	"Since f572cd7f1, the only change is `captain-pi/src/pg-storage.ts:216`.\n\n" +
