@@ -4,29 +4,19 @@
  * Later stages (a merged PR, a stale row, a model judgment) belong in this file as more findings. They are not here:
  * this command never closes a then or an agent row, and it never asks GitHub or a model.
  *
- * Keys: `sweep:then-overdue:<row>.<n>:<date>` (fired, still open, older than 24 h), `sweep:then-dead:<row>.<n>`
- * (unfired, and that generation is no longer watched).
+ * Keys: `sweep:then-overdue:<row>.<n>:<date>` (fired, still open, older than 24 h).
  */
-import { readAgents } from "./agents.ts";
 import { inboxFile, readTsv, recordDirect, stamp } from "./ledger.ts";
-import { readThens, type Then } from "./thens.ts";
+import { readThens } from "./thens.ts";
 interface Finding { key: string; subject: string; note: string }
-
-function day(now: Date): string {
-	return stamp(now).slice(0, 10);
-}
 
 /** The findings as of `now`. Same inputs give the same keys, so a second run the same day records nothing new. */
 export function sweepFindings(now = new Date()): Finding[] {
-	const thens = readThens().filter((t) => !t.done);
-	const watched = new Set(readAgents().map((a) => `${a.name}:${a.generation ?? ""}`));
 	const out: Finding[] = [];
-	const overdue = (t: Then) => !!t.fired && now.getTime() - Date.parse(t.fired.replace(" ", "T")) > 24 * 60 * 60_000;
-	for (const t of thens) {
+	for (const t of readThens()) {
+		if (t.done || !t.fired || now.getTime() - Date.parse(t.fired.replace(" ", "T")) <= 24 * 60 * 60_000) continue;
 		const id = `${t.row}.${t.n}`;
-		if (overdue(t)) out.push({ key: `then-overdue:${id}:${day(now)}`, subject: `then ${id} overdue`, note: `Fired ${t.fired}, still open: ${t.action}` });
-		if (!t.fired && t.generation && t.when.startsWith("agent-result:") && !watched.has(`${t.when.slice("agent-result:".length)}:${t.generation}`))
-			out.push({ key: `then-dead:${id}`, subject: `then ${id} has no registration`, note: `${t.when} generation ${t.generation} is not watched` });
+		out.push({ key: `then-overdue:${id}:${stamp(now).slice(0, 10)}`, subject: `then ${id} overdue`, note: `Fired ${t.fired}, still open: ${t.action}` });
 	}
 	return out;
 }

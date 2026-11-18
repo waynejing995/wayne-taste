@@ -99,9 +99,13 @@ step's files sit beside it.
 gets one reminder per check, due 10 minutes, 1 hour, 4 hours, then daily after its last card, and that reminder
 archives the previous card. `inbox then-done <id> <n>` closes the then and archives its card. `inbox done` refuses
 that card (`--force` or not) and names `inbox then-done`; it also refuses the row while a fired then is open.
-`inbox agent add` requires `--row <id> --then <plan>`: the dispatcher's plan for the session's result (expected
-outcome, whom to reply to, what to close) is armed as an `agent-result:<name>` then on that row, against the RESULT
-version that already exists. A result row is one per RESULT version, and a session keeps one live attention row.
+`inbox agent add <name> --mux <mux> --pane <pane>` watches the agent session that runs in that pane. It probes the
+pane first and refuses one that is not there or holds no agent process, then prints what it attached to: the agent
+pid, the session id, the phase, the RESULT file with its status and version, and how many reporter events that
+session has on the host (none: only the probe watches it). `--row <id> --then <plan>` go together and are optional:
+the dispatcher's plan for the session's result (expected outcome, whom to reply to, what to close) is armed as an
+`agent-result:<name>` then on that row, against the RESULT version that already exists, and closes the name's
+previous unfired plans. A result row is one per RESULT version, and a session keeps one live attention row.
 
 Each watch has one record in `cursors/agents.json` (`inbox/cli/observed.ts`): its phase (working, asking, idle, gone),
 when and by whom it was last seen, and the agent process last seen in the pane (pid, session, cwd). Two sensors write
@@ -110,7 +114,18 @@ plugin tails the reporter events of every watch (`agent-events.jsonl`, locally o
 byte cursors in `cursors/agent-events.json`). An observation older than the record is dropped, and a row is made on a
 change of the record by whichever sensor sees it first, so a turn end both see is one row. A first observation makes
 no row but a RESULT version nobody reported; the record of a name that is no longer watched is deleted on the next
-probe; an event of a name that is not watched is dropped.
+probe.
+
+A watch is its omp session (host + session id); the pane is where it is now. The reporter
+(`omp-config/extensions/wayne-agent-report.ts`) writes for every root session that runs in a tern, tmux or herdr pane,
+named (`WAYNE_AGENT_WATCH`) or not, and each event carries the session, its file, cwd, mux and pane. An event reaches
+the watch whose record holds that session; else the live watch whose record holds that process (the same omp switched
+session); else the watch of the event's name whose record holds no agent yet or whose agent is gone (a watch not
+probed yet, a mux that names no agent process). Any other event is dropped: a second session under a watched name
+does not reach a live watch, and an event of a name that is not watched makes nothing. When a matched event names
+another pane of the entry's mux, the entry's `pane` is rewritten: a session resumed into another pane keeps its
+watch. Row keys carry the name and the session, never a launch id; entries and thens written by older builds keep
+their `generation`, `stamped`, `instance` and `push` fields, which nothing reads.
 
 | Change | Row |
 | --- | --- |
@@ -121,8 +136,8 @@ probe; an event of a name that is not watched is dropped.
 | no agent process in the pane (probe only; tern and tmux: the pane holds only shells) | `event=ended state=gone`, key `agents:<name>:gone:<agent pid>`, the note says how to resume: `cd <cwd> && omp --resume <session>`, then `inbox agent add` on the new pane |
 | working, and quiet for `--stall-min` | `event=stalled` |
 
-A reporter's heartbeat and exit make no row and no phase: only the probe says a session is gone. `inbox agent ls`
-ends each line with the phase last recorded (plus ` closing`).
+A reporter's exit makes no row and no phase: only the probe says a session is gone. `inbox agent ls`
+ends each line with the phase last recorded (plus ` closing`) and never rewrites the list.
 
 Only `inbox agent close <name>` ends a watch. Alone, it probes the session and prints, as its error, whether the pane
 is alive, its phase (working, asking, idle, gone), idle minutes, the newest RESULT file with its version, `status`,
@@ -140,7 +155,7 @@ that row, `--force` or not, without `--verdict advanced|waiting-user|nothing-pen
 `nothing-pending` archive it with the verdict in the note; `waiting-user` keeps the same row live as an `ask-wayne`
 notify row that the session's later rows do not replace, and a plain `inbox done <id> --note …` archives it once
 answered. The card of such a row says so. A turn end whose last output equals the previous no-result row's (same
-watch registration, live or closed) makes no new row: a session idle on its own subagents ends a turn per subagent
+watch and session, live or closed) makes no new row: a session idle on its own subagents ends a turn per subagent
 message with nothing new to read (`cursors/agent-said.json` keeps what the last one said).
 
 An optional `card-note.md` in the inbox directory is said on every inbox and Teams watch card (the user's own
@@ -160,7 +175,7 @@ and `outlook_*` tool, plus the inbox tools above (from `mcp/inbox.ts`, which run
 - **Pictures** come back as MCP image content, each with the local file path (`[image n saved: <file>]`).
 - **Write tools** (`teams_send`, `teams_react`, `outlook_send`, `outlook_draft`, `outlook_move`, `outlook_mark`,
   `inbox_ask`, `inbox_fact`, `inbox_fact_drop`, `inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`,
-  `inbox_agent_close`, and `inbox_agent_ls`, which may rewrite legacy registrations) have no confirmation of their own
+  `inbox_agent_close`) have no confirmation of their own
   in the server: approval is the client's job (Claude Code permissions or `allowedTools`, Codex `approval_mode`,
   Cursor's tool approval).
 - **Channel**: the server always declares Claude Code's `claude/channel`. A client that can take pushes (it

@@ -9,14 +9,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJiti, PI } from "../../tests/host.mjs";
+import { fakePanes } from "./pane.mjs";
 
 const tmp = mkdtempSync(join(tmpdir(), "inbox-tools-"));
 process.env.WAYNE_INBOX_DIR = join(tmp, "inbox");
 mkdirSync(process.env.WAYNE_INBOX_DIR);
-// `inbox agent close` probes the pane: a fake `tern` (probe.sh looks in $HOME/.local/bin first) that knows no block.
+// `inbox agent add` and `inbox agent close` probe the pane: a fake `tern` (probe.sh looks in $HOME/.local/bin first)
+// whose blocks hold an agent process until `panes.close` ends them.
 process.env.HOME = join(tmp, "home");
-mkdirSync(join(process.env.HOME, ".local", "bin"), { recursive: true });
-writeFileSync(join(process.env.HOME, ".local", "bin", "tern"), "#!/bin/sh\necho \"tern process: no block is called \\`$2\\`\" >&2\nexit 1\n", { mode: 0o755 });
+const panes = fakePanes(process.env.HOME);
 globalThis.fetch = async (url) => {
 	throw new Error(`a test reached the network: ${url}`);
 };
@@ -78,13 +79,15 @@ await check("a bad trigger is the CLI's own error", async () => {
 
 await check("agent add, ls and close register and drop a session", async () => {
 	const result = join(tmp, "run", "RESULT-r7-r1.md");
-	match(await call("inbox_agent_add", { name: "r7", mux: "tern", pane: "42", row: "1", then: "reply in self-chat", result, push: true }), /r7/);
+	const added = await call("inbox_agent_add", { name: "r7", mux: "tern", pane: "42", row: "1", then: "reply in self-chat", result });
+	match(added, new RegExp(`^watching r7: tern pane 42 on local\\nagent pid ${process.pid}, session none \\(no omp session file\\), phase working\\nRESULT none\\nreporter events of this session on local: 0 .*\\nthen 1\\.2 waits for agent-result:r7$`));
 	const columns = async () => { const line = (await call("inbox_agent_ls", {})).split("\t"); return [line[0], line[1], line[2], line[3], line[4], line.at(-1)]; };
-	deepStrictEqual(await columns(), ["r7", "tern", "local", "42", result, ""], "not observed yet: no phase");
+	deepStrictEqual(await columns(), ["r7", "tern", "local", "42", result, "working"], "the add's own probe is the first observation");
 	// The last column is the phase of the watch's record, as a sensor last wrote it.
 	mkdirSync(join(process.env.WAYNE_INBOX_DIR, "cursors"), { recursive: true });
 	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "cursors", "agents.json"), JSON.stringify({ watches: { r7: { phase: "idle", at: 1, by: "probe" } } }));
 	deepStrictEqual(await columns(), ["r7", "tern", "local", "42", result, "idle"]);
+	panes.close("42");
 	const report = await fails("inbox_agent_close", { name: "r7" });
 	match(report, /^inbox agent close: Error: r7: gone, phase gone, idle \? min, tern pane 42 on local\nRESULT none, version none\n/);
 	match(report, /Not closed\. .* inbox agent close r7 --ack none --note <what you verified>$/);
@@ -120,12 +123,17 @@ await check("agent add with the name --help registers a session called --help", 
 });
 
 await check("agent ls keeps the trailing empty fields of its last row", async () => {
-	deepStrictEqual((await call("inbox_agent_ls", {})).split("\t").length, 8);
+	// No record, so no phase: the row ends in empty fields.
+	rmSync(join(process.env.WAYNE_INBOX_DIR, "cursors", "agents.json"));
+	const line = await call("inbox_agent_ls", {});
+	deepStrictEqual([line.split("\t").length, line.endsWith("\t\t")], [8, true]);
 });
 
 await check("agent close with the name --help closes the session called --help", async () => {
 	await call("inbox_agent_add", { name: "r7", mux: "tern", pane: "2", row: "1", then: "t" });
 	deepStrictEqual(names(), ["--help", "r7"]);
+	panes.close("1");
+	panes.close("2");
 	await call("inbox_agent_close", { name: "--help", ack: "none", note: "gone" });
 	await call("inbox_agent_close", { name: "r7", ack: "none", note: "gone" });
 	deepStrictEqual(names(), []);
@@ -194,19 +202,25 @@ await check("each tool with every optional parameter set succeeds against this C
 		["inbox_set", { ids: [row], state: "claimed", owner: "me", note: "n" }],
 		["inbox_then", { row, when: "at:2099-01-01 00:00", action: "check it" }],
 		["inbox_then_done", { row, n: "1", note: "n" }],
-		["inbox_agent_add", { name: "all", mux: "tern", pane: "9", row, then: "t", host: "local", result: join(tmp, "run", "r.md"), goal: "g", push: true, generation: "abcdef12-gen" }],
+		["inbox_agent_add", { name: "all", mux: "tern", pane: "9", row, then: "t", host: "local", result: join(tmp, "run", "r.md"), goal: "g" }],
 		["inbox_agent_ls", {}],
 		["inbox_agent_close", { name: "all", ack: "none", note: "n" }],
 		["inbox_done", { ids: [row], note: "n", verdict: "advanced", force: true }],
 	];
 	deepStrictEqual(all.map(([t]) => t).sort(), [...tools.keys()].sort());
 	const errors = [];
-	for (const [name, params] of all) await call(name, params).catch((e) => errors.push(`${name}: ${e.message}`));
+	for (const [name, params] of all) {
+		// The session ended before its watch is closed: a gone session closes on the acknowledgement.
+		if (name === "inbox_agent_close") panes.close("9");
+		await call(name, params).catch((e) => errors.push(`${name}: ${e.message}`));
+	}
 	deepStrictEqual(errors, []);
 });
 
-await check("an error names a two-word command in full", async () => {
-	match(await fails("inbox_agent_add", { name: "x", mux: "tern", pane: "1", row: "1", then: "t", generation: "bad" }), /^inbox agent add: /);
+await check("agent add of a pane that is not there is refused under the command's full name, and adds nothing", async () => {
+	panes.close("77");
+	match(await fails("inbox_agent_add", { name: "x", mux: "tern", pane: "77", row: "1", then: "t" }), /^inbox agent add: Error: no tern pane 77 on local: nothing to watch\. Not added\.$/);
+	deepStrictEqual(names(), []);
 });
 
 rmSync(tmp, { recursive: true, force: true });

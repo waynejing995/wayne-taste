@@ -9,6 +9,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJiti } from "./host.mjs";
+import { fakePanes } from "../inbox/tests/pane.mjs";
 
 const jiti = createJiti(import.meta.url, { interopDefault: true });
 const { replaceBlock } = await jiti.import("../core/rules-block.ts");
@@ -54,6 +55,9 @@ await check("a key that only starts with the name is not the block", () => {
 await check("inbox schedule add keeps the comment and section that follow the schedule block", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "rules-block-"));
 	process.env.WAYNE_INBOX_DIR = dir;
+	// `inbox agent add` probes its pane.
+	process.env.HOME = mkdtempSync(join(tmpdir(), "rules-block-home-"));
+	fakePanes(process.env.HOME);
 	const tail = "# Keep agents header\nagents:\n  \"*\": []\n";
 	writeFileSync(join(dir, "rules.yaml"), `# my rules\nschedule: []\n${tail}`);
 	await inbox(["schedule", "add", "hello", "--every", "5", "--kind", "shell", "--action", '["true"]']);

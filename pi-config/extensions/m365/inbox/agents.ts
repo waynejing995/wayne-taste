@@ -4,6 +4,9 @@
  * writes what an event says into the watch's record (cli/observed.ts), the same record the probe writes. A row is
  * made when the record changes, so a turn end the probe already saw is not reported again.
  *
+ * A watch is its omp session: an event reaches the watch whose record holds that session (see `match`), whatever
+ * name or pane it was launched with, and the entry's pane follows the session.
+ *
  * Only the byte cursors are this file's own state (cursors/agent-events.json `{ hosts }`), so a restart resumes where
  * it stopped. Everything runs through one promise chain: events are handled strictly in order, and a cursor never
  * moves past a line whose row was not recorded. Every entry of agent_watch in rules.yaml is tailed.
@@ -12,7 +15,7 @@ import { spawn as spawnProcess, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import YAML from "yaml";
-import { legacyReported, readAgents, resolveAsks } from "./cli/agents.ts";
+import { followPane, legacyReported, resolveAsks } from "./cli/agents.ts";
 import { readObserved, updateObserved, type Observed } from "./cli/observed.ts";
 import { resultOf } from "./cli/probe.ts";
 
@@ -30,14 +33,18 @@ export interface Deps {
 	result?: (entry: Entry) => Promise<{ version: string; status: string; open: string; mtime: number }>;
 }
 
-/** `stamped`: added with `--generation`, the id its launch's reporter stamps on every event (WAYNE_AGENT_GENERATION). */
-interface Entry { name: string; host: string; mux: string; since?: string; generation?: string; stamped?: boolean; goal?: string; result?: string; closing?: unknown }
+/** An agent_watch entry. Fields of older builds (`generation`, `stamped`, `instance`, `push`) are read past. */
+interface Entry { name: string; host: string; mux: string; pane: string; since?: string; goal?: string; result?: string; closing?: unknown }
 interface Event {
-	v: number; ts: string; name: string; pid: number; session: string; seq: number; type: string; text?: string;
+	v: number; ts: string;
+	/** WAYNE_AGENT_WATCH of the launch; empty for a pane session nobody named. */
+	name: string;
+	pid: number; session: string; seq: number; type: string; text?: string;
 	sessionFile?: string;
 	cwd?: string;
-	/** The launch it belongs to, from WAYNE_AGENT_GENERATION. Absent from reporters launched without one. */
-	generation?: string;
+	/** Where the session runs now. Absent from an older reporter, and from a session outside any pane. */
+	mux?: string;
+	pane?: string;
 	ask?: { id?: string; kind: string; question: string; options?: string[] };
 	result?: { path?: string; status: string; open?: string; version?: string };
 }
@@ -66,32 +73,13 @@ function remoteCommand(offset: number): string {
 	return `f=\${WAYNE_INBOX_DIR:-$HOME/.wayne/inbox}/agent-events.jsonl; mkdir -p "\${f%/*}"; touch "$f"; o=${offset}; [ "$(stat -c %s "$f")" -lt "$o" ] && o=0; echo "#start $o $(stat -c %i "$f")"; exec tail -c +$((o+1)) -F "$f"`;
 }
 
-/**
- * Whose event is it? An event stamped with another launch's id never reaches this registration, so a replaced
- * launch's late event never reaches its replacement. An event with no generation comes from a reporter that cannot
- * stamp (an older clone, e.g. on a remote host that has not pulled): it belongs to its name's registration, stamped
- * or not. Refusing it held every event of such a session, so a running session was reported as never started.
- */
-function owns(entry: Entry, ev: Event): boolean {
-	return ev.generation === undefined || ev.generation === entry.generation;
-}
-
-/** The phase an event puts the session in. `started` keeps the phase unless the session was gone; `hb` and `ended` say none. */
+/** The phase an event puts the session in. `started` keeps the phase unless the session was gone; `hb` (older reporters) and `ended` say none. */
 const PHASE: Record<string, Observed["phase"]> = { working: "working", ask: "asking", "ask-resolved": "working", idle: "idle", result: "idle" };
 
-export function readEntries(text: string, dir: string): Entry[] {
-	const saved = process.env.WAYNE_INBOX_DIR;
-	process.env.WAYNE_INBOX_DIR = dir;
-	try {
-		const parsed = YAML.parse(text) ?? {};
-		const list = parsed.agent_watch ?? [];
-		if (!Array.isArray(list)) throw new Error("agent_watch must be a list");
-		const entries = list as Entry[];
-		const migrated = entries.some((entry) => !entry.generation) ? readAgents() : entries;
-		return migrated.map((entry) => ({ ...entry, host: entry.host || "local" }));
-	} finally {
-		if (saved === undefined) delete process.env.WAYNE_INBOX_DIR; else process.env.WAYNE_INBOX_DIR = saved;
-	}
+export function readEntries(text: string): Entry[] {
+	const list = (YAML.parse(text) ?? {}).agent_watch ?? [];
+	if (!Array.isArray(list)) throw new Error("agent_watch must be a list");
+	return (list as Entry[]).map((entry) => ({ ...entry, host: entry.host || "local" }));
 }
 
 export class AgentTailer {
@@ -256,7 +244,7 @@ export class AgentTailer {
 		if (!force && mtime !== null && mtime === this.rulesMtime) return;
 		this.rulesMtime = mtime;
 		try {
-			this.entries = readEntries(mtime === null ? "" : (this.deps.readRules ?? fs.readFileSync)(this.rulesFile, "utf8"), path.dirname(this.rulesFile));
+			this.entries = readEntries(mtime === null ? "" : (this.deps.readRules ?? fs.readFileSync)(this.rulesFile, "utf8"));
 			this.clearError("rules");
 		} catch (e) {
 			this.fail("rules", e);
@@ -368,54 +356,76 @@ export class AgentTailer {
 	}
 
 	/**
+	 * Whose event is it, on this host's stream? (1) The watch whose record holds the event's session. (2) Else the
+	 * live watch whose record holds its process: the same omp switched to another session (a gone watch's process
+	 * has exited, so its pid names another one). (3) Else the watch of the event's name whose record holds no agent
+	 * (not probed yet, or a mux that names no agent process) or whose agent is gone: the name is what a launch gives
+	 * before anything saw its session. Anything else is not a watched session's event: a second session launched
+	 * under a watched name does not reach the live watch.
+	 */
+	private match(watches: Record<string, Observed>, ev: Event, host: string): Entry | undefined {
+		const here = this.entries.filter((entry) => entry.host === host);
+		return (ev.session ? here.find((entry) => watches[entry.name]?.agent?.session === ev.session) : undefined)
+			?? here.find((entry) => watches[entry.name]?.phase !== "gone" && watches[entry.name]?.agent?.pid === ev.pid)
+			?? (ev.name ? here.find((entry) => entry.name === ev.name && (!watches[entry.name]?.agent || watches[entry.name]!.phase === "gone")) : undefined);
+	}
+
+	/**
 	 * One event of a watched session: the record's change, and the row that change owes. Throws, changing nothing,
-	 * when the row is not recorded. An event for a name that is not watched, or watched on another host, is dropped:
-	 * a later registration does not get it (the probe reports what that session left). An event older than the
-	 * record is dropped too: a newer look at the session (the probe's) already told what happened.
+	 * when the row is not recorded. An event that matches no watch is dropped, nothing held: a later registration
+	 * does not get it (the probe reports what that session left). An event older than the record is dropped too: a
+	 * newer look at the session (the probe's) already told what happened.
 	 */
 	private async apply(ev: Event, host: string): Promise<void> {
-		const entry = this.entries.find((item) => item.name === ev.name);
-		if (!entry || entry.host !== host) return;
 		const phase = PHASE[ev.type];
 		if (!phase && ev.type !== "started") return;
-		if (!owns(entry, ev)) {
-			this.warn(`${ev.name}: ${ev.type} seq ${ev.seq} from launch ${ev.generation} is not registration ${entry.generation}; ignored`);
-			return;
-		}
+		const first = this.match(readObserved().watches, ev, host);
+		if (!first) return;
 		const at = Date.parse(ev.ts) || this.now();
 		const turnEnd = ev.type === "result" || ev.type === "idle";
 		// Read before the record's lock is taken: it can wait on ssh. The event's own version only names the RESULT;
 		// whether it is new is the ledger key's answer (`seen`).
 		const found = !turnEnd ? undefined
 			: ev.result?.version ? { version: ev.result.version, status: ev.result.status, open: ev.result.open ?? "", mtime: 0 }
-			: await (this.deps.result ?? resultOf)(entry);
+			: await (this.deps.result ?? resultOf)(first);
 		await updateObserved(async (state) => {
-			const prev = state.watches[ev.name];
+			// `inbox agent add` bound the records anew while the RESULT was read: the line is read again.
+			if (this.match(state.watches, ev, host) !== first) throw new Error(`${first.name}: its session changed while seq ${ev.seq} was read`);
+			const entry = first;
+			const prev = state.watches[entry.name];
 			if (prev && at < prev.at) return;
 			const next: Observed = { ...prev, phase: phase ?? (prev && prev.phase !== "gone" ? prev.phase : "idle"), at, by: "event", active: Math.max(prev?.active ?? 0, Math.floor(at / 1000)) };
 			// Sightings are the probe's count of an ask it has not recorded; an event's ask is recorded at once.
 			delete next.ask;
-			if (ev.type === "started")
-				next.agent = { pid: ev.pid, session: ev.session, sessionFile: ev.sessionFile ?? "", cwd: ev.cwd ?? (prev?.agent?.session === ev.session ? prev.agent.cwd : "") };
-			if (prev?.phase === "asking" && next.phase !== "asking") resolveAsks(ev.name);
+			const same = prev?.agent?.session === ev.session ? prev.agent : undefined;
+			next.agent = { pid: ev.pid, session: ev.session, sessionFile: ev.sessionFile ?? same?.sessionFile ?? "", cwd: ev.cwd ?? same?.cwd ?? "" };
+			// The session runs in another pane of its mux now (resumed there): the watch follows it. The reporter names
+			// the pane by its id, so an entry written as a tmux target (`work:1.0`) stays as it was typed, and an event
+			// of another mux (a session inside tmux inside a tern block names the outer block too) moves nothing.
+			if (ev.pane && ev.mux === entry.mux && ev.pane !== String(entry.pane) && (entry.mux !== "tmux" || /^%\d+$/.test(String(entry.pane)))) {
+				followPane(entry.name, ev.pane);
+				this.warn(`${entry.name}: session ${ev.session} is in ${entry.mux} pane ${ev.pane} now (was ${entry.pane}); the watch follows it`);
+				entry.pane = ev.pane;
+			}
+			if (prev?.phase === "asking" && next.phase !== "asking") resolveAsks(entry.name);
 			if (found) {
 				const text = (ev.text ?? "").length <= 1500 ? (ev.text ?? "") : `\u2026${(ev.text ?? "").slice(-1499)}`;
 				let made = false;
 				if (found.status && found.version && !legacyReported(entry.name, found.mtime)) {
 					const open = found.open ? ` Open: ${found.open}.` : "";
-					const out = await this.add(entry, `agents:${ev.name}:result:${found.version}`, "result", found.status, `RESULT status: ${found.status}.${open} Last output: ${text}`, ev.result?.path ?? "");
+					const out = await this.add(entry, `agents:${entry.name}:result:${found.version}`, "result", found.status, `RESULT status: ${found.status}.${open} Last output: ${text}`, ev.result?.path ?? "");
 					made = out.startsWith("do ") || out.startsWith("notify ");
 				}
 				// Every turn end that made no result row is one no-result row, but for two cases: the probe wrote the
 				// record's `idle` (it saw this turn end first and made the row), and an acknowledged close.
 				if (!made && !(prev?.phase === "idle" && prev.by === "probe") && !entry.closing)
-					await this.add(entry, `agents:${ev.name}:${entry.generation}:${ev.session}:${ev.seq}`, "idle", "no-result", `turn ended with no new RESULT. Last output: ${text}`, "");
+					await this.add(entry, `agents:${entry.name}:${ev.session}:idle:${ev.seq}`, "idle", "no-result", `turn ended with no new RESULT. Last output: ${text}`, "");
 			} else if (ev.type === "ask" && !entry.closing) {
 				const kind = ev.ask?.kind ?? "ask";
 				const options = ev.ask?.options?.length ? ` [options: ${ev.ask.options.join(" | ")}]` : "";
-				await this.add(entry, `agents:${ev.name}:ask:${ev.ask?.id ?? `${ev.session}:${ev.seq}`}`, "ask", kind, `waiting on ${kind}: ${ev.ask?.question ?? ev.text ?? ""}${options}`, "");
+				await this.add(entry, `agents:${entry.name}:ask:${ev.ask?.id ?? `${ev.session}:${ev.seq}`}`, "ask", kind, `waiting on ${kind}: ${ev.ask?.question ?? ev.text ?? ""}${options}`, "");
 			}
-			state.watches[ev.name] = next;
+			state.watches[entry.name] = next;
 		});
 	}
 

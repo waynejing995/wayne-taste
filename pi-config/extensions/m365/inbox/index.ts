@@ -337,7 +337,7 @@ export default function inbox(pi: ExtensionAPI) {
 		},
 	});
 
-	// A watch ends only through `inbox agent close`. The list is read as it is: `readAgents` would rewrite a legacy one.
+	// A watch ends only through `inbox agent close`.
 	pi.on("tool_call", (event) => {
 		const command = event.input.command;
 		if (event.toolName !== "bash" || typeof command !== "string" || !KILL_VERB.test(command) || !isSetUp()) return undefined;

@@ -88,7 +88,7 @@ const COMMANDS: Record<string, Command> = {
 					if (version) baseline = { version };
 				}
 			}
-			return addThen(p.args[0], when, p.args.slice(1).join(" "), baseline ? { generation: "", baseline } : undefined);
+			return addThen(p.args[0], when, p.args.slice(1).join(" "), { baseline });
 		},
 	},
 	"then check": {
@@ -102,7 +102,7 @@ const COMMANDS: Record<string, Command> = {
 		run: (p) => thenDone(p.args[0], p.args[1], p.opts.note),
 	},
 	sweep: {
-		help: "Print findings about overdue thens and thens whose watch is gone. `--apply` records each once; the default changes nothing and never closes a row.",
+		help: "Print findings about fired thens left open for more than a day. `--apply` records each once; the default changes nothing and never closes a row.",
 		opts: { apply: { flag: true, help: "record the findings" } },
 		run: (p) => sweep(p.flags.apply),
 	},
@@ -151,20 +151,18 @@ const COMMANDS: Record<string, Command> = {
 	},
 	places: { help: "The places rules.yaml lists under SOURCE, one per line.", args: ["source"], run: (p) => places(p.args[0]) },
 	"agent add": {
-		help: "Watch one agent session for live row --row; its next RESULT fires the --then plan on that row. A second add of the same name replaces it.",
+		help: "Watch the agent session running in a pane. It probes the pane first (a missing pane, or one with no agent process, is refused) and prints what it attached to: agent pid, session, phase, RESULT, and how many reporter events that session has. With --row and --then, the session's next RESULT fires that plan on the row. A second add of the same name replaces it.",
 		args: ["name"],
 		opts: {
 			mux: { required: true, choices: MUXES },
 			pane: { required: true, help: "tern block id, herdr id, hc terminal, or tmux target" },
-			row: { required: true, help: "the live ledger row this session works for" },
-			then: { required: true, help: "the plan for its RESULT: what you expect, whom you reply to and how, what you close" },
+			row: { help: "the live ledger row this session works for (with --then)" },
+			then: { help: "the plan for its RESULT: what you expect, whom you reply to and how, what you close (with --row)" },
 			host: { default: "local", help: "local, or the ssh host the pane lives on" },
 			result: { default: "", help: "the file the session writes its RESULT to" },
 			goal: { default: "", help: "one line: what it was asked to do" },
-			push: { flag: true, help: "accepted and stored; every watch is probed and tailed alike" },
-			generation: { help: "the WAYNE_AGENT_GENERATION the session was launched with: only events stamped with it count" },
 		},
-		run: (p) => addAgent({ name: p.args[0], mux: p.opts.mux!, pane: p.opts.pane!, row: p.opts.row!, then: p.opts.then!, host: p.opts.host, result: p.opts.result, goal: p.opts.goal, push: p.flags.push, generation: p.opts.generation || undefined }),
+		run: (p) => addAgent({ name: p.args[0], mux: p.opts.mux!, pane: p.opts.pane!, row: p.opts.row, then: p.opts.then, host: p.opts.host, result: p.opts.result, goal: p.opts.goal }),
 	},
 	"agent close": {
 		help: "End a watch. Without --ack it probes the session, prints its state, RESULT and open thens, and closes nothing; with --ack it closes a gone session and marks a live idle one for removal once its pane is gone.",

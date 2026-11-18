@@ -1,16 +1,18 @@
 /**
- * The watched agent sessions: the `agent_watch` list in rules.yaml.
+ * The watched agent sessions: the `agent_watch` list in rules.yaml. A watch is one omp session (host + session id,
+ * bound in the watch's record, cli/observed.ts); the entry's pane is where that session is now.
  */
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { addEvent, clean, finishRows, InboxError, inboxFile, readTsv, stamp, supersedeSession, withLedger, withLock, withRulesLock, type AddEvent, type Row } from "./ledger.ts";
-import { phaseOf, resultOf, runProbe, type Probe } from "./probe.ts";
-import { readObserved } from "./observed.ts";
+import { agentOf, phaseOf, runProbe, type Probe } from "./probe.ts";
+import { readObserved, updateObserved, type Observed } from "./observed.ts";
 import { addThen, readThens, thenDone } from "./thens.ts";
 import { AGENT_LIST, readList, writeList } from "./lists.ts";
 
 export const MUXES = ["hc", "herdr", "tern", "tmux"];
 
+/** Entries written by older builds also carry `generation`, `stamped`, `instance`, `migratedGeneration` and `push`: read past, kept on a rewrite. */
 export interface AgentEntry {
 	name: string;
 	mux: string;
@@ -18,29 +20,14 @@ export interface AgentEntry {
 	pane: string;
 	result?: string;
 	goal?: string;
-	push?: boolean;
 	since?: string;
-	generation?: string;
-	/** Added with `--generation`: the reporter stamps this id on every event, and only those events are this registration's. */
-	stamped?: boolean;
-	migratedGeneration?: string;
-	/** This add's own id: a re-add of the same launch in the same second is still a new registration. */
-	instance?: string;
 	/** Set by `inbox agent close --ack`: the close was acknowledged, the pane may be killed, and the probe removes the entry once it is gone. */
 	closing?: { at: string; ack: string; note: string };
 }
 
-function migrateAgents(agents: AgentEntry[]): AgentEntry[] {
-	if (!agents.some((a) => !a.generation)) return agents;
-	const next = agents.map((a) => a.generation ? a : { ...a, generation: randomUUID(), migratedGeneration: "legacy" });
-	writeList(AGENT_LIST, next as unknown as Record<string, unknown>[]);
-	return next;
-}
-
+/** The list as it is in rules.yaml. Never rewrites it. */
 export function readAgents(): AgentEntry[] {
-	const agents = readList(AGENT_LIST) as unknown as AgentEntry[];
-	if (!agents.some((a) => !a.generation)) return agents;
-	return withRulesLock(() => migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]));
+	return readList(AGENT_LIST) as unknown as AgentEntry[];
 }
 
 export function writeAgents(agents: AgentEntry[]): void {
@@ -48,36 +35,78 @@ export function writeAgents(agents: AgentEntry[]): void {
 }
 
 /**
- * Watch one agent session. A second add of the same name replaces it. The dispatcher's plan for the result (what it
- * expects, whom it tells and how, what it closes) is a then on the live row the session works for, fired by the
- * session's next RESULT: the result card comes back with the plan, and the row cannot be closed until it is done.
+ * Watch the agent session that runs in a pane. The pane is probed first: a pane that is not there, or holds no agent
+ * process, is refused, and what the watch attached to is printed, so the caller sees which session it now watches.
+ * A second add of the same name replaces its entry. `row` and `then` are the dispatcher's plan for the result (what
+ * it expects, whom it tells and how, what it closes): a then on the live row the session works for, fired by the
+ * session's next RESULT, so the result card comes back with the plan and the row cannot be closed until it is done.
+ * A new plan closes the name's previous unfired ones; an add without one leaves them armed.
  */
-export async function addAgent(a: { name: string; mux: string; pane: string; row: string; then: string; host?: string; result?: string; goal?: string; push?: boolean; generation?: string }): Promise<string> {
+export async function addAgent(
+	a: { name: string; mux: string; pane: string; host?: string; result?: string; goal?: string; row?: string; then?: string },
+	probe: (a: AgentEntry, want: boolean, events: boolean) => Promise<Probe> = runProbe,
+): Promise<string> {
 	if (!MUXES.includes(a.mux)) throw new InboxError(`--mux must be one of ${MUXES.join(", ")}`);
-	if (a.generation !== undefined && !/^[A-Za-z0-9-]{8,64}$/.test(a.generation)) throw new InboxError(`--generation must be 8-64 letters, digits or dashes, as WAYNE_AGENT_GENERATION was`);
+	if ((a.row === undefined) !== (a.then === undefined)) throw new InboxError("--row and --then go together: the plan is armed on the row the session works for");
 	const entry: AgentEntry = { name: a.name, mux: a.mux, host: a.host || "local", pane: a.pane };
 	if (a.result) entry.result = a.result;
 	if (a.goal) entry.goal = clean(a.goal);
-	if (a.push) entry.push = true;
 	// Seconds, not minutes: a close and the probe tell a re-registration of the same name by a changed `since`.
 	entry.since = stamp(new Date(), true);
-	// The launch's own id when the session was started with WAYNE_AGENT_GENERATION: its events carry it.
-	entry.generation = a.generation ?? randomUUID();
-	if (a.generation) entry.stamped = true;
-	entry.instance = randomUUID();
-	const version = (await resultOf({ host: a.host, result: a.result })).version;
-	const baseline = version ? { version } : undefined;
-	// Under the rules lock, so the plan is armed only for the registration that is written, and a racing add of the
-	// same name cannot cancel a plan it did not replace.
-	return withRulesLock(() => {
-		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
+	const where = `${entry.mux} pane ${entry.pane} on ${entry.host}`;
+	const p = await probe(entry, false, true);
+	if (!p.alive) throw new InboxError(`no ${where}: nothing to watch. Not added.`);
+	if (p.agent_pid === 0) throw new InboxError(`${where} holds no agent process, only shells: start the session there first. Not added.`);
+	const agent = agentOf(p);
+	const phase = phaseOf(p);
+	// Under the rules lock, so the plan is armed only for the entry that is written, and a racing add of the same
+	// name cannot cancel a plan it did not replace.
+	const { plan, old } = withRulesLock(() => {
+		const agents = readAgents();
 		const old = agents.find((e) => e.name === a.name);
-		// The registration and its plan change together: see addThen's `commit`.
-		const then = addThen(a.row, `agent-result:${a.name}`, a.then, { generation: entry.generation!, replaces: old?.generation, replacesLegacy: old?.migratedGeneration === "legacy", baseline }, () => {
-			writeAgents([...agents.filter((e) => e.name !== a.name), entry]);
+		const write = () => writeAgents([...agents.filter((e) => e.name !== a.name), entry]);
+		if (a.row === undefined) {
+			write();
+			return { plan: "no plan armed", old };
+		}
+		// The entry and its plan change together: see addThen's `commit`.
+		const plan = addThen(a.row, `agent-result:${a.name}`, a.then!, { baseline: p.rhash ? { version: p.rhash } : undefined, replace: true }, () => {
+			write();
 			return () => writeAgents(agents);
 		});
-		return `watching ${a.name}; ${then}`;
+		return { plan, old };
+	});
+	// After the rules lock is released: the tailer takes the record's lock first and the rules lock inside it.
+	await updateObserved((state) => {
+		const prev = state.watches[a.name];
+		// The session the name already watched: its record goes on, so what changed since the last look is still
+		// reported. Any other session starts as a first observation. A mux that names no agent process (herdr, hc)
+		// tells the two apart by the pane; a new record of such a pane holds no agent, so the session's first event
+		// binds it by name.
+		const kept = prev && (agent ? prev.agent?.pid === agent.pid && prev.agent.session === agent.session : old?.mux === entry.mux && String(old.pane) === entry.pane && (old.host || "local") === entry.host) ? prev : undefined;
+		const next: Observed = kept ? { ...kept } : { phase, at: p.now * 1000, by: "probe", active: p.smtime || p.now };
+		if (agent) next.agent = agent;
+		state.watches[a.name] = next;
+	});
+	const events = p.events ?? 0;
+	return [
+		`watching ${a.name}: ${where}`,
+		agent ? `agent pid ${agent.pid}, session ${agent.session || "none (no omp session file)"}, phase ${phase}` : `agent process unknown (${entry.mux} does not say), phase ${phase}`,
+		p.rfile ? `RESULT ${p.rfile}, status ${p.rstatus || "none"}, version ${p.rhash}` : "RESULT none",
+		`reporter events of this session on ${entry.host}: ${events}${events ? "" : " (no reporter has written for it: only the probe watches it)"}`,
+		plan,
+	].join("\n");
+}
+
+/** The session of watch `name` runs in another pane of its mux now: its entry follows it. Every other field stays, also ones this build does not know. */
+export function followPane(name: string, pane: string): void {
+	withRulesLock(() => {
+		const agents = readAgents();
+		const entry = agents.find((a) => a.name === name);
+		// Closed while the event was read: there is no entry to move.
+		if (!entry) return;
+		entry.pane = pane;
+		writeAgents(agents);
 	});
 }
 
@@ -178,8 +207,8 @@ export function minuteAtLeast(stampText: string, mtime: number): boolean {
 
 /**
  * True when an older build already reported this RESULT version. Match the agent-result tag, never the note:
- * `inbox done --note` rewrites notes. Old keys are `agents:<name>:<generation>:<session>:<seq>`,
- * `agents:<name>:<generation>:result:<stat>` and `agents:<name>:result:<epoch>`; a version key is not one of them.
+ * `inbox done --note` rewrites notes. Old keys are `agents:<name>:<launch id>:<session>:<seq>`,
+ * `agents:<name>:<launch id>:result:<stat>` and `agents:<name>:result:<epoch>`; a version key is not one of them.
  */
 export function legacyReported(name: string, mtime: number): boolean {
 	if (!mtime) return false;
@@ -199,23 +228,27 @@ function lastOutputOf(note: string): string {
  * Record one agent event, then leave at most the new row live for that session. A known key changes nothing.
  * The parent row of a fired, open then stays: its plan is still owed.
  * A no-result row (`event=idle`) whose last output equals the previous no-result row's for the same name and
- * generation is skipped: a session idle on its own subagents ends a turn per subagent message with nothing new to
+ * session is skipped: a session idle on its own subagents ends a turn per subagent message with nothing new to
  * read. That previous row may be live or closed (`--verdict nothing-pending` rewrites its note), so what it said is
  * kept in `cursors/agent-said.json`, not read back from the ledger.
  */
 export function recordAgentRow(ev: AddEvent): string {
 	const said = ev.fields?.includes("event=idle") ? lastOutputOf(ev.note ?? "") : "";
 	if (!said) return record(ev);
-	const generation = ev.key.split(":")[2] ?? "";
+	// `agents:<name>:<session>:idle:<n>`; a probe of a pane with no session file makes `agents:<name>:idle:<n>`. A
+	// coordinator still running the older tailer sends `agents:<name>:<launch id>:<session>:<seq>`.
+	const parts = ev.key.split(":");
+	const session = parts.length < 5 ? "" : parts[3] === "idle" ? parts[2]! : parts[3]!;
 	const hash = createHash("sha256").update(said).digest("hex").slice(0, 16);
 	const file = inboxFile("cursors", "agent-said.json");
 	return withLock(`${file}.lock`, 2000, () => {
-		const all = (fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {}) as Record<string, { generation: string; said: string }>;
+		const all = (fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {}) as Record<string, { session?: string; said: string }>;
 		const prev = all[ev.place];
-		if (prev && prev.generation === generation && prev.said === hash) return `skip repeat: same last output as the previous no-result row of ${ev.place}`;
+		// An entry an older build wrote names no session: what it said is compared alone, so a deploy repeats no row.
+		if (prev && (prev.session ?? session) === session && prev.said === hash) return `skip repeat: same last output as the previous no-result row of ${ev.place}`;
 		const out = record(ev);
 		if (/^(do|notify) /.test(out)) {
-			all[ev.place] = { generation, said: hash };
+			all[ev.place] = { session, said: hash };
 			const tmp = `${file}.tmp`;
 			fs.writeFileSync(tmp, JSON.stringify(all, null, 2));
 			fs.renameSync(tmp, file);

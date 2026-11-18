@@ -10,6 +10,11 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJiti } from "../../tests/host.mjs";
+import { fakePanes } from "./pane.mjs";
+
+// `inbox agent add` probes its pane: every tmux pane these tests name holds an agent process.
+process.env.HOME = mkdtempSync(join(tmpdir(), "inbox-thens-home-"));
+fakePanes(process.env.HOME);
 
 const jiti = createJiti(import.meta.url, { interopDefault: true });
 const { inbox } = await jiti.import("../cli/main.ts");
@@ -91,45 +96,43 @@ await check("agent add arms its plan on the row: the next RESULT fires it and th
 	await rejects(inbox(["done", id]), /open then-actions/);
 });
 
-await check("an agent's plan fires only on a RESULT of its own registration", async () => {
+await check("after a re-add with a new plan, the next RESULT fires the new plan only", async () => {
 	const id = await row();
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old plan"]);
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new plan"]);
-	const [{ generation: current }] = readAgents();
-	ok(current);
+	deepStrictEqual(readThens().map((t) => [t.action, t.note]), [["old plan", "replaced by a new plan"], ["new plan", undefined]]);
 	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${"2".repeat(16)}`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
 	await checkThens({ now: T0 });
+	deepStrictEqual(thenRows().length, 1);
 	ok(thenRows()[0].note.includes("you owe: new plan [RESULT status: done (row #"), thenRows()[0].note);
 });
 
-await check("agent add --generation records the launch's id, and a re-add of that launch replaces its own plan", async () => {
+await check("agent add without a plan is a watch with no then; --row and --then go together; a re-add without one leaves the plan armed", async () => {
 	const id = await row();
-	await rejects(inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan", "--generation", "-oProxy"]), /--generation must be/);
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan one", "--generation", "launch-0001"]);
-	deepStrictEqual(readAgents().map((a) => [a.generation, a.stamped]), [["launch-0001", true]]);
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan two", "--generation", "launch-0001"]);
-	deepStrictEqual(readThens().filter((t) => !t.done).map((t) => [t.action, t.generation]), [["plan two", "launch-0001"]]);
+	await rejects(inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id]), /--row and --then go together/);
+	await rejects(inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--then", "plan"]), /--row and --then go together/);
+	deepStrictEqual([readAgents(), readThens()], [[], []], "a refusal writes nothing");
+	ok((await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1"])).endsWith("\nno plan armed"));
+	deepStrictEqual([readAgents().map((a) => a.name), readThens()], [["fixer"], []]);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "the plan"]);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2"]);
+	deepStrictEqual([readAgents().map((a) => a.pane), readThens().filter((t) => !t.done).map((t) => t.action)], [["s:2"], ["the plan"]]);
 });
 
-await check("a replaced launch's late RESULT fires nothing; its own RESULT fires the plan and leaves the watch", async () => {
+await check("the watched session's RESULT event fires the plan and leaves the watch; another session under the name fires nothing", async () => {
 	const id = await row();
-	const add = (generation, plan) => inbox(["agent", "add", "fixer", "--push", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", plan, "--generation", generation]);
-	await add("launch-old-01", "old plan");
-	await add("launch-new-01", "new plan");
-	const warnings = [];
-	const tailer = new AgentTailer({ dir: home, inbox, warn: (w) => warnings.push(w) });
-	const event = (generation, seq) => JSON.stringify({ v: 1, ts: new Date().toISOString(), name: "fixer", generation, pid: 1, session: "s", seq, type: "result", text: "done", result: { status: "done", path: "/r", version: `${generation.slice(-6)}${seq}`.padEnd(16, "0") } });
-	writeFileSync(join(home, "agent-events.jsonl"), `${event("launch-old-01", 1)}\n`);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "the plan"]);
+	const tailer = new AgentTailer({ dir: home, inbox, warn: () => {} });
+	const event = (session, pid, seq) => JSON.stringify({ v: 1, ts: new Date(Date.now() + 5000 + seq).toISOString(), name: "fixer", pid, session, seq, type: "result", text: "done", result: { status: "done", path: "/r", version: String(seq).padStart(16, "0") } });
+	// `agent add` bound the watch to the pane's agent process (this one): its event binds the session.
+	writeFileSync(join(home, "agent-events.jsonl"), `${event("mine", process.pid, 1)}\n${event("another", 2, 2)}\n`);
 	tailer.start();
 	await tailer.poke();
-	deepStrictEqual(await checkThens({ now: T0 }), [], "the old launch's RESULT fires nothing");
-	deepStrictEqual(readAgents().map((a) => a.generation), ["launch-new-01"], "and removes nothing");
-	writeFileSync(join(home, "agent-events.jsonl"), `${event("launch-old-01", 1)}\n${event("launch-new-01", 2)}\n`);
-	await tailer.poke();
 	tailer.stop();
+	deepStrictEqual(rows().filter((r) => r.source === "agents").map((r) => r.key), [`agents:fixer:result:${"1".padStart(16, "0")}`]);
 	await checkThens({ now: T0 });
-	ok(thenRows()[0].note.includes("you owe: new plan [RESULT"), thenRows()[0].note);
-	deepStrictEqual(readAgents().map((a) => a.generation), ["launch-new-01"], "a done RESULT leaves the watch");
+	ok(thenRows()[0].note.includes("you owe: the plan [RESULT"), thenRows()[0].note);
+	deepStrictEqual(readAgents().map((a) => a.name), ["fixer"], "a done RESULT leaves the watch");
 });
 
 await check("adding the same agent again cancels its previous unfired plan", async () => {
@@ -260,15 +263,18 @@ await check("killGuard lets an acknowledged, an unwatched and another mux's pane
 	strictEqual(killGuard("tmux kill-server", [watched[0]]), undefined);
 });
 
-await check("a legacy registration is migrated during add", async () => {
+await check("agent add leaves the other entries as an older build wrote them, and a re-add of a name keeps their old fields out", async () => {
 	const id = await row();
 	await inbox(["agent", "add", "legacy", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old"]);
-	const old = readAgents()[0];
-	delete old.generation;
+	const old = { ...readAgents()[0], generation: "launch-0001", stamped: true, instance: "first-add", migratedGeneration: "legacy", push: true };
 	writeAgents([old]);
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new"]);
-	ok(readAgents().every((entry) => entry.generation));
-	deepStrictEqual(readAgents().map((entry) => entry.name), ["legacy", "fixer"]);
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new", "--goal", "g"]);
+	deepStrictEqual(readAgents()[0], old, "an entry this add did not create is written back whole");
+	deepStrictEqual(Object.keys(readAgents()[1]), ["name", "mux", "host", "pane", "goal", "since"]);
+	strictEqual(await inbox(["agent", "ls"]).then((out) => out.split("\n").length), 2);
+	deepStrictEqual(readAgents()[0], old, "`agent ls` rewrites nothing");
+	await inbox(["agent", "add", "legacy", "--mux", "tmux", "--pane", "s:3"]);
+	deepStrictEqual(readAgents().map((a) => [a.name, Object.keys(a)]), [["fixer", ["name", "mux", "host", "pane", "goal", "since"]], ["legacy", ["name", "mux", "host", "pane", "since"]]]);
 });
 
 await check("adding the same agent on another row cancels its old unfired plan", async () => {
@@ -355,13 +361,11 @@ await check("a busy rules lock fails agent add before its plan is armed", async 
 	deepStrictEqual(readThens(), [], "no plan armed for a registration that was not written");
 });
 
-await check("a plain agent-result then needs the registration and is cancelled when that registration is replaced", async () => {
+await check("a plain agent-result then needs the watch and is closed when a new plan replaces it", async () => {
 	const id = await row();
 	await rejects(() => inbox(["then", id, "--when", "agent-result:fixer", "--", "verify the fix by hand"]), /not watched: fixer/);
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan one"]);
-	const [{ generation }] = readAgents();
 	await inbox(["then", id, "--when", "agent-result:fixer", "--", "verify the fix by hand"]);
-	ok(readThens().find((t) => t.action === "verify the fix by hand").generation === generation);
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "plan two"]);
 	const open = readThens().filter((t) => !t.done).map((t) => t.action);
 	deepStrictEqual(open, ["plan two"]);
@@ -391,30 +395,9 @@ await check("a failed plan save puts the old registration back", async () => {
 	deepStrictEqual(readThens(), before, "the plans are unchanged");
 });
 
-await check("re-adding a legacy registration keeps and reports its unmarked plans, automatic or by hand", async () => {
-	const id = await row();
-	const thensFile = join(home, "thens.json");
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old plan"]);
-	await inbox(["then", id, "--when", "agent-result:fixer", "--", "verify by hand"]);
-	// What an older inbox wrote: no generation on the registration or on the plan it armed, the same minute as the hand then.
-	const [old] = readAgents();
-	delete old.generation;
-	writeAgents([old]);
-	const minute = old.since.slice(0, 16);
-	writeFileSync(thensFile, JSON.stringify(readThens().map(({ generation, ...t }) => ({ ...t, added: minute }))));
-	const out = await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new plan"]);
-	deepStrictEqual(readThens().filter((t) => !t.done).map((t) => t.action), ["old plan", "verify by hand", "new plan"]);
-	ok(/kept \(ambiguous legacy\): .*: old plan; .*: verify by hand/.test(out), out);
-	strictEqual(readAgents()[0].pane, "s:2");
-	const again = await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:3", "--row", id, "--then", "newer plan"]);
-	ok(!again.includes("ambiguous"), again);
-	deepStrictEqual(readThens().filter((t) => !t.done).map((t) => t.action), ["old plan", "verify by hand", "newer plan"]);
-});
-
-await check("sweep reports an overdue then and a dead generation, once", async () => {
+await check("sweep reports an overdue then, once", async () => {
 	const id = await row();
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "check the answer"]);
-	const [{ generation }] = readAgents();
 	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${"9".repeat(16)}`, "--subject", "agent fixer", "--note", "RESULT status: done", "--field", "event=result"]);
 	await checkThens({ now: T0 });
 	const overdue = await sweep(false, plus(25 * 60));
@@ -424,14 +407,10 @@ await check("sweep reports an overdue then and a dead generation, once", async (
 	strictEqual(await sweep(true, plus(25 * 60)), `seen sweep:then-overdue:${id}.1:2026-11-12`);
 	await inbox(["then-done", id, "1"]);
 	strictEqual(readAgents().length, 1, "closing the then leaves the watch");
+	// An unfired then of a name that is no longer watched is no finding: `agent close` closes a watch's thens itself.
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "check again"]);
 	writeAgents([]);
-	const dead = await sweep(false, T0);
-	ok(dead.includes(`would sweep:then-dead:${id}.2`), dead);
-	// What an older tailer left in its cursor file (a dead name, held events) is not read any more.
-	mkdirSync(join(home, "cursors"), { recursive: true });
-	writeFileSync(join(home, "cursors", "agent-events.json"), JSON.stringify({ names: { fixer: { state: "dead", pending: [{ event: { session: "s9" } }] } } }));
-	strictEqual(await sweep(false, T0), dead);
+	strictEqual(await sweep(false, T0), "");
 });
 
 await check("closing the last open then of a watch leaves the watch in rules.yaml", async () => {
@@ -509,18 +488,17 @@ await check("a then armed on an existing RESULT does not fire on that version an
 	ok(thenRows().some((r) => r.note.includes("you owe: the next result")), thenRows().map((r) => r.note).join("\n"));
 });
 
-await check("an old then with generation and a stat-format baseline fires on a new version row", async () => {
+await check("an old then with generation and a stat-format baseline fires on a new version row, and keeps its generation", async () => {
 	const id = await row();
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old plan"]);
-	const [{ generation }] = readAgents();
 	const stored = readThens();
-	stored[0].baseline = { version: "1793973600.000000000 1793973600.000000000", said: "done:" };
+	Object.assign(stored[0], { generation: "launch-0001", baseline: { version: "1793973600.000000000 1793973600.000000000", said: "done:" } });
 	writeFileSync(join(home, "thens.json"), `${JSON.stringify(stored, null, 2)}\n`);
-	strictEqual(stored[0].generation, generation, "the stored generation is kept and ignored");
 	deepStrictEqual(await checkThens({ now: T0 }), [], "nothing reported yet");
 	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${"1".repeat(16)}`, "--subject", "agent fixer", "--note", "RESULT status: partial", "--field", "event=result"]);
 	await checkThens({ now: T0 });
 	ok(thenRows().some((r) => r.note.includes("you owe: old plan")), thenRows().map((r) => r.note).join("\n"));
+	strictEqual(readThens()[0].generation, "launch-0001", "a rewrite of thens.json keeps the field it does not read");
 });
 
 await check("concurrent agent add and then-done in two processes: neither times out, state stays consistent", async () => {

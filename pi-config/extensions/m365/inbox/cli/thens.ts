@@ -6,7 +6,7 @@
  * Triggers: `pr-merged:<owner/repo>#<n>` (the PR watch recorded the merge: a ledger or archive row keyed
  * `github:<repo>#<n>:merged`, so the repo's rules must record `event: merged`, `log` is enough),
  * `agent-result:<name>` (a RESULT row for that agent session added after the then, other than the RESULT version the
- * then was armed on; a stored generation is ignored), `gh-run:<owner/repo>:<run-id>`
+ * then was armed on), `gh-run:<owner/repo>:<run-id>`
  * (`gh run view` says completed), `at:<YYYY-MM-DD HH:MM>` (local time).
  *
  * When the trigger happens, one `do` row (tag `then`) starts a turn: "Trigger X happened; you owe: <action>". A fired
@@ -40,9 +40,7 @@ export interface Then {
 	remindedAt?: string;
 	done?: string;
 	note?: string;
-	/** Set by `agent add`: the registration whose plan this is. A re-registration cancels only that plan. */
-	generation?: string;
-	/** Set for a watched name: the RESULT version at arm time. A push name has none. Old objects may also carry `said`. */
+	/** Set for a watched name: the RESULT version at arm time. Old objects may also carry `said`, and a `generation` beside it: both are read past. */
 	baseline?: { version: string; said?: string };
 }
 const REMIND_MIN = [10, 50, 180];
@@ -81,21 +79,18 @@ const allRows = (): Row[] => [...readTsv(inboxFile("ledger.tsv")), ...readTsv(in
 const label = (t: Then) => `${t.row}.${t.n}`;
 
 /**
- * `agent` marks a registration's plan: its generation is stored, and `replaces` (the generation it supersedes)
- * cancels that registration's unfired plan. A plain `agent-result` then stamps the generation of the registration
- * that exists now, and is refused when that name is not watched.
- *
- * A registration from before generations (`replacesLegacy`) armed its plan with no generation, exactly like a then
- * added by hand before this contract, so nothing tells them apart: every such open then is kept and listed as ambiguous for the caller to
- * close with `then-done`.
+ * A plan for a watched name's RESULT. `baseline` is the RESULT version it was armed on, which does not fire it.
+ * `replace` (`agent add --then`) closes the name's previous unfired `agent-result` thens: the new plan is the one
+ * the dispatcher now holds for that session.
  */
-type AgentPlan = { generation: string; replaces?: string; replacesLegacy?: boolean; baseline?: Then["baseline"] };
-const open = (t: Then, when: string) => t.when === when && !t.fired && !t.done;
+type AgentPlan = { baseline?: Then["baseline"]; replace?: boolean };
 
 /**
+ * An `agent-result` then is refused when that name is not watched: nothing would ever fire it.
+ *
  * `commit` runs under the thens lock after the plan is decided and before thens.json is written, and returns how to
- * undo itself. `agent add` writes its registration there: if that write fails, thens.json is left untouched; if
- * thens.json then fails to save, the registration is undone. Either both change or neither does.
+ * undo itself. `agent add` writes its entry there: if that write fails, thens.json is left untouched; if
+ * thens.json then fails to save, the entry is undone. Either both change or neither does.
  */
 export function addThen(row: string, when: string, action: string, agent?: AgentPlan, commit?: () => () => void): string {
 	if (!TRIGGERS.some(([re]) => re.test(when)))
@@ -106,20 +101,16 @@ export function addThen(row: string, when: string, action: string, agent?: Agent
 	const live = readTsv(inboxFile("ledger.tsv"));
 	if (!live.some((r) => r.id === row)) throw new InboxError(`no such live id: ${row}`);
 	const after = allRows().reduce((max, r) => Math.max(max, Number(r.id)), 0);
-	let generation = agent?.generation;
 	const baseline = agent?.baseline;
-	if (!generation && when.startsWith("agent-result:")) {
+	// `agent add` arms its plan as it writes the entry (`commit`); any other then needs the watch to be there.
+	if (!commit && when.startsWith("agent-result:")) {
 		const name = when.slice("agent-result:".length);
-		const watched = readAgents().find((a) => a.name === name);
-		if (!watched) throw new InboxError(`not watched: ${name}. Run \`inbox agent add\` first.`);
-		generation = watched.generation;
+		if (!readAgents().some((a) => a.name === name)) throw new InboxError(`not watched: ${name}. Run \`inbox agent add\` first.`);
 	}
 	return withThens((thens, save) => {
-		const ambiguous = agent?.replacesLegacy ? thens.filter((t) => open(t, when) && t.generation === undefined) : [];
-		const prior = agent?.replaces ? thens.filter((t) => open(t, when) && t.generation === agent.replaces) : [];
-		for (const t of prior) Object.assign(t, { done: stamp(), note: "replaced by a new registration" });
+		if (agent?.replace) for (const t of thens) if (t.when === when && !t.fired && !t.done) Object.assign(t, { done: stamp(), note: "replaced by a new plan" });
 		const n = thens.filter((t) => t.row === row).reduce((max, t) => Math.max(max, t.n), 0) + 1;
-		thens.push({ row, n, when, action, added: stamp(), after, ...(generation ? { generation } : {}), ...(baseline ? { baseline } : {}) });
+		thens.push({ row, n, when, action, added: stamp(), after, ...(baseline ? { baseline } : {}) });
 		const undo = commit?.();
 		try {
 			save();
@@ -127,15 +118,13 @@ export function addThen(row: string, when: string, action: string, agent?: Agent
 			undo?.();
 			throw e;
 		}
-		const kept = ambiguous.length ? `; kept (ambiguous legacy): ${ambiguous.map((t) => `${label(t)}: ${t.action}`).join("; ")}` : "";
-		return `then ${row}.${n} waits for ${when}${kept}`;
+		return `then ${row}.${n} waits for ${when}`;
 	});
 }
 
 /**
  * Close one then. A watch is not touched: `then-done` of the last open then of a watched name ends with `; watch <name> stays`,
- * so the caller sees the registration is still there. The watch is read before the thens lock: `readAgents` migrates a legacy
- * list under the rules lock, and `agent add` already holds rules → thens, so taking thens first would deadlock the two.
+ * so the caller sees the watch is still there.
  */
 export function thenDone(row: string, n: string, note = ""): string {
 	const watched = new Set(readAgents().map((a) => a.name));
@@ -209,8 +198,7 @@ async function happened(t: Then, rows: Row[], now: Date, gh: boolean): Promise<s
 	if (kind === "agent-result") {
 		const prefix = `agents:${arg}:`;
 		const baseline = t.baseline?.version ? `${prefix}result:${t.baseline.version}` : "";
-		// Only rows recorded as a RESULT; `inbox set` / `done --note` rewrite notes, never tags. A stored generation is
-		// ignored: a version row has none, and an older row's generation is not the version.
+		// Only rows recorded as a RESULT; `inbox set` / `done --note` rewrite notes, never tags.
 		const hit = rows.find((r) => Number(r.id) > t.after && r.source === "agents" && r.tag === "agent-result" && r.key.startsWith(prefix) && r.key !== baseline);
 		return hit ? `${/^RESULT status: [a-z_]+/.exec(hit.note)?.[0] ?? "RESULT"} (row #${hit.id})` : undefined;
 	}

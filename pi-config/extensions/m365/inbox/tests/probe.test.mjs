@@ -16,6 +16,7 @@ import * as path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import YAML from "yaml";
 import { AgentTailer } from "../agents.ts";
+import { addAgent, readAgents } from "../cli/agents.ts";
 import { inbox } from "../cli/main.ts";
 import { CARD_PROMPT, cardStatus, latestLine, paneLine, phaseOf, probeAgents, runProbe } from "../cli/probe.ts";
 
@@ -115,18 +116,13 @@ function makeFixture(dir) {
 		dir,
 		now: T0,
 		behaviour: {},
-		push: new Set(),
 		probes: [],
 		logs: [],
 		children: [],
 		/** Watch `name` with a fake probe; rewrites rules.yaml's agent_watch from every session watched so far. */
-		watch(name, behaviour, push = false, generation = "11111111-1111-4111-8111-111111111111") {
+		watch(name, behaviour) {
 			f.behaviour[name] = behaviour;
-			if (push) f.push.add(name);
-			else f.push.delete(name);
-			const rows = Object.keys(f.behaviour).map((n) => ({
-				name: n, mux: "tern", pane: "1", host: "local", result: "", generation, ...(f.push.has(n) ? { push: true } : {}),
-			}));
+			const rows = Object.keys(f.behaviour).map((n) => ({ name: n, mux: "tern", pane: "1", host: "local", result: "" }));
 			fs.writeFileSync(rulesFile, YAML.stringify({ agents: { "*": [{ action: "notify", tag: "agent" }] }, agent_watch: rows }));
 		},
 		/** One probe pass; `extra` overrides options (e.g. `agent`, `digestMin`). */
@@ -498,14 +494,26 @@ await check("one probe per session, and the session tail is asked only when a di
 	}),
 );
 
-await check("a registration with no generation is migrated and kept after completion", () =>
+/** A launch id, as builds before session identity stored on entries and thens and put into row keys. */
+const GEN = "11111111-1111-4111-8111-111111111111";
+
+await check("an old entry with generation, stamped, instance and push is probed like any other, and the list is not rewritten", () =>
 	withFixture(async (f) => {
-		f.watch("alpha", finished);
-		const rules = YAML.parse(fs.readFileSync(path.join(f.dir, "rules.yaml"), "utf8"));
-		delete rules.agent_watch[0].generation;
-		fs.writeFileSync(path.join(f.dir, "rules.yaml"), YAML.stringify(rules));
-		await f.run();
-		deepStrictEqual(f.watchedNames(), ["alpha"]);
+		f.watch("alpha", ompLive);
+		const file = path.join(f.dir, "rules.yaml");
+		const rules = YAML.parse(fs.readFileSync(file, "utf8"));
+		Object.assign(rules.agent_watch[0], { generation: GEN, stamped: true, instance: "first-add", push: true });
+		rules.agent_watch.push({ name: "beta", mux: "tern", pane: "2", host: "local" });
+		f.behaviour.beta = ompLive;
+		const text = YAML.stringify(rules);
+		fs.writeFileSync(file, text);
+		await f.run({ noDigest: true });
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true }));
+		fs.writeFileSync(file, text);
+		f.now = T0 + 120;
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.ledgerKeys("agents:alpha:"), [`agents:alpha:idle:${T0 + 120}`], "its turn end is a row keyed by the name, never by the launch id");
+		strictEqual(fs.readFileSync(file, "utf8"), text);
 	}),
 );
 
@@ -593,7 +601,6 @@ await check("a RESULT version makes one row, and the same version again makes no
 	}),
 );
 
-const GEN = "11111111-1111-4111-8111-111111111111";
 const HASH = "3".repeat(16);
 
 await check("a then armed on a RESULT version does not fire on its row; the next version fires it", () =>
@@ -891,7 +898,7 @@ await check("the probe removes a closing entry whose pane is gone, with no gone 
 await check("a closing entry whose pane is alive stays, and its new RESULT version is still recorded before it is removed", () =>
 	withFixture(async (f) => {
 		const hash = "e".repeat(16);
-		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true }), true);
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true }));
 		markClosing(f, "alpha");
 		await f.run({ noDigest: true });
 		deepStrictEqual(f.watchedNames(), ["alpha"]);
@@ -1341,16 +1348,91 @@ await check("an ask the session reports is a row at once, and its answer archive
 	}),
 );
 
-await check("a push entry is probed like any other", () =>
+await check("agent add probes the pane first: a missing pane and a pane with no agent process are refused, and nothing is written", () =>
 	withFixture(async (f) => {
-		const hash = "f".repeat(16);
-		f.watch("alpha", (now, want) => ({ ...finished(now, want), waiting: true, rhash: hash, rfile: "/runs/RESULT.md" }), true);
+		const add = (pane) => inbox(["agent", "add", "alpha", "--mux", "tern", "--pane", pane]).then((out) => `added: ${out}`, (e) => e.message);
+		fs.mkdirSync(path.join(process.env.HOME, ".local", "bin"), { recursive: true });
+		fs.writeFileSync(path.join(process.env.HOME, ".local", "bin", "tern"), `#!/bin/sh\n${MISSING.tern.command}\n`, { mode: 0o755 });
+		strictEqual(await add("99999"), "no tern pane 99999 on local: nothing to watch. Not added.");
+		const shell = spawn("bash", ["-c", "read x; :"], { stdio: ["pipe", "ignore", "ignore"] });
+		f.children.push(shell);
+		const pane = path.join(f.dir, "pane.txt");
+		fs.writeFileSync(pane, "$ \n");
+		f.writeTern(shell.pid, pane);
+		strictEqual(await add("1"), "tern pane 1 on local holds no agent process, only shells: start the session there first. Not added.");
+		deepStrictEqual([readAgents(), fs.existsSync(path.join(f.dir, "cursors", "agents.json")), fs.existsSync(path.join(f.dir, "thens.json"))], [[], false, false]);
+	}),
+);
+
+await check("agent add prints what it attached to (pid, session, phase, RESULT, reporter events, the armed then) and binds the record", () =>
+	withFixture(async (f) => {
+		const dir = path.join(f.dir, "sessions", "proj");
+		fs.mkdirSync(dir, { recursive: true });
+		const session = path.join(dir, "2026-11-06T14-00-00-000Z_01a1-sess.jsonl");
+		fs.writeFileSync(session, jsonl(assistant(textItem("round one done"))));
+		const pane = path.join(f.dir, "pane.txt");
+		fs.writeFileSync(pane, "pane\n");
+		const agentPid = await f.holdPane(session);
+		f.writeTern(agentPid, pane);
+		const result = path.join(f.dir, "run", "RESULT.md");
+		fs.mkdirSync(path.dirname(result));
+		fs.writeFileSync(result, "status: partial\nopen: none\n");
+		const version = createHash("sha256").update("status: partial\nopen: none\n").digest("hex").slice(0, 16);
+		// The host's event file: two lines of this session, one of another.
+		const line = (id, seq) => JSON.stringify({ v: 1, ts: "2026-11-06T14:00:00.000Z", name: "", pid: agentPid, session: id, seq, type: "working" });
+		fs.writeFileSync(path.join(f.dir, "agent-events.jsonl"), `${line("01a1-sess", 1)}\n${line("01a1-other", 2)}\n${line("01a1-sess", 3)}\n`);
+		fs.writeFileSync(path.join(f.dir, "rules.yaml"), YAML.stringify({ agents: { "*": [{ action: "notify", tag: "agent" }] } }));
+		const row = (await inbox(["ask", "fix it", "--key", "fix"])).split(" ")[1];
+		const out = await inbox(["agent", "add", "alpha", "--mux", "tern", "--pane", "1", "--result", result, "--goal", "fix it", "--row", row, "--then", "read it and reply"]);
+		strictEqual(out, [
+			"watching alpha: tern pane 1 on local",
+			`agent pid ${agentPid}, session 01a1-sess, phase idle`,
+			`RESULT ${result}, status partial, version ${version}`,
+			"reporter events of this session on local: 2",
+			`then ${row}.1 waits for agent-result:alpha`,
+		].join("\n"));
+		deepStrictEqual(Object.keys(readAgents()[0]), ["name", "mux", "host", "pane", "result", "goal", "since"]);
+		const seen = f.state().watches.alpha;
+		deepStrictEqual([seen.phase, seen.by, seen.agent], ["idle", "probe", { pid: agentPid, session: "01a1-sess", sessionFile: session, cwd: process.cwd() }]);
+		deepStrictEqual(JSON.parse(fs.readFileSync(path.join(f.dir, "thens.json"), "utf8")).map((t) => [t.action, t.baseline, t.generation]), [["read it and reply", { version }, undefined]]);
+		// A session with no reporter events is still watched, and the print says who watches it.
+		fs.rmSync(path.join(f.dir, "agent-events.jsonl"));
+		match(await inbox(["agent", "add", "alpha", "--mux", "tern", "--pane", "1"]), /\nreporter events of this session on local: 0 \(no reporter has written for it: only the probe watches it\)\nno plan armed$/);
+	}),
+);
+
+await check("a re-add of the session a name already watches keeps its record; another session under the name starts a new one", () =>
+	withFixture(async (f) => {
+		const p = (pid, session) => async () => ({ ...ompLive(T0, false), agent_pid: pid, session: `/sessions/p/t_${session}.jsonl`, cwd: "/w" });
+		const add = (probe) => addAgent({ name: "alpha", mux: "tern", pane: "1" }, probe);
+		await add(p(41, "s1"));
+		const records = path.join(f.dir, "cursors", "agents.json");
+		const state = f.state();
+		Object.assign(state.watches.alpha, { phase: "asking", by: "event", digested: "sent" });
+		fs.writeFileSync(records, JSON.stringify(state));
+		await add(p(41, "s1"));
+		deepStrictEqual([f.state().watches.alpha.phase, f.state().watches.alpha.digested], ["asking", "sent"], "the same session: what was known of it stays");
+		await add(p(42, "s2"));
+		deepStrictEqual(f.state().watches.alpha, { phase: "working", at: T0 * 1000, by: "probe", active: T0, agent: { pid: 42, session: "s2", sessionFile: "/sessions/p/t_s2.jsonl", cwd: "/w" } });
+	}),
+);
+
+await check("stall and turn-end rows carry the session; a stall an older build keyed by launch id is not reported again", () =>
+	withFixture(async (f) => {
+		const quiet = (now, want) => ({ ...ompLive(now, want), smtime: T0, agent_pid: 41, session: "/sessions/p/t_s1.jsonl", cwd: "/w" });
+		f.watch("alpha", quiet);
+		f.watch("beta", quiet);
 		await f.run({ noDigest: true });
-		f.now = T0 + 120;
+		// What the older build made for beta's quiet spell.
+		const stamp = (s) => { const d = new Date(s * 1000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+		fs.writeFileSync(path.join(f.dir, "archive.tsv"), `id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink\n1\tagents:beta:${GEN}:stalled:${T0}\tagent beta\t${stamp(T0 + 1800)}\tagents\tagent\tnotify\tdone\t\tno output for 30 min\t\n`);
+		f.now = T0 + 31 * 60;
 		await f.run({ noDigest: true });
-		deepStrictEqual(f.probes, [["alpha", false], ["alpha", false]]);
-		deepStrictEqual(f.reportedKeys("agents:alpha:result:"), [`agents:alpha:result:${hash}`]);
-		strictEqual(f.state().watches.alpha.by, "probe");
+		deepStrictEqual(f.ledgerKeys("agents:"), [`agents:alpha:s1:stalled:${T0}`]);
+		f.watch("alpha", (now, want) => ({ ...quiet(now, want), smtime: T0 + 32 * 60, waiting: true }));
+		f.now = T0 + 33 * 60;
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.ledgerKeys("agents:alpha:"), [`agents:alpha:s1:idle:${T0 + 32 * 60}`]);
 	}),
 );
 

@@ -70,6 +70,8 @@ export interface Probe {
 	agent_pid?: number;
 	/** That process's working directory. */
 	cwd?: string;
+	/** Asked for by `inbox agent add`: how many reporter events the pane's session has in the host's agent-events.jsonl. */
+	events?: number;
 	now: number;
 	kind?: "jsonl" | "pane";
 	tail?: string;
@@ -105,12 +107,12 @@ const DIGEST_PROMPT =
 
 const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 
-/** Run probe.sh where the pane lives. A failed ssh is an error, not a dead pane. `want` asks for the text tail. */
-export async function runProbe(a: AgentEntry, want = false): Promise<Probe> {
+/** Run probe.sh where the pane lives. A failed ssh is an error, not a dead pane. `want` asks for the text tail, `events` for the session's reporter event count. */
+export async function runProbe(a: AgentEntry, want = false, events = false): Promise<Probe> {
 	const host = a.host || "local";
 	const local = host === "local";
 	const result = local ? (a.result ?? "").replace(/^~(?=\/|$)/, os.homedir()) : (a.result ?? "");
-	const args = [a.mux, String(a.pane), result, want ? "1" : ""];
+	const args = [a.mux, String(a.pane), result, want ? "1" : "", events ? "1" : ""];
 	const argv = local
 		? ["bash", "-c", SCRIPT, "probe", ...args]
 		: /^(?!-)[A-Za-z0-9._@:-]+$/.test(host)
@@ -308,8 +310,11 @@ function askOf(p: Probe): { id?: string; question?: string; options: string[] } 
 	return { id: call?.id, question: oneLine(question) || undefined, options };
 }
 
-/** The id in an omp session file name (`<time>_<id>.jsonl`). */
-const sessionId = (file: string) => path.basename(file, ".jsonl").split("_").at(-1) ?? "";
+/** The agent process a probe found in the pane, with the id in its omp session file name (`<time>_<id>.jsonl`). Undefined when the mux names none, or the pane holds only shells. */
+export function agentOf(p: Probe): Observed["agent"] {
+	if (!p.agent_pid) return undefined;
+	return { pid: p.agent_pid, session: path.basename(p.session, ".jsonl").split("_").at(-1) ?? "", sessionFile: p.session, cwd: p.cwd ?? "" };
+}
 
 /**
  * One probe against the watch's record: the record as it is after this probe, and the events the change owes.
@@ -330,7 +335,8 @@ function observe(a: AgentEntry, prev: Observed | undefined, p: Probe, stallS: nu
 	active = Math.max(prev?.active ?? now, active);
 	next.active = active;
 	// Kept when the agent is gone: the resume line needs it.
-	if (p.agent_pid) next.agent = { pid: p.agent_pid, session: sessionId(p.session), sessionFile: p.session, cwd: p.cwd ?? "" };
+	const agent = agentOf(p);
+	if (agent) next.agent = agent;
 	const version = p.rhash ?? "";
 	const settled = phase !== "working" || (!p.session && !p.state);
 	if (p.rstatus && version && settled && !legacyReported(a.name, p.rmtime)) {
@@ -373,16 +379,23 @@ function observe(a: AgentEntry, prev: Observed | undefined, p: Probe, stallS: nu
 	return { next, events };
 }
 
-function record(a: AgentEntry, e: Event): string {
+/** Stall and turn-end rows carry the session, so the same second of another session of the name is another row. */
+function record(a: AgentEntry, session: string, e: Event): string {
+	const own = (e.event === "stalled" || e.event === "idle") && session ? `${session}:` : "";
 	return recordAgentRow({
 		source: "agents",
 		place: a.name,
-		key: e.event === "stalled" || e.event === "idle" ? `agents:${a.name}:${a.generation}:${e.key}` : `agents:${a.name}:${e.key}`,
+		key: `agents:${a.name}:${own}${e.key}`,
 		subject: `agent ${a.name}`,
 		note: a.goal ? `${e.note.replace(/\.$/, "")}. Goal: ${a.goal}` : e.note,
 		link: e.link || a.result || "",
 		fields: [`event=${e.event}`, `state=${e.state}`, `mux=${a.mux}`, `host=${a.host || "local"}`],
 	});
+}
+
+/** A row of this quiet spell exists under a key an older build made (`agents:<name>:<launch id>:stalled:<n>`): a deploy does not report the stall again. */
+function stallShown(name: string, key: string): boolean {
+	return [...readTsv(inboxFile("ledger.tsv")), ...readTsv(inboxFile("archive.tsv"))].some((row) => row.key.startsWith(`agents:${name}:`) && row.key.endsWith(`:${key}`));
 }
 
 /**
@@ -447,7 +460,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 					if (ids.length) made.push(`${a.name}: ask resolved -> archived ${ids.join(" ")}`);
 				}
 				const add = (e: Event) => {
-					const reply = record(a, e);
+					const reply = record(a, next.agent?.session ?? "", e);
 					if (/^(do|notify) /.test(reply)) {
 						recorded = true;
 						if (e.event === "result") resultNew = true;
@@ -456,7 +469,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 				};
 				// An acknowledged close owes nothing but a RESULT version it has not reported yet.
 				const owed = (a.closing ? events.filter((e) => e.event === "result") : events)
-					.filter((e) => !(e.event === "ask" && askShown(a.name)) && !(e.event === "idle" && turnEndShown(a.name, next.active ?? 0)));
+					.filter((e) => !(e.event === "ask" && askShown(a.name)) && !(e.event === "idle" && turnEndShown(a.name, next.active ?? 0)) && !(e.event === "stalled" && stallShown(a.name, e.key)));
 				for (const e of owed.filter((event) => event.event !== "idle")) add(e);
 				if (!resultNew) for (const e of owed.filter((event) => event.event === "idle")) add(e);
 				state.watches[a.name] = next;
@@ -472,8 +485,8 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 			if (a.closing && phaseOf(p) === "gone" && removeClosed(a)) seen.made.push(`${a.name}: closed, pane gone -> watch removed`);
 			for (const line of seen.made) log(line);
 			if (seen.recorded) {
-				// The probe child runs this build. A coordinator that has not restarted still matches a generation-prefixed
-				// key and would not fire on a version row, so the then is checked here, in this process.
+				// The probe child runs this build. A coordinator that has not restarted runs an older then checker, which
+				// would not fire on a version row, so the then is checked here, in this process.
 				for (const line of await checkThens()) log(line);
 			}
 		} catch (e) {

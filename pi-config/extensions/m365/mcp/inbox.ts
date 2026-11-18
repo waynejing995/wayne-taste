@@ -15,10 +15,9 @@ const STATES = ["open", "claimed"];
 
 /**
  * Commands that only read: a cancel or the timeout may kill them. A kill while `ls` or `facts` holds the ledger lock
- * leaves that lock behind; it clears itself within 10 s (LOCK_STALE_MS), and no data is touched. Not `agent ls`: it
- * migrates legacy registrations.
+ * leaves that lock behind; it clears itself within 10 s (LOCK_STALE_MS), and no data is touched.
  */
-const READ_ONLY = new Set(["ls", "facts"]);
+const READ_ONLY = new Set(["ls", "facts", "agent ls"]);
 
 /**
  * Run `inbox <args>`; a non-zero exit is the tool's error, with the CLI's own message under the full command name
@@ -178,7 +177,9 @@ export const inboxTools: ToolDef[] = [
 		name: "inbox_agent_add",
 		label: "Inbox Agent Add",
 		description:
-			"Watch one agent session for a live row; its next RESULT fires the `then` plan on that row. A second add of the same name replaces it.\n" +
+			"Watch the agent session running in a pane. It probes the pane first (a missing pane, or one with no agent process, is refused) and returns what it attached to: " +
+			"agent pid, session id, phase, RESULT file / status / version, how many reporter events that session has, and the armed then. " +
+			"With `row` and `then` (they go together), the session's next RESULT fires that plan on the row. A second add of the same name replaces it.\n" +
 			"Reuse before you open: run inbox_agent_ls first. If a registered session already owns the same topic or repo, send the new round into its pane and register it again under the same name. " +
 			"Every round writes a NEW result file (RESULT-<topic>-rN.md); never rewrite one that is already registered. " +
 			"Open a new session only when the topic is unrelated or the old pane is gone.",
@@ -186,17 +187,15 @@ export const inboxTools: ToolDef[] = [
 			name: Type.String({ description: "The session's name; the same name replaces its registration" }),
 			mux: Type.Union(MUXES.map((m) => Type.Literal(m))),
 			pane: Type.String({ description: "tern block id, herdr id, hc terminal, or tmux target" }),
-			row: Type.String({ description: "The live ledger row this session works for" }),
-			then: Type.String({ description: "The plan for its RESULT: what you expect, whom you reply to and how, what you close" }),
+			row: Type.Optional(Type.String({ description: "The live ledger row this session works for (with then)" })),
+			then: Type.Optional(Type.String({ description: "The plan for its RESULT: what you expect, whom you reply to and how, what you close (with row)" })),
 			host: Type.Optional(Type.String({ description: "local (default), or the ssh host the pane lives on" })),
 			result: Type.Optional(Type.String({ description: "The file the session writes its RESULT to" })),
 			goal: Type.Optional(Type.String({ description: "One line: what it was asked to do" })),
-			push: Type.Optional(Type.Boolean({ description: "Accepted and stored; every watch is probed and tailed alike" })),
-			generation: Type.Optional(Type.String({ description: "The WAYNE_AGENT_GENERATION the session was launched with" })),
 		}),
 		async execute(_id, p, signal) {
-			const opts = options({ mux: p.mux as string, pane: p.pane, row: p.row, then: p.then, host: p.host, result: p.result, goal: p.goal, generation: p.generation });
-			return text(await inbox(["agent", "add", ...opts, ...(p.push ? ["--push"] : []), "--", p.name], signal));
+			const opts = options({ mux: p.mux as string, pane: p.pane, row: p.row, then: p.then, host: p.host, result: p.result, goal: p.goal });
+			return text(await inbox(["agent", "add", ...opts, "--", p.name], signal));
 		},
 	},
 	{
@@ -219,7 +218,7 @@ export const inboxTools: ToolDef[] = [
 	{
 		name: "inbox_agent_ls",
 		label: "Inbox Agent Ls",
-		description: "Watched agent sessions, one per line: name, mux, host, pane, result, since, goal, phase (working, asking, idle or gone as last observed, plus ` closing`). It may rewrite legacy registrations (it gives each a generation id) before listing.",
+		description: "Watched agent sessions, one per line: name, mux, host, pane, result, since, goal, phase (working, asking, idle or gone as last observed, plus ` closing`).",
 		parameters: Type.Object({}),
 		async execute(_id, _p, signal) {
 			return text(await inbox(["agent", "ls"], signal));

@@ -1,14 +1,16 @@
 # The agent probe: one JSON object for one watched pane. `inbox agent probe` runs it as
-# `bash -c "$(cat probe.sh)" probe MUX PANE RESULT WANT`, locally or over ssh where the pane lives. It never writes.
+# `bash -c "$(cat probe.sh)" probe MUX PANE RESULT WANT EVENTS`, locally or over ssh where the pane lives. It never writes.
 # `$HOME/.local/bin` and `$HOME/.bun/bin` hold tern and omp on hosts where they are installed per user.
 # WANT=1 adds `kind` and `tail` (gzip, base64 -w0): from the whole omp session, its newest assistant lines that carry
 # text and its newest todo result (a long tool-only run cannot push them out), else the pane text.
+# EVENTS=1 (`inbox agent add`) adds `events`: how many lines of this host's agent-events.jsonl the pane's omp session
+# wrote, 0 when the pane has no session file or no reporter ever wrote for it.
 # RESULT is a path. The file read is the newest `RESULT*.md` in its directory: a run directory belongs to one watch,
 # so two watches must not share one. None means no result.
 # tern and tmux also say which process in the pane is the agent (`agent_pid`, 0 when the pane holds only shells)
 # and where it runs (`cwd`). `ask` is the session's last assistant line when that line is an `ask` call still pending.
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"
-mux=$1 pane=$2 result=$3 want=$4
+mux=$1 pane=$2 result=$3 want=$4 count=$5
 # `cap` is the one capture per run. `printf x` keeps its trailing newlines, so the hash matches the old pipe.
 alive=false agent= state= session= text= cap= mux_error= agent_pid=0
 # The agent under process $1: among it and every descendant (nearest first), the one that holds a session jsonl,
@@ -145,6 +147,14 @@ case $mux in tern|tmux)
   [ "$agent_pid" != 0 ] && cwd=$(readlink "/proc/$agent_pid/cwd" 2>/dev/null)
   extra=",\"agent_pid\":$agent_pid,\"cwd\":\"$(printf %s "$cwd" | base64 -w0)\"" ;;
 esac
+if [ "$count" = 1 ]; then
+  events=0
+  log=${WAYNE_INBOX_DIR:-$HOME/.wayne/inbox}/agent-events.jsonl
+  # The session id is the part of the file name after the last `_`, as the reporter sends it.
+  sid=${session##*/} sid=${sid%.jsonl} sid=${sid##*_}
+  [ -n "$sid" ] && [ -f "$log" ] && events=$(grep -cF "\"session\":\"$sid\"" "$log")
+  extra="$extra,\"events\":$events"
+fi
 # The newest assistant line that carries a text item, from the same 200 KB tail the wait check reads.
 last64=
 if [ -n "$session" ]; then

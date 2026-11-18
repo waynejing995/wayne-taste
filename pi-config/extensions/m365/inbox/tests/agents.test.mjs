@@ -42,15 +42,6 @@ function fixture(extra = {}) {
 	};
 	const inbox = async (args) => {
 		calls.push([...args]);
-		if (args[0] === "agent") {
-			const generation = args.includes("--generation") ? args[args.indexOf("--generation") + 1] : undefined;
-			const name = args[2];
-			if (!tailer.entries.some((entry) => entry.name === name && (!generation || entry.generation === generation))) throw new Error(`not watched: ${name}`);
-			const next = tailer.entries.filter((entry) => !(entry.name === name && (!generation || entry.generation === generation)));
-			writeRules(next);
-			tailer.entries = next;
-			return "stopped";
-		}
 		if (failAdd) throw new Error("ledger unavailable");
 		const key = args[args.indexOf("--key") + 1];
 		if (rows.has(key)) return "seen";
@@ -59,7 +50,7 @@ function fixture(extra = {}) {
 	};
 	const opts = { dir, inbox, now: () => clock, warn: (message) => warnings.push(message), onChange: () => { changeCount += 1; changes.emit("change"); }, ...extra };
 	let tailer = new AgentTailer(opts);
-	const watched = (name = "one", host = "local", since = "2026-11-09 00:00", generation = "11111111-1111-4111-8111-111111111111") => ({ name, host, since, generation, mux: "tern", pane: name, push: true });
+	const watched = (name = "one", host = "local", since = "2026-11-09 00:00") => ({ name, host, since, mux: "tern", pane: name });
 	const event = (type, seq, overrides = {}) => ({ v: 1, ts: new Date(clock).toISOString(), name: "one", host: "localhost", pid: 17, session: "session", seq, type, ...overrides });
 	const append = (value) => fs.appendFileSync(file, typeof value === "string" || Buffer.isBuffer(value) ? value : `${JSON.stringify(value)}\n`);
 	const start = async (list = [watched()]) => { writeRules(list); tailer.start(); await tailer.poke(); };
@@ -138,64 +129,103 @@ await check("idle and done result map output and keep the watch", () => withFixt
 	equal(f.observed().one.phase, "idle");
 }));
 
-await check("a legacy push registration migrates on first start and stays after a done result", () => withFixture(async (f) => {
-	const legacy = f.watched();
-	delete legacy.generation;
-	fs.writeFileSync(f.rules, YAML.stringify({ agent_watch: [legacy] }));
+await check("an old entry with generation, stamped, instance and push is read as it is and works; nothing rewrites the list", () => withFixture(async (f) => {
+	const text = YAML.stringify({ agent_watch: [
+		{ ...f.watched(), generation: "launch-0001", stamped: true, instance: "first-add", migratedGeneration: "legacy", push: true },
+		{ name: "bare", host: "local", mux: "tern", pane: "2" },
+	] });
+	fs.writeFileSync(f.rules, text);
 	f.tailer.start();
 	await f.tailer.poke();
-	ok(f.tailer.entries[0].generation);
-	f.append(f.event("result", 1, { text: "finished", result: { status: "done", path: "/answer" } }));
+	deepStrictEqual(readAgents().map((a) => [a.name, a.generation, a.stamped, a.push]), [["one", "launch-0001", true, true], ["bare", undefined, undefined, undefined]]);
+	// A reporter of an older clone still stamps a launch id on its events: it is not read.
+	f.append(f.event("result", 1, { generation: "another-launch", text: "finished", result: { status: "done", path: "/answer", version: "0000000000000001" } }));
+	f.append(f.event("idle", 2, { generation: "another-launch", text: "and again" }));
 	await f.tailer.poke();
-	ok(f.tailer.entries.length === 1, "a done RESULT leaves the migrated registration");
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:session:idle:2"]);
+	equal(fs.readFileSync(f.rules, "utf8"), text, "the list is as it was written");
 }));
 
-await check("an old session's first result after a re-registration keeps the replacement", () => withFixture(async (f) => {
-	await f.start([{ ...f.watched(), generation: "old" }]);
+await check("a session resumed into another pane keeps its watch, and the entry follows it", () => withFixture(async (f) => {
+	await f.start([{ ...f.watched(), pane: "100", goal: "ship safely", generation: "launch-0001", push: true }, f.watched("other")]);
+	f.append(f.event("started", 1, { mux: "tern", pane: "100" }));
+	f.append(f.event("working", 2, { mux: "tern", pane: "100" }));
+	await f.tailer.poke();
+	equal(YAML.parse(fs.readFileSync(f.rules, "utf8")).agent_watch[0].pane, "100", "the same pane rewrites nothing");
+	// `omp --resume` in a new tern block: another process, another pane, the same session.
+	f.append(f.event("started", 3, { pid: 99, mux: "tern", pane: "200" }));
+	f.append(f.event("idle", 4, { pid: 99, mux: "tern", pane: "200", text: "resumed and done" }));
+	await f.tailer.poke();
+	const list = YAML.parse(fs.readFileSync(f.rules, "utf8")).agent_watch;
+	deepStrictEqual(list.map((a) => [a.name, a.mux, a.pane]), [["one", "tern", "200"], ["other", "tern", "other"]]);
+	deepStrictEqual([list[0].goal, list[0].generation, list[0].push, list[0].since], ["ship safely", "launch-0001", true, "2026-11-09 00:00"], "every other field of the entry stays");
+	deepStrictEqual([...f.rows.keys()], ["agents:one:session:idle:4"], "the watch went on: its turn end is its row");
+	deepStrictEqual([f.observed().one.agent.pid, f.observed().one.agent.session], [99, "session"]);
+	ok(f.warnings.some((w) => /one: session session is in tern pane 200 now \(was 100\)/.test(w)), f.warnings.join("\n"));
+	await f.tailer.poke();
+	equal(f.tailer.entries[0].pane, "200", "the tailer reads the entry it moved");
+}));
+
+await check("an entry written as a tmux target, and an event that names another mux, move nothing", () => withFixture(async (f) => {
+	const text = YAML.stringify({ agent_watch: [{ ...f.watched(), mux: "tmux", pane: "work:1.0" }, { ...f.watched("two"), mux: "tmux", pane: "%4" }] });
+	fs.writeFileSync(f.rules, text);
+	f.tailer.start();
+	await f.tailer.poke();
+	// The reporter names a tmux pane by its id; the entry was typed as a target, which the probe and the kill guard read.
+	f.append(f.event("working", 1, { mux: "tmux", pane: "%3" }));
+	// A session inside tmux inside a tern block: the reporter names the outer block.
+	f.append(f.event("working", 2, { name: "two", session: "s2", pid: 18, mux: "tern", pane: "3440268804099" }));
+	await f.tailer.poke();
+	equal(fs.readFileSync(f.rules, "utf8"), text);
+	deepStrictEqual([f.observed().one.phase, f.observed().two.phase], ["working", "working"], "both events still reached their watch");
+	f.append(f.event("working", 3, { name: "two", session: "s2", pid: 18, mux: "tmux", pane: "%9" }));
+	await f.tailer.poke();
+	deepStrictEqual(YAML.parse(fs.readFileSync(f.rules, "utf8")).agent_watch.map((a) => a.pane), ["work:1.0", "%9"], "a tmux pane id follows the session");
+}));
+
+await check("an event of another session under the same name does not reach a live watch; a gone watch's name takes it", () => withFixture(async (f) => {
+	await f.start();
 	f.append(f.event("working", 1));
 	await f.tailer.poke();
-	f.writeRules([{ ...f.watched(), generation: "new", since: "2026-11-09 00:01" }]);
+	// A second launch with WAYNE_AGENT_WATCH=one: another process, another session.
+	const other = { pid: 99, session: "other" };
+	f.append(f.event("started", 2, other));
+	f.append(f.event("ask", 3, { ...other, ask: { kind: "ask", question: "Not yours?" } }));
+	f.append(f.event("result", 4, { ...other, text: "not this watch's", result: { status: "done", path: "/x", version: "9".repeat(16) } }));
 	await f.tailer.poke();
-	f.append(f.event("result", 2, { text: "old round", result: { status: "done", path: "/old" } }));
+	deepStrictEqual([...f.rows.keys()], [], "no row, so no plan of the watch fires");
+	deepStrictEqual([f.observed().one.phase, f.observed().one.agent], ["working", { pid: 17, session: "session", sessionFile: "", cwd: "" }]);
+	equal(f.offset(), fs.statSync(f.file).size, "dropped, nothing held");
+	deepStrictEqual(f.warnings, []);
+	// The probe saw no agent left in the pane: the name is free for the session that reports under it next.
+	const records = path.join(f.dir, "cursors", "agents.json");
+	const state = JSON.parse(fs.readFileSync(records, "utf8"));
+	state.watches.one.phase = "gone";
+	fs.writeFileSync(records, JSON.stringify(state));
+	f.append(f.event("idle", 5, { ...other, text: "relaunched" }));
 	await f.tailer.poke();
-	deepStrictEqual(f.tailer.entries.map((e) => e.generation), ["new"]);
-	deepStrictEqual(f.calls.filter((c) => c[0] === "agent" && c[1] === "rm"), []);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:other:idle:5"]);
+	deepStrictEqual([f.observed().one.phase, f.observed().one.agent.session], ["idle", "other"]);
+	f.append(f.event("idle", 6, { text: "the first session, late" }));
+	await f.tailer.poke();
+	equal(f.rows.size, 1, "the first session is not the watch's any more");
 }));
 
-await check("a follow-up prompt to the old session after a re-registration belongs to the replacement", () => withFixture(async (f) => {
-	await f.start([{ ...f.watched(), generation: "old" }]);
-	f.append(f.event("working", 1));
+await check("a watch reaches its session whatever name the session reports under", () => withFixture(async (f) => {
+	await f.start();
+	// `inbox agent add` bound the watch to the session it found in the pane; that session was started with no name.
+	fs.mkdirSync(path.join(f.dir, "cursors"), { recursive: true });
+	fs.writeFileSync(path.join(f.dir, "cursors", "agents.json"), JSON.stringify({ watches: { one: { phase: "working", at: 0, by: "probe", agent: { pid: 17, session: "session", sessionFile: "/s.jsonl", cwd: "/w" } } } }));
+	f.append(f.event("idle", 1, { name: "", text: "unnamed session" }));
+	f.append(f.event("idle", 2, { name: "", session: "elsewhere", pid: 5, text: "an unwatched pane session" }));
 	await f.tailer.poke();
-	f.writeRules([{ ...f.watched(), generation: "new", since: "2026-11-09 00:01" }]);
-	await f.tailer.poke();
-	f.append(f.event("working", 2, { prompted: true }));
-	f.append(f.event("result", 3, { text: "follow-up", result: { status: "done", path: "/new" } }));
-	await f.tailer.poke();
-	deepStrictEqual(f.calls.filter((c) => c[0] === "agent" && c[1] === "rm"), [], "the follow-up is recorded without removing the replacement");
+	deepStrictEqual([...f.rows.keys()], ["agents:one:session:idle:1"]);
+	deepStrictEqual(f.observed().one.agent, { pid: 17, session: "session", sessionFile: "/s.jsonl", cwd: "/w" }, "what the probe knew of the session is kept");
 }));
 
-await check("a late result from a replaced launch neither records a row nor removes the replacement", () => withFixture(async (f) => {
-	// The inbox never saw the old launch report before it was replaced: only the event's own generation says whose it is.
-	await f.start([{ ...f.watched(), generation: "launch-new" }]);
-	f.append(f.event("result", 1, { generation: "launch-old", text: "old round", result: { status: "done", path: "/old" } }));
-	await f.tailer.poke();
-	deepStrictEqual(f.tailer.entries.map((e) => e.generation), ["launch-new"]);
-	deepStrictEqual(f.calls.filter((c) => c[0] === "agent"), [], "the replacement is not removed");
-	deepStrictEqual([...f.rows.keys()], [], "no row, so no plan of the replacement fires");
-}));
-
-await check("a stamped registration takes events with no generation and its own, never another launch's", () => withFixture(async (f) => {
-	await f.start([{ ...f.watched(), generation: "launch-new", stamped: true }]);
-	f.append(f.event("result", 1, { text: "unstamping reporter", result: { status: "done", path: "/old" } }));
-	f.append(f.event("result", 2, { generation: "launch-new", text: "mine", result: { status: "done", path: "/new" } }));
-	f.append(f.event("result", 3, { generation: "launch-old", text: "replaced launch", result: { status: "done", path: "/x" } }));
-	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:launch-new:session:1", "agents:one:launch-new:session:2"]);
-}));
-
-// Field report 11-18 (engai-hld-research #1514, artifact-viewers #1517): stamped --host registrations on trace-srdc,
-// whose reporter clone predates generations, sent heartbeats from launch on and were still reported as never started.
-await check("a stamped --host registration whose first event arrives after registration is never reported as never started", () => {
+// Field report 11-18 (engai-hld-research #1514, artifact-viewers #1517): --host watches on trace-srdc, whose reporter
+// clone is an older one (no pane, no launch id), sent heartbeats from launch on and were still reported as never started.
+await check("an old reporter's events (no pane, no launch id) reach a --host watch by its name", () => {
 	let stdout;
 	return withFixture(async (f) => {
 		await f.start([{ ...f.watched("one", "wayne@trace-srdc"), generation: "hld-1", stamped: true }]);
@@ -209,7 +239,8 @@ await check("a stamped --host registration whose first event arrives after regis
 			await f.tailer.tick();
 		}
 		deepStrictEqual([...f.rows.values()].filter((row) => fields(row).includes("event=dead")), []);
-		equal(f.observed().one?.by, "event", "the remote stream's unstamped events reach the stamped watch");
+		equal(f.observed().one?.by, "event", "the remote stream's events reach the watch of their name");
+		deepStrictEqual(f.observed().one.agent, { pid: 17, session: "session", sessionFile: "", cwd: "" }, "and bind it to their session");
 	}, { spawn: () => {
 		const child = new EventEmitter();
 		child.stdout = stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true;
@@ -217,50 +248,13 @@ await check("a stamped --host registration whose first event arrives after regis
 	} });
 });
 
-await check("a launch removed after its RESULT and added again in the same second is watched again", () => withFixture(async (f) => {
-	// Same name, same --generation, same second: only the registration's own instance id tells the two adds apart.
-	const entry = { ...f.watched(), generation: "launch-0001", stamped: true, instance: "first-add" };
-	await f.start([entry]);
-	f.append(f.event("result", 1, { generation: "launch-0001", text: "round one", result: { status: "done", path: "/r" } }));
-	await f.tailer.poke();
-	deepStrictEqual(f.tailer.entries.map((e) => e.instance), ["first-add"], "round one's done leaves the registration");
-	f.writeRules([{ ...entry, instance: "second-add" }]);
-	await f.tailer.poke();
-	// The follow-up prompt starts round two in the same session.
-	f.append(f.event("working", 2, { generation: "launch-0001", prompted: true }));
-	f.append(f.event("result", 3, { generation: "launch-0001", text: "round two", result: { status: "done", path: "/r" } }));
-	await f.tailer.poke();
-	ok(f.rows.has("agents:one:launch-0001:session:3"), [...f.rows.keys()].join(" "));
-	equal(f.calls.filter((c) => c[0] === "agent").length, 0, "neither round removes the registration");
-}));
-
-await check("a late result from the session that retired the old registration keeps the re-registration", () => withFixture(async (f) => {
-	const first = { ...f.watched(), generation: "old" };
-	await f.start([first]);
-	let release;
-	const held = new Promise((resolve) => { release = resolve; });
-	const add = f.tailer.add.bind(f.tailer);
-	f.tailer.add = async (...args) => { await held; return add(...args); };
-	f.append(f.event("result", 1, { text: "finished", result: { status: "done", path: "/answer" } }));
-	const running = f.tailer.poke();
-	await new Promise((resolve) => setTimeout(resolve, 20));
-	f.writeRules([{ ...f.watched(), generation: "new", since: "2026-11-09 00:01" }]);
-	release();
-	await running;
-	f.tailer.add = add;
-	f.append(f.event("result", 2, { text: "late", result: { status: "done", path: "/late" } }));
-	await f.tailer.poke();
-	deepStrictEqual(f.tailer.entries.map((e) => e.generation), ["new"]);
-	deepStrictEqual(f.calls.filter((c) => c[0] === "agent" && c[1] === "rm"), []);
-}));
-
 await check("each RESULT version makes its row; the same version again does not; an exit makes no row", () => withFixture(async (f) => {
 	await f.start();
 	const partial = (seq, open, text) => f.event("result", seq, { text, result: { status: "partial", path: "/r", open, version: String(seq === 2 ? 1 : seq).padStart(16, "0") } });
 	f.append(partial(1, "confirm TRACE_PUBLIC_URL in prod .env", "waiting"));
 	f.append(partial(2, "confirm TRACE_PUBLIC_URL in prod .env", "still waiting, other words"));
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:2"], "the same version again is a no-result row");
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:session:idle:2"], "the same version again is a no-result row");
 	match(arg([...f.rows.values()][0], "--note"), /Open: confirm TRACE_PUBLIC_URL in prod \.env\./);
 	equal(arg([...f.rows.values()][1], "--note"), "turn ended with no new RESULT. Last output: still waiting, other words");
 	f.append(partial(3, "decide the #830 rollout switch", "new blocker"));
@@ -268,17 +262,17 @@ await check("each RESULT version makes its row; the same version again does not;
 	f.append(f.event("ask", 5, { ask: { kind: "ask", question: "Go?", options: ["yes", "no"] } }));
 	f.append(f.event("ended", 6));
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:2", "agents:one:result:0000000000000003", "agents:one:ask:session:4", "agents:one:ask:session:5"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:session:idle:2", "agents:one:result:0000000000000003", "agents:one:ask:session:4", "agents:one:ask:session:5"]);
 }));
 
 await check("ssh gets a validated host after -- and rejects an option-shaped host", () => {
 	const calls = [];
 	return withFixture(async (f) => {
-		f.writeRules([{ name: "one", host: "user@host-a", mux: "tern", pane: "one", push: true, since: "2026-11-12 00:00" }]);
+		f.writeRules([{ name: "one", host: "user@host-a", mux: "tern", pane: "one", since: "2026-11-12 00:00" }]);
 		f.tailer.start();
 		await f.tailer.poke();
 		ok(calls[0][1].includes("--") && calls[0][1].at(-2) === "user@host-a");
-		f.writeRules([{ name: "bad", host: "-oProxyCommand=evil", mux: "tern", pane: "bad", push: true }]);
+		f.writeRules([{ name: "bad", host: "-oProxyCommand=evil", mux: "tern", pane: "bad" }]);
 		await f.tailer.poke();
 		ok(f.warnings.some((w) => /bad ssh host/.test(w)));
 	}, { spawn: (cmd, args) => { calls.push([cmd, args]); const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.kill = () => true; return child; } });
@@ -289,7 +283,7 @@ await check("a repeated turn end of the same RESULT version is one result row an
 	const event = f.event("result", 7, { text: "same", result: { status: "done", path: "/r", version: "0000000000000007" } });
 	f.append(event); f.append({ ...event, seq: 8 });
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000007", "agents:one:11111111-1111-4111-8111-111111111111:session:8"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000007", "agents:one:session:idle:8"]);
 	deepStrictEqual(fields([...f.rows.values()][1]).slice(0, 2), ["event=idle", "state=no-result"]);
 	equal(f.calls.filter((call) => call[0] === "add").length, 3, "the second turn end: the version is seen, then exactly one no-result add");
 }));
@@ -371,7 +365,7 @@ await check("failed add leaves the cursor and retries in order", () => withFixtu
 	match(f.tailer.status(), /ledger unavailable/);
 	f.fail(false);
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:11111111-1111-4111-8111-111111111111:session:1", "agents:one:11111111-1111-4111-8111-111111111111:session:2"]);
+	deepStrictEqual([...f.rows.keys()], ["agents:one:session:idle:1", "agents:one:session:idle:2"]);
 	equal(f.saved().hosts.local.offset, fs.statSync(f.file).size);
 }));
 
@@ -426,7 +420,7 @@ await check("the same RESULT version again is a no-result row, not a second resu
 	f.append(f.event("result", 2, { text: "late", result: { status: "done", path: "/answer", version: "0000000000000001" } }));
 	f.append(f.event("ended", 3));
 	await f.tailer.poke();
-	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:11111111-1111-4111-8111-111111111111:session:2"], "the same version is seen; the exit is no row");
+	deepStrictEqual([...f.rows.keys()], ["agents:one:result:0000000000000001", "agents:one:session:idle:2"], "the same version is seen; the exit is no row");
 	equal(f.observed().one.phase, "idle", "an exit says no phase: only the probe sees that no agent is left in the pane");
 	f.advance(1000);
 	f.writeRules([f.watched("one", "local", f.since())]);
@@ -663,19 +657,10 @@ await check("real ssh child reconnects from the advanced byte offset", () => wit
 	}
 }, { backoffMs: 25 }));
 
-await check("readEntries uses the supplied rules text and directory", () => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-read-entries-"));
-	const saved = process.env.WAYNE_INBOX_DIR;
-	process.env.WAYNE_INBOX_DIR = dir;
-	try {
-		fs.writeFileSync(path.join(dir, "rules.yaml"), YAML.stringify({ agent_watch: [{ name: "other", mux: "tern", pane: "1", host: "local", push: true, generation: "other" }] }));
-		const text = YAML.stringify({ agent_watch: [{ name: "one", mux: "tern", pane: "1", host: "", push: true, generation: "one" }] });
-		deepStrictEqual(readEntries(text, dir).map((entry) => entry.name), ["one"]);
-		equal(readEntries(text, dir)[0].host, "local");
-	} finally {
-		if (saved === undefined) delete process.env.WAYNE_INBOX_DIR; else process.env.WAYNE_INBOX_DIR = saved;
-		fs.rmSync(dir, { recursive: true, force: true });
-	}
+await check("readEntries reads the supplied rules text and no file; an entry with no host is local", () => {
+	const text = YAML.stringify({ agent_watch: [{ name: "one", mux: "tern", pane: "1", host: "", push: true, generation: "one" }] });
+	deepStrictEqual(readEntries(text).map((entry) => [entry.name, entry.host]), [["one", "local"]]);
+	deepStrictEqual(readEntries(""), []);
 });
 
 process.exit(failed === 0 ? 0 : 1);

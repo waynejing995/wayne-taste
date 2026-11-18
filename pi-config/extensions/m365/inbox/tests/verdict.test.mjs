@@ -5,7 +5,7 @@
  *   node inbox/tests/verdict.test.mjs
  */
 import { deepStrictEqual, match, ok, rejects, strictEqual } from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createJiti } from "../../tests/host.mjs";
@@ -140,20 +140,34 @@ const idleRow = (key, said, goal = "") =>
 	recordAgentRow({ source: "agents", place: "n", key, subject: "n idle", fields: ["event=idle", "state=no-result"], note: `turn ended with no new RESULT. Last output: ${said}${goal ? `. Goal: ${goal}` : ""}` });
 
 await check("two turn ends with the same last output make one no-result row, also after nothing-pending closed it", async () => {
-	const first = idleRow("agents:n:g1:idle:100", "waiting on I5", "wave 4");
+	const first = idleRow("agents:n:s1:idle:100", "waiting on I5", "wave 4");
 	match(first, /^do \d+ agent-no-result$/);
-	match(idleRow("agents:n:g1:idle:200", "waiting on  I5", "wave 4"), /^skip repeat/);
+	match(idleRow("agents:n:s1:idle:200", "waiting on  I5", "wave 4"), /^skip repeat/);
 	strictEqual(live().length, 1);
 	await inbox(["done", first.split(" ")[1], "--verdict", "nothing-pending", "--note", "waits on its subagents"]);
-	match(idleRow("agents:n:g1:idle:300", "waiting on I5", "wave 4"), /^skip repeat/);
+	match(idleRow("agents:n:s1:idle:300", "waiting on I5", "wave 4"), /^skip repeat/);
 	deepStrictEqual([live().length, archived().length], [0, 1]);
 });
 
-await check("new last output, another generation, or a non-idle row is recorded as before", async () => {
-	idleRow("agents:n:g1:idle:100", "waiting on I5");
-	match(idleRow("agents:n:g1:idle:200", "I5 is back; simplify next"), /^do \d+ agent-no-result$/);
-	match(idleRow("agents:n:g2:idle:300", "I5 is back; simplify next"), /^do \d+ agent-no-result$/);
-	match(agentRow("ask", "agents:n:g2:s:9", "Last output: I5 is back; simplify next"), /^\d+$/);
+await check("new last output, another session, or a non-idle row is recorded as before", async () => {
+	idleRow("agents:n:s1:idle:100", "waiting on I5");
+	match(idleRow("agents:n:s1:idle:200", "I5 is back; simplify next"), /^do \d+ agent-no-result$/);
+	match(idleRow("agents:n:s2:idle:300", "I5 is back; simplify next"), /^do \d+ agent-no-result$/);
+	match(agentRow("ask", "agents:n:s2:s:9", "Last output: I5 is back; simplify next"), /^\d+$/);
+});
+
+await check("across a deploy the same last output is still one row: an older tailer's key, and what an older build kept", async () => {
+	// A coordinator that has not restarted sends `agents:<name>:<launch id>:<session>:<seq>`; the probe of this build
+	// sends `agents:<name>:<session>:idle:<n>`. Both name session s1.
+	match(idleRow("agents:n:launch-0001:s1:7", "waiting on I5"), /^do \d+ agent-no-result$/);
+	match(idleRow("agents:n:s1:idle:200", "waiting on I5"), /^skip repeat/);
+	// cursors/agent-said.json as the older build wrote it: the launch id, no session.
+	const file = join(home, "cursors", "agent-said.json");
+	const { said } = JSON.parse(readFileSync(file, "utf8")).n;
+	writeFileSync(file, JSON.stringify({ n: { generation: "launch-0001", said } }));
+	match(idleRow("agents:n:s1:idle:300", "waiting on I5"), /^skip repeat/);
+	match(idleRow("agents:n:s1:idle:400", "I5 is back"), /^do \d+ agent-no-result$/);
+	deepStrictEqual(Object.keys(JSON.parse(readFileSync(file, "utf8")).n), ["session", "said"]);
 });
 
 console.log(failed === 0 ? "all green" : `${failed} failed`);
