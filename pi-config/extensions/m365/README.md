@@ -103,6 +103,12 @@ that card (`--force` or not) and names `inbox then-done`; it also refuses the ro
 outcome, whom to reply to, what to close) is armed as an `agent-result:<name>` then on that row, against the RESULT
 version that already exists. A result row is one per RESULT version, and a session keeps one live attention row.
 
+A session that stopped without a new RESULT (an idle, ask or blocked row) gets a verdict: `inbox done <id>` refuses
+that row, `--force` or not, without `--verdict advanced|waiting-user|nothing-pending --note <text>`. `advanced` and
+`nothing-pending` archive it with the verdict in the note; `waiting-user` keeps the same row live as an `ask-wayne`
+notify row that the session's later rows do not replace, and a plain `inbox done <id> --note …` archives it once
+answered. The card of such a row says so.
+
 An optional `card-note.md` in the inbox directory is said on every inbox and Teams watch card (the user's own
 standing instructions for the agent that receives them).
 

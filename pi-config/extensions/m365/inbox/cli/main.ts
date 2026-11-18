@@ -6,7 +6,7 @@
 import * as fs from "node:fs";
 import { addAgent, listAgents, MUXES, readAgents, recordAgentRow, removeAgentsByName } from "./agents.ts";
 import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
-import { addEvent, doneRows, InboxError, inboxFile, listRows, places, recordDirect, setRows, stamp, STATES, withRulesLock } from "./ledger.ts";
+import { addEvent, doneRows, guardVerdict, InboxError, inboxFile, listRows, places, recordDirect, setRows, stamp, STATES, VERDICTS, withRulesLock } from "./ledger.ts";
 import { dropFact, FACT_KINDS, listFacts, upsertFact } from "./facts.ts";
 import { probeAgents, resultOf } from "./probe.ts";
 import { migrateRules, migrateRulesText } from "./migrate-rules.ts";
@@ -129,12 +129,19 @@ const COMMANDS: Record<string, Command> = {
 		run: (p) => dropFact(p.args[0]),
 	},
 	done: {
-		help: "Finish rows: move them from the ledger into archive.tsv.",
+		help: "Finish rows: move them from the ledger into archive.tsv. A row of a session that stopped without a new RESULT needs --verdict and --note; waiting-user keeps it live as an ask-wayne row.",
 		args: ["ids..."],
-		opts: { note: { help: "how it ended" }, force: { flag: true, help: "also close the rows' fired, open then-actions (needs --note)" } },
+		opts: {
+			note: { help: "how it ended" },
+			verdict: { choices: VERDICTS, help: "for a stopped session's row: what was done about it (needs --note)" },
+			force: { flag: true, help: "also close the rows' fired, open then-actions (needs --note)" },
+		},
 		run: (p) => {
-			guardDone(p.args, !!p.flags.force, p.opts.note);
-			return doneRows(p.args, p.opts.note);
+			// Before guardDone: --force closes thens, and a refusal must change nothing.
+			const kept = guardVerdict(p.args, p.opts.verdict, p.opts.note);
+			// A row waiting-user keeps live keeps its thens too.
+			guardDone(p.args.filter((id) => !kept.includes(id)), !!p.flags.force, p.opts.note);
+			return doneRows(p.args, p.opts.note, p.opts.verdict);
 		},
 	},
 	ls: {

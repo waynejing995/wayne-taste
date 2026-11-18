@@ -94,4 +94,23 @@ check("a then row: the deferred action is the instruction, the trigger's evidenc
 	ok(card([row], "/x/bin/inbox").includes("Already closed"), "a closed then owes nothing");
 });
 
+check("only a row of a session that stopped without a new RESULT gets the verdict line, after its fence", () => {
+	const idle = { id: "5", key: "agents:fixer:g1:idle:1", source: "agents", action: "do", tag: "agent-no-result", owner: "", subject: "fixer idle", note: "Close: inbox done 5 --force", link: "" };
+	const line = "Stopped without a new RESULT: read what it last said (above), record what it waits on, then advance it yourself if a decision Wayne already made, a recommended option with no prod write, merge, deploy or spend, or a tool can answer it; otherwise leave it to Wayne. Close: inbox done 5 --verdict advanced|waiting-user|nothing-pending --note <...>";
+	const text = card([idle], "/x/bin/inbox").split("\n\n")[0];
+	ok(text.endsWith(`</untrusted-inbox-content>\n  ${line}`), "the trusted line follows the fence");
+	for (const row of [
+		{ ...idle, tag: "agent-ask", key: "agents:fixer:g1:s1:3" },
+		{ ...idle, tag: "agent-trouble", key: "agents:fixer:g1:blocked:1" },
+	])
+		ok(card([row], "/x/bin/inbox").includes("Stopped without a new RESULT"), `${row.tag} has it`);
+	for (const row of [
+		{ ...idle, tag: "agent-result", key: "agents:fixer:v:abc" },
+		{ ...idle, tag: "ask-wayne" },
+		{ ...idle, source: "github" },
+		{ id: "7", action: "do", tag: "mail-flagged", owner: "", subject: "s", note: "x", link: "" },
+	])
+		ok(!card([row], "/x/bin/inbox").includes("Stopped without a new RESULT"), `${row.tag} has none`);
+});
+
 process.exit(failed === 0 ? 0 : 1);

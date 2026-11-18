@@ -183,7 +183,7 @@ await check("each tool with every optional parameter set succeeds against this C
 		["inbox_agent_add", { name: "all", mux: "tern", pane: "9", row, then: "t", host: "local", result: "/tmp/r.md", goal: "g", push: true, generation: "abcdef12-gen" }],
 		["inbox_agent_ls", {}],
 		["inbox_agent_rm", { names: ["all"], generation: "abcdef12-gen" }],
-		["inbox_done", { ids: [row], note: "n", force: true }],
+		["inbox_done", { ids: [row], note: "n", verdict: "advanced", force: true }],
 	];
 	deepStrictEqual(all.map(([t]) => t).sort(), [...tools.keys()].sort());
 	const errors = [];

@@ -206,13 +206,14 @@ export function finishRows(rows: Row[], ids: string[], note: string | undefined,
 }
 
 /**
- * Archive the other live rows of one session. A claimed row stays. `keep` is the new row's id; `skip` are rows of a
+ * Archive the other live rows of one session. A claimed row and an ask-wayne row stay. `keep` is the new row's id; `skip` are rows of a
  * fired, open then, which stay until that then is closed. The archived note keeps what it said plus who replaced it.
  */
 export function supersedeSession(place: string, keep: string, skip: string[]): string[] {
 	const prefix = `agents:${place}:`;
 	return withLedger((rows, save) => {
-		const gone = rows.filter((row) => row.source === "agents" && row.key.startsWith(prefix) && row.state === "open" && row.id !== keep && !skip.includes(row.id));
+		// An ask-wayne row is Wayne's question about the session (`done --verdict waiting-user`): it stays until answered.
+		const gone = rows.filter((row) => row.source === "agents" && row.tag !== "ask-wayne" && row.key.startsWith(prefix) && row.state === "open" && row.id !== keep && !skip.includes(row.id));
 		for (const row of gone) {
 			row.state = "done";
 			row.note = clean(`${row.note} [superseded by #${keep}]`);
@@ -309,23 +310,68 @@ export function setRows(ids: string[], change: { state?: string; owner?: string;
 	return `updated ${ids.join(" ")}`;
 }
 
-/** Move finished rows out of the ledger into archive.tsv. */
-export function doneRows(ids: string[], note?: string): string {
-	withLedger((rows, save) => {
+export const VERDICTS = ["advanced", "waiting-user", "nothing-pending"];
+
+/**
+ * True for a row of a session that stopped without a new RESULT (idle, ask, blocked). The tag covers the rows of
+ * every build; the key segment covers the probe's rows under a tag the user chose. An ask-wayne row is already
+ * Wayne's question, so it needs none.
+ */
+export function needsVerdict(row: Row): boolean {
+	if (row.source !== "agents" || row.tag === "ask-wayne") return false;
+	if (row.tag === "agent-no-result" || row.tag === "agent-ask") return true;
+	// agents:<name>:…:<idle|blocked|ask>:<n>
+	return (row.key ?? "").split(":").slice(2, -1).some((part) => part === "idle" || part === "blocked" || part === "ask");
+}
+
+/** The ids among `ids` that need a verdict. Throws when one does and `verdict` or its note is missing. */
+function verdictIds(rows: Row[], ids: string[], verdict: string | undefined, note: string | undefined): string[] {
+	const need = rows.filter((row) => ids.includes(row.id) && needsVerdict(row)).map((row) => row.id);
+	if (need.length && !verdict)
+		throw new InboxError(
+			`${need.map((id) => `#${id}`).join(" ")} stopped without a new RESULT. Read what the session last said (the row note), record what it waits on, then: inbox done <id> --verdict advanced --note "<what you sent into the session>" | --verdict waiting-user --note "<the question for Wayne>" | --verdict nothing-pending --note "<why nothing is owed>"`,
+		);
+	if (verdict && !clean(note)) throw new InboxError("--verdict needs --note saying what the session waits on");
+	return need;
+}
+
+/**
+ * Called by `done` before anything changes (`--force` closes thens first): refuse a stopped session's row without
+ * a verdict. Returns the ids `waiting-user` keeps live, which `done` therefore does not finish.
+ */
+export function guardVerdict(ids: string[], verdict: string | undefined, note: string | undefined): string[] {
+	const need = verdictIds(readTsv(inboxFile("ledger.tsv")), ids, verdict, note);
+	return verdict === "waiting-user" ? need : [];
+}
+
+/**
+ * Move finished rows out of the ledger into archive.tsv. A row that needs a verdict is archived with the verdict
+ * in its note, or, for `waiting-user`, stays live as Wayne's question.
+ */
+export function doneRows(ids: string[], note?: string, verdict?: string): string {
+	return withLedger((rows, save) => {
 		const missing = ids.filter((id) => !rows.some((r) => r.id === id));
 		if (missing.length) throw new InboxError(`no such live id: ${missing.join(", ")}`);
-		const finished = rows.filter((r) => ids.includes(r.id));
+		const need = verdictIds(rows, ids, verdict, note);
+		const kept = verdict === "waiting-user" ? need : [];
+		const finished = rows.filter((r) => ids.includes(r.id) && !kept.includes(r.id));
 		for (const row of finished) {
 			// The archive is the finished state; its state column says so instead of the last live one.
 			row.state = "done";
-			if (note !== undefined) row.note = clean(note);
+			if (need.includes(row.id)) row.note = clean(`[${verdict}] ${clean(note)}`);
+			else if (note !== undefined) row.note = clean(note);
 		}
+		for (const row of rows.filter((r) => kept.includes(r.id)))
+			Object.assign(row, { tag: "ask-wayne", action: "notify", owner: "wayne", state: "open", note: clean(`[waiting-user] ${clean(note)} | was: ${row.note}`) });
 		// Archive first: a crash between the two writes leaves a row in both, never in neither.
 		const archive = inboxFile("archive.tsv");
-		writeTsv(archive, [...readTsv(archive), ...finished]);
-		save(rows.filter((r) => !ids.includes(r.id)));
+		if (finished.length) writeTsv(archive, [...readTsv(archive), ...finished]);
+		save(rows.filter((r) => !finished.includes(r)));
+		return [
+			...(finished.length ? [`done ${finished.map((r) => r.id).join(" ")}`] : []),
+			...(kept.length ? [`waiting-user ${kept.join(" ")} (now ask-wayne, still live)`] : []),
+		].join("\n");
 	});
-	return `done ${ids.join(" ")}`;
 }
 
 /** Live rows as TSV with the header. `states` defaults to open and claimed; owner and subject are substrings. */

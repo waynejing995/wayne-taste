@@ -27,6 +27,7 @@ const groups = [
 	{ label: "pr ready", script: join(root, "tests", "pr-ready.test.mjs"), local: false },
 	{ label: "inbox jobs", script: join(root, "inbox", "tests", "jobs.test.mjs"), local: false },
 	{ label: "inbox thens", script: join(root, "inbox", "tests", "thens.test.mjs"), local: false },
+	{ label: "inbox verdict", script: join(root, "inbox", "tests", "verdict.test.mjs"), local: false },
 	{ label: "inbox facts", script: join(root, "inbox", "tests", "facts.test.mjs"), local: false },
 	{ label: "inbox rules migrate", script: join(root, "inbox", "tests", "migrate.test.mjs"), local: false },
 	{ label: "teams active since", script: join(root, "tests", "active-since.test.mjs"), local: false },

@@ -8,6 +8,7 @@ import { Type } from "typebox";
 import type { ToolDef } from "../core/tool.ts";
 import { FACT_KINDS } from "../inbox/cli/facts.ts";
 import { MUXES } from "../inbox/cli/agents.ts";
+import { VERDICTS } from "../inbox/cli/ledger.ts";
 import { LAUNCHER } from "../inbox/delivery.ts";
 
 const STATES = ["open", "claimed"];
@@ -135,14 +136,15 @@ export const inboxTools: ToolDef[] = [
 	{
 		name: "inbox_done",
 		label: "Inbox Done",
-		description: "Finish rows: move them from the ledger into archive.tsv. `force` also closes their fired, open then-actions (needs `note`).",
+		description: "Finish rows: move them from the ledger into archive.tsv. `force` also closes their fired, open then-actions (needs `note`). A row of an agent session that stopped without a new RESULT needs `verdict` and `note`: `advanced` (note: what you sent into the session), `waiting-user` (note: the question for the user; the row stays live as ask-wayne) or `nothing-pending` (note: why nothing is owed).",
 		parameters: Type.Object({
 			ids: Type.Array(Type.String(), { minItems: 1, description: "Row ids" }),
 			note: Type.Optional(Type.String({ description: "How it ended" })),
+			verdict: Type.Optional(Type.Union(VERDICTS.map((v) => Type.Literal(v)), { description: "For a stopped session's row" })),
 			force: Type.Optional(Type.Boolean()),
 		}),
 		async execute(_id, p, signal) {
-			return text(await inbox(["done", ...options({ note: p.note }), ...(p.force ? ["--force"] : []), "--", ...(p.ids as string[])], signal));
+			return text(await inbox(["done", ...options({ note: p.note, verdict: p.verdict }), ...(p.force ? ["--force"] : []), "--", ...(p.ids as string[])], signal));
 		},
 	},
 	{
