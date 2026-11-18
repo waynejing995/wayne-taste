@@ -200,15 +200,20 @@ export const inboxTools: ToolDef[] = [
 		},
 	},
 	{
-		name: "inbox_agent_rm",
-		label: "Inbox Agent Rm",
-		description: "Stop watching agent sessions.",
+		name: "inbox_agent_close",
+		label: "Inbox Agent Close",
+		description:
+			"End the watch of one agent session: the only way a watch ends. Call it with the name alone first: it probes the session and returns, as an error, " +
+			"its liveness, phase, RESULT status / open / verified, the RESULT version and its open thens, and closes nothing. " +
+			"Read the RESULT at its source, then call it again with `ack` (that version, `none` for no RESULT) and `note` (what you verified). " +
+			"It refuses a working or asking session, a stale version, and an open fired then. A gone session is removed; a live idle one is marked closing: kill its pane, and the probe removes the watch.",
 		parameters: Type.Object({
-			names: Type.Array(Type.String(), { minItems: 1, description: "Session names" }),
-			generation: Type.Optional(Type.String({ description: "Remove only this registration generation" })),
+			name: Type.String({ description: "The session's name" }),
+			ack: Type.Optional(Type.String({ description: "The RESULT version the report printed, or `none`" })),
+			note: Type.Optional(Type.String({ description: "What you verified; required with ack" })),
 		}),
 		async execute(_id, p, signal) {
-			return text(await inbox(["agent", "rm", ...options({ generation: p.generation }), "--", ...(p.names as string[])], signal));
+			return text(await inbox(["agent", "close", ...options({ ack: p.ack, note: p.note }), "--", p.name], signal));
 		},
 	},
 	{

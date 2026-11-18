@@ -25,6 +25,8 @@
  *
  * The plugin's cards and scheduler run inbox commands in this process through cli/main.ts, the same code the
  * `bin/inbox` launcher runs. The inbox_* agent tools (mcp/inbox.ts) run `bin/inbox` as a child process instead.
+ *
+ * A `bash` call that kills the pane of a watched agent session is blocked until `inbox agent close` acknowledged it.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -32,7 +34,9 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import * as auth from "../core/auth.ts";
 import { card, statusCard, type Row } from "./card.ts";
 import { inbox as inboxCli } from "./cli/main.ts";
+import { KILL_VERB, killGuard, type AgentEntry } from "./cli/agents.ts";
 import { widgetLines } from "./cli/jobs.ts";
+import { AGENT_LIST, readList } from "./cli/lists.ts";
 import { initInbox, isSetUp } from "./cli/setup.ts";
 import { checkThens, openThenLines } from "./cli/thens.ts";
 import { AgentTailer } from "./agents.ts";
@@ -332,6 +336,13 @@ export default function inbox(pi: ExtensionAPI) {
 		},
 	});
 
+	// A watch ends only through `inbox agent close`. The list is read as it is: `readAgents` would rewrite a legacy one.
+	pi.on("tool_call", (event) => {
+		const command = event.input.command;
+		if (event.toolName !== "bash" || typeof command !== "string" || !KILL_VERB.test(command) || !isSetUp()) return undefined;
+		const reason = killGuard(command, readList(AGENT_LIST) as unknown as AgentEntry[]);
+		return reason ? { block: true, reason } : undefined;
+	});
 	// Jobs run while a session with a UI is open. Print runs (-p) start nothing, so a headless job never recurses.
 	pi.on("session_start", async (_event, c) => {
 		if (!c.hasUI) return;

@@ -86,7 +86,7 @@ rules([]);
 	check("lists ten outlook_* tools", () => deepStrictEqual(names.filter((n) => n.startsWith("outlook_")).length, 10));
 	check("lists the inbox tools", () =>
 		deepStrictEqual(names.filter((n) => n.startsWith("inbox_")).sort(), [
-			"inbox_agent_add", "inbox_agent_ls", "inbox_agent_rm", "inbox_ask", "inbox_done", "inbox_fact", "inbox_fact_drop",
+			"inbox_agent_add", "inbox_agent_close", "inbox_agent_ls", "inbox_ask", "inbox_done", "inbox_fact", "inbox_fact_drop",
 			"inbox_facts", "inbox_ls", "inbox_set", "inbox_then", "inbox_then_done", "inbox_watch",
 		]),
 	);

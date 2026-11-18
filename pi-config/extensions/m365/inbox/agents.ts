@@ -55,7 +55,7 @@ interface NameState {
 	status?: string;
 	/** Events that arrived before the name was registered; replayed on registration. */
 	pending?: { host: string; event: Event }[];
-	/** The name was taken off the list (`agent rm`). Later events wait until it is registered again. */
+	/** The name was taken off the list (`agent close`). Later events wait until it is registered again. */
 	removed?: boolean;
 }
 interface Cursor { offset: number; inode?: number }
@@ -474,7 +474,7 @@ export class AgentTailer {
 	 * One event: its row if it makes one, then the name's state. Throws, changing nothing, when the row is not recorded.
 	 * A name registered on another host is that host's business: this stream's events for it are ignored.
 	 * `held`: the event arrived while the name was not registered and is replayed now that it is.
-	 * A `result done` does not remove the watch. The registration stays until `agent rm`.
+	 * A `result done` does not remove the watch. The registration stays until `agent close`.
 	 */
 	private async apply(ev: Event, host: string, held = false): Promise<void> {
 		const entry = this.entries.find((item) => item.name === ev.name);
@@ -493,7 +493,7 @@ export class AgentTailer {
 		}
 		const current: NameState = this.names[ev.name] ?? { state: "registered", lastSeen: seen, host };
 		const row = rowFor(ev);
-		// `entries` is re-read only between batches. An explicit removal (`agent rm`) sets `removed`.
+		// `entries` is re-read only between batches. An explicit removal (`agent close`) sets `removed`.
 		const live = entry !== undefined && !current.removed ? entry : undefined;
 		if (live && (ev.type === "result" || ev.type === "idle")) {
 			// The event's own version only names the RESULT; whether it is new is the ledger key's answer (`seen`).
@@ -525,7 +525,7 @@ export class AgentTailer {
 		}
 		this.names[ev.name] = current;
 		if (!live && ev.type !== "hb") {
-			// Not registered (yet, or again after `agent rm`): kept until the name is registered, then recorded in order.
+			// Not registered (yet, or again after `agent close`): kept until the name is registered, then recorded in order.
 			hold(current, host, ev, this.warn);
 		}
 	}

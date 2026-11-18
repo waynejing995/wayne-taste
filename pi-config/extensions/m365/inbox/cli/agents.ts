@@ -3,8 +3,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { addEvent, clean, InboxError, inboxFile, readTsv, stamp, supersedeSession, withRulesLock, type AddEvent } from "./ledger.ts";
-import { resultOf } from "./probe.ts";
-import { addThen, readThens } from "./thens.ts";
+import { phaseOf, resultOf, runProbe, type Probe } from "./probe.ts";
+import { addThen, readThens, thenDone } from "./thens.ts";
 import { AGENT_LIST, readList, writeList } from "./lists.ts";
 
 export const MUXES = ["hc", "herdr", "tern", "tmux"];
@@ -24,6 +24,8 @@ export interface AgentEntry {
 	migratedGeneration?: string;
 	/** This add's own id: a re-add of the same launch in the same second is still a new registration. */
 	instance?: string;
+	/** Set by `inbox agent close --ack`: the close was acknowledged, the pane may be killed, and the probe removes the entry once it is gone. */
+	closing?: { at: string; ack: string; note: string };
 }
 
 function migrateAgents(agents: AgentEntry[]): AgentEntry[] {
@@ -77,16 +79,91 @@ export async function addAgent(a: { name: string; mux: string; pane: string; row
 	});
 }
 
-export function removeAgentsByName(names: string[], generation?: string): string {
-	withRulesLock(() => {
-		const agents = migrateAgents(readList(AGENT_LIST) as unknown as AgentEntry[]);
-		if (!generation) {
-			const missing = names.filter((name) => !agents.some((a) => a.name === name));
-			if (missing.length) throw new InboxError(`not watched: ${missing.join(" ")}`);
+/**
+ * End a watch: the only way one ends. The session is probed first and what the probe saw is printed, so the caller
+ * closes on the session's state now, not on what it remembers. Without `ack` nothing is closed: the report is the
+ * error. With `ack` (the RESULT version the caller read, `none` for no RESULT) and a note, a gone session's entry is
+ * removed and a live idle one is marked `closing` until its pane is gone.
+ */
+export async function closeAgent(name: string, o: { ack?: string; note?: string }, probe: (a: AgentEntry) => Promise<Probe> = runProbe): Promise<string> {
+	const note = clean(o.note);
+	if (o.ack !== undefined && !note) throw new InboxError("--ack needs --note saying what you verified");
+	const entry = readAgents().find((a) => a.name === name);
+	if (!entry) throw new InboxError(`not watched: ${name}`);
+	const p = await probe(entry);
+	const phase = phaseOf(p);
+	const version = p.rhash || "none";
+	const thens = readThens().filter((t) => t.when === `agent-result:${name}` && !t.done);
+	const report = [
+		`${name}: ${p.alive ? "alive" : "gone"}, phase ${phase}, idle ${p.smtime ? Math.floor(Math.max(0, p.now - p.smtime) / 60) : "?"} min, ${entry.mux} pane ${entry.pane} on ${entry.host || "local"}`,
+		`RESULT ${p.rfile || "none"}, version ${version}`,
+		`  status: ${p.rstatus || "-"}`,
+		`  open: ${p.ropen_text || "-"}`,
+		`  verified: ${p.rverified || "-"}`,
+		`open thens: ${thens.map((t) => (t.fired ? `${t.row}.${t.n} FIRED ${t.fired}: ${t.action}` : `${t.row}.${t.n} waits for ${t.when}: ${t.action}`)).join("; ") || "none"}`,
+	].join("\n");
+	const refuse = (why: string) => new InboxError(`${why}\n${report}`);
+	if (o.ack === undefined)
+		throw new InboxError(`${report}\nNot closed. Read the RESULT at its source, then: inbox agent close ${name} --ack ${version} --note <what you verified>`);
+	if (o.ack !== version) throw refuse(`--ack ${o.ack} is not the current RESULT version ${version}: read that one. Not closed.`);
+	if (phase === "working" || phase === "asking")
+		throw refuse(`${name} is ${phase}: ${phase === "asking" ? "answer its question" : "let its turn end"} before closing. Not closed.`);
+	const fired = thens.find((t) => t.fired);
+	if (fired) throw refuse(`then ${fired.row}.${fired.n} fired and is open: do it and run \`inbox then-done ${fired.row} ${fired.n}\` first. Not closed.`);
+	for (const t of thens) thenDone(t.row, String(t.n), `watch closed: ${note}`);
+	return withRulesLock(() => {
+		const agents = readList(AGENT_LIST) as unknown as AgentEntry[];
+		// Same name and `since`: a re-add while the pane was probed is a new registration, which this close never saw.
+		const current = agents.find((a) => a.name === name && a.since === entry.since);
+		if (!current) throw new InboxError(`${name} was registered again while it was probed: run \`inbox agent close ${name}\` again`);
+		if (phase === "gone") {
+			writeAgents(agents.filter((a) => a !== current));
+			return `closed ${name}`;
 		}
-		writeAgents(agents.filter((a) => !(names.includes(a.name) && (!generation || a.generation === generation))));
+		current.closing = { at: stamp(), ack: version, note };
+		writeAgents(agents);
+		return `closing ${name}: acknowledged; kill the pane now, the probe removes the watch when it is gone`;
 	});
-	return `stopped ${names.join(" ")}`;
+}
+
+/** The probe saw an acknowledged session's pane gone: drop that registration (same name and `since`). False when it was replaced meanwhile. */
+export function removeClosed(entry: AgentEntry): boolean {
+	return withRulesLock(() => {
+		const agents = readList(AGENT_LIST) as unknown as AgentEntry[];
+		const kept = agents.filter((a) => !(a.name === entry.name && a.since === entry.since && a.closing));
+		if (kept.length === agents.length) return false;
+		writeAgents(kept);
+		return true;
+	});
+}
+
+/** A command that ends a pane: `tern kill|close`, `tmux … kill-session|kill-pane|kill-window|kill-server`, `herdr pane close`. */
+export const KILL_VERB = /\b(?:(tern)\s+(?:kill|close)|(tmux)\b[^;&|\n]*?\bkill-(?:session|pane|window|(server))|(herdr)\s+pane\s+close)\b/;
+
+/**
+ * Why a shell command must not run: it kills the pane of a watched session whose close was not acknowledged.
+ * The verb is looked for anywhere in the command, so `ssh host '…'` is covered; its target is a whole token in the
+ * rest of that shell segment (the pane id, the name, or the session part of a tmux target). Undefined: let it run.
+ */
+export function killGuard(command: string, agents: AgentEntry[]): string | undefined {
+	const hit = new Set<string>();
+	for (const m of command.matchAll(new RegExp(KILL_VERB, "g"))) {
+		const mux = m[1] ?? m[2] ?? m[4];
+		const rest = command.slice(m.index + m[0].length).split(/[;&|\n]/)[0]!;
+		// tmux targets may be written `=session` or `session:`.
+		const tokens = rest.split(/[\s'"`()]+/).map((t) => (mux === "tmux" ? t.replace(/^=/, "").replace(/:$/, "") : t));
+		for (const a of agents) {
+			if (a.mux !== mux || a.closing) continue;
+			const targets = [String(a.pane), a.name, ...(mux === "tmux" ? [String(a.pane).split(":")[0]!] : [])];
+			if (m[3] || targets.some((t) => tokens.includes(t))) hit.add(a.name);
+		}
+	}
+	if (!hit.size) return undefined;
+	const names = [...hit];
+	return (
+		`Not run: this kills the pane of a watched agent session (${names.join(", ")}). A watch ends only through its close gate: ` +
+		`run ${names.map((n) => `\`inbox agent close ${n}\``).join(" and ")}, read what it prints, acknowledge it with --ack and --note, then kill the pane.`
+	);
 }
 
 const VERSION_KEY = /^agents:[^:]+:result:[0-9a-f]{16}$/;
@@ -120,8 +197,6 @@ export function recordAgentRow(ev: AddEvent): string {
 	supersedeSession(ev.place, made[2]!, readThens().filter((t) => t.fired && !t.done).map((t) => t.row));
 	return out;
 }
-
-
 
 /** One tab-separated line per session: name, mux, host, pane, result, since, goal, push. */
 export function listAgents(): string {

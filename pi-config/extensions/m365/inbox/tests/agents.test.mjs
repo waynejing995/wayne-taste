@@ -546,7 +546,7 @@ await check("follow-up sent before re-registration (delegate skill order): its a
 
 await check("done, follow-up turn and its ask read in one batch: the ask waits for re-registration", () => withFixture(async (f) => {
 	await f.start();
-	// One append, one poke: `entries` is not re-read between these lines, so the name is still in memory after `agent rm`.
+	// One append, one poke: `entries` is not re-read between these lines, so the name is still in memory after `agent close`.
 	f.append(
 		`${JSON.stringify(f.event("result", 1, { text: "done", result: { status: "done", path: "/answer" } }))}\n` +
 		`${JSON.stringify(f.event("working", 2))}\n` +

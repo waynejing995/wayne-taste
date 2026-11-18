@@ -13,6 +13,10 @@ import { createJiti, PI } from "../../tests/host.mjs";
 const tmp = mkdtempSync(join(tmpdir(), "inbox-tools-"));
 process.env.WAYNE_INBOX_DIR = join(tmp, "inbox");
 mkdirSync(process.env.WAYNE_INBOX_DIR);
+// `inbox agent close` probes the pane: a fake `tern` (probe.sh looks in $HOME/.local/bin first) that knows no block.
+process.env.HOME = join(tmp, "home");
+mkdirSync(join(process.env.HOME, ".local", "bin"), { recursive: true });
+writeFileSync(join(process.env.HOME, ".local", "bin", "tern"), "#!/bin/sh\necho \"tern process: no block is called \\`$2\\`\" >&2\nexit 1\n", { mode: 0o755 });
 globalThis.fetch = async (url) => {
 	throw new Error(`a test reached the network: ${url}`);
 };
@@ -49,7 +53,7 @@ const names = () => readAgents().map((a) => a.name).sort();
 
 await check("omp registers every inbox tool", () =>
 	deepStrictEqual([...tools.keys()].sort(), [
-		"inbox_agent_add", "inbox_agent_ls", "inbox_agent_rm", "inbox_ask", "inbox_done", "inbox_fact", "inbox_fact_drop",
+		"inbox_agent_add", "inbox_agent_close", "inbox_agent_ls", "inbox_ask", "inbox_done", "inbox_fact", "inbox_fact_drop",
 		"inbox_facts", "inbox_ls", "inbox_set", "inbox_then", "inbox_then_done",
 	]),
 );
@@ -72,11 +76,16 @@ await check("a bad trigger is the CLI's own error", async () => {
 	match(err, /^inbox then: Error: bad trigger 'tomorrow'/);
 });
 
-await check("agent add, ls and rm register and drop a session", async () => {
-	match(await call("inbox_agent_add", { name: "r7", mux: "tern", pane: "42", row: "1", then: "reply in self-chat", result: "/tmp/RESULT-r7-r1.md", push: true }), /r7/);
+await check("agent add, ls and close register and drop a session", async () => {
+	const result = join(tmp, "run", "RESULT-r7-r1.md");
+	match(await call("inbox_agent_add", { name: "r7", mux: "tern", pane: "42", row: "1", then: "reply in self-chat", result, push: true }), /r7/);
 	const line = (await call("inbox_agent_ls", {})).split("\t");
-	deepStrictEqual([line[0], line[1], line[2], line[3], line[4], line.at(-1)], ["r7", "tern", "local", "42", "/tmp/RESULT-r7-r1.md", "push"]);
-	await call("inbox_agent_rm", { names: ["r7"] });
+	deepStrictEqual([line[0], line[1], line[2], line[3], line[4], line.at(-1)], ["r7", "tern", "local", "42", result, "push"]);
+	const report = await fails("inbox_agent_close", { name: "r7" });
+	match(report, /^inbox agent close: Error: r7: gone, phase gone, idle \? min, tern pane 42 on local\nRESULT none, version none\n/);
+	match(report, /Not closed\. .* inbox agent close r7 --ack none --note <what you verified>$/);
+	deepStrictEqual(names(), ["r7"]);
+	deepStrictEqual(await call("inbox_agent_close", { name: "r7", ack: "none", note: "the pane exited before it wrote anything" }), "closed r7");
 	deepStrictEqual(await call("inbox_agent_ls", {}), "(no output)");
 });
 
@@ -110,10 +119,11 @@ await check("agent ls keeps the trailing empty fields of its last row", async ()
 	deepStrictEqual((await call("inbox_agent_ls", {})).split("\t").length, 8);
 });
 
-await check("agent rm with names r7 and --help removes both", async () => {
+await check("agent close with the name --help closes the session called --help", async () => {
 	await call("inbox_agent_add", { name: "r7", mux: "tern", pane: "2", row: "1", then: "t" });
 	deepStrictEqual(names(), ["--help", "r7"]);
-	await call("inbox_agent_rm", { names: ["r7", "--help"] });
+	await call("inbox_agent_close", { name: "--help", ack: "none", note: "gone" });
+	await call("inbox_agent_close", { name: "r7", ack: "none", note: "gone" });
 	deepStrictEqual(names(), []);
 });
 
@@ -180,9 +190,9 @@ await check("each tool with every optional parameter set succeeds against this C
 		["inbox_set", { ids: [row], state: "claimed", owner: "me", note: "n" }],
 		["inbox_then", { row, when: "at:2099-01-01 00:00", action: "check it" }],
 		["inbox_then_done", { row, n: "1", note: "n" }],
-		["inbox_agent_add", { name: "all", mux: "tern", pane: "9", row, then: "t", host: "local", result: "/tmp/r.md", goal: "g", push: true, generation: "abcdef12-gen" }],
+		["inbox_agent_add", { name: "all", mux: "tern", pane: "9", row, then: "t", host: "local", result: join(tmp, "run", "r.md"), goal: "g", push: true, generation: "abcdef12-gen" }],
 		["inbox_agent_ls", {}],
-		["inbox_agent_rm", { names: ["all"], generation: "abcdef12-gen" }],
+		["inbox_agent_close", { name: "all", ack: "none", note: "n" }],
 		["inbox_done", { ids: [row], note: "n", verdict: "advanced", force: true }],
 	];
 	deepStrictEqual(all.map(([t]) => t).sort(), [...tools.keys()].sort());

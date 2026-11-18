@@ -5,7 +5,7 @@
  *   node inbox/tests/thens.test.mjs
  */
 import { spawn } from "node:child_process";
-import { deepStrictEqual, ok, rejects, strictEqual } from "node:assert/strict";
+import { deepStrictEqual, match, ok, rejects, strictEqual } from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +15,7 @@ const jiti = createJiti(import.meta.url, { interopDefault: true });
 const { inbox } = await jiti.import("../cli/main.ts");
 const { checkThens, readThens } = await jiti.import("../cli/thens.ts");
 const { sweep } = await jiti.import("../cli/sweep.ts");
-const { readAgents, writeAgents } = await jiti.import("../cli/agents.ts");
+const { closeAgent, killGuard, readAgents, writeAgents } = await jiti.import("../cli/agents.ts");
 const { readTsv } = await jiti.import("../cli/ledger.ts");
 const { parseStamp } = await jiti.import("../cli/jobs.ts");
 const { AgentTailer } = await jiti.import("../agents.ts");
@@ -140,22 +140,127 @@ await check("adding the same agent again cancels its previous unfired plan", asy
 	ok(listed.includes("second") && !/then .* waits for .* first/.test(listed));
 });
 
-await check("agent rm removes the registration by name", async () => {
+/** A probe result for `closeAgent`: an omp pane whose turn ended five minutes ago, no RESULT. */
+const pane = (o = {}) => async () => ({ alive: true, agent: "omp", state: "", session: "/s.jsonl", smtime: 1000, waiting: true, text: "", rmtime: 0, rfile: "", rhash: "", rstatus: "", ropen_text: "", rverified: "", now: 1300, ...o });
+const HASH = "a".repeat(16);
+const withResult = { rfile: "/runs/RESULT-r2.md", rhash: HASH, rstatus: "done", ropen_text: "none", rverified: "tests pass" };
+const watchFixer = async () => {
 	const id = await row();
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);
-	ok((await inbox(["agent", "ls"])).startsWith("fixer\t"));
-	await inbox(["agent", "rm", "fixer"]);
-	strictEqual(await inbox(["agent", "ls"]), "");
+	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "report it"]);
+	return id;
+};
+const message = (promise) => promise.then((out) => `succeeded: ${out}`, (e) => e.message);
+
+await check("agent close without --ack refuses and prints liveness, phase, RESULT, version and open thens", async () => {
+	const id = await watchFixer();
+	const said = await message(closeAgent("fixer", {}, pane(withResult)));
+	strictEqual(said, [
+		"fixer: alive, phase idle, idle 5 min, tmux pane s:1 on local",
+		`RESULT /runs/RESULT-r2.md, version ${HASH}`,
+		"  status: done",
+		"  open: none",
+		"  verified: tests pass",
+		`open thens: ${id}.1 waits for agent-result:fixer: report it`,
+		`Not closed. Read the RESULT at its source, then: inbox agent close fixer --ack ${HASH} --note <what you verified>`,
+	].join("\n"));
+	deepStrictEqual(readAgents().map((a) => [a.name, a.closing]), [["fixer", undefined]]);
+	ok(readThens().every((t) => !t.done), "the plan stays armed");
 });
 
-await check("agent rm rejects a missing name without removing others", async () => {
-	const id = await row();
-	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "first"]);
-	await rejects(() => inbox(["agent", "rm", "fixer", "missing"]), /not watched: missing/);
-	ok((await inbox(["agent", "ls"])).startsWith("fixer\t"));
+await check("agent close of a session with no RESULT reports none and an unknown idle time", async () => {
+	await watchFixer();
+	const said = await message(closeAgent("fixer", {}, pane({ alive: false, session: "", smtime: 0, waiting: false })));
+	ok(said.startsWith("fixer: gone, phase gone, idle ? min, tmux pane s:1 on local\nRESULT none, version none\n  status: -\n  open: -\n  verified: -\n"), said);
+	ok(said.endsWith("inbox agent close fixer --ack none --note <what you verified>"), said);
 });
 
-await check("a legacy registration is migrated during add and rm", async () => {
+await check("agent close of an unwatched name is refused through the CLI", async () => {
+	await rejects(() => inbox(["agent", "close", "missing"]), /not watched: missing/);
+});
+
+await check("agent close --ack needs --note", async () => {
+	await watchFixer();
+	match(await message(closeAgent("fixer", { ack: "none" }, pane())), /--ack needs --note/);
+	strictEqual(readAgents()[0].closing, undefined);
+});
+
+await check("agent close --ack with a stale version refuses", async () => {
+	await watchFixer();
+	const said = await message(closeAgent("fixer", { ack: "b".repeat(16), note: "read it" }, pane(withResult)));
+	ok(said.startsWith(`--ack ${"b".repeat(16)} is not the current RESULT version ${HASH}`), said);
+	ok(said.includes("  status: done"), said);
+	match(await message(closeAgent("fixer", { ack: "none", note: "read it" }, pane(withResult))), /^--ack none is not the current RESULT version/);
+	deepStrictEqual(readAgents().map((a) => [a.name, a.closing]), [["fixer", undefined]]);
+});
+
+await check("agent close --ack refuses a working and an asking session", async () => {
+	await watchFixer();
+	match(await message(closeAgent("fixer", { ack: "none", note: "n" }, pane({ waiting: false }))), /^fixer is working/);
+	match(await message(closeAgent("fixer", { ack: "none", note: "n" }, pane({ state: "blocked" }))), /^fixer is asking/);
+	deepStrictEqual(readAgents().map((a) => [a.name, a.closing]), [["fixer", undefined]]);
+	ok(readThens().every((t) => !t.done), "the plan stays armed");
+});
+
+await check("agent close --ack refuses while a fired then of the watch is open", async () => {
+	const id = await watchFixer();
+	await inbox(["add", "--source", "agents", "--place", "fixer", "--key", `agents:fixer:result:${HASH}`, "--subject", "agent fixer", "--note", "RESULT status: done.", "--field", "event=result"]);
+	await checkThens({ now: T0 });
+	const said = await message(closeAgent("fixer", { ack: HASH, note: "read it" }, pane(withResult)));
+	ok(said.startsWith(`then ${id}.1 fired and is open`), said);
+	ok(said.includes(`open thens: ${id}.1 FIRED `), said);
+	deepStrictEqual(readAgents().map((a) => [a.name, a.closing]), [["fixer", undefined]]);
+});
+
+await check("agent close --ack of an idle session marks it closing, keeps it listed and closes its unfired plan", async () => {
+	await watchFixer();
+	strictEqual(await closeAgent("fixer", { ack: HASH, note: "read RESULT-r2, tests pass" }, pane(withResult)),
+		"closing fixer: acknowledged; kill the pane now, the probe removes the watch when it is gone");
+	const [entry] = readAgents();
+	deepStrictEqual([entry.name, entry.closing.ack, entry.closing.note], ["fixer", HASH, "read RESULT-r2, tests pass"]);
+	ok((await inbox(["agent", "ls"])).startsWith("fixer\t"));
+	deepStrictEqual(readThens().map((t) => [!!t.done, t.note]), [[true, "watch closed: read RESULT-r2, tests pass"]]);
+});
+
+await check("agent close --ack of a gone session removes the watch", async () => {
+	await watchFixer();
+	await inbox(["agent", "add", "other", "--mux", "tmux", "--pane", "o:1", "--row", await row(), "--then", "t"]);
+	strictEqual(await closeAgent("fixer", { ack: "none", note: "pane exited, nothing written" }, pane({ alive: false, session: "", smtime: 0, waiting: false })), "closed fixer");
+	deepStrictEqual(readAgents().map((a) => a.name), ["other"]);
+});
+
+await check("killGuard blocks tern, tmux and herdr kills of a watched pane by id and by name, also inside ssh", () => {
+	const watched = [
+		{ name: "fixer", mux: "tern", host: "box", pane: "42" },
+		{ name: "builder", mux: "tmux", host: "local", pane: "work:1.0" },
+		{ name: "herd", mux: "herdr", host: "local", pane: "h-7" },
+	];
+	for (const [command, name] of [
+		["tern kill 42", "fixer"],
+		["tern close fixer", "fixer"],
+		["ssh box 'tern kill 42'", "fixer"],
+		["cd /tmp && ssh box \"tern close fixer\" && echo ok", "fixer"],
+		["tmux kill-pane -t work:1.0", "builder"],
+		["tmux kill-session -t work", "builder"],
+		["tmux kill-window -t builder", "builder"],
+		["tmux kill-server", "builder"],
+		["herdr pane close h-7", "herd"],
+	]) {
+		const reason = killGuard(command, watched);
+		ok(reason?.includes(`inbox agent close ${name}`), `${command} -> ${reason}`);
+	}
+});
+
+await check("killGuard lets an acknowledged, an unwatched and another mux's pane through", () => {
+	const watched = [
+		{ name: "fixer", mux: "tern", host: "box", pane: "42", closing: { at: "2026-11-18 10:00", ack: "none", note: "n" } },
+		{ name: "builder", mux: "tmux", host: "local", pane: "work:1.0" },
+	];
+	for (const command of ["tern kill 42", "ssh box 'tern close fixer'", "tern kill 43", "tmux kill-session -t other", "tern kill work:1.0", "tern kill 43; echo builder", "echo tern kill 4 2", "tern list"])
+		strictEqual(killGuard(command, watched), undefined, command);
+	strictEqual(killGuard("tmux kill-server", [watched[0]]), undefined);
+});
+
+await check("a legacy registration is migrated during add", async () => {
 	const id = await row();
 	await inbox(["agent", "add", "legacy", "--mux", "tmux", "--pane", "s:1", "--row", id, "--then", "old"]);
 	const old = readAgents()[0];
@@ -163,8 +268,7 @@ await check("a legacy registration is migrated during add and rm", async () => {
 	writeAgents([old]);
 	await inbox(["agent", "add", "fixer", "--mux", "tmux", "--pane", "s:2", "--row", id, "--then", "new"]);
 	ok(readAgents().every((entry) => entry.generation));
-	await inbox(["agent", "rm", "legacy"]);
-	deepStrictEqual(readAgents().map((entry) => entry.name), ["fixer"]);
+	deepStrictEqual(readAgents().map((entry) => entry.name), ["legacy", "fixer"]);
 });
 
 await check("adding the same agent on another row cancels its old unfired plan", async () => {

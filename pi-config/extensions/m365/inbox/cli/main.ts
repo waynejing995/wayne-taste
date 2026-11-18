@@ -4,7 +4,7 @@
  * Every command returns its stdout text. A data or usage error is an InboxError: `Error: <message>` on stderr, exit 1.
  */
 import * as fs from "node:fs";
-import { addAgent, listAgents, MUXES, readAgents, recordAgentRow, removeAgentsByName } from "./agents.ts";
+import { addAgent, closeAgent, listAgents, MUXES, readAgents, recordAgentRow } from "./agents.ts";
 import { actionLine, checkName, dueJobs, execAction, findJob, finishFire, KINDS, makeDue, needsSession, nextFire, parseAction, readJobs, runDue, validateWhen, widgetLines, writeJobs, type Job } from "./jobs.ts";
 import { addEvent, doneRows, guardVerdict, InboxError, inboxFile, listRows, places, recordDirect, setRows, stamp, STATES, VERDICTS, withRulesLock } from "./ledger.ts";
 import { dropFact, FACT_KINDS, listFacts, upsertFact } from "./facts.ts";
@@ -166,7 +166,15 @@ const COMMANDS: Record<string, Command> = {
 		},
 		run: (p) => addAgent({ name: p.args[0], mux: p.opts.mux!, pane: p.opts.pane!, row: p.opts.row!, then: p.opts.then!, host: p.opts.host, result: p.opts.result, goal: p.opts.goal, push: p.flags.push, generation: p.opts.generation || undefined }),
 	},
-	"agent rm": { help: "Stop watching agent sessions.", args: ["names..."], opts: { generation: { help: "remove only this registration generation" } }, run: (p) => removeAgentsByName(p.args, p.opts.generation) },
+	"agent close": {
+		help: "End a watch. Without --ack it probes the session, prints its state, RESULT and open thens, and closes nothing; with --ack it closes a gone session and marks a live idle one for removal once its pane is gone.",
+		args: ["name"],
+		opts: {
+			ack: { help: "the RESULT version the report printed (`none` for no RESULT): what you read" },
+			note: { help: "what you verified; required with --ack" },
+		},
+		run: (p) => closeAgent(p.args[0], { ack: p.opts.ack, note: p.opts.note }),
+	},
 	"agent ls": { help: "Watched sessions: name, mux, host, pane, result, since, goal, push.", run: () => listAgents() },
 	"agent probe": {
 		help: "Probe every watched session once: record result / gone / stalled / blocked / idle events, send the progress digest when due.",

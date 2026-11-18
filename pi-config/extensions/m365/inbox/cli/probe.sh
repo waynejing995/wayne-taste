@@ -105,7 +105,7 @@ if [ -n "$session" ]; then
       esac ;;
   esac
 fi
-rmtime=0 rstatus= ropen= ropen_text= rquestions=false rfile= rhash=
+rmtime=0 rstatus= ropen= ropen_text= rverified= rquestions=false rfile= rhash=
 if [ -n "$result" ]; then
   rdir=$(dirname "$result")
   # Newest by mtime. A run directory belongs to one watch, so the newest RESULT*.md is this watch's.
@@ -124,6 +124,7 @@ if [ -n "$rfile" ] && [ -f "$rfile" ]; then
   # Only the contract's own status template contains `|`. Open text may contain one.
   rstatus=$(printf '%s\n' "$block" | sed -n '/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) .*|/!s/^ *\([-*] \)\?\(\*\*status\(\*\*:\?\|:\*\*\)\|`status`:\|`status:`\|status:\) *\([a-z_][a-z_]*\).*/\4/p' | tail -1)
   ropen_text=$(printf '%s\n' "$block" | sed -n 's/^ *\([-*] \)\?\(\*\*open\(\*\*:\?\|:\*\*\)\|`open`:\|`open:`\|open:\) *\(.*\)/\4/p' | tail -1)
+  rverified=$(printf '%s\n' "$block" | sed -n 's/^ *\([-*] \)\?\(\*\*verified\(\*\*:\?\|:\*\*\)\|`verified`:\|`verified:`\|verified:\) *\(.*\)/\4/p' | tail -1)
   ropen=$(printf '%s' "$ropen_text" | md5sum | cut -c1-16)
 fi
 extra=
@@ -144,5 +145,5 @@ if [ "$want" = 1 ]; then
   extra=",\"kind\":\"$kind\",\"tail\":\"$tail64\""
 fi
 b64() { printf %s "$1" | base64 -w0; }
-printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rfile":"%s","rhash":"%s","rstatus":"%s","ropen":"%s","ropen_text":"%s","rquestions":%s,"last":"%s","now":%s%s}\n' \
-  "$alive" "$(b64 "$agent")" "$(b64 "$state")" "$(b64 "$session")" "$smtime" "$waiting" "$text" "$rmtime" "$(b64 "$rfile")" "$rhash" "$(b64 "$rstatus")" "$ropen" "$(b64 "$ropen_text")" "$rquestions" "$last64" "$(date +%s)" "$extra"
+printf '{"alive":%s,"agent":"%s","state":"%s","session":"%s","smtime":%s,"waiting":%s,"text":"%s","rmtime":%s,"rfile":"%s","rhash":"%s","rstatus":"%s","ropen":"%s","ropen_text":"%s","rverified":"%s","rquestions":%s,"last":"%s","now":%s%s}\n' \
+  "$alive" "$(b64 "$agent")" "$(b64 "$state")" "$(b64 "$session")" "$smtime" "$waiting" "$text" "$rmtime" "$(b64 "$rfile")" "$rhash" "$(b64 "$rstatus")" "$ropen" "$(b64 "$ropen_text")" "$(b64 "$rverified")" "$rquestions" "$last64" "$(date +%s)" "$extra"

@@ -14,7 +14,8 @@
  *   event=stalled state=quiet                  no output for --stall-min minutes; once per quiet spell
  *   event=blocked state=waiting                herdr or hc says the agent waits, or omp's last message is a pending ask
  *   event=idle    state=no-result              a turn ended and made no new result row
- * A session whose RESULT says `done` stays on the list. It comes off only by `agent rm`.
+ * A session whose RESULT says `done` stays on the list. It comes off only by `inbox agent close`: an entry it marked
+ * `closing` is probed on every pass, records only a new RESULT version, and is removed once its pane is gone.
  * Sessions that push their own events (the m365 inbox extension tails them) only get a digest line.
  *
  * Progress digest (every --digest-min minutes): one self-chat progress card, sent by a headless omp or pi through
@@ -33,7 +34,7 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { gunzipSync } from "node:zlib";
 import type { AgentRow, AgentStatus } from "../../teams/card.ts";
-import { legacyReported, readAgents, recordAgentRow, type AgentEntry } from "./agents.ts";
+import { legacyReported, readAgents, recordAgentRow, removeClosed, type AgentEntry } from "./agents.ts";
 import { agentArgv, runProcess } from "./jobs.ts";
 import { inboxFile, InboxError, readTsv } from "./ledger.ts";
 import { checkThens } from "./thens.ts";
@@ -54,6 +55,8 @@ export interface Probe {
 	rstatus?: string;
 	ropen?: string;
 	ropen_text?: string;
+	/** The RESULT block's last `verified:` line. Empty when it has none. */
+	rverified?: string;
 	rquestions?: boolean;
 	/** gzip+base64 of the newest assistant line with a text item. Empty when the session has none. */
 	last?: string;
@@ -117,11 +120,18 @@ export async function runProbe(a: AgentEntry, want = false): Promise<Probe> {
 	const line = out.split("\n").at(-1) ?? "";
 	if (!line.startsWith("{")) throw new InboxError(`probe on ${host} printed no JSON: ${out.slice(0, 200)}`);
 	const probe = JSON.parse(line) as Probe;
-	for (const key of ["agent", "state", "session", "rstatus", "ropen_text", "rfile"] as const) {
+	for (const key of ["agent", "state", "session", "rstatus", "ropen_text", "rverified", "rfile"] as const) {
 		const value = probe[key];
 		if (typeof value === "string") probe[key] = Buffer.from(value, "base64").toString("utf8");
 	}
 	return probe;
+}
+
+/** What the session is doing, from one probe: the pane is gone, it waits on an answer, its turn ended, or it runs. */
+export function phaseOf(p: Probe): "working" | "asking" | "idle" | "gone" {
+	if (!p.alive) return "gone";
+	if (p.state === "blocked") return "asking";
+	return p.waiting || p.state === "idle" || p.state === "done" ? "idle" : "working";
 }
 
 export interface ResultOf {
@@ -355,7 +365,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 		agents.map(async (a) => {
 			const st = sessions(a.name);
 			try {
-				if (a.push) {
+				if (a.push && !a.closing) {
 					if (!digestDue) return { a };
 					const p = await probe(a, true);
 					st.last_active = Math.max(st.last_active ?? 0, p.smtime || 0) || p.now;
@@ -404,9 +414,12 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 				}
 				made.push(`${a.name}: ${e.event} ${e.state} -> ${out}`);
 			};
-			for (const e of r.events.filter((event) => event.event !== "idle")) add(e);
+			// An acknowledged close owes nothing but a RESULT version it has not reported yet.
+			const events = a.closing ? r.events.filter((event) => event.event === "result") : r.events;
+			for (const e of events.filter((event) => event.event !== "idle")) add(e);
 			if (resultNew) st.result_turn = st.last_active;
-			else for (const e of r.events.filter((event) => event.event === "idle")) add(e);
+			else for (const e of events.filter((event) => event.event === "idle")) add(e);
+			if (a.closing && !r.p.alive && removeClosed(a)) made.push(`${a.name}: closed, pane gone -> watch removed`);
 			for (const line of made) log(line);
 			if (recorded) {
 				// The probe child runs this build. A coordinator that has not restarted still matches a generation-prefixed

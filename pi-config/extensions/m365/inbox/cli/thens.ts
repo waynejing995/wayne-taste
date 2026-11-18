@@ -13,7 +13,7 @@
  * then left open gets one reminder per check, due 10 minutes, 1 hour, 4 hours, then every 24 hours after its last card,
  * until `inbox then-done`. `inbox done` refuses a then's live card, `--force` or not: close it with `inbox then-done`.
  * `inbox done <row-id>` refuses while a fired then of that row is open (`--force --note <why>` closes them). An unfired then stays armed
- * after its row is done: the obligation is the trigger's, not the row's. A watch is never removed by closing its thens: only `inbox agent rm` ends it.
+ * after its row is done: the obligation is the trigger's, not the row's. A watch is never removed by closing its thens: only `inbox agent close` ends it.
  *
  * State: thens.json in the inbox directory, rewritten whole (tmp + rename) under thens.json.lock. The ledger rows
  * themselves are unchanged, so ledger.tsv keeps its format.

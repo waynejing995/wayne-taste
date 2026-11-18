@@ -50,12 +50,12 @@ Until step 2 a session shows one warning naming `/inbox setup`; no job runs and 
 
 `bin/inbox` runs `inbox/cli/` on plain node (`bin/strip-types.mjs` strips the types at load: no build step, and
 unlike `--experimental-strip-types` it works under `node_modules`, where omp links the plugin). `bin/inbox --help`
-lists the commands: `ls`, `add`, `set`, `done`, `ask`, `fact`, `places`, `then`, `then-done`, `agent add|rm|ls|probe`,
+lists the commands: `ls`, `add`, `set`, `done`, `ask`, `fact`, `places`, `then`, `then-done`, `agent add|close|ls|probe`,
 `schedule add|ls|rm|enable|disable|run|pending|show|exec|finish|widget`, `setup`. The plugin calls the same code
 in-process for its own cards and scheduler.
 
 Agents get the ledger as tools, so they do not shell out: `inbox_ls`, `inbox_ask`, `inbox_fact`, `inbox_facts`,
-`inbox_fact_drop`, `inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`, `inbox_agent_rm`,
+`inbox_fact_drop`, `inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`, `inbox_agent_close`,
 `inbox_agent_ls`.
 omp and the MCP server register the same definitions (`mcp/inbox.ts`). Each call runs `bin/inbox` as a child
 process: the ledger lock waits synchronously, which in-process would stall the whole session.
@@ -103,6 +103,17 @@ that card (`--force` or not) and names `inbox then-done`; it also refuses the ro
 outcome, whom to reply to, what to close) is armed as an `agent-result:<name>` then on that row, against the RESULT
 version that already exists. A result row is one per RESULT version, and a session keeps one live attention row.
 
+Only `inbox agent close <name>` ends a watch. Alone, it probes the session and prints, as its error, whether the pane
+is alive, its phase (working, asking, idle, gone), idle minutes, the newest RESULT file with its version, `status`,
+`open` and `verified` lines, and the watch's open thens; nothing is closed. `--ack <version> --note <what you
+verified>` (`--ack none` when there is no RESULT) closes it: refused when the version is no longer the current one,
+when the session is working or asking, or while a fired then of the watch is open. The watch's unfired thens are
+closed with the note; a gone session's entry is removed, and a live idle one is marked `closing`: kill its pane, and
+the next probe removes the entry (it still records a RESULT version written in between, and makes no `gone` row).
+In the session that loads the plugin, a `bash` call that kills a watched pane (`tern kill|close`, `tmux
+kill-session|kill-pane|kill-window|kill-server`, `herdr pane close`, also inside `ssh`) is blocked until the close
+was acknowledged.
+
 A session that stopped without a new RESULT (an idle, ask or blocked row) gets a verdict: `inbox done <id>` refuses
 that row, `--force` or not, without `--verdict advanced|waiting-user|nothing-pending --note <text>`. `advanced` and
 `nothing-pending` archive it with the verdict in the note; `waiting-user` keeps the same row live as an `ask-wayne`
@@ -126,7 +137,7 @@ and `outlook_*` tool, plus the inbox tools above (from `mcp/inbox.ts`, which run
 - **Pictures** come back as MCP image content, each with the local file path (`[image n saved: <file>]`).
 - **Write tools** (`teams_send`, `teams_react`, `outlook_send`, `outlook_draft`, `outlook_move`, `outlook_mark`,
   `inbox_ask`, `inbox_fact`, `inbox_fact_drop`, `inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`,
-  `inbox_agent_rm`, and `inbox_agent_ls`, which may rewrite legacy registrations) have no confirmation of their own
+  `inbox_agent_close`, and `inbox_agent_ls`, which may rewrite legacy registrations) have no confirmation of their own
   in the server: approval is the client's job (Claude Code permissions or `allowedTools`, Codex `approval_mode`,
   Cursor's tool approval).
 - **Channel**: the server always declares Claude Code's `claude/channel`. A client that can take pushes (it

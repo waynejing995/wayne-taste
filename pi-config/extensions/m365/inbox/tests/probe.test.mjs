@@ -15,7 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import YAML from "yaml";
-import { CARD_PROMPT, cardStatus, latestLine, paneLine, probeAgents, runProbe } from "../cli/probe.ts";
+import { CARD_PROMPT, cardStatus, latestLine, paneLine, phaseOf, probeAgents, runProbe } from "../cli/probe.ts";
 
 let failed = 0;
 async function check(label, fn) {
@@ -884,6 +884,66 @@ for (const [label, o, want] of [
 ]) {
 	await check(`card status: ${label} is "${want}"`, () => strictEqual(cardStatus(probeOf(o)), want));
 }
+
+for (const [label, o, want] of [
+	["a dead pane", { alive: false, waiting: true }, "gone"],
+	["a pending ask", { state: "blocked", waiting: true }, "asking"],
+	["an ended turn", { waiting: true }, "idle"],
+	["a mux that says idle", { state: "idle" }, "idle"],
+	["a mux that says done", { state: "done" }, "idle"],
+	["a running turn", {}, "working"],
+]) {
+	await check(`phase: ${label} is ${want}`, () => strictEqual(phaseOf(probeOf(o)), want));
+}
+
+await check("probe.sh reads the RESULT block's last verified line as rverified", () =>
+	withFixture(async (f) => {
+		const resultFile = path.join(f.dir, "RESULT.md");
+		fs.writeFileSync(resultFile, "RESULT\nstatus: done\n- **verified:** unit tests\nverified: `node tests/run.mjs` all green\nopen: none\n");
+		const r = await f.probeTern(null, "pane\n", { result: resultFile });
+		strictEqual(r.rverified, "`node tests/run.mjs` all green");
+		fs.writeFileSync(resultFile, "RESULT\nstatus: done\n");
+		strictEqual((await f.probeTern(null, "pane\n", { result: resultFile })).rverified, "");
+	}),
+);
+
+/** Mark one of the fixture's watches as acknowledged by `inbox agent close`. */
+const markClosing = (f, name) => {
+	const file = path.join(f.dir, "rules.yaml");
+	const rules = YAML.parse(fs.readFileSync(file, "utf8"));
+	for (const a of rules.agent_watch.filter((entry) => entry.name === name)) Object.assign(a, { since: "2026-11-06 14:00:00", closing: { at: "2026-11-06 14:00", ack: "none", note: "read it" } });
+	// 1.1, as the CLI writes the list: the `since` stamp stays a quoted string, not a YAML timestamp.
+	fs.writeFileSync(file, YAML.stringify(rules, { version: "1.1" }));
+};
+
+await check("the probe removes a closing entry whose pane is gone, with no gone row", () =>
+	withFixture(async (f) => {
+		f.watch("alpha", dead);
+		f.watch("beta", ompLive);
+		markClosing(f, "alpha");
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.watchedNames(), ["beta"]);
+		deepStrictEqual(f.reportedKeys("agents:alpha:"), []);
+		ok(f.logs.some((line) => line === "alpha: closed, pane gone -> watch removed"), f.logs.join("\n"));
+	}),
+);
+
+await check("a closing entry whose pane is alive stays, and its new RESULT version is still recorded before it is removed", () =>
+	withFixture(async (f) => {
+		const hash = "e".repeat(16);
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true }), true);
+		markClosing(f, "alpha");
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.watchedNames(), ["alpha"]);
+		deepStrictEqual(f.probes, [["alpha", false]], "a closing push entry is probed on every pass");
+		deepStrictEqual(f.reportedKeys("agents:alpha:"), [], "an acknowledged idle session makes no row");
+		f.behaviour.alpha = (now) => ({ ...dead(now), rmtime: now, rstatus: "done", rhash: hash, rfile: "/runs/RESULT.md" });
+		f.now = T0 + 120;
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.reportedKeys("agents:alpha:"), [`agents:alpha:result:${hash}`]);
+		deepStrictEqual(f.watchedNames(), []);
+	}),
+);
 
 for (const [label, text, want] of [
 	["an open question", "status: blocked\nopen: which branch\n", "which branch"],
