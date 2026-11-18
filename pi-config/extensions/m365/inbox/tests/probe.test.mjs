@@ -18,7 +18,8 @@ import YAML from "yaml";
 import { AgentTailer } from "../agents.ts";
 import { addAgent, readAgents } from "../cli/agents.ts";
 import { inbox } from "../cli/main.ts";
-import { CARD_PROMPT, cardStatus, latestLine, paneLine, phaseOf, probeAgents, runProbe } from "../cli/probe.ts";
+import { cardStatus, latestLine, paneLine, phaseOf, probeAgents, runProbe, teamsSender } from "../cli/probe.ts";
+import { isAgentSend } from "../../teams/card.ts";
 
 let failed = 0;
 async function check(label, fn) {
@@ -78,35 +79,28 @@ const partialResult = (ropen) => (now, want) => ({ ...ompLive(now, want), rmtime
 const blocked = (waiting) => (now, want) => ({ ...ompLive(now, want), state: "blocked", smtime: T0 - 3600, text: "", waiting });
 
 /**
- * Stands in for `omp --mode json` running one teams_send with the arguments the prompt carries (a card prompt's JSON,
- * or the text digest). Its mode comes from FAKE_OMP_MODE at call time: ok, exit, error (teams error), receipt (wrong
- * chat), message (other text), cardfail (the card is refused, text works). Every call's argv is appended to FAKE_OMP_LOG.
+ * Stands in for the Teams core's `send`, behind the real teamsSender: the card is the one teams/card.ts builds and the
+ * text is the HTML the probe sends. `f.sendMode` decides the answer: ok, error (Teams refuses everything), cardfail
+ * (the card is refused, text works), filter (a provider-style content filter refusal), hang (never answers). Every
+ * call is logged in `f.sends` with what the probe asked for (`spec` or `digest`) and what reached `send`.
  */
-const OMP = `#!/usr/bin/env node
-const fs = require("node:fs");
-const argv = process.argv.slice(2);
-fs.appendFileSync(process.env.FAKE_OMP_LOG, JSON.stringify(argv) + "\\n");
-const mode = process.env.FAKE_OMP_MODE ?? "ok";
-if (mode === "exit") {
-	process.stderr.write("boom: no teams token");
-	process.exit(1);
+function fakeTeams(f) {
+	let asked;
+	const real = teamsSender(async (target, message, html, _mentions, _images, card) => {
+		f.sends.push({ ...asked, target, message, html, card });
+		if (f.sendMode === "hang") return new Promise(() => {});
+		if (f.sendMode === "error") throw new Error("Graph 403 Forbidden");
+		if (f.sendMode === "filter") throw new Error("400 content_filter: the response was filtered");
+		if (f.sendMode === "cardfail" && card) throw new Error("Graph 400: card rejected");
+		return card ? CARD_RECEIPT : SELF_RECEIPT;
+	});
+	return {
+		card: (spec) => ((asked = { spec }), real.card(spec)),
+		text: (digest) => ((asked = { digest }), real.text(digest)),
+	};
 }
-const prompt = argv.at(-1);
-const card = prompt.startsWith(${JSON.stringify(CARD_PROMPT)});
-const args = card ? JSON.parse(prompt.slice(${JSON.stringify(CARD_PROMPT)}.length)) : { target: "self", message: prompt.split("\\n\\n").slice(1).join("\\n\\n").trim() };
-if (mode === "message") args.message = "some other text";
-const refused = mode === "error" || (mode === "cardfail" && card);
-const ok = card ? "${CARD_RECEIPT}" : "${SELF_RECEIPT}";
-const text = refused ? (card && mode === "cardfail" ? "Graph 400: card rejected" : "Graph 403 Forbidden") : mode === "receipt" ? "Sent to chat 19:group@thread" : ok;
-const start = { type: "tool_execution_start", toolCallId: "call-1", toolName: "teams_send", args };
-const end = { type: "tool_execution_end", toolCallId: "call-1", toolName: "teams_send", result: { content: [{ type: "text", text }] } };
-if (refused) end.isError = true;
-console.log("noise");
-console.log(JSON.stringify(start));
-console.log(JSON.stringify(end));
-`;
 
-const ENV_KEYS = ["PATH", "HOME", "WAYNE_INBOX_DIR", "FAKE_OMP_LOG", "FAKE_OMP_MODE"];
+const ENV_KEYS = ["PATH", "HOME", "WAYNE_INBOX_DIR"];
 
 function makeFixture(dir) {
 	const rulesFile = path.join(dir, "rules.yaml");
@@ -119,13 +113,15 @@ function makeFixture(dir) {
 		probes: [],
 		logs: [],
 		children: [],
+		sends: [],
+		sendMode: "ok",
 		/** Watch `name` with a fake probe; rewrites rules.yaml's agent_watch from every session watched so far. */
 		watch(name, behaviour) {
 			f.behaviour[name] = behaviour;
 			const rows = Object.keys(f.behaviour).map((n) => ({ name: n, mux: "tern", pane: "1", host: "local", result: "" }));
 			fs.writeFileSync(rulesFile, YAML.stringify({ agents: { "*": [{ action: "notify", tag: "agent" }] }, agent_watch: rows }));
 		},
-		/** One probe pass; `extra` overrides options (e.g. `agent`, `digestMin`). */
+		/** One probe pass; `extra` overrides options (e.g. `digestMin`). The digest goes to the fake Teams send. */
 		run(extra = {}) {
 			return probeAgents({
 				stallMin: 30,
@@ -136,26 +132,21 @@ function makeFixture(dir) {
 					f.probes.push([a.name, want]);
 					return f.behaviour[a.name](f.now, want);
 				},
+				sender: fakeTeams(f),
 				...extra,
 			});
 		},
-		/** The argv of every fake omp call so far. */
+		/** Every Teams send so far, refused ones included. */
 		calls() {
-			if (!fs.existsSync(process.env.FAKE_OMP_LOG)) return [];
-			return fs.readFileSync(process.env.FAKE_OMP_LOG, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+			return f.sends;
 		},
-		/** What each fake omp call asked to send, as text: a card is its title, then one `- name · host · status · tail` line per row. */
+		/** What each send carried, as text: a card is its title, then one `- name · host · status · tail` line per row. */
 		sent() {
-			return f.calls().map((argv) => {
-				const prompt = argv.at(-1);
-				if (!prompt.startsWith(CARD_PROMPT)) return prompt.split("\n\n").slice(1).join("\n\n").trim();
-				const card = JSON.parse(prompt.slice(CARD_PROMPT.length));
-				return [card.title, ...card.agents.map((r) => `- ${[r.name, r.host, r.status, r.tail].join(DOT)}`)].join("\n");
-			});
+			return f.sends.map((s) => (s.spec ? [s.spec.title, ...s.spec.agents.map((r) => `- ${[r.name, r.host, r.status, r.tail].join(DOT)}`)].join("\n") : s.digest));
 		},
-		/** The teams_send arguments of every card call. */
+		/** The progress-card arguments of every card send: target, title, message and rows. */
 		cards() {
-			return f.calls().map((argv) => argv.at(-1)).filter((p) => p.startsWith(CARD_PROMPT)).map((p) => JSON.parse(p.slice(CARD_PROMPT.length)));
+			return f.sends.filter((s) => s.spec).map((s) => ({ target: s.target.kind, title: s.spec.title, message: s.message, agents: s.spec.agents }));
 		},
 		state() {
 			return JSON.parse(fs.readFileSync(stateFile, "utf8"));
@@ -180,7 +171,7 @@ function makeFixture(dir) {
 			return YAML.parse(fs.readFileSync(rulesFile, "utf8")).agent_watch.map((a) => a.name);
 		},
 		mode(m) {
-			process.env.FAKE_OMP_MODE = m;
+			f.sendMode = m;
 		},
 		/** A pane's foreground process: holds the session jsonl open as tern's child does, or holds nothing. */
 		async holdPane(session) {
@@ -226,18 +217,14 @@ function makeFixture(dir) {
 
 	return f;
 }
-/** A fresh temp inbox with a fake omp on PATH; env restored and the directory removed afterwards. */
+/** A fresh temp inbox with an empty `bin/` first on PATH (tests put fake mux commands there); env restored and the directory removed afterwards. */
 async function withFixture(body) {
 	const saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-probe-"));
-	const bin = path.join(dir, "bin");
-	fs.mkdirSync(bin);
-	fs.writeFileSync(path.join(bin, "omp"), OMP, { mode: 0o755 });
-	process.env.PATH = `${bin}${path.delimiter}${saved.PATH ?? ""}`;
+	fs.mkdirSync(path.join(dir, "bin"));
+	process.env.PATH = `${path.join(dir, "bin")}${path.delimiter}${saved.PATH ?? ""}`;
 	process.env.HOME = path.join(dir, "home");
 	process.env.WAYNE_INBOX_DIR = dir;
-	process.env.FAKE_OMP_LOG = path.join(dir, "omp-calls.log");
-	process.env.FAKE_OMP_MODE = "ok";
 	const f = makeFixture(dir);
 	try {
 		await body(f);
@@ -649,7 +636,7 @@ await check("after a done RESULT the watch still reports an ask and the agent's 
 	}),
 );
 
-await check("a digest-only run records no ledger row and makes exactly one agent call", () =>
+await check("a digest-only run records no ledger row and makes exactly one Teams send", () =>
 	withFixture(async (f) => {
 		f.watch("alpha", ompLive);
 		await f.run();
@@ -658,37 +645,38 @@ await check("a digest-only run records no ledger row and makes exactly one agent
 	}),
 );
 
-await check("a failed first send fails the run and records no digest time", () =>
+await check("a failed first send fails the run, naming the send, and records no digest time", () =>
 	withFixture(async (f) => {
-		f.mode("exit");
+		f.mode("error");
 		f.watch("alpha", ompLive);
-		await failsWith(f.run(), "boom: no teams token");
+		await failsWith(f.run(), "progress digest not sent: Teams text send: Graph 403 Forbidden");
+		ok(f.logs.includes("progress card not sent, sending the text digest: Teams card send: Graph 403 Forbidden"), f.logs.join("\n"));
 		ok(!("digest" in f.state()));
 	}),
 );
 
-// `ran`: whether the send reaches the fake omp (a missing binary never does, so it is not logged).
-const FAILED_SENDS = [
-	["omp-exit", "exit", undefined, "boom: no teams token", true],
-	["omp-missing", "ok", "/nonexistent/omp-missing", "ENOENT", false],
-	["teams-error", "error", undefined, "Graph 403 Forbidden", true],
-	["receipt-mismatch", "receipt", undefined, "Sent to chat 19:group@thread", true],
-	["message-mismatch", "message", undefined, "teams_send", true],
-];
-for (const [label, mode, agent, cause, ran] of FAILED_SENDS) {
-	await check(`a failed send (${label}) exits 1, keeps the last digest time and the session's state`, () =>
+for (const [label, mode, cause] of [
+	["teams-error", "error", "Graph 403 Forbidden"],
+	["content-filter", "filter", "content_filter"],
+]) {
+	await check(`a failed send (${label}) exits 1, keeps the last digest time and the session's digest marker`, () =>
 		withFixture(async (f) => {
 			f.watch("alpha", ompLive);
 			await f.run();
 			f.mode(mode);
 			f.watch("alpha", paneLive);
 			f.now = T0 + 30 * 60;
-			await failsWith(f.run({ agent }), cause);
-			strictEqual(f.calls().length, ran ? 3 : 1, "card, then text; a failed send is not retried inside the run");
+			await failsWith(f.run(), cause);
+			strictEqual(f.calls().length, 3, "card, then text; a failed send is not retried inside the run");
 			const state = f.state();
 			deepStrictEqual(state.digest, { at: T0 });
 			strictEqual(state.watches.alpha.at, (T0 + 30 * 60) * 1000);
 			ok(state.watches.alpha.digested.endsWith("tail latest answer"), "the unsent line is not recorded as sent");
+			f.mode("ok");
+			f.now = T0 + 32 * 60;
+			await f.run();
+			ok(f.sent().at(-1).endsWith("last pane line"), "the next due run sends what the failed one did not");
+			deepStrictEqual(f.state().digest, { at: T0 + 32 * 60 });
 		}),
 	);
 }
@@ -707,7 +695,7 @@ await check("a probe failure for one session still sends the digest", () =>
 	}),
 );
 
-await check("the digest goes out as the progress card", () =>
+await check("the digest goes out as the progress card, built here and sent with no model", () =>
 	withFixture(async (f) => {
 		f.watch("alpha", ompLive);
 		f.watch("beta", (now, want) => ({ ...ompLive(now, want), state: "blocked", waiting: true, smtime: now - 45 * 60 }));
@@ -723,31 +711,44 @@ await check("the digest goes out as the progress card", () =>
 			{ name: "alpha", host: "local", idle_min: 0, status: "working", tail: "tail latest answer" },
 			{ name: "beta", host: "local", idle_min: 45, status: "waiting on question", tail: "tail latest answer" },
 		]);
+		const built = JSON.stringify(f.calls()[0].card);
+		ok(built.includes(`agent progress ${HHMM}`) && built.includes("tail latest answer") && built.includes("AdaptiveCard"), "the Adaptive Card teams/card.ts builds is what is sent");
 		strictEqual(f.calls().length, 1, "a sent card is the whole digest");
 		ok(f.logs.includes(`progress digest: ${CARD_RECEIPT}`), f.logs.join("\n"));
-	}),
-);
-
-await check("a refused card falls back to the text digest", () =>
-	withFixture(async (f) => {
-		f.mode("cardfail");
-		f.watch("alpha", ompLive);
-		await f.run();
-		ok(f.logs.includes("progress card not sent, sending the text digest: teams_send tool error: Graph 400: card rejected"), f.logs.join("\n"));
-		const [, text] = f.sent();
-		strictEqual(text.split("\n")[1], `- alpha${DOT}local${DOT}last activity ${HHMM}${DOT}tail latest answer`);
-		ok(f.logs.includes(`progress digest: ${SELF_RECEIPT}`), f.logs.join("\n"));
 		strictEqual(f.state().digest.at, T0);
 		strictEqual(f.state().watches.alpha.digested, `working:- alpha${DOT}local${DOT}tail latest answer`);
 	}),
 );
 
-await check("a card or text send whose arguments differ from the digest does not count as sent", () =>
+await check("a refused card falls back to the text digest, escaped and marked as the agent's", () =>
 	withFixture(async (f) => {
-		f.mode("message");
+		f.mode("cardfail");
+		f.watch("alpha", live(jsonl(assistant(textItem("a <b>tag</b> & @[Bob](bob@x.com)"))), "jsonl"));
+		await f.run();
+		ok(f.logs.includes("progress card not sent, sending the text digest: Teams card send: Graph 400: card rejected"), f.logs.join("\n"));
+		const [, text] = f.sent();
+		strictEqual(text.split("\n")[1], `- alpha${DOT}local${DOT}last activity ${HHMM}${DOT}a <b>tag</b> & @[Bob](bob@x.com)`);
+		const html = f.calls()[1].message;
+		ok(html.includes("a &lt;b&gt;tag&lt;/b&gt; &amp; @[Bob](bob@x.com)") && !html.includes("<b>tag"), html);
+		ok(isAgentSend(html.replaceAll("<br>", "\n")), "the self-chat watch reads the text digest as the agent's");
+		ok(f.logs.includes(`progress digest: ${SELF_RECEIPT}`), f.logs.join("\n"));
+		strictEqual(f.state().digest.at, T0);
+	}),
+);
+
+await check("a Teams send that never answers fails the run on the send's deadline, not the job's", () =>
+	withFixture(async (f) => {
+		f.mode("hang");
 		f.watch("alpha", ompLive);
-		await failsWith(f.run(), "teams_send message differs");
-		ok(f.logs.some((l) => l.startsWith("progress card not sent")), f.logs.join("\n"));
+		const realTimeout = globalThis.setTimeout;
+		// The send deadline (120 s) fires at once; everything else keeps its own timing.
+		globalThis.setTimeout = (fn, ms, ...rest) => realTimeout(fn, ms === 120_000 ? 0 : ms, ...rest);
+		try {
+			await failsWith(f.run(), "progress digest not sent: Teams text send: timed out after 120s");
+		} finally {
+			globalThis.setTimeout = realTimeout;
+		}
+		ok(f.logs.includes("progress card not sent, sending the text digest: Teams card send: timed out after 120s"), f.logs.join("\n"));
 		ok(!("digest" in f.state()));
 	}),
 );

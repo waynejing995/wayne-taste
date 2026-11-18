@@ -22,23 +22,25 @@
  * It comes off only by `inbox agent close`: an entry it marked `closing` records only a new RESULT version, and is
  * removed once no agent is left in its pane.
  *
- * Progress digest (every --digest-min minutes): one self-chat progress card, sent by a headless omp or pi through
- * `teams_send` (`agents`: one row per session, status, idle minutes, the tail behind a tap; sessions that need the
- * user first), lists each running session whose entry changed since the last digest sent; an entry is its status
- * plus its line without the `last activity` time, so a session turning to `waiting on question` with the same tail
- * is news. A card send that fails is logged and the same digest goes out as plain text. A send counts only when the
- * agent's JSON event stream shows one successful self-chat `teams_send` with the receipt and the arguments verbatim.
+ * Progress digest (every --digest-min minutes): one self-chat progress card (`agents`: one row per session, status,
+ * idle minutes, the tail behind a tap; sessions that need the user first), lists each running session whose entry
+ * changed since the last digest sent; an entry is its status plus its line without the `last activity` time, so a
+ * session turning to `waiting on question` with the same tail is news. The card is built here and sent through the
+ * Teams core's own send, with no model in between: a model asked to copy it could be refused by a content filter or
+ * time out after the send. A card send that fails is logged and the same digest goes out as plain text. A digest counts
+ * as sent only when Teams accepted it; otherwise the run fails, naming the send, and the next due run sends it again.
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isDeepStrictEqual } from "node:util";
 import { gunzipSync } from "node:zlib";
-import type { AgentRow, AgentStatus } from "../../teams/card.ts";
+import { agentFooterText, buildCard, setAgentHarness, type AgentRow, type AgentStatus } from "../../teams/card.ts";
+import { escapeHtml } from "../../teams/html.ts";
+import type { SendTarget } from "../../teams/types.ts";
 import { askShown, legacyReported, minuteAtLeast, readAgents, recordAgentRow, removeClosed, resolveAsks, type AgentEntry } from "./agents.ts";
-import { agentArgv, runProcess } from "./jobs.ts";
+import { runProcess } from "./jobs.ts";
 import { inboxFile, InboxError, readTsv } from "./ledger.ts";
 import { readObserved, updateObserved, type Observed, type Phase } from "./observed.ts";
 import { checkThens } from "./thens.ts";
@@ -84,11 +86,9 @@ export interface ProbeOptions {
 	digestMin: number;
 	/** No progress digest this run. */
 	noDigest?: boolean;
-	/** The headless agent the digest is sent through (default as for prompt jobs). */
-	agent?: string;
 	probe?: (a: AgentEntry, want: boolean) => Promise<Probe>;
-	/** Sends the digest: its text and its progress-card rows. */
-	post?: (digest: string, rows: AgentRow[]) => Promise<string>;
+	/** Where the digest goes (default: the Teams core's send to the self-chat). */
+	sender?: DigestSender;
 	now?: () => number;
 	log?: (line: string) => void;
 }
@@ -96,14 +96,10 @@ export interface ProbeOptions {
 const SCRIPT = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "probe.sh"), "utf8");
 const EMPTY = createHash("md5").update("").digest("hex").slice(0, 16);
 const DIGEST = "_digest";
-const SELF_RECEIPT = "Sent to self-chat (48:notes).";
-const CARD_RECEIPT = "Sent a card to self-chat (48:notes).";
-export const CARD_PROMPT = "Call `teams_send` exactly once with exactly the arguments below (JSON), copied verbatim with no edits. Do not call any other tools.\n\n";
 const CLIP = 300;
 const PROBE_TIMEOUT_S = 60;
-const POST_TIMEOUT_S = 600;
-const DIGEST_PROMPT =
-	"Call `teams_send` exactly once using `target: self`. The message must be the digest below verbatim, with no edits or extra text. Do not call any other tools.\n\n";
+/** One Teams send of the digest: Graph has no deadline of its own, and a stuck send must fail the run, not hang it. */
+const SEND_TIMEOUT_MS = 120_000;
 
 const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 
@@ -236,53 +232,74 @@ function sessionEntry(a: AgentEntry, active: number | undefined, p: Probe): Entr
  * is part of it, so a session turning to `waiting on question` with the same tail is still news. */
 export const unchanged = (e: Entry) => `${e.row.status}:${e.line.replace(/ \u00b7 last activity \d\d:\d\d/, "")}`;
 
-/** A send counts only if the agent's own stream shows one successful teams_send with `receipt` and the `want` arguments verbatim. */
-export function verifySend(stdout: string, want: Record<string, unknown>, receipt: string): string {
-	const events: Record<string, unknown>[] = [];
-	for (const line of stdout.split("\n")) {
-		try {
-			const ev: unknown = JSON.parse(line);
-			if (ev && typeof ev === "object") events.push(ev as Record<string, unknown>);
-		} catch {}
-	}
-	const ends = events.filter((e) => e.type === "tool_execution_end" && e.toolName === "teams_send");
-	if (ends.length !== 1) throw new InboxError(`teams_send calls: ${ends.length}; expected exactly one`);
-	const end = ends[0];
-	const result = end.result as { content?: { text?: string }[] } | undefined;
-	const text = (result?.content ?? []).map((c) => c?.text ?? "").join("");
-	if (end.isError === true) throw new InboxError(`teams_send tool error: ${text || "unknown"}`);
-	if (!text.startsWith(receipt)) throw new InboxError(`teams_send receipt is not ${JSON.stringify(receipt)}: ${text || "(empty)"}`);
-	const start = events.find((e) => e.type === "tool_execution_start" && e.toolCallId === end.toolCallId);
-	const args = (start?.args && typeof start.args === "object" ? start.args : {}) as Record<string, unknown>;
-	for (const [key, value] of Object.entries(want)) {
-		const got = args[key];
-		const same = typeof value === "string" ? String(got ?? "").trim() === value.trim() : isDeepStrictEqual(got, value);
-		if (!same) throw new InboxError(`teams_send ${key} differs from the digest`);
-	}
-	return text;
+/** How the digest reaches the self-chat. Each call resolves with Teams' receipt once Teams accepted the message, and rejects otherwise. */
+export interface DigestSender {
+	card(spec: { title: string; agents: AgentRow[] }): Promise<string>;
+	text(digest: string): Promise<string>;
 }
 
-/** stdout of one headless `--mode json` agent turn that may call only teams_send. */
-async function runSend(prompt: string, agent?: string): Promise<string> {
-	const argv = agentArgv(agent, prompt, ["teams_send"]);
-	argv.splice(1, 0, "--mode", "json");
-	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-digest-"));
+/** The Teams core's send, as the probe calls it: no images, files or mentions. */
+type TeamsSend = (target: SendTarget, message: string, html: boolean, mentions: [], images: [], card?: Record<string, unknown>) => Promise<string>;
+
+/**
+ * A DigestSender over the Teams core's `send`: the progress card built by teams/card.ts, or the digest as escaped
+ * HTML text ending with the agent footer, so the self-chat watch reads it as the agent's. A digest tail may hold any
+ * text; nothing in it is read as a mention.
+ */
+export function teamsSender(send: TeamsSend): DigestSender {
+	return {
+		card: (spec) => send({ kind: "self" }, "", true, [], [], buildCard({ ...spec, text: "" })),
+		text: (digest) => send({ kind: "self" }, escapeHtml(`${digest}\n\n${agentFooterText()}`).replaceAll("\n", "<br>"), true, [], []),
+	};
+}
+
+/** The Teams core, behind its own send. The footer names the inbox as the sending agent. */
+async function coreSender(): Promise<DigestSender> {
+	// Imported only when a digest is due: the core pulls in MSAL and the Graph client, which every other `inbox`
+	// command (each a fresh process) would otherwise load for nothing.
+	const { createTeams } = await import("../../teams/core.ts");
+	setAgentHarness("inbox");
+	const teams = createTeams({
+		registerTool: () => {},
+		exec: async (command, args, options) => {
+			try {
+				return { code: 0, stdout: await runProcess([command, ...args], Math.ceil((options.timeout ?? 150_000) / 1000), command, options.cwd), stderr: "" };
+			} catch (e) {
+				return { code: 1, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
+			}
+		},
+		sendMessage: () => {
+			throw new Error("the probe watches no chat");
+		},
+		sendUserMessage: () => {
+			throw new Error("the probe watches no chat");
+		},
+	});
+	return teamsSender((target, message, html, mentions, images, card) => teams.send(target, message, html, mentions, images, card));
+}
+
+/** `send`, failing with `what` and the cause, or with a timeout after SEND_TIMEOUT_MS. The deadline holds the process open: a send nothing else waits on still ends in an answer. */
+async function within(what: string, send: () => Promise<string>): Promise<string> {
+	const { promise: deadline, reject } = Promise.withResolvers<never>();
+	const timer = setTimeout(() => reject(new Error(`timed out after ${SEND_TIMEOUT_MS / 1000}s`)), SEND_TIMEOUT_MS);
 	try {
-		return await runProcess(argv, POST_TIMEOUT_S, "digest agent", tmp);
+		return await Promise.race([send(), deadline]);
+	} catch (e) {
+		throw new InboxError(`${what}: ${e instanceof Error ? e.message : String(e)}`);
 	} finally {
-		fs.rmSync(tmp, { recursive: true, force: true });
+		clearTimeout(timer);
 	}
 }
 
 /** The digest to the self-chat: the progress card, else (logged) the same digest as plain text. */
-async function postDigest(digest: string, rows: AgentRow[], agent: string | undefined, log: (line: string) => void): Promise<string> {
-	const card = { target: "self", title: digest.split("\n")[0], message: "", agents: rows };
+async function postDigest(digest: string, rows: AgentRow[], sender: DigestSender | undefined, log: (line: string) => void): Promise<string> {
+	const to = sender ?? (await coreSender());
 	try {
-		return verifySend(await runSend(CARD_PROMPT + JSON.stringify(card), agent), card, CARD_RECEIPT);
+		return await within("Teams card send", () => to.card({ title: digest.split("\n")[0]!, agents: rows }));
 	} catch (e) {
 		log(`progress card not sent, sending the text digest: ${e instanceof Error ? e.message : String(e)}`);
 	}
-	return verifySend(await runSend(DIGEST_PROMPT + digest, agent), { message: digest, target: "self" }, SELF_RECEIPT);
+	return within("Teams text send", () => to.text(digest));
 }
 
 const LAST_CAP = 1500;
@@ -413,7 +430,6 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 	const probe = o.probe ?? runProbe;
 	const out: string[] = [];
 	const log = o.log ?? ((l: string) => out.push(l));
-	const post = o.post ?? ((d: string, rows: AgentRow[]) => postDigest(d, rows, o.agent, log));
 	const agents = readAgents();
 	const before = readObserved();
 	const now = Math.floor((o.now ?? Date.now)() / 1000);
@@ -502,7 +518,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 	} else if (digestDue && fresh.length) {
 		const digest = `agent progress ${hhmm(now)} \u00b7 ${fresh.length} changed\n${fresh.map(([, e]) => e.line).join("\n")}`;
 		try {
-			log(`progress digest: ${await post(digest, fresh.map(([, e]) => e.row))}`);
+			log(`progress digest: ${await postDigest(digest, fresh.map(([, e]) => e.row), o.sender, log)}`);
 			sent = true;
 		} catch (e) {
 			fail("progress digest not sent", e);
