@@ -1184,6 +1184,30 @@ await check("one live row per session: a second row archives the first, a claime
 	}),
 );
 
+await check("a result row no session was shown yet stays live when the next row of the session comes", () =>
+	withFixture(async (f) => {
+		const cursor = path.join(f.dir, "cursors", "session-push.id");
+		fs.mkdirSync(path.dirname(cursor), { recursive: true });
+		fs.writeFileSync(cursor, "0\n");
+		const hash = "d".repeat(16);
+		f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, rmtime: now, rstatus: "done", rhash: hash, rfile: "/runs/RESULT.md" }));
+		await f.run({ noDigest: true });
+		f.watch("alpha", (now) => ({ ...dead(now), rmtime: T0, rstatus: "done", rhash: hash, rfile: "/runs/RESULT.md" }));
+		f.now = T0 + 120;
+		await f.run({ noDigest: true });
+		deepStrictEqual(f.ledgerKeys("agents:alpha:").sort(), [`agents:alpha:gone:`, `agents:alpha:result:${hash}`].sort(), "delivery has not reached the result row: it stays beside the gone row");
+		const resultId = fs.readFileSync(path.join(f.dir, "ledger.tsv"), "utf8").split("\n").find((l) => l.includes(`:result:${hash}`)).split("\t")[0];
+		fs.writeFileSync(cursor, `${resultId}\n`);
+		f.watch("alpha", (now, want) => ({ ...blocked(false)(now, want), rmtime: T0, rstatus: "done", rhash: hash, rfile: "/runs/RESULT.md" }));
+		for (const at of [240, 360]) {
+			f.now = T0 + at;
+			await f.run({ noDigest: true });
+		}
+		ok(f.ledgerKeys("agents:alpha:ask:").length === 1, f.ledgerKeys("agents:alpha:").join(" "));
+		ok(!f.ledgerKeys("agents:alpha:").includes(`agents:alpha:result:${hash}`), "once delivered, the result row is superseded as before");
+	}),
+);
+
 await check("a probe that recorded a row runs checkThens in the same process", () =>
 	withFixture(async (f) => {
 		fs.writeFileSync(path.join(f.dir, "ledger.tsv"), "id\tkey\tsubject\tfirst_seen\tsource\ttag\taction\tstate\towner\tnote\tlink\n7\task:row\trow\t2026-11-06 14:00\tcoordinator\task-wayne\tnotify\topen\twayne\t\t\n");

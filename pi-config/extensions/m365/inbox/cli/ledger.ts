@@ -207,13 +207,19 @@ export function finishRows(rows: Row[], ids: string[], note: string | undefined,
 
 /**
  * Archive the other live rows of one session. A claimed row and an ask-wayne row stay. `keep` is the new row's id; `skip` are rows of a
- * fired, open then, which stay until that then is closed. The archived note keeps what it said plus who replaced it.
+ * fired, open then, which stay until that then is closed. A result row past the delivery cursor (`cursors/session-push.id`) stays too:
+ * no session has been shown it yet (delivery stopped, or it was made in the same probe pass as the next row), and a later no-result
+ * or ended row must not take its card away. With no cursor, nothing delivers, and nothing is kept for it. The archived note keeps
+ * what it said plus who replaced it.
  */
 export function supersedeSession(place: string, keep: string, skip: string[]): string[] {
 	const prefix = `agents:${place}:`;
+	const cursorFile = inboxFile("cursors", "session-push.id");
+	const delivered = fs.existsSync(cursorFile) ? Number(fs.readFileSync(cursorFile, "utf8").trim()) : Infinity;
 	return withLedger((rows, save) => {
 		// An ask-wayne row is Wayne's question about the session (`done --verdict waiting-user`): it stays until answered.
-		const gone = rows.filter((row) => row.source === "agents" && row.tag !== "ask-wayne" && row.key.startsWith(prefix) && row.state === "open" && row.id !== keep && !skip.includes(row.id));
+		const gone = rows.filter((row) => row.source === "agents" && row.tag !== "ask-wayne" && row.key.startsWith(prefix) && row.state === "open" && row.id !== keep && !skip.includes(row.id)
+			&& !(row.key.startsWith(`${prefix}result:`) && Number(row.id) > delivered));
 		for (const row of gone) {
 			row.state = "done";
 			row.note = clean(`${row.note} [superseded by #${keep}]`);
