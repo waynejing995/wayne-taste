@@ -294,6 +294,24 @@ await check("a repeated turn end of the same RESULT version is one result row an
 	equal(f.calls.filter((call) => call[0] === "add").length, 3, "the second turn end: the version is seen, then exactly one no-result add");
 }));
 
+// Field report 11-18 (layerfs-impl #1543/#1545): srdc's old reporter sent `result` events, with no version, mid-turn
+// while every RESULT*.md was unchanged since 11-16; each made a result card and fired the plan.
+let unchanged = true;
+await check("an old reporter's result event with an unchanged RESULT makes no second result row", () => withFixture(async (f) => {
+	await f.start();
+	const old = (seq) => f.event("result", seq, { generation: undefined, text: "", result: { status: "done", path: "/r/RESULT.md" } });
+	f.append(old(1));
+	f.append(old(2));
+	f.append(old(3));
+	await f.tailer.poke();
+	const results = [...f.rows.values()].filter((row) => fields(row).includes("event=result"));
+	deepStrictEqual(results.map((row) => arg(row, "--key")), ["agents:one:result:5c0c42e3ea1fedce"], "one row for the one version, however many result events");
+	f.append(old(4));
+	unchanged = false;
+	await f.tailer.poke();
+	deepStrictEqual([...f.rows.values()].filter((row) => fields(row).includes("event=result")).map((row) => arg(row, "--key")).at(-1), "agents:one:result:00000000000000aa", "a changed file is a new result");
+}, { result: async () => ({ version: unchanged ? "5c0c42e3ea1fedce" : "00000000000000aa", status: "done", open: "", mtime: 0 }) }));
+
 await check("heartbeat and activity events add no row; activity moves the record", () => withFixture(async (f) => {
 	await f.start();
 	for (const [i, type] of ["hb", "working", "started", "ask-resolved"].entries()) f.append(f.event(type, i));
