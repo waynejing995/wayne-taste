@@ -182,7 +182,7 @@ and `outlook_*` tool, plus the inbox tools above (from `mcp/inbox.ts`, which run
   advertises `claude/channel`, or it is Claude Code, which as of 2.1.322 advertises nothing and is known by its
   `clientInfo.name`) gets `notifications/claude/channel` events, `<channel source="m365" kind=… chat_id=… sender=… policy=…>`:
   - `card`: a watched Teams chat. Same cursors, card text and per-chat lock as omp. The server has no policy gate
-    model: every card reaches Claude Code, and the turn gate is a Claude Code hook (below).
+    model: every watched-chat card is pushed to Claude Code with no turn gate, and the agent applies the chat's policy itself.
   - `instruction`: your own `omp:`/`pi:` message in a watched chat.
   - `inbox`: new `notify`/`do` ledger rows, after `inbox_watch start`.
   - `notice`: what the channel resumed or skipped.
@@ -220,22 +220,6 @@ Claude Code shows the pushed events:
 
 ```sh
 claude --dangerously-load-development-channels server:m365
-```
-
-**Turn gate** (Claude Code only): a channel event arrives as a prompt, so Claude Code's `UserPromptSubmit` hooks see
-it. `mcp/claude-code-hooks.json` is a `type: "prompt"` hook that does omp's turn gate there: a `kind="card"` event
-from a chat with a policy goes ahead only when, under that policy, a message needs the agent; otherwise the turn is
-stopped ("Operation stopped by hook: display only: …") and the card stays on screen. Cards from the self-chat and
-every other kind (`instruction`, `inbox`, `notice`) and your own prompts pass. Each channel event costs one call to
-Claude Code's background model (a few seconds). Append its `UserPromptSubmit` entry to `.claude/settings.json` (or
-`.claude/settings.local.json`) of the project you launch from; this keeps every hook already there and creates the
-file when it is missing:
-
-```sh
-mkdir -p .claude && f=.claude/settings.json && { [ -s "$f" ] || echo '{}' > "$f"; } &&
-t=$(mktemp .claude/settings.XXXXXX) &&
-jq --slurpfile h <wayne-skills>/pi-config/extensions/m365/mcp/claude-code-hooks.json \
-  '.hooks.UserPromptSubmit += $h[0].hooks.UserPromptSubmit' "$f" > "$t" && mv "$t" "$f"
 ```
 
 **Codex**: `~/.codex/config.toml`:
