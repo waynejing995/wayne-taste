@@ -1024,7 +1024,8 @@ export function createTeams(pi: TeamsHost) {
 			"becomes a real Teams mention, so the person is notified. Get the address from teams_people " +
 			"first and never guess it: an address the directory does not know fails the whole send, and " +
 			"nothing is posted. To address a Teams app or bot, write @[Display Name](app:<app id>); its app id is " +
-			"`mentions[].mentioned.application.id` of a Graph message that mentions it. " +
+			"`mentions[].mentioned.application.id` of a Graph message that mentions it (teams_read does not show it): " +
+			"take it from the user and never guess one. " +
 			"To show a picture (a screenshot, a rendered UI), pass local PNG/JPEG/GIF paths in `images`. " +
 			"The files are uploaded and shown inline under the text, in any chat, channel or the self-chat, " +
 			"with a card too. A Markdown image in `message` stays text and is not read or uploaded. " +

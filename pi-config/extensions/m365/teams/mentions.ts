@@ -78,7 +78,7 @@ export function fillMentions<T extends Mention>(
 	return html.replace(TOKEN_RE, (_t: string, digits: string) => {
 		const i = Number(digits);
 		const m = mentions[i];
-		if (m === undefined) throw new Error(`mention ${i} in the message has no address`);
+		if (m === undefined) throw new Error(`mention ${i} in the message has no target`);
 		return render(m, i);
 	});
 }

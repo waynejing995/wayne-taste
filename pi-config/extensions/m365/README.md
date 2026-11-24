@@ -22,7 +22,7 @@ both; each half keeps its own tools (`teams_*`, `outlook_*`), its own command
 | `shares.ts` | `downloadShared`: a SharePoint/OneDrive file by its link (`teams_download`, `outlook_download`) |
 | `save-file.ts` | Writing a file without ever overwriting one: a given path must not exist, a free name gets ` (1)`, ` (2)`, … |
 | `describe-image.ts` | A model-written description of a picture, cached on disk (`~/.cache/pi/teams-alt`) |
-| `mention.ts` | The `@[Name](address)` syntax as a Markdown extension, so code and escaped examples never mention anyone |
+| `mention.ts` | The `@[Name](address)` and `@[Name](app:<app id>)` syntax as a Markdown extension, so code and escaped examples never mention anyone |
 | `status-row.ts` | One status-bar row for both counts (omp gives each status key its own line) |
 | `tern-native.ts` | The Tern layer: TSP node builders the two overlays describe themselves with (below) |
 | `time.ts` | Local time formatting |

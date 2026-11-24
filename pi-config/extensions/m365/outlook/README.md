@@ -200,7 +200,8 @@ Markdown never carries a hex value. The palette lives in `render.ts`, and
   person not already in To or Cc is added to To. Recipients come from the same
   parse the renderer draws, so an example in code or an escaped `\@[…](…)` adds
   nobody. Received mentions read back in the same syntax. The Teams extension
-  takes the same syntax.
+  takes the same syntax; its app form `@[Name](app:<app id>)` has no Outlook
+  equivalent and is refused, never sent as text.
 - **Other tables** are GFM tables with a header row.
 - **Raw HTML** is shown as text, never as markup, so the writer cannot inject a
   colour, a class or a `<style>` element.

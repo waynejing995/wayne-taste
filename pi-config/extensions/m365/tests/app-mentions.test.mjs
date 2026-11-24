@@ -130,16 +130,23 @@ await section("an app mention in a code span is an example and notifies nobody",
 });
 
 await section("an app target that is not an app id is refused, not sent as text", async () => {
-	check("the refusal names what was written", (await threw(() => renderWithMentions("@[Captain](app:not-a-guid) hi"))).includes("app:not-a-guid"), true);
+	for (const bad of ["app:not-a-guid", "app:not a guid", `app:${APP.slice(0, -1)}`])
+		check(`@[Captain](${bad}) is refused, naming it`, (await threw(() => renderWithMentions(`@[Captain](${bad}) hi`))).includes(bad), true);
+	// Spaces around the id and the case of `app:` are not typos worth refusing: it is the same app.
+	check("spaces and APP: still name the app", renderWithMentions(`@[Captain](APP: ${APP} ) hi`).mentions, [{ name: "Captain", app: APP }]);
 });
 
 await section("the text self-chat (chatsvc) refuses an app mention before anything is sent", async () => {
 	const sent = [];
-	const skype = { send: async (...a) => sent.push(a), uploadImage: async () => assertNever(), selfMessages: async () => [] };
+	const uploads = [];
+	const skype = { send: async (...a) => sent.push(a), uploadImage: async (...a) => uploads.push(a), selfMessages: async () => [] };
 	const { seen, b } = graphBackend({ skype });
+	const png = join(home, "shot.png");
+	writeFileSync(png, Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));
 	const { html, mentions } = renderWithMentions(`note @[Captain](app:${APP})`);
-	const msg = await threw(() => b.send({ kind: "self" }, html, true, mentions));
+	const msg = await threw(() => b.send({ kind: "self" }, html, true, mentions, [png]));
 	check("refused, saying why", /chatsvc/.test(msg) && /app/.test(msg), true);
+	check("no picture was uploaded", uploads.length, 0);
 	check("chatsvc got nothing", sent.length, 0);
 	check("nothing posted", seen.filter((s) => s.method === "POST").length, 0);
 });

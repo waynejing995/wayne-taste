@@ -10,11 +10,11 @@
 import type { TokenizerAndRendererExtension, Tokens } from "marked";
 
 /**
- * At the start of the source: $1 the name (trimmed by the pattern itself), then $2 the address, or $3 whatever
- * follows `app:` (checked below, so a mistyped app id is refused rather than sent as a link).
+ * At the start of the source: $1 the name (trimmed by the pattern itself), then $2 the address, or $3 everything up
+ * to `)` after `app:` (checked below, so a mistyped app id is refused rather than sent as a link or text).
  */
 const MENTION =
-	/^@\[\s*([^\]\n]*[^\]\s])\s*\]\(\s*(?:(?:mailto:)?([A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)|app:([^)\s]*))\s*\)/;
+	/^@\[\s*([^\]\n]*[^\]\s])\s*\]\(\s*(?:(?:mailto:)?([A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)\s*|[Aa][Pp][Pp]:([^)\n]*))\)/;
 const GUID = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
 
 /** A mention token as the parser produced it: a person by address, or an app by its id. */
@@ -30,8 +30,9 @@ export function mentionExtension(render: (t: MentionToken) => string): Tokenizer
 			const m = MENTION.exec(src);
 			if (!m) return;
 			if (m[2] !== undefined) return { type: "mention", raw: m[0], name: m[1], address: m[2] };
-			if (!GUID.test(m[3])) throw new Error(`${m[0]}: an app mention needs the app id, a GUID, after app:`);
-			return { type: "mention", raw: m[0], name: m[1], app: m[3] };
+			const app = m[3].trim();
+			if (!GUID.test(app)) throw new Error(`${m[0]}: an app mention needs the app id, a GUID, after app:`);
+			return { type: "mention", raw: m[0], name: m[1], app };
 		},
 		renderer: (t) => render(t as MentionToken),
 	};

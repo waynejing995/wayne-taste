@@ -396,8 +396,9 @@ counts: a send footed by another harness is someone else's.
 
 ## @mentions
 
-`teams_send` notifies someone when the agent writes `@[Display Name](their.email@domain)`.
-The target must be a bare address: `[text](url)` stays a link. A mention is
+`teams_send` notifies someone when the agent writes `@[Display Name](their.email@domain)`,
+or a Teams app with `@[Display Name](app:<app id>)`. The target must be a bare
+address or `app:` and a GUID: `[text](url)` stays a link. A mention is
 whatever the Markdown parser reads as one (`mentions.ts` renders with a mention
 extension), so an example in a code span, a fenced (```` ``` ```` or `~~~`) or
 indented code block, or an escaped `\@[…](…)` is shown as written and notifies nobody.
@@ -419,9 +420,12 @@ indented code block, or an escaped `\@[…](…)` is shown as written and notifi
 - A Teams app (a bot) is mentioned as `@[Display Name](app:<app id>)`. It has no
   address, so there is no directory lookup: Graph gets `<at id="N">` and a
   `mentioned.application` entry (`#microsoft.graph.teamworkApplicationIdentity`,
-  `applicationIdentityType: "bot"`). To find an app id, read a message that
-  mentions the bot: it is `mentions[].mentioned.application.id` in Graph. The
-  text self-chat (chatsvc) and Outlook have no app form and refuse it.
+  `applicationIdentityType: "bot"`). An `app:` target that is not a GUID is
+  refused. To find an app id, read a message that mentions the bot straight from
+  Graph (`GET /chats/{chat-id}/messages`): it is
+  `mentions[].mentioned.application.id`. `teams_read` does not show it, so the
+  agent is told to ask the user rather than guess one. The text self-chat
+  (chatsvc) and Outlook have no app form and refuse it.
 
 ## Dependencies
 

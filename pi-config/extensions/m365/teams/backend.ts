@@ -119,8 +119,8 @@ export interface Backend {
 	transcript(addr: ChatAddr, opts?: { date?: string; list?: boolean }): Promise<MeetingTranscriptResult>;
 	markRead(chatId: string): Promise<void>;
 	/**
-	 * `mentions` are the @mentions cut from the Markdown (mentions.ts). Only the
-	 * graph backend can resolve them to people, so the script backend refuses.
+	 * `mentions` are the @mentions cut from the Markdown (mentions.ts): people and apps. Only the
+	 * graph backend can post them, so the script backend refuses.
 	 * `images` are local PNG/JPEG/GIF files shown inline under the text, in any chat, with or without a card.
 	 * `card` is an Adaptive Card (card.ts) posted after `message`, which then holds only the mentions.
 	 * `files` are local files of any type, uploaded to OneDrive (a chat) or the channel's folder and attached.
@@ -234,7 +234,7 @@ export class ScriptBackend implements Backend {
 			throw new Error('cards need the graph backend. Set "backend": "graph" in ~/.pi/agent/teams.json, or send with card=false.');
 		if (mentions.length > 0)
 			throw new Error(
-				'@mentions need the graph backend: the script cannot look a person up in the directory. Set "backend": "graph" in ~/.pi/agent/teams.json, or send without the mention.',
+				'@mentions need the graph backend: the script can neither look a person up in the directory nor mention an app. Set "backend": "graph" in ~/.pi/agent/teams.json, or send without the mention.',
 			);
 		const args = ["send"];
 		if (target.kind === "self") args.push("--self");

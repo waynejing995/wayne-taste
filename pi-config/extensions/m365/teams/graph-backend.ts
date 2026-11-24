@@ -867,7 +867,7 @@ export class GraphBackend implements Backend {
 			const app = resolved.find((m) => "app" in m);
 			if (app)
 				throw new Error(
-					`@[${app.name}](app:…): the text self-chat goes through chatsvc, which cannot @mention an app. Send it as a card (card=true) or to a chat.`,
+					`@[${app.name}](app:…): the text self-chat goes through chatsvc, which cannot @mention an app. Mention it in a chat or channel the app is in.`,
 				);
 			const skype = this.requireSkype();
 			const uploaded = [];
