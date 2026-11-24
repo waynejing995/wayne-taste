@@ -81,7 +81,7 @@ Answer an agent question yourself when a read can settle it, then send the answe
 
 Send a follow-up with `tern send` (paste plus Enter), `herdr agent prompt`, or `tmux load-buffer` and `paste-buffer`. Confirm that the session received it.
 
-The watch stays after a done RESULT, so a follow-up round needs no new `agent add`: the next RESULT version (a new content hash of the newest `RESULT*.md` in the run directory) makes one new card. Run `agent add` again only to give the watch a new plan (`--row`/`--then`; it closes the name's previous unfired plan) or to point it at a pane in another mux. Move the verified file to `RESULT-round<N>.md` before the next round. A probed session uses `RESULT-retro.md` and `<name>-retro`.
+The watch stays after a done RESULT, so a follow-up round needs no new `agent add`: the next RESULT version (a new content hash of the newest `RESULT*.md` in the run directory) makes one new card. Run `agent add` again only to give the watch a new plan (`--row`/`--then`; it closes the name's previous unfired plan) or to point it at a pane in another mux. Move the verified file to `RESULT-round<N>.md` before the next round.
 
 The RESULT is a claim. Recheck its mtime, reject placeholders (`__[A-Z]`, `JOINT_`, `_LINE`, `TODO`), and recheck its facts at source with `gh pr view` or the named system. A claimed Teams post needs its receipt.
 
