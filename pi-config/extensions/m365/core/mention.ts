@@ -18,16 +18,16 @@ const GUID = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A
 
 /**
  * The target after `app:` at `from`, up to its `)`: the id and where the mention ends, or undefined when no `)` closes
- * it on that line (then it is text, not a mention). Only a line break before `)` may follow the id onto the next line,
- * so the id never runs into the prose after it. One pass, so a long run of spaces cannot make it slow.
+ * it (then it is text, not a mention). The id is read from the line `app:` is on; only whitespace, a line break
+ * included, may stand between it and `)`, so the id never runs into the prose after it. It reads no further than that.
  */
 function appTarget(src: string, from: number): { id: string; end: number } | undefined {
-	const close = src.indexOf(")", from);
-	const eol = src.indexOf("\n", from);
-	if (close < 0) return undefined;
-	if (eol < 0 || close < eol) return { id: src.slice(from, close).trim(), end: close + 1 };
-	// The line ends first: only whitespace may stand between it and the `)`.
-	return src.slice(eol, close).trim() === "" ? { id: src.slice(from, eol).trim(), end: close + 1 } : undefined;
+	let i = from;
+	while (i < src.length && src[i] !== ")" && src[i] !== "\n") i++;
+	if (src[i] === ")") return { id: src.slice(from, i).trim(), end: i + 1 };
+	let j = i;
+	while (j < src.length && /\s/.test(src[j])) j++;
+	return src[j] === ")" ? { id: src.slice(from, i).trim(), end: j + 1 } : undefined;
 }
 
 /** A mention token as the parser produced it: a person by address, or an app by its id. */
