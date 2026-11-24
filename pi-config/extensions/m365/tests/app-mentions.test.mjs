@@ -136,8 +136,11 @@ await section("an app target that is not an app id is refused, not sent as text"
 	check("spaces and APP: still name the app", renderWithMentions(`@[Captain](APP: ${APP} ) hi`).mentions, [{ name: "Captain", app: APP }]);
 	check("a line break before ) still names the app", renderWithMentions(`@[Captain](app:${APP}\n) hi`).mentions, [{ name: "Captain", app: APP }]);
 	// An unclosed fragment does not run across lines into a later `)`: it stays text, and the message still goes.
-	const prose = renderWithMentions("an unclosed @[Bot](app: example\nsee [runbook](https://example.test) for more");
-	check("an unclosed app fragment stays text", [prose.mentions, prose.html.includes("https://example.test")], [[], true]);
+	for (const unclosed of ["an unclosed @[Bot](app: example\nsee [runbook](https://example.test) for more", "an unclosed @[Bot](app:\nsee [runbook](https://example.test) for more"]) {
+		const prose = renderWithMentions(unclosed);
+		check(`an unclosed app fragment stays text: ${JSON.stringify(unclosed.slice(12, 30))}`, [prose.mentions, prose.html.includes("https://example.test")], [[], true]);
+	}
+	check("an empty app target is refused", (await threw(() => renderWithMentions("@[Captain](app:) hi"))).includes("app:"), true);
 });
 
 await section("the self-chat refuses an app mention, as text, card or file, before anything is sent", async () => {
