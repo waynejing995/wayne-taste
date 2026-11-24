@@ -26,7 +26,7 @@ import { ScriptBackend } from "./backend.ts";
 import { AGENT_STATUSES, agentFooterText, buildCard, cardMentions, isAgentSend } from "./card.ts";
 import { findChat, GraphBackend } from "./graph-backend.ts";
 import { escapeHtml } from "./html.ts";
-import { type Mention, renderWithMentions } from "./mentions.ts";
+import { type Mention, mentionSyntax, renderWithMentions } from "./mentions.ts";
 import { cursorPages } from "./paging.ts";
 import { REACTIONS, reactionLine, reactionType } from "./reactions.ts";
 import { SKYPE_SCOPES, SkypeClient } from "./skype.ts";
@@ -1023,7 +1023,8 @@ export function createTeams(pi: TeamsHost) {
 			"To notify someone, @mention them by writing @[Display Name](their.email@domain). The mention " +
 			"becomes a real Teams mention, so the person is notified. Get the address from teams_people " +
 			"first and never guess it: an address the directory does not know fails the whole send, and " +
-			"nothing is posted. " +
+			"nothing is posted. To address a Teams app or bot, write @[Display Name](app:<app id>); its app id is " +
+			"`mentions[].mentioned.application.id` of a Graph message that mentions it. " +
 			"To show a picture (a screenshot, a rendered UI), pass local PNG/JPEG/GIF paths in `images`. " +
 			"The files are uploaded and shown inline under the text, in any chat, channel or the self-chat, " +
 			"with a card too. A Markdown image in `message` stays text and is not read or uploaded. " +
@@ -1052,7 +1053,7 @@ export function createTeams(pi: TeamsHost) {
 					"The message body. Say what the user wanted said, phrased well; do not turn it into a " +
 					"report about the subject they mentioned. Keep it roughly the size their request " +
 					"implies. Markdown is converted to rich text; special characters are escaped. To @mention " +
-					"someone, write @[Name](email); see the tool description.",
+					"someone, write @[Name](email), or @[Name](app:<app id>) for a bot; see the tool description.",
 			}),
 			chat_id: Type.Optional(
 				Type.String({ description: "Chat id from teams_chats. Preferred over `chat` when target='chat'." }),
@@ -1173,7 +1174,7 @@ export function createTeams(pi: TeamsHost) {
 				// A card cannot notify: its mentions show as bold names, and go into the message body beside it as real ones.
 				const { text, mentions: inCard } = cardMentions(message);
 				const card = buildCard({ ...params, text });
-				const { html: notify, mentions } = renderWithMentions(inCard.map((m) => `@[${m.name}](${m.email})`).join(" "));
+				const { html: notify, mentions } = renderWithMentions(inCard.map(mentionSyntax).join(" "));
 				const msg = await send(target, mentions.length > 0 ? notify : "", true, mentions, images, card, files);
 				flash(ctx, "sent ✓");
 				return { content: [{ type: "text", text: msg }], details: {} };

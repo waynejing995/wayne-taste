@@ -286,6 +286,21 @@ await section("U11 only a rendered mention adds a recipient: code and escaped ex
 	equal("U11 and only it is an OWAAM anchor", [...html.matchAll(/<a id="OWAAM[0-9A-F]{32}Z" href="mailto:([^"]+)"/g)].map((m) => m[1]), ["fay@example.com"]);
 });
 
+await section("U11 an app mention (a Teams bot) is refused, never sent as text", async () => {
+	const draft = { kind: "new", to: [{ address: "ann@example.com" }], cc: [], subject: "m", references: [], attachments: [] };
+	const md = "ping @[Captain](app:00000000-0000-0000-0000-000000000001)";
+	const err = async (fn) => {
+		try {
+			await fn();
+			return "";
+		} catch (e) {
+			return e instanceof Error ? e.message : String(e);
+		}
+	};
+	check("U11 adding recipients refuses it", /cannot @mention an app/.test(await err(() => withMentioned(draft, md))));
+	check("U11 building the mail refuses it", /cannot @mention an app/.test(await err(() => compose(draft, md))));
+});
+
 await section("U12 parseEml: text-only, attachments, group addresses", async () => {
 	const t = await load("mime-text-only.eml");
 	check("U12 text-only mail: text is set and html is undefined", t.text?.includes("Just a plain note.") === true && t.html === undefined);

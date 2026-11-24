@@ -59,11 +59,18 @@ type Quote = Tokens.Blockquote & { callout?: string };
 /**
  * An @mention (core/mention.ts). Outlook recognizes a mention by an anchor whose id is
  * OWAAM, 32 hex digits and Z, pointing at mailto:the address; a new id per mention is fine.
+ * An app mention (a Teams bot) has no address and no Outlook form: it is refused, never sent as text.
  */
 const outlookMention = mentionExtension((t) => {
+	const address = personAddress(t);
 	const id = `OWAAM${randomUUID().replace(/-/g, "").toUpperCase()}Z`;
-	return `<a id="${id}" href="mailto:${esc(t.address)}" style="color:${THEME.link};text-decoration:none">@${esc(t.name)}</a>`;
+	return `<a id="${id}" href="mailto:${esc(address)}" style="color:${THEME.link};text-decoration:none">@${esc(t.name)}</a>`;
 });
+
+function personAddress(t: MentionToken): string {
+	if (t.address === undefined) throw new Error(`Outlook cannot @mention an app (${t.raw}): mention a person by address, or write the name as plain text`);
+	return t.address;
+}
 
 /**
  * Everyone `md` @mentions, once each, in order of first mention. Outlook adds them to To; so do the callers.
@@ -73,8 +80,9 @@ export function mentionsIn(md: string): { name: string; address: string }[] {
 	const seen = new Map<string, { name: string; address: string }>();
 	markdown.walkTokens(markdown.lexer(md), (t) => {
 		if (t.type !== "mention") return;
-		const { name, address } = t as MentionToken;
-		if (!seen.has(address.toLowerCase())) seen.set(address.toLowerCase(), { name, address });
+		const m = t as MentionToken;
+		const address = personAddress(m);
+		if (!seen.has(address.toLowerCase())) seen.set(address.toLowerCase(), { name: m.name, address });
 	});
 	return [...seen.values()];
 }

@@ -416,6 +416,12 @@ indented code block, or an escaped `\@[…](…)` is shown as written and notifi
   `8:orgid:<object id>`.
 - The `script` backend refuses a message with a mention, because it has no
   directory lookup.
+- A Teams app (a bot) is mentioned as `@[Display Name](app:<app id>)`. It has no
+  address, so there is no directory lookup: Graph gets `<at id="N">` and a
+  `mentioned.application` entry (`#microsoft.graph.teamworkApplicationIdentity`,
+  `applicationIdentityType: "bot"`). To find an app id, read a message that
+  mentions the bot: it is `mentions[].mentioned.application.id` in Graph. The
+  text self-chat (chatsvc) and Outlook have no app form and refuse it.
 
 ## Dependencies
 

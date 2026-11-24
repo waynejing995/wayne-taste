@@ -15,7 +15,7 @@
 import { Marked } from "marked";
 import { mentionExtension, type MentionToken } from "../core/mention.ts";
 import { escapeHtml, htmlToText } from "./html.ts";
-import type { Mention } from "./mentions.ts";
+import { type Mention, mentionOf } from "./mentions.ts";
 
 export const CARD_CONTENT_TYPE = "application/vnd.microsoft.card.adaptive";
 
@@ -451,15 +451,15 @@ export function isAgentSend(text: string): boolean {
  * order. A card cannot notify; the mentions go into the message body next to the card, where Graph's <at> does.
  */
 export function cardMentions(markdown: string): { text: string; mentions: Mention[] } {
-	const mentions: (Mention & { raw: string })[] = [];
+	const mentions: { mention: Mention; raw: string }[] = [];
 	const md = new Marked({ gfm: true });
 	md.use({ extensions: [mentionExtension(() => "")] });
 	md.walkTokens(md.lexer(markdown), (t) => {
 		if (t.type !== "mention") return;
 		const m = t as MentionToken;
-		mentions.push({ name: m.name, email: m.address, raw: m.raw });
+		mentions.push({ mention: mentionOf(m), raw: m.raw });
 	});
 	let out = markdown;
-	for (const m of mentions) out = out.replace(m.raw, `**${m.name}**`);
-	return { text: out, mentions: mentions.map(({ name, email }) => ({ name, email })) };
+	for (const m of mentions) out = out.replace(m.raw, `**${m.mention.name}**`);
+	return { text: out, mentions: mentions.map((m) => m.mention) };
 }

@@ -25,7 +25,7 @@ import { attachedCardText, isCardType } from "./card.ts";
 import { type ForwardLookup, forwardNeed, forwardParts, NO_LOOKUP, partImages, partsText } from "./forward.ts";
 import { escapeHtml } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
-import { fillMentions, type ResolvedMention } from "./mentions.ts";
+import { fillMentions, type ResolvedPerson } from "./mentions.ts";
 import { cursorPages } from "./paging.ts";
 import { skypeReactions } from "./reactions.ts";
 
@@ -356,7 +356,7 @@ export class SkypeClient {
 	async send(
 		content: string,
 		html: boolean,
-		mentions: readonly ResolvedMention[] = [],
+		mentions: readonly ResolvedPerson[] = [],
 		images: readonly AmsImage[] = [],
 	): Promise<void> {
 		if (images.length > 0 && !html) throw new Error("an image can only be sent as html");

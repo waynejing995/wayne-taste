@@ -1,8 +1,9 @@
 /**
  * `@[Display Name](name@domain)`: a mention in the Markdown an agent sends.
+ * `@[Display Name](app:<app id>)` mentions a Teams app (a bot).
  *
- * The target must be a bare email address, so `[text](url)` stays a link. The
- * Outlook extension parses the same syntax; keep the two in step.
+ * The target must be a bare email address or `app:` and a GUID, so `[text](url)` stays a link.
+ * The syntax lives in core/mention.ts, shared with Outlook.
  *
  * Two steps, because a backend only ever sees HTML:
  *
@@ -10,22 +11,31 @@
  *      a mention is whatever the Markdown parser reads as one: an example in a
  *      code span, a fenced or indented code block, or an escaped `\@[…](…)` is
  *      text and notifies nobody. Each real mention renders as a token.
- *   2. The backend looks each address up in the directory, then fillMentions()
- *      writes that backend's markup over every token. The formats differ (Graph's
+ *   2. The backend looks each person's address up in the directory (an app needs no lookup: it is named by its id),
+ *      then fillMentions() writes that backend's markup over every token. The formats differ (Graph's
  *      <at> and chatsvc's Mention span), so that part lives with each backend.
  */
 import { Marked } from "marked";
 import { mentionExtension, type MentionToken } from "../core/mention.ts";
 
-export interface Mention {
-	/** Shown in the message. Trimmed. */
-	name: string;
-	/** The address the directory is asked about, as written. */
-	email: string;
+/** A person by the address the directory is asked about, as written; or a Teams app by its id. `name` is shown, trimmed. */
+export type Mention = { name: string; email: string } | { name: string; app: string };
+
+/** A person's mention with the directory id behind the address. */
+export type ResolvedPerson = { name: string; email: string; oid: string };
+
+/** A mention ready to post: a person the directory has answered for, or an app as written. */
+export type ResolvedMention = ResolvedPerson | { name: string; app: string };
+
+/** The mention a parsed token names. */
+export function mentionOf(t: MentionToken): Mention {
+	return t.app !== undefined ? { name: t.name, app: t.app } : { name: t.name, email: t.address };
 }
 
-/** A mention whose address the directory has answered for. */
-export type ResolvedMention = Mention & { oid: string };
+/** The mention written back in the syntax it was read from. */
+export function mentionSyntax(m: Mention): string {
+	return `@[${m.name}](${"app" in m ? `app:${m.app}` : m.email})`;
+}
 
 const token = (i: number): string => `ZZTEAMSMENTIONZZ${i}ZZ`;
 const TOKEN_RE = /ZZTEAMSMENTIONZZ(\d+)ZZ/g;
@@ -46,7 +56,7 @@ export function renderWithMentions(markdown: string): { html: string; mentions: 
 		if (t.type !== "mention") return;
 		const m = t as Numbered;
 		m.index = mentions.length;
-		mentions.push({ name: m.name, email: m.address });
+		mentions.push(mentionOf(m));
 	});
 	return { html: md.parser(tokens), mentions };
 }

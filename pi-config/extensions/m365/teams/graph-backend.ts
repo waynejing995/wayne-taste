@@ -25,7 +25,7 @@ import { attachedCardText, CARD_CONTENT_TYPE, isCardType } from "./card.ts";
 import { type ForwardContext, type ForwardNeed, type ForwardRef, forwardedAttachmentIds, forwardNeed, forwardParts, NO_FORWARD_CONTEXT, type Original, originalKey, partImages, partsText, type Part } from "./forward.ts";
 import { escapeHtml, htmlToText } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
-import { fillMentions, type Mention, type ResolvedMention } from "./mentions.ts";
+import { fillMentions, type Mention, type ResolvedMention, type ResolvedPerson } from "./mentions.ts";
 import { cursorPages } from "./paging.ts";
 import { graphReactions } from "./reactions.ts";
 import type { SkypeClient } from "./skype.ts";
@@ -49,13 +49,17 @@ interface RawPreview {
 }
 
 /**
- * The directory id behind each mention: one lookup per distinct address (core/people.ts).
- * An address that is not a colleague refuses the whole message.
+ * The directory id behind each person's mention: one lookup per distinct address (core/people.ts).
+ * An address that is not a colleague refuses the whole message. An app mention is named by its id and passes through.
  */
 export async function resolveMentions(graph: GraphClient, mentions: readonly Mention[]): Promise<ResolvedMention[]> {
 	const oids = new Map<string, string>();
 	const out: ResolvedMention[] = [];
 	for (const m of mentions) {
+		if ("app" in m) {
+			out.push(m);
+			continue;
+		}
 		const key = m.email.toLowerCase();
 		let oid = oids.get(key);
 		if (oid === undefined) {
@@ -858,10 +862,17 @@ export class GraphBackend implements Backend {
 		if (target.kind === "self" && !card && attached.length === 0) {
 			// 48:notes is chatsvc with a Skype token, not Graph. Its mention markup
 			// is chatsvc's own, so the resolved list goes to skype.ts unchanged.
+			// chatsvc names a person by 8:orgid:<oid>; it has no app form here, so an app mention is refused before
+			// anything is uploaded rather than reaching the self-chat as a mention of nobody.
+			const app = resolved.find((m) => "app" in m);
+			if (app)
+				throw new Error(
+					`@[${app.name}](app:…): the text self-chat goes through chatsvc, which cannot @mention an app. Send it as a card (card=true) or to a chat.`,
+				);
 			const skype = this.requireSkype();
 			const uploaded = [];
 			for (const f of pictures) uploaded.push(await skype.uploadImage(f.bytes, f.name));
-			await skype.send(message, html, resolved, uploaded);
+			await skype.send(message, html, resolved as ResolvedPerson[], uploaded);
 			return;
 		}
 
@@ -915,7 +926,17 @@ export class GraphBackend implements Backend {
 		const graphMentions = resolved.map((m, i) => ({
 			id: i,
 			mentionText: m.name,
-			mentioned: { user: { id: m.oid, displayName: m.name, userIdentityType: "aadUser" } },
+			mentioned:
+				"app" in m
+					? {
+							application: {
+								"@odata.type": "#microsoft.graph.teamworkApplicationIdentity",
+								id: m.app,
+								displayName: m.name,
+								applicationIdentityType: "bot",
+							},
+						}
+					: { user: { id: m.oid, displayName: m.name, userIdentityType: "aadUser" } },
 		}));
 		const attachments = [
 			...(card ? [{ id: attachmentId, contentType: CARD_CONTENT_TYPE, content: JSON.stringify(card) }] : []),
