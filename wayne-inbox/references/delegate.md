@@ -38,7 +38,7 @@ Check the assigned skill name on the destination host before launch. The deliver
 When the brief pushes to a public remote, put these in the brief as hard rules, not as after-checks:
 
 - The wayne-ship review gate runs before the push. A skipped gate is remediated without asking again: the original push authorization covers it. Only Wayne can waive it ("不用 review，直接 push" on 2026-11-08); a waiver drops the review, never the scan below.
-- The personal-info/secret scan runs BEFORE the push, unfiltered, over every outgoing commit in `origin/main..HEAD`: each diff and each message. A hit means rewriting the local unpushed history first; never rewrite what is already on origin unless Wayne asks.
+- The personal-info/secret scan runs BEFORE the push, unfiltered, over every outgoing commit to the target remote (e.g., `<public-remote>/<branch>..HEAD`, `origin/main..HEAD` when `origin` is the public repo): each diff and each message. A hit means rewriting the local unpushed history first; never rewrite what is already on the remote unless Wayne asks.
 - Private values go to config outside the repo (systemd drop-ins, `~/.wayne/inbox/rules.yaml`, `~/.wayne/inbox/bin/`), never into code. Missing config fails loudly at startup.
 - History rewrite, only on an explicit ask: mirror backup outside the repo first, `git filter-repo` with an expressions file outside the repo, a full-history audit before and after, `--force-with-lease=main:<full current remote SHA>`, then run every live service that reads the working tree. Report residual exposure: old SHAs reachable by direct link until GitHub GC, forks (`gh api repos/<o>/<r>/forks`), and other clones. Rotate any credential that was ever public.
 
@@ -52,7 +52,7 @@ Every omp launch carries `WAYNE_AGENT_WATCH=<name>` and `WAYNE_AGENT_RESULT=<del
 | --- | --- | --- |
 | tern | `tern new session <name> --cwd <dir> --keep-open -- bash -lc 'ENV omp --goal "$(cat <brief>)"; exec bash'` | the block id it prints |
 | herdr | `herdr pane split --current --direction right --cwd <dir> --no-focus`, then `herdr pane run <pane> "ENV omp --goal \"\$(cat <brief>)\""` | `.result.pane.pane_id`; `herdr agent get` resolves it once omp is detected |
-| tmux | `tmux new-session -d -s <name> -c <dir> "bash -lc 'ENV omp --goal \"\$(cat <brief>)\"; exec bash'"` | `<name>:1.1`; check with `tmux list-panes -t <name>` |
+| tmux | `tmux new-session -d -s <name> -c <dir> "bash -lc 'ENV omp --goal \"\$(cat <brief>)\"; exec bash'"` | `tmux list-panes -t <name> -F '#{pane_id}'` (`%N` id so pane moves follow) |
 
 Never run `tern run BLOCK omp --resume …`: tern parses `--resume` as its own flag. Never run bare `herdr`: it attaches the TUI. If `herdr session list` says `stopped`, use tern or tmux instead of starting a server silently.
 
@@ -67,13 +67,13 @@ After about 25 seconds, confirm the agent is up: tern uses `tern process <pane>`
   --row <live row id> --then "<expected result; how to verify it; whom to reply to, where, with what; what to close>"
 ```
 
-`<name>` equals `WAYNE_AGENT_WATCH`. Register after the agent is up: `agent add` probes the pane, refuses a pane that does not exist or holds only shells, and prints what it attached to (agent pid, omp session id, phase, RESULT file/status/version, how many reporter events that session has). Read that output; it is the proof of registration. On herdr it says `agent process unknown`; the session's first event binds it.
+`<name>` equals `WAYNE_AGENT_WATCH`. Register after the agent is up: `agent add` probes the pane, refuses a pane that does not exist or holds only shells, and prints what it attached to (agent pid, omp session id, phase, RESULT file/status/version, how many reporter events that session has). Read that output; it is the proof of registration. If `agent add` already prints a `RESULT ... version`, that version is the armed `then`'s baseline (it fires only on a newer version), so handle that existing RESULT now. On herdr it says `agent process unknown`; the session's first event binds it.
 
 Write the plan at dispatch. `--row` and `--then` go together; they are optional only when adopting a running session with no plan. The plan becomes a then on that row and fires on the next new RESULT version. `inbox done <row>` refuses until `inbox then-done <row> <n>`. A fired then has one live card, reminded 10 minutes, 1 hour and 4 hours after its last card, then daily. `inbox done` on a then card refuses and names the `then-done` command, which closes the then and archives its card. If no live row exists, create one with `inbox ask "<task>" --key <name>` or claim the row that asked for the work.
 
 The watch lasts as long as the session: closing its thens never removes it. `/inbox watch` tails the reporter's events and the probe checks every watch every 2 minutes. Cards: a new RESULT version (`agent-result`), a turn end with no new RESULT (`agent-no-result`, with what the session last said), an ask (`agent-ask`), the agent process gone (`agent-ended`, with the resume line). A session keeps at most one live card. `omp --resume <session>` in another pane of the same mux keeps the watch; after a move to another mux, run `agent add` on the new pane. Do not run a private polling loop.
 
-A no-result, ask or blocked card means the session stopped without a new RESULT. Read what it last said, then advance it yourself (a decision Wayne already made; a recommended option with no prod write, merge, deploy or spend; a question a tool can answer) or leave it to Wayne. Its row closes only with a verdict: `inbox done <id> --verdict advanced|waiting-user|nothing-pending --note "<what you did / the question / why nothing is owed>"`; `waiting-user` keeps it live as an `ask-wayne` row.
+A no-result, ask or blocked card means the session stopped without a new RESULT (`agent-no-result` / `agent-ask`). Read what it last said, then advance it yourself (a decision Wayne already made; a recommended option with no prod write, merge, deploy or spend; a question a tool can answer) or leave it to Wayne. Its row closes only with a verdict: `inbox done <id> --verdict advanced|waiting-user|nothing-pending --note "<what you did / the question / why nothing is owed>"`; `waiting-user` keeps it live as an `ask-wayne` row. A `RESULT` with `status: blocked` produces an `agent-result` row instead (not handled by `--verdict`); if it waits on Wayne, open an `ask-wayne` row with `inbox ask` before closing the `agent-result` row.
 
 Answer an agent question yourself when a read can settle it, then send the answer into the session. Ask Wayne only for a decision: one concrete Chinese question, with the blocker, why, and 2–3 options. Close a fulfilled then-action with `inbox then-done`.
 
@@ -85,7 +85,7 @@ The watch stays after a done RESULT, so a follow-up round needs no new `agent ad
 
 The RESULT is a claim. Recheck its mtime, reject placeholders (`__[A-Z]`, `JOINT_`, `_LINE`, `TODO`), and recheck its facts at source with `gh pr view` or the named system. A claimed Teams post needs its receipt.
 
-Only after `status: done`, run one retro round in the same session. Send: "Run `wayne-compress` on this job, unattended: candidates only, apply nothing. Write a fresh RESULT.md: `status: done`, `## Retro` with the candidates worst first, each with its session moment and the file it would change, or `none`. The previous RESULT is at RESULT-round<N>.md." Relay the candidates to Wayne as a short Chinese table and ask which to apply. Applying one is a new job. Skip retro for `partial`, `blocked`, and one-shot `task` subagents.
+Only after `status: done` (and not for a `## Retro` result itself), run one retro round in the same session. Send: "Run `wayne-compress` on this job, unattended: candidates only, apply nothing. Write a fresh RESULT.md: `status: done`, `## Retro` with the candidates worst first, each with its session moment and the file it would change, or `none`. The previous RESULT is at RESULT-round<N>.md." Relay the candidates to Wayne as a short Chinese table and ask which to apply. Applying one is a new job. Skip retro for `partial`, `blocked`, and one-shot `task` subagents.
 
 Report one short message in the request channel: session, machine, mux, pane, cwd, ask, limits, deliverable path, and that it is registered. After verification, close the row with `inbox done --note`.
 
