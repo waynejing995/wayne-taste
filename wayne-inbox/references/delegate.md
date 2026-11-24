@@ -69,7 +69,7 @@ After about 25 seconds, confirm the agent is up: tern uses `tern process <pane>`
 
 `<name>` equals `WAYNE_AGENT_WATCH`. Register after the agent is up: `agent add` probes the pane, refuses a pane that does not exist or holds only shells, and prints what it attached to (agent pid, omp session id, phase, RESULT file/status/version, how many reporter events that session has). Read that output; it is the proof of registration. If `agent add` already prints a `RESULT ... version`, that version is the armed `then`'s baseline (it fires only on a newer version), so handle that existing RESULT now. On herdr it says `agent process unknown`; the session's first event binds it.
 
-Write the plan at dispatch. `--row` and `--then` go together; they are optional only when adopting a running session with no plan. The plan becomes a then on that row and fires on the next new RESULT version. `inbox done <row>` refuses until `inbox then-done <row> <n>`. A fired then has one live card, reminded 10 minutes, 1 hour and 4 hours after its last card, then daily. `inbox done` on a then card refuses and names the `then-done` command, which closes the then and archives its card. If no live row exists, create one with `inbox ask "<task>" --key <name>` or claim the row that asked for the work.
+Write the plan at dispatch. `--row` and `--then` go together; they are optional only when adopting a running session with no plan. The plan becomes a then on that row and fires on the next new RESULT version. `inbox done <row>` refuses until `inbox then-done <row> <n>`. A fired then has one live card, reminded 10 minutes, 1 hour and 4 hours after its last card, then daily. `inbox done` on a then card refuses and names the `then-done` command, which closes the then and archives its card. If no live row exists, create one with `inbox ask "<task>" --key <unique-task-key>` (and verify the returned row is live) or claim the row that asked for the work.
 
 The watch lasts as long as the session: closing its thens never removes it. `/inbox watch` tails the reporter's events and the probe checks every watch every 2 minutes. Cards: a new RESULT version (`agent-result`), a turn end with no new RESULT (`agent-no-result`, with what the session last said), an ask (`agent-ask`), the agent process gone (`agent-ended`, with the resume line). A session keeps at most one live card. `omp --resume <session>` in another pane of the same mux keeps the watch; after a move to another mux, run `agent add` on the new pane. Do not run a private polling loop.
 
@@ -79,7 +79,7 @@ Answer an agent question yourself when a read can settle it, then send the answe
 
 ## Follow up and verify
 
-Send a follow-up with `tern send` (paste plus Enter), `herdr agent prompt`, or `tmux load-buffer` and `paste-buffer`. Confirm that the session received it.
+Send a follow-up with `tern send` (paste plus Enter), `herdr agent prompt`, or `tmux load-buffer`, `paste-buffer`, and `send-keys C-m`. Confirm that the session received it and started a new turn.
 
 The watch stays after a done RESULT, so a follow-up round needs no new `agent add`: the next RESULT version (a new content hash of the newest `RESULT*.md` in the run directory) makes one new card. Run `agent add` again only to give the watch a new plan (`--row`/`--then`; it closes the name's previous unfired plan) or to point it at a pane in another mux. Move the verified file to `RESULT-round<N>.md` before the next round.
 
