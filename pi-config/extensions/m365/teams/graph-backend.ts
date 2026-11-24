@@ -859,16 +859,15 @@ export class GraphBackend implements Backend {
 		// know refuses the whole message.
 		const resolved = await resolveMentions(this.graph, mentions);
 
+		// The self-chat has only me: no app is a member, so an app mention there notifies nobody, as text (chatsvc,
+		// which has no app form) or as a card or file post (Graph). Refused before anything is uploaded.
+		const app = target.kind === "self" ? resolved.find((m) => "app" in m) : undefined;
+		if (app)
+			throw new Error(`@[${app.name}](app:…): the self-chat has no apps in it, so nobody would be notified. Mention it in a chat or channel the app is in.`);
+
 		if (target.kind === "self" && !card && attached.length === 0) {
 			// 48:notes is chatsvc with a Skype token, not Graph. Its mention markup
-			// is chatsvc's own, so the resolved list goes to skype.ts unchanged.
-			// chatsvc names a person by 8:orgid:<oid>; it has no app form here, so an app mention is refused before
-			// anything is uploaded rather than reaching the self-chat as a mention of nobody.
-			const app = resolved.find((m) => "app" in m);
-			if (app)
-				throw new Error(
-					`@[${app.name}](app:…): the text self-chat goes through chatsvc, which cannot @mention an app. Mention it in a chat or channel the app is in.`,
-				);
+			// is chatsvc's own, so the resolved list (people only, apps refused above) goes to skype.ts unchanged.
 			const skype = this.requireSkype();
 			const uploaded = [];
 			for (const f of pictures) uploaded.push(await skype.uploadImage(f.bytes, f.name));

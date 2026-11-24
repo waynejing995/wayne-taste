@@ -424,8 +424,8 @@ indented code block, or an escaped `\@[…](…)` is shown as written and notifi
   refused. To find an app id, read a message that mentions the bot straight from
   Graph (`GET /chats/{chat-id}/messages`): it is
   `mentions[].mentioned.application.id`. `teams_read` does not show it, so the
-  agent is told to ask the user rather than guess one. The text self-chat
-  (chatsvc) and Outlook have no app form and refuse it.
+  agent is told to ask the user rather than guess one. The self-chat (no app
+  is in it, whether the send is text, a card or a file) and Outlook refuse it.
 
 ## Dependencies
 

@@ -14,7 +14,7 @@ import type { TokenizerAndRendererExtension, Tokens } from "marked";
  * to `)` after `app:` (checked below, so a mistyped app id is refused rather than sent as a link or text).
  */
 const MENTION =
-	/^@\[\s*([^\]\n]*[^\]\s])\s*\]\(\s*(?:(?:mailto:)?([A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)\s*|[Aa][Pp][Pp]:([^)\n]*))\)/;
+	/^@\[\s*([^\]\n]*[^\]\s])\s*\]\(\s*(?:(?:mailto:)?([A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)\s*|[Aa][Pp][Pp]:([^)]*))\)/;
 const GUID = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
 
 /** A mention token as the parser produced it: a person by address, or an app by its id. */

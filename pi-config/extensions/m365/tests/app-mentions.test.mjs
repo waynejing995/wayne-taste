@@ -132,23 +132,31 @@ await section("an app mention in a code span is an example and notifies nobody",
 await section("an app target that is not an app id is refused, not sent as text", async () => {
 	for (const bad of ["app:not-a-guid", "app:not a guid", `app:${APP.slice(0, -1)}`])
 		check(`@[Captain](${bad}) is refused, naming it`, (await threw(() => renderWithMentions(`@[Captain](${bad}) hi`))).includes(bad), true);
-	// Spaces around the id and the case of `app:` are not typos worth refusing: it is the same app.
+	// Spaces or a line break around the id and the case of `app:` are not typos worth refusing: it is the same app.
 	check("spaces and APP: still name the app", renderWithMentions(`@[Captain](APP: ${APP} ) hi`).mentions, [{ name: "Captain", app: APP }]);
+	check("a line break before ) still names the app", renderWithMentions(`@[Captain](app:${APP}\n) hi`).mentions, [{ name: "Captain", app: APP }]);
 });
 
-await section("the text self-chat (chatsvc) refuses an app mention before anything is sent", async () => {
-	const sent = [];
-	const uploads = [];
-	const skype = { send: async (...a) => sent.push(a), uploadImage: async (...a) => uploads.push(a), selfMessages: async () => [] };
-	const { seen, b } = graphBackend({ skype });
+await section("the self-chat refuses an app mention, as text, card or file, before anything is sent", async () => {
 	const png = join(home, "shot.png");
 	writeFileSync(png, Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));
+	const log = join(home, "run.log");
+	writeFileSync(log, "line 1\n");
 	const { html, mentions } = renderWithMentions(`note @[Captain](app:${APP})`);
-	const msg = await threw(() => b.send({ kind: "self" }, html, true, mentions, [png]));
-	check("refused, saying why", /chatsvc/.test(msg) && /app/.test(msg), true);
-	check("no picture was uploaded", uploads.length, 0);
-	check("chatsvc got nothing", sent.length, 0);
-	check("nothing posted", seen.filter((s) => s.method === "POST").length, 0);
+	const shapes = {
+		"text with a picture (chatsvc)": (b) => b.send({ kind: "self" }, html, true, mentions, [png]),
+		"a card (Graph)": (b) => b.send({ kind: "self" }, html, true, mentions, [], { type: "AdaptiveCard" }),
+		"a file (Graph)": (b) => b.send({ kind: "self" }, html, true, mentions, [], undefined, [log]),
+	};
+	for (const [shape, send] of Object.entries(shapes)) {
+		const sent = [];
+		const uploads = [];
+		const skype = { send: async (...a) => sent.push(a), uploadImage: async (...a) => uploads.push(a), selfMessages: async () => [] };
+		const { seen, b } = graphBackend({ skype });
+		const msg = await threw(() => send(b));
+		check(`${shape}: refused, saying why`, /self-chat has no apps/.test(msg), true);
+		check(`${shape}: nothing uploaded, sent or posted`, [uploads.length, sent.length, seen.filter((s) => s.method !== "GET").length], [0, 0, 0]);
+	}
 });
 
 await section("teams_send: an app mention in a card notifies from the body beside it", async () => {
