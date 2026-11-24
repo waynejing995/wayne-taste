@@ -1,8 +1,8 @@
 /**
  * @mentions of a Teams app (a bot): `@[Display Name](app:<app id>)`. The app has no address, so nothing is asked of
- * the directory; Graph gets `mentioned.application`. People keep their directory lookup and `mentioned.user`. The text
- * self-chat goes through chatsvc, which takes no app mention here, so it refuses. A card's app mentions notify from the
- * message body beside it, as a person's do.
+ * the directory; Graph gets `mentioned.application`. People keep their directory lookup and `mentioned.user`. The
+ * self-chat has no app in it, so every send there (text, card or file, by target self or by its id) refuses one. A
+ * card's app mentions notify from the message body beside it, as a person's do.
  *
  * The Graph backend runs on a recording fetch; the last section loads the extension with fetch and the token stubbed.
  * Synthetic data only.
@@ -135,6 +135,9 @@ await section("an app target that is not an app id is refused, not sent as text"
 	// Spaces or a line break around the id and the case of `app:` are not typos worth refusing: it is the same app.
 	check("spaces and APP: still name the app", renderWithMentions(`@[Captain](APP: ${APP} ) hi`).mentions, [{ name: "Captain", app: APP }]);
 	check("a line break before ) still names the app", renderWithMentions(`@[Captain](app:${APP}\n) hi`).mentions, [{ name: "Captain", app: APP }]);
+	// An unclosed fragment does not run across lines into a later `)`: it stays text, and the message still goes.
+	const prose = renderWithMentions("an unclosed @[Bot](app: example\nsee [runbook](https://example.test) for more");
+	check("an unclosed app fragment stays text", [prose.mentions, prose.html.includes("https://example.test")], [[], true]);
 });
 
 await section("the self-chat refuses an app mention, as text, card or file, before anything is sent", async () => {
@@ -147,6 +150,8 @@ await section("the self-chat refuses an app mention, as text, card or file, befo
 		"text with a picture (chatsvc)": (b) => b.send({ kind: "self" }, html, true, mentions, [png]),
 		"a card (Graph)": (b) => b.send({ kind: "self" }, html, true, mentions, [], { type: "AdaptiveCard" }),
 		"a file (Graph)": (b) => b.send({ kind: "self" }, html, true, mentions, [], undefined, [log]),
+		"text to chat_id 48:notes": (b) => b.send({ kind: "chat", chat: "", id: "48:notes" }, html, true, mentions),
+		"a missing file (refused before it is read)": (b) => b.send({ kind: "self" }, html, true, mentions, [], undefined, [join(home, "missing.log")]),
 	};
 	for (const [shape, send] of Object.entries(shapes)) {
 		const sent = [];

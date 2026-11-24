@@ -10,11 +10,12 @@
 import type { TokenizerAndRendererExtension, Tokens } from "marked";
 
 /**
- * At the start of the source: $1 the name (trimmed by the pattern itself), then $2 the address, or $3 everything up
- * to `)` after `app:` (checked below, so a mistyped app id is refused rather than sent as a link or text).
+ * At the start of the source: $1 the name (trimmed by the pattern itself), then $2 the address, or $3 what follows
+ * `app:` on its line (checked below, so a mistyped app id is refused rather than sent as a link or text). Whitespace,
+ * a line break included, may surround the app id; the id itself never runs across lines into the prose after it.
  */
 const MENTION =
-	/^@\[\s*([^\]\n]*[^\]\s])\s*\]\(\s*(?:(?:mailto:)?([A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)\s*|[Aa][Pp][Pp]:([^)]*))\)/;
+	/^@\[\s*([^\]\n]*[^\]\s])\s*\]\(\s*(?:(?:mailto:)?([A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)\s*|[Aa][Pp][Pp]:\s*([^)\n]*?)\s*)\)/;
 const GUID = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
 
 /** A mention token as the parser produced it: a person by address, or an app by its id. */

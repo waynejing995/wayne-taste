@@ -31,6 +31,8 @@ import { graphReactions } from "./reactions.ts";
 import type { SkypeClient } from "./skype.ts";
 import { fetchMeetingTranscript, type MeetingTranscriptResult } from "./transcript.ts";
 
+/** The self-chat's conversation id, on Graph and on chatsvc alike. */
+const SELF_CHAT_ID = "48:notes";
 const IMAGE_DOWNLOAD_MAX = 20 * 1024 * 1024;
 const IMAGE_TIMEOUT_MS = 30_000;
 /** Raw shapes, only the fields used here. */
@@ -837,6 +839,12 @@ export class GraphBackend implements Backend {
 		if (mentions.length > 0 && !html) throw new Error("an @mention can only be sent as html");
 		if (images.length > 0 && !html) throw new Error("an image can only be sent as html");
 		if (files.length > 0 && !html) throw new Error("a file can only be sent as html");
+		// The self-chat has only me: no app is a member, so an app mention there notifies nobody, as text (chatsvc,
+		// which has no app form) or as a card or file post (Graph). It is reached as target self or by its id.
+		// Refused before any file is read or anything is looked up or uploaded.
+		const app = mentions.find((m) => "app" in m);
+		if (app && (target.kind === "self" || (target.kind === "chat" && target.id === SELF_CHAT_ID)))
+			throw new Error(`@[${app.name}](app:…): the self-chat has no apps in it, so nobody would be notified. Mention it in a chat or channel the app is in.`);
 		// Read before anything is uploaded or posted: one bad file refuses the whole message. Pictures must be
 		// PNG/JPEG/GIF; files can be anything regular (readLocal).
 		const imageBudget = { left: IMAGE_MAX_BYTES, max: IMAGE_MAX_BYTES, what: "images" };
@@ -859,12 +867,6 @@ export class GraphBackend implements Backend {
 		// know refuses the whole message.
 		const resolved = await resolveMentions(this.graph, mentions);
 
-		// The self-chat has only me: no app is a member, so an app mention there notifies nobody, as text (chatsvc,
-		// which has no app form) or as a card or file post (Graph). Refused before anything is uploaded.
-		const app = target.kind === "self" ? resolved.find((m) => "app" in m) : undefined;
-		if (app)
-			throw new Error(`@[${app.name}](app:…): the self-chat has no apps in it, so nobody would be notified. Mention it in a chat or channel the app is in.`);
-
 		if (target.kind === "self" && !card && attached.length === 0) {
 			// 48:notes is chatsvc with a Skype token, not Graph. Its mention markup
 			// is chatsvc's own, so the resolved list (people only, apps refused above) goes to skype.ts unchanged.
@@ -880,7 +882,7 @@ export class GraphBackend implements Backend {
 		let post: string;
 		let upload: (name: string, bytes: Uint8Array) => Promise<SharedFile>;
 		if (target.kind !== "channel") {
-			const id = target.kind === "self" ? "48:notes" : target.id || findChat(await this.allChats(), target.chat).id;
+			const id = target.kind === "self" ? SELF_CHAT_ID : target.id || findChat(await this.allChats(), target.chat).id;
 			post = `/chats/${id}/messages`;
 			// A chat's files are the sender's: OneDrive's "Microsoft Teams Chat Files", the folder Teams itself uses,
 			// opened to exactly the chat's members. The self-chat has only me, and I own the file.
