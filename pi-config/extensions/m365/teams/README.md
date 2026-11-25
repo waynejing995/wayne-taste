@@ -325,8 +325,9 @@ notes are prompts, not cards, and stay instructions exactly as written.
   rest of it is sent to the agent as a prompt (steering the turn when it is busy),
   not as a card, headed by `[Teams self-chat instruction]` so the agent knows
   where it came from. The self-chat gets an `ACK` listing the instructions at
-  once, and when the turn ends, the agent's last answer is posted back
-  (`selfReply`), both footed so the watch skips them.
+  once, and when the turn ends, the agent's last answer is posted back as a
+  card (`selfReply`; skipped when the agent already answered there with
+  `teams_send`), both footed so the watch skips them.
 - **Your commands in other chats.** In any other watched chat, your own message
   starting with `omp:` or `pi:` is your instruction too: it reaches the agent as
   a prompt headed `[Teams instruction from the user in "<chat>"  chat_id: …]`
@@ -356,17 +357,16 @@ separate containers do not see each other's watches.
 
 ## Cards
 
-On the graph backend, `teams_send` to a chat or channel posts an Adaptive Card
-instead of a text message, so readers see at once that an agent wrote it. The
-self-chat stays text unless a card field below is given or `card: true`;
-`card: false` forces text anywhere. The script backend sends text and refuses
-`card: true`.
+On the graph backend, `teams_send` posts an Adaptive Card instead of a text
+message, in a chat, a channel and the self-chat alike, so readers see at once
+that an agent wrote it. `card: false` forces text anywhere. The script backend
+sends text and refuses `card: true`.
 
 When to use one: automation output, status updates and questions that ask for a
-decision go out as a card (in the self-chat too, by giving `title` or another
-card field). Ordinary Q&A replies may be either: in a chat they are a card by
-default, and `card: false` sends plain text. The tool description gives the
-model the same rule, so the default and the guidance agree.
+decision go out as a card (give `title` and the fields that fit). Ordinary Q&A
+replies may be either: they are a card by default, and `card: false` sends
+plain text. The tool description gives the model the same rule, so the default
+and the guidance agree.
 
 | Parameter | In the card |
 |---|---|

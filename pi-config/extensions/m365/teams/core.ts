@@ -23,7 +23,7 @@ import { formatLocal } from "../core/time.ts";
 import { activeSince, throttledRetry } from "./active-since.ts";
 import type { Backend, SelfMessage, UnreadItem } from "./backend.ts";
 import { ScriptBackend } from "./backend.ts";
-import { AGENT_STATUSES, agentFooterText, buildCard, cardMentions, isAgentSend } from "./card.ts";
+import { AGENT_STATUSES, agentFooterText, buildCard, type CardSpec, cardMentions, isAgentSend } from "./card.ts";
 import { findChat, GraphBackend } from "./graph-backend.ts";
 import { escapeHtml } from "./html.ts";
 import { type Mention, mentionSyntax, renderWithMentions } from "./mentions.ts";
@@ -258,6 +258,7 @@ export function createTeams(pi: TeamsHost) {
 	let selfReplyPending = false; // an omp:/pi: self-chat command awaits its answer being posted back
 	let replyDue = false; // the turn that command started has ended: its answer is ready to post
 	let lastAssistantText = "";
+	let selfSentThisTurn = false; // teams_send already posted to the self-chat since the command arrived: no auto reply
 
 	/**
 	 * The chats this session watches, by chat id, each with the lease that keeps other sessions off it. See watch.ts.
@@ -531,6 +532,22 @@ export function createTeams(pi: TeamsHost) {
 		return `Sent ${card ? "a card " : ""}to ${describeTarget(target)}.${uploaded}`;
 	}
 
+	/**
+	 * Send `spec` as an Adaptive Card. A card cannot notify: its mentions show as bold names, and go into the message
+	 * body beside it as real ones.
+	 */
+	async function sendCard(
+		target: SendTarget,
+		spec: Omit<CardSpec, "text"> & { message: string },
+		images: string[] = [],
+		files: string[] = [],
+	): Promise<string> {
+		const { text, mentions: inCard } = cardMentions(spec.message);
+		const card = buildCard({ ...spec, text });
+		const { html: notify, mentions } = renderWithMentions(inCard.map(mentionSyntax).join(" "));
+		return send(target, mentions.length > 0 ? notify : "", true, mentions, images, card, files);
+	}
+
 	// ── Markdown → Teams HTML ───────────────────────────────────────────────
 
 	const MAX_REPLY_CHARS = 3500;
@@ -735,6 +752,7 @@ export function createTeams(pi: TeamsHost) {
 		selfReplyPending = false;
 		replyDue = false;
 		lastAssistantText = "";
+		selfSentThisTurn = false;
 	}
 
 	/** Stop a watch named by chat id or label: the user names chats, the agent passes ids. */
@@ -825,6 +843,7 @@ export function createTeams(pi: TeamsHost) {
 		// The user sent it from another device: the answer goes back to the self-chat, or they never see it.
 		selfReplyPending = true;
 		lastAssistantText = "";
+		selfSentThisTurn = false;
 		// The user is not at the terminal: say at once that the instruction reached the agent.
 		void ackToSelf(ctx, fromSelf);
 	}
@@ -1035,7 +1054,7 @@ export function createTeams(pi: TeamsHost) {
 			"files folder; in the self-chat it stays private. A chat or self-chat file send is refused, with nothing " +
 			"uploaded, while that OneDrive folder is shared with anyone else (the error names each share). " +
 			"Only paths in `files` are read. " +
-			"Card: a chat or channel send goes out as an Adaptive Card with an agent badge: `title` on top, " +
+			"Card: a send goes out as an Adaptive Card with an agent badge: `title` on top, " +
 			"`message` as its text, and any of `facts` (status rows; a row's `detail` opens under it on a tap), `decision` (a question with its context and " +
 			"numbered options, each with its consequence, one marked recommended with the reason), `links` (buttons), " +
 			"`details` (collapsed). A card carries the real content, not a one-line summary: the whole message in " +
@@ -1043,9 +1062,8 @@ export function createTeams(pi: TeamsHost) {
 			"long parts (cause, evidence, logs, next steps) in `details` so the top stays short. " +
 			"When to use a card: automation output, status updates and questions asking for a decision -> a card " +
 			"(give `title` and the fields that fit; use `decision` whenever you ask people to choose). Ordinary Q&A " +
-			"replies -> either: in a chat or channel leave the default card or pass card=false for plain text. " +
-			"Defaults: a chat or channel send is a card; a self send is plain text unless a card field is given or " +
-			"card=true; card=false forces text anywhere. Cards render bold, italic, links and lists, not " +
+			"replies -> either: leave the default card or pass card=false for plain text. " +
+			"Defaults: every send, self-chat included, is a card; card=false forces text anywhere. Cards render bold, italic, links and lists, not " +
 			"headings, tables or code blocks; send those with card=false. @mentions in a card's text still notify.",
 		parameters: Type.Object({
 			target: StringEnum(["self", "chat", "channel"], { description: "Where to send" }),
@@ -1079,7 +1097,7 @@ export function createTeams(pi: TeamsHost) {
 				}),
 			),
 			card: Type.Optional(
-				Type.Boolean({ description: "Card or plain text. Default: card for chat/channel, text for self (see the tool description)." }),
+				Type.Boolean({ description: "Card or plain text. Default: card (see the tool description); card=false for plain text." }),
 			),
 			title: Type.Optional(Type.String({ description: "Card title: a few words." })),
 			facts: Type.Optional(
@@ -1161,22 +1179,18 @@ export function createTeams(pi: TeamsHost) {
 				// emoji looked to it like something that needed no formatting.
 				// Rendered with the mention extension, so only what the Markdown reads as a
 				// mention notifies anyone: an example in code or an escaped one does not.
-				// A card field asks for a card anywhere. A plain chat send is a card only where one can be posted: the
+				// A card field asks for a card anywhere. A plain send is a card only where one can be posted: the
 				// script backend sends it as text, and refuses a card it was asked for.
 				const cardFields = ["title", "facts", "decision", "links", "details", "agents"] as const;
-				const asCard =
-					params.card ?? (cardFields.some((k) => params[k] !== undefined) || (params.target !== "self" && cfg.backend !== "script"));
-				if (!asCard) {
+				const asCard = params.card ?? (cardFields.some((k) => params[k] !== undefined) || cfg.backend !== "script");
+				let msg: string;
+				if (asCard) msg = await sendCard(target, params, images, files);
+				else {
 					const { html: payload, mentions } = renderWithMentions(message + agentFooter());
-					const msg = await send(target, payload, true, mentions, images, undefined, files);
-					flash(ctx, "sent ✓");
-					return { content: [{ type: "text", text: msg }], details: {} };
+					msg = await send(target, payload, true, mentions, images, undefined, files);
 				}
-				// A card cannot notify: its mentions show as bold names, and go into the message body beside it as real ones.
-				const { text, mentions: inCard } = cardMentions(message);
-				const card = buildCard({ ...params, text });
-				const { html: notify, mentions } = renderWithMentions(inCard.map(mentionSyntax).join(" "));
-				const msg = await send(target, mentions.length > 0 ? notify : "", true, mentions, images, card, files);
+				// The agent answered in the self-chat itself: the automatic reply would post the same answer twice.
+				if (target.kind === "self") selfSentThisTurn = true;
 				flash(ctx, "sent ✓");
 				return { content: [{ type: "text", text: msg }], details: {} };
 			} catch (e) {
@@ -1593,17 +1607,24 @@ export function createTeams(pi: TeamsHost) {
 	});
 
 	/**
-	 * Post the agent's last answer to the self-chat, once the work a self-chat command started is done.
-	 * The footer marks it as the agent's, so the self-chat watch skips it instead of reading it as a new note.
+	 * Post the agent's last answer to the self-chat, once the work a self-chat command started is done: a card titled
+	 * with the working folder, as teams_send renders one (text where the script backend cannot post cards). Skipped when
+	 * the agent already answered there with teams_send. The footer marks it as the agent's, so the self-chat watch skips
+	 * it instead of reading it as a new note.
 	 */
 	async function replyToSelf(ctx: TeamsContext): Promise<void> {
 		if (!selfReplyPending || !replyDue || !ctx.isIdle()) return;
 		selfReplyPending = false;
 		replyDue = false;
-		if (!cfg.selfReply || !lastAssistantText.trim()) return;
+		const alreadySent = selfSentThisTurn;
+		selfSentThisTurn = false;
+		if (!cfg.selfReply || alreadySent || !lastAssistantText.trim()) return;
 		try {
-			const html = `<b>🤖 pi · ${escapeHtml(path.basename(ctx.cwd))}</b><br><br>${mdToHtml(truncate(lastAssistantText.trim()) + agentFooter())}`;
-			await send({ kind: "self" }, html, true);
+			const answer = truncate(lastAssistantText.trim());
+			const folder = path.basename(ctx.cwd);
+			if (cfg.backend === "script")
+				await send({ kind: "self" }, `<b>🤖 pi · ${escapeHtml(folder)}</b><br><br>${mdToHtml(answer + agentFooter())}`, true);
+			else await sendCard({ kind: "self" }, { title: folder, message: answer });
 			flash(ctx, "replied ✓");
 		} catch (e) {
 			ctx.ui.notify(`Teams self-chat reply failed: ${e}`, "error");
