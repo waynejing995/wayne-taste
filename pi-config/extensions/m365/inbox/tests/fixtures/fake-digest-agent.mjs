@@ -68,6 +68,7 @@ if (since) {
 	} else if (mode !== "lie") call("teams_read", { chat_id: "19:ops@thread.v2", ...window, images: false }, "[11-10 11:00] lin: build server is build.example.com");
 	call("teams_read", { chat_id: "19:lin@unq.gbl.spaces", ...window, images: false }, "(no messages)");
 	const args = ["fact", "--kind", "endpoint", "--key", "build-server", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "The build server is build.example.com."];
+	const native = { text: "The build server is build.example.com.", key: "build-server", kind: "endpoint", source: "teams-digest", note: "Ops, lin, 11-10 11:00" };
 	const quote = (list) => `inbox ${list.map((a) => (/^[\w.,:-]+$/.test(a) ? a : `'${a}'`)).join(" ")}`;
 	const write = (list, command = quote(list)) => {
 		try {
@@ -78,13 +79,28 @@ if (since) {
 			return false;
 		}
 	};
+	const writeNative = (params = native) => {
+		const list = ["fact", "--kind", params.kind, "--key", params.key, "--source", params.source, "--note", params.note, "--", params.text];
+		try {
+			call("inbox_fact", params, execFileSync("inbox", list, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+			return true;
+		} catch (e) {
+			call("inbox_fact", params, String(e.stderr || e.message), true);
+			return false;
+		}
+	};
+	const useNative = prompt.includes("`inbox_fact`") && !prompt.includes("`inbox fact");
+	const recordDefault = () => (useNative ? writeNative() : write(args));
 	if (mode === "factfail" || mode === "factretry") {
-		const bad = [...args];
-		bad[2] = "bogus";
-		if (!write(bad) && mode === "factfail") failed.push({ chat: "Ops", reason: "inbox fact failed" });
+		if (useNative) {
+			if (!writeNative({ ...native, kind: "bogus" }) && mode === "factfail") failed.push({ chat: "Ops", reason: "inbox_fact failed" });
+		} else {
+			const bad = [...args];
+			bad[2] = "bogus";
+			if (!write(bad) && mode === "factfail") failed.push({ chat: "Ops", reason: "inbox fact failed" });
+		}
 	}
 	// Native inbox tools (inbox_fact etc., the m365 omp tools): a failed one that the receipt does not report.
-	const native = { text: "The build server is build.example.com.", key: "build-server", kind: "endpoint", source: "teams-digest", note: "Ops, lin, 11-10 11:00" };
 	// The fail modes use their own key: the run's ordinary bash fact (build-server) is not a retry of them.
 	if (mode === "nativefail") call("inbox_fact", { ...native, key: "build-owner", kind: "bogus" }, "Error: --kind must be one of endpoint, cred, decision, owed, info", true);
 	if (mode === "nativeretry" || mode === "nativebash") call("inbox_fact", { ...native, kind: "bogus" }, "Error: --kind must be one of endpoint, cred, decision, owed, info", true);
@@ -96,6 +112,19 @@ if (since) {
 		execFileSync("inbox", args, { stdio: "ignore" });
 		call("bash", { command: `${quote(args)}; inbox ask --key q1 --note 'Ops, lin, 11-10 11:00' -- 'Who owns it?'` }, "added endpoint:build-server\nnotify 9 ask-wayne");
 		findings++;
+	} else if (mode === "mixedretry") {
+		call("bash", { command: `${quote(args)} && inbox ask --key q1 --source teams-digest --note 'Ops, lin, 11-10 11:00' -- 'Who owns it?'` }, "added endpoint:build-server\nnotify 9 ask-wayne");
+		if (write(args)) findings++;
+		if (write(["ask", "--key", "q1", "--source", "teams-digest", "--note", "Ops, lin, 11-10 11:00", "--", "Who owns it?"])) findings++;
+	} else if (mode === "mixedpartial") {
+		call("bash", { command: `${quote(args)} && inbox ask --key q1 --source teams-digest --note 'Ops, lin, 11-10 11:00' -- 'Who owns it?'` }, "added endpoint:build-server\nnotify 9 ask-wayne");
+		if (write(args)) findings++;
+	} else if (mode === "mixedsubst") {
+		call("bash", { command: `${quote(args)} && inbox ask --key $(echo q1) --source teams-digest --note 'Ops, lin, 11-10 11:00' -- 'Who owns it?'` }, "added endpoint:build-server\nnotify 9 ask-wayne");
+		if (write(args)) findings++;
+	} else if (mode === "mixedwrapper") {
+		call("bash", { command: `${quote(args)} && bash -c "inbox ask --key q1 --source teams-digest --note 'Ops, lin, 11-10 11:00' -- 'Who owns it?'"` }, "added endpoint:build-server\nnotify 9 ask-wayne");
+		if (write(args)) findings++;
 	} else if (mode === "quotedmulti") {
 		// The fact fails (bad kind), the quoted ask after it succeeds, so the call as a whole exits 0.
 		execFileSync("inbox", ["ask", "--key", "q1", "--note", "Ops, lin, 11-10 11:00", "--", "Who owns it?"], { stdio: "ignore" });
@@ -120,11 +149,11 @@ if (since) {
 	} else if (mode === "helpmixed") {
 		// Real agent, Gate 0 r9: a read-only call that greps facts.md and pipes the usage.
 		call("bash", { command: "grep -oE '\\[[a-z0-9-]+\\]' facts.md | sort -u | head -150; inbox fact --help 2>&1 | head -30" }, "Usage: inbox fact TEXT [OPTIONS]");
-		if (write(args)) findings++;
+		if (recordDefault()) findings++;
 	} else if (mode === "whichinbox") {
 		// Real agent, Gate 0 r10: a read-only call that greps facts.md and asks where inbox is.
 		call("bash", { command: "grep -E '^## \\[' facts.md | grep -iE 'fact|m365|inbox|session|agent|mcp|teams'; which inbox" }, "## [cred:trace-artifact-token]\n/usr/local/bin/inbox");
-		if (write(args)) findings++;
+		if (recordDefault()) findings++;
 	} else if (mode === "pathhelp") {
 		// r10 V1 12: a write by path rides along with a help call; it is still a write.
 		call("bash", { command: "~/bin/inbox fact --kind bogus --key build-server --note 'Ops, lin, 11-10 11:00' -- 'The build server is build.example.com.'; inbox ask --help" }, "--kind must be one of endpoint, cred, decision, owed, info\nUsage: inbox ask TEXT [OPTIONS]");
@@ -134,12 +163,12 @@ if (since) {
 	} else if (mode === "helpfirst") {
 		// Reading the usage writes nothing, whatever joins the help calls.
 		call("bash", { command: "inbox fact --help; inbox ask --help" }, "Usage: inbox fact TEXT [OPTIONS]\nUsage: inbox ask TEXT [OPTIONS]");
-		if (write(args)) findings++;
+		if (recordDefault()) findings++;
 	} else if (mode === "quoteretry") {
 		// A stray quote: bash refuses the line and runs nothing; the corrected retry writes the same fact.
 		call("bash", { command: "inbox fact --kind endpoint --key build-server --source teams-digest --note 'Ops, lin, 11-10 11:00' -- 'Lin's build server is build.example.com; ask Ops (or Lin) for access.'" }, "bash: -c: line 1: unexpected EOF while looking for matching `''", true);
-		if (write(args)) findings++;
-	} else if (mode !== "factfail" && write(args)) findings++;
+		if (recordDefault()) findings++;
+	} else if (mode !== "factfail" && recordDefault()) findings++;
 }
 const example = /for example (\{.*\})/.exec(prompt)?.[1];
 let last;

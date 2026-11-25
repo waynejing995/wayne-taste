@@ -201,7 +201,7 @@ await check("a digest read whose middle omp elided passes once the agent reads t
 	}
 });
 
-for (const mode of ["listelided", "factretry", "quoteretry", "helpfirst", "helpmixed", "whichinbox", "factshelp", "rawafter", "wholeread", "nativeretry", "nativebash"])
+for (const mode of ["listelided", "factretry", "quoteretry", "mixedretry", "helpfirst", "helpmixed", "whichinbox", "factshelp", "rawafter", "wholeread", "nativeretry", "nativebash"])
 	await check(`a digest run in mode ${mode} is complete and moves the boundary`, async () => {
 		try {
 			digestJob("2026-11-10 12:00", {}, mode);
@@ -225,6 +225,9 @@ for (const [mode, chat, reason] of [
 	["shortread", "self-chat", /lines 41-960 .*elided/],
 	["wholeshort", "self-chat", /lines 501-960 .*elided|lines 41-960 .*elided/],
 	["multiwrite", "Ops", /one plain `inbox ask\|fact` per bash call/],
+	["mixedpartial", "Ops", /one plain `inbox ask\|fact` per bash call/],
+	["mixedsubst", "Ops", /one plain `inbox ask\|fact` per bash call/],
+	["mixedwrapper", "Ops", /one plain `inbox ask\|fact` per bash call/],
 	["quotedmulti", "Ops", /one plain `inbox ask\|fact` per bash call/],
 	["quotedboth", "Ops", /one plain `inbox ask\|fact` per bash call/],
 	["pathhelp", "Ops", /one plain `inbox ask\|fact` per bash call/],
@@ -247,6 +250,84 @@ for (const [mode, chat, reason] of [
 			restoreAgent();
 		}
 	});
+
+await check("a chained bash write across two chats fails both chats before recovery and succeeds once retried via native inbox_fact", async () => {
+	try {
+		const { checkDigest } = await jiti.import("../cli/digest.ts");
+		const since = "2024-01-02 09:00";
+		const until = "2024-01-02 13:00";
+		const base = [
+			{ type: "tool_execution_start", toolCallId: "c1", toolName: "teams_chats", args: { active_since: since } },
+			{ type: "tool_execution_end", toolCallId: "c1", toolName: "teams_chats", result: { content: [{ type: "text", text: "2 chat(s)\n- Ops weekly  [group]  id: 19:ops@thread.v2\n- Infra review  [group]  id: 19:infra@thread.v2" }] } },
+			{ type: "tool_execution_start", toolCallId: "c2", toolName: "teams_read", args: { target: "self", since, until, images: false } },
+			{ type: "tool_execution_end", toolCallId: "c2", toolName: "teams_read", result: { content: [{ type: "text", text: "(no messages)" }] } },
+			{ type: "tool_execution_start", toolCallId: "c3", toolName: "teams_read", args: { chat_id: "19:ops@thread.v2", since, until, images: false } },
+			{ type: "tool_execution_end", toolCallId: "c3", toolName: "teams_read", result: { content: [{ type: "text", text: "[01-02 10:00] Lin, Ops: Sample report ready" }] } },
+			{ type: "tool_execution_start", toolCallId: "c4", toolName: "teams_read", args: { chat_id: "19:infra@thread.v2", since, until, images: false } },
+			{ type: "tool_execution_end", toolCallId: "c4", toolName: "teams_read", result: { content: [{ type: "text", text: "[01-02 10:30] Park, QA: Meeting postponed" }] } },
+			{ type: "tool_execution_start", toolCallId: "c5", toolName: "bash", args: { command: "inbox fact --kind info --key sample-report --source teams-digest --note 'Ops weekly, Lin, Ops, 01-02 10:00' -- 'Sample report ready' && inbox fact --kind decision --key sample-report --source teams-digest --note 'Ops weekly, Kim, Dev, 01-02 11:00' -- 'Review planned' && inbox fact --kind info --key sample-meeting --source teams-digest --note 'Infra review, Park, QA, 01-02 10:30' -- 'Meeting postponed'" } },
+			{ type: "tool_execution_end", toolCallId: "c5", toolName: "bash", result: { content: [{ type: "text", text: "unchanged info:sample-report\nunchanged decision:sample-report\nunchanged info:sample-meeting" }] } },
+		];
+		const receipt = { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: 'teams digest: 3 findings\n{"complete":true,"chats":3,"findings":3,"failed":[]}' }] } };
+		const unrecovered = checkDigest([...base, receipt].map((e) => JSON.stringify(e)).join("\n"), since, until);
+		deepStrictEqual(unrecovered.failed.map((f) => f.chat), ["Ops weekly", "Infra review"]);
+		const retried = checkDigest(
+			[
+				...base,
+				{ type: "tool_execution_start", toolCallId: "c6", toolName: "inbox_fact", args: { kind: "info", key: "sample-report", source: "teams-digest", note: "Ops weekly, Lin, Ops, 01-02 10:00", text: "Sample report ready" } },
+				{ type: "tool_execution_end", toolCallId: "c6", toolName: "inbox_fact", result: { content: [{ type: "text", text: "unchanged info:sample-report" }] } },
+				{ type: "tool_execution_start", toolCallId: "c7", toolName: "inbox_fact", args: { kind: "decision", key: "sample-report", source: "teams-digest", note: "Ops weekly, Kim, Dev, 01-02 11:00", text: "Review planned" } },
+				{ type: "tool_execution_end", toolCallId: "c7", toolName: "inbox_fact", result: { content: [{ type: "text", text: "unchanged decision:sample-report" }] } },
+				{ type: "tool_execution_start", toolCallId: "c8", toolName: "inbox_fact", args: { kind: "info", key: "sample-meeting", source: "teams-digest", note: "Infra review, Park, QA, 01-02 10:30", text: "Meeting postponed" } },
+				{ type: "tool_execution_end", toolCallId: "c8", toolName: "inbox_fact", result: { content: [{ type: "text", text: "unchanged info:sample-meeting" }] } },
+				receipt,
+			].map((e) => JSON.stringify(e)).join("\n"),
+			since,
+			until,
+		);
+		deepStrictEqual(retried.failed, []);
+	} finally {
+		restoreAgent();
+	}
+});
+
+await check("a mixed call with an opaque write or substitution still fails even if the visible write is retried", async () => {
+	try {
+		const { checkDigest } = await jiti.import("../cli/digest.ts");
+		const since = "2024-01-02 09:00";
+		const until = "2024-01-02 13:00";
+		const base = [
+			{ type: "tool_execution_start", toolCallId: "c1", toolName: "teams_chats", args: { active_since: since } },
+			{ type: "tool_execution_end", toolCallId: "c1", toolName: "teams_chats", result: { content: [{ type: "text", text: "1 chat(s)\n- Ops weekly  [group]  id: 19:ops@thread.v2" }] } },
+			{ type: "tool_execution_start", toolCallId: "c2", toolName: "teams_read", args: { target: "self", since, until, images: false } },
+			{ type: "tool_execution_end", toolCallId: "c2", toolName: "teams_read", result: { content: [{ type: "text", text: "(no messages)" }] } },
+			{ type: "tool_execution_start", toolCallId: "c3", toolName: "teams_read", args: { chat_id: "19:ops@thread.v2", since, until, images: false } },
+			{ type: "tool_execution_end", toolCallId: "c3", toolName: "teams_read", result: { content: [{ type: "text", text: "[01-02 10:00] Lin, Ops: Sample report ready" }] } },
+		];
+		const receipt = { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: 'teams digest: 1 findings\n{"complete":true,"chats":2,"findings":1,"failed":[]}' }] } };
+		for (const cmd of [
+			"inbox fact --kind info --key sample-report --source teams-digest --note 'Ops weekly, Lin, Ops, 01-02 10:00' -- 'Sample report ready' && inbox fact --kind decision --key $(echo sample-decision) --source teams-digest --note 'Ops weekly, Kim, Dev, 01-02 11:00' -- 'Review planned'",
+			"inbox fact --kind info --key sample-report --source teams-digest --note 'Ops weekly, Lin, Ops, 01-02 10:00' -- 'Sample report ready' && bash -c \"inbox ask --key sample-question --source teams-digest --note 'Ops weekly, Kim, Dev, 01-02 11:00' -- 'Sample question'\"",
+			"inbox fact --kind info --key sample-report --source teams-digest --note 'Ops weekly, Lin, Ops, 01-02 10:00' -- $(printf 'Sample report ready')",
+		]) {
+			const out = checkDigest(
+				[
+					...base,
+					{ type: "tool_execution_start", toolCallId: "c4", toolName: "bash", args: { command: cmd } },
+					{ type: "tool_execution_end", toolCallId: "c4", toolName: "bash", result: { content: [{ type: "text", text: "ok" }] } },
+					{ type: "tool_execution_start", toolCallId: "c5", toolName: "inbox_fact", args: { kind: "info", key: "sample-report", source: "teams-digest", note: "Ops weekly, Lin, Ops, 01-02 10:00", text: "Sample report ready" } },
+					{ type: "tool_execution_end", toolCallId: "c5", toolName: "inbox_fact", result: { content: [{ type: "text", text: "unchanged info:sample-report" }] } },
+					receipt,
+				].map((e) => JSON.stringify(e)).join("\n"),
+				since,
+				until,
+			);
+			deepStrictEqual(out.failed.map((f) => f.chat), ["Ops weekly"], cmd);
+		}
+	} finally {
+		restoreAgent();
+	}
+});
 
 await check("a digest prompt without {{receipt}} fails and names the gap", async () => {
 	try {

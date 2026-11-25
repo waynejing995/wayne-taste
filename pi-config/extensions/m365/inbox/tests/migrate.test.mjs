@@ -86,6 +86,25 @@ await check("a receipt prompt from before the digest kind becomes a digest job w
 	if (out !== "migrated teams-digest" || job.action.kind !== "digest" || job.backfill_since !== undefined) throw new Error(`output ${JSON.stringify(out)} kind ${job.action.kind} backfill ${job.backfill_since}`);
 	if ((await run("rules-migrate")) !== "rules.yaml already current") throw new Error("second run migrated again");
 });
+await check("a pre-native digest job with bash tools migrates to native inbox tools", async () => {
+	const file = join(home, "rules.yaml");
+	const oldDigest = YAML.stringify({
+		schedule: [{
+			name: "teams-digest",
+			action: { kind: "digest", text: "Record with `inbox fact`.\n{{receipt}}" },
+			enabled: true,
+			tools: ["read", "bash", "teams_read", "teams_chats"],
+		}],
+	});
+	writeFileSync(file, oldDigest);
+	const out = await run("rules-migrate");
+	const job = YAML.parse(readFileSync(file, "utf8"), { version: "1.1" }).schedule.find((item) => item.name === "teams-digest");
+	if (out !== "migrated teams-digest" || JSON.stringify(job.tools) !== JSON.stringify(templateJob.tools) || job.action.text !== templateJob.action.text) {
+		throw new Error(`output ${JSON.stringify(out)} tools ${JSON.stringify(job.tools)}`);
+	}
+	if ((await run("rules-migrate")) !== "rules.yaml already current") throw new Error("second run migrated again");
+});
+
 
 await check("running migrate-rules.ts directly never claims a migration it did not write", () => {
 	const file = join(home, "rules.yaml");

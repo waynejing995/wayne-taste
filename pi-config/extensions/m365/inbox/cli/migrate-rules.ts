@@ -38,7 +38,8 @@ export function migrateRules(now = new Date()): string {
 		const fresh = templateDigest();
 		const text = job?.action.kind === "prompt" || job?.action.kind === "digest" ? job.action.text : "";
 		const freshText = fresh.action.kind === "digest" ? fresh.action.text : "";
-		if (!job || freshText === "" || job.action.kind === "digest") return "rules.yaml already current";
+		const sameTools = JSON.stringify(job?.tools ?? []) === JSON.stringify(fresh.tools ?? []);
+		if (!job || freshText === "" || (job.action.kind === "digest" && text === freshText && sameTools)) return "rules.yaml already current";
 		job.action = fresh.action;
 		job.tools = fresh.tools;
 		const stamped = job as Job & { backfill_since?: string };
