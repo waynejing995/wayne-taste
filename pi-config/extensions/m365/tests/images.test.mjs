@@ -10,7 +10,7 @@
  *
  * Synthetic data only.
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { realpathSync } from "node:fs";
@@ -254,6 +254,34 @@ console.log("== throttling: chatsvc 429 waits and asks again ==");
 	const { c: stuck } = skype((url) => (url.includes("/conversations/") ? { status: 429, body: {} } : undefined));
 	stuck.throttleWaitMs = 1;
 	check("a read that stays throttled still fails loudly", /chatsvc 429/.test(await threw(() => stuck.selfMessages("", 20))), true);
+}
+
+console.log("\n== a share download trusts the transfer, not Graph's size ==");
+{
+	const { downloadShared } = await jiti.import(join(ROOT, "core", "shares.ts"));
+	const headers = (h) => ({ get: (n) => h[n.toLowerCase()] ?? null });
+	const stub = (item, bytes, contentHeaders) =>
+		new GraphClient(async () => "T", async (url) => {
+			if (url.endsWith("/driveItem")) return { status: 200, text: async () => JSON.stringify(item) };
+			return { status: 200, headers: headers(contentHeaders), text: async () => "", arrayBuffer: async () => Uint8Array.from(bytes).buffer };
+		});
+	const dir = mkdtempSync(join(tmpdir(), "share-size-"));
+
+	const longer = Buffer.from("PK-but-longer-than-graph-said");
+	const saved = await downloadShared(stub({ name: "wrapped.docx", size: 5, file: {} }, longer, { "content-length": String(longer.length) }), "https://contoso.sharepoint.com/wrapped.docx", { dir });
+	check("a body longer than Graph's size, matching Content-Length, is saved", [saved.size, readFileSync(saved.path).length], [longer.length, longer.length]);
+
+	const shorter = Buffer.from("short");
+	check(
+		"a body shorter than Content-Length throws",
+		/truncated: got 5 bytes, Content-Length said 100/.test(await threw(() => downloadShared(stub({ name: "cut.log", size: 5, file: {} }, shorter, { "content-length": "100" }), "https://contoso.sharepoint.com/cut.log", { dir }))),
+		true,
+	);
+	check(
+		"with no Content-Length, a body shorter than Graph's size throws",
+		/truncated: got 5 bytes, Graph said 40/.test(await threw(() => downloadShared(stub({ name: "cut2.log", size: 40, file: {} }, shorter, {}), "https://contoso.sharepoint.com/cut2.log", { dir }))),
+		true,
+	);
 }
 
 console.log(failed === 0 ? "\nall ok" : `\nFAIL ${failed}`);

@@ -52,11 +52,16 @@ export async function downloadShared(
 	if (size > maxBytes)
 		throw new Error(`${name} is too large: ${size} bytes, limit ${maxBytes}. Pass a bigger maxBytes if you mean it.`);
 
-	const bytes = await graph.getBytes(`/shares/${shareId(url)}/driveItem/content`, maxBytes);
+	const { bytes, declaredLength } = await graph.getBytesWithLength(`/shares/${shareId(url)}/driveItem/content`, maxBytes);
 	// A half-written log that looks complete is worse than an error: it gets
-	// read, and the missing half is never noticed.
-	if (size > 0 && bytes.length !== size)
-		throw new Error(`${name} came back truncated: got ${bytes.length} bytes, Graph said ${size}`);
+	// read, and the missing half is never noticed. The transfer's own
+	// Content-Length is the exact length, when the server declared one. Graph's
+	// driveItem size is metadata, not the body: a sensitivity label or IRM
+	// wrapper makes the served bytes longer than it, so a longer body is not
+	// truncation. Only a body shorter than Graph promised is.
+	const expected = declaredLength ?? size;
+	if (expected > 0 && (declaredLength === undefined ? bytes.length < expected : bytes.length !== expected))
+		throw new Error(`${name} came back truncated: got ${bytes.length} bytes, ${declaredLength === undefined ? `Graph said ${size}` : `Content-Length said ${declaredLength}`}`);
 
 	const written = saveNew(toPath ?? { dir: fs.mkdtempSync(path.join(os.tmpdir(), "teams-file-")) }, name, bytes);
 	return { name: item.name ?? name, size: bytes.length, path: written, mimeType: item.file.mimeType };

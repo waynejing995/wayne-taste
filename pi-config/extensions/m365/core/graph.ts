@@ -34,7 +34,7 @@ export class GraphError extends Error {
 }
 
 /** The subset of `fetch` this client uses, so tests can supply a stub. */
-type ResponseBody = { status: number; text(): Promise<string>; arrayBuffer?(): Promise<ArrayBuffer>; body?: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> } } };
+type ResponseBody = { status: number; headers?: { get(name: string): string | null }; text(): Promise<string>; arrayBuffer?(): Promise<ArrayBuffer>; body?: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> } } };
 type Transport = (
 	url: string,
 	init: { method?: string; headers: Record<string, string>; body?: string | Uint8Array; signal?: AbortSignal },
@@ -175,12 +175,32 @@ export class GraphClient {
 	 * slow but are fetched on purpose.
 	 */
 	async getBytes(pathOrUrl: string, maxBytes = Number.POSITIVE_INFINITY, timeoutMs?: number): Promise<Buffer> {
+		return (await this.getBytesWithLength(pathOrUrl, maxBytes, timeoutMs)).bytes;
+	}
+
+	/** getBytes, plus the body length the server declared, when it declared one (see declaredLength). */
+	async getBytesWithLength(
+		pathOrUrl: string,
+		maxBytes = Number.POSITIVE_INFINITY,
+		timeoutMs?: number,
+	): Promise<{ bytes: Buffer; declaredLength?: number }> {
 		const url = this.url(pathOrUrl);
 		const signal = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs);
 		const r = await this.doFetch(url, { headers: await this.headers({ Accept: "*/*" }), signal });
 		if (r.status < 200 || r.status >= 300) this.fail(r.status, await r.text(), url);
-		return readBounded(r, maxBytes, signal);
+		const declared = declaredLength(r);
+		return { bytes: await readBounded(r, maxBytes, signal), declaredLength: declared };
 	}
+}
+
+/**
+ * The Content-Length the server declared for the body, or undefined. Only exact when no content-coding was applied:
+ * a gzip body declares its encoded length, which fetch does not hand back.
+ */
+function declaredLength(r: ResponseBody): number | undefined {
+	if (r.headers?.get("content-encoding")) return undefined;
+	const v = r.headers?.get("content-length");
+	return v && /^\d+$/.test(v) ? Number(v) : undefined;
 }
 
 export async function readBounded(r: ResponseBody, maxBytes: number, signal?: AbortSignal): Promise<Buffer> {
