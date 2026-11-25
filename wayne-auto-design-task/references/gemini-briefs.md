@@ -6,8 +6,7 @@ Load this reference before dispatching the Gemini subagent in Node C (Proposal B
 
 Pass the exact model selector in the `task` call's `model` parameter. Never pass a role name, because roles can carry `retry.fallbackChains` that fall back to Opus.
 
-- Local box: `magpie/copilot/gemini-4-carbon:auto`
-- Remote hosts: the selector listed for that host in `~/.wayne/CONTEXT.md`
+- Every host: the selector listed for that host in `~/.wayne/CONTEXT.md`
 
 Keep the Gemini subagent read-only (no repository edits). If the Gemini call fails, report the failure to Wayne and ask. Never rerun it on another model, never use Opus, and never continue with only one proposal.
 

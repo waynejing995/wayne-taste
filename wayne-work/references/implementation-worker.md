@@ -60,6 +60,11 @@ DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 - path/to/file.py
 - path/to/test_file.py
 
+## Patch
+<only when you ran isolated (your own worktree): run `git add -N -- <new files>`,
+ then paste the full output of `git diff --binary HEAD -- <changed paths>` in a
+ fenced block; otherwise: "not isolated">
+
 ## Commands run
 - `<exact command>` → <exact result: exit status, failure line, or pass count>
 

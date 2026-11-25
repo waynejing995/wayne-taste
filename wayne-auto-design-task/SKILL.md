@@ -118,7 +118,7 @@ Run `wayne-plan` with this run's decision log as its source and `fusion.md` as t
 
 Then run `wayne-work` on the approved plan. It owns dispatch (each unit starts as soon as its dependencies are committed, with omp subagents on `isolated: true`), the per-unit audit and commit, the simplify pass, and the full-diff gate. Do not dispatch units yourself. The main model stays out of the edits.
 
-If Wayne gives feedback during the build and it adds new scope, write a lite plan as defined by [the "Mid-session feedback" rule](../_shared/task-prompt.md#sections) (no review, parallel subagents).
+If Wayne gives feedback during the build and it adds new scope, it is not a plan unit: do not add it to the running `wayne-work` plan. Write a lite plan as defined by [the "Mid-session feedback" rule](../_shared/task-prompt.md#sections) and dispatch its slices directly to parallel subagents, with no review. Each slice gets its own commit after the slice is verified. Start a slice only when its paths do not overlap a `wayne-work` unit that is still open.
 
 ### V. Verify through the real entrypoint
 
@@ -140,5 +140,5 @@ Link `fusion.md` and do not paste it. Commit, push, or merge only within an auth
 - Gemini never sees the main model's draft before it writes proposal B.
 - No claim from B enters the design unverified.
 - No question to Wayne that the code, logs, data, or memory can answer.
-- No edits by the main model in P, and no unit dispatch outside `wayne-work`.
+- No edits by the main model in P. Plan units are dispatched only by `wayne-work`; only the mid-session lite plan dispatches outside it.
 - No write to `docs/specs/`: that is owned by `wayne-mind-explode`.
