@@ -17,15 +17,20 @@ For a Teams-origin card, read the source chat with `teams_read`, about 15 messag
 
 Follow `$WAYNE_SKILLS_DIR/_shared/task-prompt.md`. Copy the relevant glossary lines from `~/.wayne/CONTEXT.md` into the brief. A remote session cannot read that file.
 
-The Context line names who asked, where the request arrived, and when, in `Asia/Shanghai`, as a quote. Inputs names the files and URLs. Report names the deliverable and the facts that must be rechecked at source.
+Start every brief with the `Pain:` section in [_shared/task-prompt.md](../../_shared/task-prompt.md#sections) before stating the goal or ask; put who asked, where, and when (`Asia/Shanghai`) as a quote in `Pain:`. `Inputs` names the files and URLs; `Report` names the deliverable and the facts that must be rechecked at source.
 
-| Work | Skill |
-| --- | --- |
-| Implementation | `wayne-work` |
-| Review fixes | `wayne-fix-review` |
-| Research | `deep-research` |
-| Artifact comments | `trace-artifact-comment-loop` |
-| Commit or pull request | `wayne-ship` |
+For any task changing user-facing UI, interaction, or copy, include the [UI flow](../../_shared/task-prompt.md#ui-flow) in `Tasks:` and require its comparison table and review resolutions in RESULT.
+
+Execution subagents (in every brief and in coordinator `task` calls) use the default/`task` model. The only exception is the Gemini design and review steps of the UI flow, which use the exact Gemini selector given there. Never switch to Opus unless Wayne explicitly authorizes it. If a model fails, report and ask; do not justify an upgrade.
+
+| Work                                         | Skill                         |
+| -------------------------------------------- | ----------------------------- |
+| New medium or large task: design, then build | `wayne-auto-design-task`      |
+| Implementation of an approved plan           | `wayne-work`                  |
+| Review fixes                                 | `wayne-fix-review`            |
+| Research                                     | `deep-research`               |
+| Artifact comments                            | `trace-artifact-comment-loop` |
+| Commit or pull request                       | `wayne-ship`                  |
 
 Preserve uncommitted changes already in the repository. Never print a secret. Run `wayne-context-init` before launch when the task has no context file.
 
@@ -79,7 +84,7 @@ Answer an agent question yourself when a read can settle it, then send the answe
 
 ## Follow up and verify
 
-Send a follow-up with `tern send <pane> paste` (pass literal text from a file or stdin/single-quoted heredoc without shell interpolation of untrusted text) followed by `tern send <pane> keys Return`, `herdr agent prompt`, or `tmux load-buffer -b <unique-buf> <file>`, `paste-buffer -dpr -b <unique-buf> -t <pane>`, and `send-keys -t <pane> C-m` (after verifying the session is still in `<pane>`). Confirm that the session received it and started a new turn.
+Send a follow-up with `tern send <pane> paste` (pass literal text from a file or stdin/single-quoted heredoc without shell interpolation of untrusted text) followed by `tern send <pane> keys Return`, `herdr agent prompt`, or `tmux load-buffer -b <unique-buf> <file>`, `paste-buffer -dpr -b <unique-buf> -t <pane>`, and `send-keys -t <pane> C-m` (after verifying the session is still in `<pane>`). After `tern send <pane> paste` + `tern send <pane> keys Return`, grep `tern capture <pane> --surfaces --scrollback` for a unique phrase from the message to confirm it landed; a busy session queues it—re-check after its turn ends before resending, because resending delivers twice. Never push a new process rule into a running session; put process changes in the next session's brief instead.
 
 The watch stays after a done RESULT, so a follow-up round needs no new `agent add`: the next RESULT version (a new content hash of the newest `RESULT*.md` in the run directory) makes one new card. Run `agent add` again only to give the watch a new plan (`--row`/`--then`; it closes the name's previous unfired plan) or to point it at a pane in another mux. Move the verified file to `RESULT-round<N>.md` before the next round.
 
@@ -91,4 +96,4 @@ Report one short message in the request channel: session, machine, mux, pane, cw
 
 ## Close
 
-`inbox agent close <name>` prints liveness, phase, idle time, the RESULT status/open/verified lines, the RESULT version and open thens, and closes nothing. Verify the RESULT at its source, then run `inbox agent close <name> --ack <version|none> --note "<what you verified>"`. It refuses while the session is working or asking, while a fired then is open, or when the RESULT changed since you read it. A gone session's watch is removed at once; a live idle one becomes `closing`. Only then kill the pane: `tern kill`, `tmux kill-*` and `herdr pane close` on a watched pane are blocked until the close is acknowledged. The probe removes the watch once the pane is gone.
+When every PR a watched session owns is merged, close the session: check `rules.yaml` for any other open PRs that session still owns first, then close it. `inbox agent close <name>` prints liveness, phase, idle time, the RESULT status/open/verified lines, the RESULT version and open thens, and closes nothing. Verify the RESULT at its source, then run `inbox agent close <name> --ack <version|none> --note "<what you verified>"`. It refuses while the session is working or asking, while a fired then is open, or when the RESULT changed since you read it; if a session stays `working` with no output for hours, report it to Wayne and do not force it. A gone session's watch is removed at once; a live idle one becomes `closing`. Only then kill the pane: `tern kill`, `tmux kill-*` and `herdr pane close` on a watched pane are blocked until the close is acknowledged. The probe removes the watch once the pane is gone.
