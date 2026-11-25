@@ -19,7 +19,7 @@ Invoke `wayne-plan` with the verified ledger, explicit human selection/exclusion
 - Every unit carries finding links, confirmed cause, intended before/after behavior, exact files/symbols and allowed write set, approach and repository pattern, dependencies, consumes/produces and shared interfaces, execution ownership, test authorship/locked inputs, plan-owned U scenarios, and exact RED/GREEN plus applicable surface and integration commands with expected observables. Group common causes, not comment counts. Include the shared contracts/callers the fix must migrate and explicit exclusions.
 - Give each writable path one owner; make shared integration paths main-owned within Work. Missing behavior, compatibility, recovery or scope decisions remain blockers, not implementation defaults. A newly necessary unselected repair returns to the human scope gate.
 
-The finding ledger owns truth, human selection and disposition; the plan owns unit definitions and U rows; Work owns execution/wave state and U status. Link these records rather than copying unit progress into a competing ledger. Plan returns its path and reviewed inputs without checkpoint or automatic Work dispatch.
+The finding ledger owns truth, human selection and disposition; the plan owns unit definitions and U rows; Work owns execution/DAG state and U status. Link these records rather than copying unit progress into a competing ledger. Plan returns its path and reviewed inputs without checkpoint or automatic Work dispatch.
 
 ## Review and execution authorization
 
@@ -38,7 +38,7 @@ Read and invoke `wayne-work`; do not implement its instructions from memory or m
 
 **Work input override:** its completeness checks require every applicable carried source, not fabricated spec/decision/matrix documents. When no formal E contract was carried, the explicit absence and local surface proof in this repair plan replace the E-table prerequisite only. When one exists, pass its exact authoritative path and unchanged snapshot. Work may not create, weaken or mark E rows. This is not a waiver of runtime consumer verification.
 
-Work owns recorded waves, worker dispatch under the host's tool rules, unit implementation, verification, per-wave refinement, plan/diff audits, U status and the integrated compliance gate. Do not retain Fix Review's former direct-worker or small-unit-inline execution path. A blocked unit stays visibly blocked; independent authorized units may proceed only under Work's own scheduling rules. Inability to invoke Work is a reported blocker, not permission to invent a substitute execution engine.
+Work owns the recorded unit DAG, worker dispatch under the host's tool rules, unit implementation, verification, plan/diff audits, U status, full-diff refinement and the integrated compliance gate. Do not retain Fix Review's former direct-worker or small-unit-inline execution path. A blocked unit stays visibly blocked; independent authorized units may proceed only under Work's own scheduling rules. Inability to invoke Work is a reported blocker, not permission to invent a substitute execution engine.
 
 ## Repair evidence carried into units
 

@@ -114,7 +114,7 @@ On resume, reuse the reviewed plan and settled grants; reconcile only units affe
 
 ### E. Execute through wayne-work
 
-Load and invoke `wayne-work` with the approved plan and the reference's Work invocation packet. It owns the implementation loop, plan conformance, waves, verification and integration; merely naming the skill or imitating its steps does not count. Do not repair units outside Work. Preserve its returned unit evidence, changed paths and blockers, then resume here. A plan-only response is not a completed accepted repair.
+Load and invoke `wayne-work` with the approved plan and the reference's Work invocation packet. It owns the implementation loop, plan conformance, dependency scheduling, verification and integration; merely naming the skill or imitating its steps does not count. Do not repair units outside Work. Preserve its returned unit evidence, changed paths and blockers, then resume here. A plan-only response is not a completed accepted repair.
 
 ### F. Record a blocker or unchanged item
 

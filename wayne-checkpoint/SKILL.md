@@ -83,7 +83,7 @@ The template is the preferred readable layout. Carry the following information; 
 - `### Artifact References` (exact paths, owners, hashes, and observed states)
 - `### Decision Progress` (derived summary linked to the decision log)
 - `### Implementation Progress` (derived summary linked to the plan)
-- `### Wave Progress (if parallel execution)` (table)
+- `### DAG Progress (if parallel execution)` (table)
 - `### Per-Task Review Status` (table)
 - `### Remaining Work` (priority-ordered next steps)
 - `### Notes` (gotchas, blockers, dead ends)
@@ -179,7 +179,7 @@ Based on `pipeline_stage` from the checkpoint, **automatically invoke** the corr
 4. Invoke `wayne-work` with the plan path — wayne-work will:
    - Skip units completed in the current authoritative plan
    - Resume from the next pending unit
-   - Treat checkpoint Wave Progress as historical evidence, not live worker state
+   - Treat checkpoint DAG Progress as historical evidence, not live worker state
    - Read unresolved decisions from the current decision log
 
 ```

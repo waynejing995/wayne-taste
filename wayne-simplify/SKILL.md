@@ -47,13 +47,13 @@ flowchart TB
 
 ### A. Scope the settled diff
 
-The scope is the code just written and now settled: the wave's diff inside `wayne-work`, otherwise `git diff` plus untracked new files, or the files the user named. Settled means no unit is still mid-implementation — a diff being actively extended is refined too early, because a pattern that looks duplicated at unit 2 often diverges by unit 4.
+The scope is the code just written and now settled: the run's full diff since the recorded baseline inside `wayne-work`, otherwise `git diff` plus untracked new files, or the files the user named. Settled means no unit is still mid-implementation — a diff being actively extended is refined too early, because a pattern that looks duplicated at unit 2 often diverges by unit 4.
 
 Pre-existing code outside the diff is out of scope. Read it freely for context; do not clean it up.
 
 ### B. Require a green baseline
 
-Run the verification that owns this code — the plan's unit or wave command, or the repository's typecheck, lint, and test commands — and record the exact command and result. If it is red, stop: on a red tree no later run can separate this pass's edits from the failure that was already there. If the code has no runnable check at all, say so; the pass may proceed on read-only reasoning but its report must state that behavior preservation is unproven.
+Run the verification that owns this code — the plan's unit, integration, or full verification commands, or the repository's typecheck, lint, and test commands — and record the exact command and result. If it is red, stop: on a red tree no later run can separate this pass's edits from the failure that was already there. If the code has no runnable check at all, say so; the pass may proceed on read-only reasoning but its report must state that behavior preservation is unproven.
 
 ### C. Read the changed files as one whole
 
@@ -107,10 +107,10 @@ Keep it short. If the explanation is longer than the diff it defends, delete the
 
 ## Inside wayne-work
 
-Use the wave list created by [wayne-work at C](../wayne-work/SKILL.md#c-whole-workflow-group-units-into-waves). Work's S step owns when this pass runs, who runs it, the single-trivial-unit exception, and U-tick ordering. This section owns the pass's scope and verification.
+Use the unit DAG created by [wayne-work at C](../wayne-work/SKILL.md#c-whole-workflow-record-unit-dag-and-write-sets). Work's S step runs this pass once over the full diff after the last unit is committed and before J, and owns who runs it, the single-trivial-unit exception, its separate commit if code changes, and J's re-proof. U rows are already ticked per unit in H before S runs, so simplify never gates U ticks. This section owns the pass's scope and verification.
 
-- **Files:** refine only the wave's combined diff, limited to file changes assigned to its units in the approved plan (`Files` entries: create/modify/delete) and the plan's scope boundaries. These existing declarations define the limit; no separate allowlist is required. Do not add a new destination file or widen a unit's assigned paths; return that scope question to Plan.
-- **Verification:** use the member units' unchanged plan verification commands and any applicable plan-defined integration checks for both the baseline and re-verification. No separately named wave command is required.
+- **Files:** refine only the run's full diff since the recorded baseline, limited to file changes assigned to plan units in the approved plan (`Files` entries: create/modify/delete) and the plan's scope boundaries. These existing declarations define the limit; no separate allowlist is required. Do not add a new destination file or widen a unit's assigned paths; return that scope question to Plan.
+- **Verification:** use the units' unchanged plan verification commands and any applicable plan-defined integration or full verification checks for both the baseline and re-verification.
 - **Approved behavior:** unit goals, named interfaces, and U scenarios are not simplification candidates. A unit that looks over-built returns to Plan as a scope question, rather than shrinking quietly.
 - **Status:** change no U or E row.
 

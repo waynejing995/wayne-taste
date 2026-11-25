@@ -4,7 +4,7 @@ status: in-progress
 branch: {branch}
 timestamp: {ISO-8601}
 pipeline_stage: {brainstorm|plan|work|review|verify|ship|compress}
-pipeline_phase: {specific phase within skill, e.g. "Phase 3: Grill" or "Wave 2"}
+pipeline_phase: {specific phase within skill, e.g. "Phase 3: Grill" or "Unit I3 audit"}
 decision_log: <state>/runs/{topic}/decision-log.jsonl   # absolute
 plan: <state>/plans/{file}.md                           # absolute
 spec: docs/specs/{topic}.md                             # <state>/runs/{topic}/spec.md while still draft
@@ -51,15 +51,16 @@ files_modified:
 
 This table is orientation only. `wayne-work` re-reads the authoritative plan and current U Status; it never executes from this checkpoint summary.
 
-### Wave Progress (if parallel execution)
+### DAG Progress (if parallel execution)
 
-{If wayne-work used waves, capture which waves are done}
+{If wayne-work tracked a unit DAG, capture dependencies and unit states}
 
-| Wave   | Tasks  | Status                |
-| ------ | ------ | --------------------- |
-| Wave 1 | I1, I2 | DONE                  |
-| Wave 2 | I3, I4 | IN PROGRESS — I3 next |
-| Wave 3 | I5     | PENDING               |
+| Unit | Dependencies | Status      |
+| ---- | ------------ | ----------- |
+| I1   | —            | DONE        |
+| I2   | —            | DONE        |
+| I3   | I1           | IN PROGRESS |
+| I4   | I1, I2       | PENDING     |
 
 ### Per-Task Review Status
 

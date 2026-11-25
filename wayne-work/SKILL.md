@@ -1,17 +1,15 @@
 ---
 name: wayne-work
-description: "Executes an approved Wayne plan unit by unit: validates inputs and scope, establishes requested RED evidence, implements and verifies each unit, simplifies each finished wave with wayne-simplify before auditing it, commits each audited unit, checks owned U rows while preserving E rows, proves the full diff, and hands off to wayne-code-review. Use for ‘build this’, ‘implement/execute the plan’, ‘start working’, ‘let's build’, or equivalent Chinese implementation requests with a durable plan."
+description: "Executes an approved Wayne plan across its unit dependency DAG: validates inputs and scope, dispatches ready units in parallel, establishes requested RED evidence, verifies each unit, audits and commits each unit as it finishes, simplifies the full diff once with wayne-simplify, checks owned U rows while preserving E rows, proves the full diff, and hands off to wayne-code-review. Use for ‘build this’, ‘implement/execute the plan’, ‘start working’, ‘let's build’, or equivalent Chinese implementation requests with a durable plan."
 ---
 
 # Wayne Work
 
 Execute one approved implementation plan to verified, review-ready commits, one per plan unit.
 
-**A wave is one batch of plan units.** Finish, verify, simplify, and audit that batch before starting the next. A wave may contain one unit. The main agent groups units into waves in C; the plan does not need to supply waves.
-
 ## Boundary
 
-Own implementation, plan-unit tracking, test-as-you-go, integration, the per-wave refinement pass, U status updates, one commit per audited unit, and the final work handoff. Own three distinct scopes and never merge them: the per-unit conformance audit inside the implementation loop, the per-wave refinement over one wave's combined diff, and the single workflow-level compliance gate over the full diff. Do not redesign approved behavior, author a new plan/test matrix, change E status, branch, push, open a PR, verify, ship, or perform code-quality review — that stays with `wayne-code-review`.
+Own implementation, plan-unit DAG tracking, test-as-you-go, integration, one commit per audited unit, U status updates, the single full-diff refinement pass, and the final work handoff. Own three distinct scopes and never merge them: the per-unit conformance audit as each unit finishes, the single refinement pass over the combined full diff after all units commit, and the single workflow-level compliance gate over the full diff. Do not redesign approved behavior, author a new plan/test matrix, change E status, branch, push, open a PR, verify, ship, or perform code-quality review — that stays with `wayne-code-review`.
 
 The plan, decision log, test matrix, repository instructions, and dirty baseline are source contracts. Read `../_shared/pipeline-id-contract.md`; consume IDs only from their defining structures and never renumber upstream artifacts.
 
@@ -22,25 +20,26 @@ flowchart TB
     A["Check plan and capture baseline"]
     B{"Complete and consistent?"}
     X(["Return blocker"])
-    C["Group units and record waves"]
+    C["Record unit DAG and write sets"]
 
-    subgraph cluster_unit["per-wave scheduling and refinement, per-unit execution"]
-        D["Start next recorded wave"]
-        E{"Parallel-safe wave?"}
-        R["Start unstarted workers; await one result"]
+    subgraph cluster_unit["ready-frontier scheduling, per-unit execution, audit, and commit"]
+        D["Select ready frontier"]
+        E{"Subagent isolation available?"}
+        R["Dispatch ready workers; await one finished unit"]
         P{"Workers started?"}
         F["Inline fallback on recorded dispatch error"]
+        N{"Apply-back conflict?"}
         G{"Unit verification passes?"}
         T["Fix observed failure"]
-        W{"All units in this wave finished and verified?"}
-        S["Simplify wave diff"]
-        H["Audit each wave unit; tick its U rows; commit it"]
-        I{"More recorded waves?"}
+        H["Audit finished unit; tick U rows; commit"]
+        I{"Unfinished units remain?"}
     end
 
+    S["Simplify full diff once"]
     J["Run integrated compliance gate on full diff"]
     K{"All gates pass?"}
     M["Reopen affected unit"]
+    V["Record S violation"]
     L(["Checkpoint commit range for code review"])
 
     A --> B
@@ -48,42 +47,41 @@ flowchart TB
     B -->|"yes"| C
     C --> D
     D --> E
-    E -->|"yes / whole wave"| R
-    E -->|"no / one at a time"| R
+    E -->|"yes / every ready unit isolated"| R
+    E -->|"no / disjoint write sets only"| R
     R --> P
-    P -->|"yes"| G
+    P -->|"yes"| N
     P -->|"no"| F
     F --> G
+    N -->|"yes / reopen on new head"| D
+    N -->|"no"| G
     G -->|"no"| T
     T --> G
-    G -->|"yes"| W
-    W -->|"no"| R
-    W -->|"yes"| S
-    S --> H
+    G -->|"yes"| H
     H --> I
     I -->|"yes"| D
-    I -->|"no"| J
+    I -->|"no"| S
+    S --> J
     J --> K
     K -->|"no / implementation finding"| M
     M --> C
-    K -->|"no / missing S record"| V["Record violation; reset wave U rows"]
+    K -->|"no / missing S record"| V
     V --> S
     K -->|"yes"| L
 ```
 
 ## Process
 
-Every step is labeled with its scope, and the whole-workflow gate is never collapsed into the loop. A `[per-unit]` step reads one unit's contract and diff. A `[per-wave]` step handles one recorded batch of units. A `[whole-workflow]` step handles the run's complete inputs or full diff; repeat it only where the Flow requires. A per-unit or per-wave check never replaces the whole-workflow gate, and the whole-workflow gate never runs inside the unit loop.
+Every step carries a scope label, and the whole-workflow gate never collapses into the unit loop. A `[per-unit]` step reads one unit's contract and diff. A `[whole-workflow]` step handles the run's complete inputs or full diff; repeat it only where the Flow requires. A per-unit check never replaces a whole-workflow step, and the whole-workflow gate never runs inside the unit loop.
 
 | Scope | Steps | Runs | Reads | Compliance agent |
 | --- | --- | --- | --- | --- |
 | `[whole-workflow]` setup | A | once | all source contracts and starting baseline | no |
-| `[whole-workflow]` wave grouping | C | before execution; again if a unit reopens | unit contracts, dependencies, write sets, current task state | no |
-| `[per-wave]` start | D | once per wave, before dispatch | recorded unit IDs, unit contracts, starting diff baseline | no |
-| `[per-unit]` loop | R, F, G | per unit or retry | that unit's contract, worker handle, diff, and verification command | no |
-| `[per-wave]` completion barrier | W | after each unit passes G | completion and verification results for all wave members | no |
-| `[per-wave]` refinement | S | once per completed wave | the combined wave diff and Simplify's Work-integration contract | no |
-| `[per-unit]` audit and commit | H | once per unit, after its wave's S record | that unit's contract and its part of the simplified wave diff | no |
+| `[whole-workflow]` DAG scheduling | C | before execution; again if a unit reopens | unit contracts, dependencies, write sets, current task state | no |
+| `[per-unit]` dispatch and wait | D, R, F | as units become ready or retry | ready unit contracts, active worker handles, unit diff | no |
+| `[per-unit]` verify | G | per finished unit or retry | that unit's contract, diff, and verification command | no |
+| `[per-unit]` audit and commit | H | as each unit passes G; commits in dependency order | that unit's contract and actual diff | optional parallel read-only audit subagents; main commits |
+| `[whole-workflow]` refinement | S | once after the last unit commit, before J | the full diff from baseline and Simplify's Work-integration contract | no |
 | `[whole-workflow]` gate | J, L | once per full diff | complete spec, decision log, plan, all units, full diff | yes — one fresh read-only agent |
 
 ### A. [whole-workflow] Check the plan before starting
@@ -106,47 +104,50 @@ When blocked, return the task's blocker contract with the reason, affected artif
 
 Once these checks pass, capture starting HEAD, branch, status, existing dirty paths, and source artifacts. Keep this run baseline unchanged. Do not create a branch. If a baseline dirty path lies in any unit's write set, stop and ask the user: a unit commit cannot separate their edits from the unit's.
 
-### C. [whole-workflow] Group units into waves
+### C. [whole-workflow] Record unit DAG and write sets
 
-The main agent must write the wave list before any implementation starts:
+The main agent must record the unit dependency DAG in Work task state before any implementation starts:
 
-1. Use each unit's full contract, relevant decisions, dependencies, consumes/produces, and exact write set to build the unit dependency graph. Track status in the existing Work task state; no provider-specific task tool is required.
-2. Assign each path one owner. Keep the matrix, checkpoint, shared integration files, scope state, and full verification main-owned; remove them from worker write sets.
-3. Group unfinished units by dependency. A unit belongs after the waves that produce its inputs. Put independent ready units together; D decides whether their write sets allow parallel execution.
-4. Record each wave in the same Work task state as ordered tasks: its units, then that wave's S, then H for each of its units. After the last wave, add J and L. Show the list to the user. Every unfinished unit must appear in a wave before proceeding to D.
+1. Build the unit dependency graph from each unit's full contract, relevant decisions, dependencies, consumes/produces, and exact write set. Track status in Work task state; no provider-specific task tool is required.
+2. Assign each path one owner when the host lacks subagent isolation. Keep the matrix, checkpoint, shared integration files, scope state, and full verification main-owned; remove them from worker write sets.
+3. Record every unfinished unit in Work task state with its dependencies and write set, followed by `S`, `J`, and `L` after all units finish. Show the DAG to the user before proceeding to D.
 
-For example, if I1 and I2 are independent and I3 needs both, record `Wave 1: I1, I2 → S → H(I1), H(I2)`, `Wave 2: I3 → S → H(I3)`, then `J`, `L`. If the plan has only I1, record `Wave 1: I1 → S → H(I1)`, then `J`, `L`. Do this even when the plan never mentions waves.
+For example, if I1 and I2 are independent and I3 needs both, record `I1 (deps: none, write set: …)`, `I2 (deps: none, write set: …)`, and `I3 (deps: I1, I2, write set: …)`, followed by `S`, `J`, `L`. If the plan has only I1, record `I1 (deps: none, write set: …)`, then `S`, `J`, `L`.
 
-If J reopens a unit, preserve completed work and existing records, then append new waves in the same shape for the unfinished units before D dispatches again. Do not reset the run baseline or dispatch a worker from C.
+If J reopens a unit, preserve completed work and existing commits, then mark the affected unit (and any invalidated dependent units) unfinished in Work task state before D dispatches again. Do not reset the run baseline or dispatch a worker from C.
 
-### D. [per-wave] Execute the next recorded wave
+### D. [per-unit] Dispatch ready units
 
-In D, the main agent prepares and dispatches one worker agent per unit.
+In D, the main agent prepares and dispatches one worker agent per ready unit. A unit is ready as soon as all of its dependencies have passed audit and commit in H. Keep dispatching ready units while other workers run; never wait for a batch.
 
-Take the next wave whose dependencies have passed H. Announce its unit IDs and record its starting worktree diff in Work state before dispatch. No wave record means no dispatch; never start units first and label them as a wave afterwards.
-
-Read each member unit's real source and existing tests. Confirm its inputs/outputs and named consumers. If code contradicts a plan assumption, stop and return the conflict to planning.
+Before dispatching a ready unit, read its real source and existing tests. Confirm its inputs, outputs, and named consumers. If code contradicts a plan assumption, stop and return the conflict to planning.
 
 Build each worker's packet from exactly what H will audit: one fixed unit ID; full goal, decisions, approach, named interfaces, and consumes/produces; exact allowed paths; the unit's test scenarios; and the unit's verification command. Hand the packet together with [the worker contract](references/implementation-worker.md) verbatim — that file owns the worker's authority, prohibitions, evidence duty, and return format, including the four statuses. Do not paraphrase it or make the worker rediscover the plan.
 
-**Dispatch every unit to a worker agent.** When at least two ready units have no producer/consumer dependency and disjoint write sets, launch the whole wave before awaiting any result. When a dependency or shared path requires serial execution, dispatch one fresh worker agent at a time and record that edge or path; serial execution does not authorize inline implementation.
+**Isolation and parallel dispatch policy:**
 
-Count the wave as started only when the tool returns real worker handles or results. If the tool is unavailable or dispatch fails, quote the exact error in both the handoff and final result, then use F's inline fallback. Never claim parallel execution after a dispatch error.
+- If the host's subagent tool offers isolation (in omp, the `task` tool's `isolated: true`), dispatch every ready unit with it. Units with overlapping write sets may then run in parallel. The tool creates the worktree and applies successful changes back to the parent. Never create, inspect, or manage a worktree yourself. If the tool reports an apply-back conflict, reopen that unit on top of the new HEAD.
+- If the host has no subagent isolation (for example codex), launch in parallel only ready units whose dependencies have passed H and whose write sets are disjoint. If two ready units share a path, dispatch one fresh worker agent at a time and record the conflicting path.
+- Serial execution never authorizes inline implementation.
 
-Outside that recorded fallback, the main agent does not implement units. It owns scope, actual-diff audits, integration, U status, completion, and S's refinement of the combined wave diff.
+Count a worker dispatch as started only when the tool returns a real worker handle or result. If the tool is unavailable or dispatch fails, quote the exact error in both the handoff and final result, then use F's inline fallback. Never claim parallel execution after a dispatch error.
+
+Outside that recorded fallback, the main agent does not implement units. It owns scope, shared integration, actual-diff audits (or parallel read-only audit dispatch), U status, unit commits, and S's full-diff refinement.
 
 Handle each worker's result as follows:
 
 - `DONE` enters verification.
 - `DONE_WITH_CONCERNS` enters verification only when the concern is observational; correctness, scope, or ownership concerns block the unit.
-- `NEEDS_CONTEXT` may receive existing repository/plan context and retry the same unit; it never receives a new decision invented by the main agent.
-- `BLOCKED` is never retried unchanged. A source or Plan gap follows A and asks the user. A mechanical obstacle may be decomposed within the same plan unit: record the revised steps and their dependencies in the current wave before dispatching a fresh worker agent. Keep the unit ID, behavior, write boundary, and original wave diff baseline. New plan units or changed unit dependencies require Plan revision, not an unrecorded dispatch.
+- `NEEDS_CONTEXT` may receive existing repository or plan context and retry the same unit; it never receives a new decision invented by the main agent.
+- `BLOCKED` is never retried unchanged. A source or Plan gap follows A and asks the user. A mechanical obstacle may be decomposed within the same plan unit: record the revised steps and their dependencies in Work state before dispatching a fresh worker agent. Keep the unit ID, behavior, write boundary, and pre-unit HEAD baseline. New plan units or changed unit dependencies require Plan revision, not an unrecorded dispatch.
 
 After handling any result, take its `## Context gaps` lines and append each one to `$STATE/runs/<topic>/context.md` under its layer, or under `## Unknown`, with the unit ID as source. The main agent is the only writer of that file in this run; workers report, they do not write it. This is a context write, not a unit edit: it never enters a unit commit.
 
-### R. [per-unit] Dispatch or await a worker agent
+### R. [per-unit] Dispatch ready workers and await one result
 
-Follow D's dispatch policy. Start worker agents for unstarted units or recorded retries, then collect one unit's result. On return from W, reuse the recorded worker handles: await a running worker or start the next unstarted serial unit. Do not dispatch the whole wave again.
+Follow D's dispatch and isolation policy. Dispatch all unstarted ready units allowed by the host's isolation rule without waiting for already-running workers, then collect one finished worker result. When no new unit is ready because remaining units depend on in-flight workers, await one active worker without re-dispatching running units.
+
+Whenever a finished unit completes H and unlocks a dependent unit, return immediately to D to dispatch that newly ready unit while sibling workers keep running.
 
 The worker agent follows the unit execution note. For test-first work, it runs the exact unit command before implementation and preserves the non-zero result. RED must fail for missing behavior, not environment or tooling. Diagnose unexpected failures before coding. Never edit, delete, skip, or weaken a locked test to manufacture GREEN.
 
@@ -162,47 +163,48 @@ Inline execution is a fallback, not a choice: use it only after an observable na
 
 Run the unit's exact verification command. If it fails, connect the failure to the smallest source correction, apply it, and rerun the same command. Do not broaden scope, add speculative fallback, or swap in an easier check. A provider/tool failure is not a behavioral test result.
 
-### W. [per-wave] Wait for the whole wave
+### H. [per-unit] Audit finished unit, update U status, and commit
 
-Open this gate only when every unit in the recorded wave has finished and passed G. While units remain unstarted or running, return to R; do not enter S or H. A blocked or failing unit keeps the gate closed and follows D's status handling or G's repair path.
+When a unit passes G, inspect its actual diff rather than trusting worker summaries, against only the corresponding approved plan unit. Confirm the diff implements that unit's goal, named interfaces, consumes/produces, allowed write set, test scenarios, and verification command, and changes nothing the unit does not own. Judge by reading the diff against the unit text; CLI output, regex, keywords, or validator status cannot substitute.
 
-### S. [per-wave] Simplify the wave diff
+When several finished units await audit at the same time, the main agent may dispatch parallel read-only audit subagents (one per unit, scoped strictly to that unit's contract and diff). Do not broaden any unit audit past the unit: not the complete spec, not the decision log, and not other units. A decision is audited here only when the unit contract already carries it; everything else belongs to J.
 
-After W opens, run [wayne-simplify](../wayne-simplify/SKILL.md) once over the whole wave, in the main agent, following its `## Inside wayne-work` contract. Do not run it between units. This includes single-unit waves; only a single trivial unit may skip the pass. Record the refinement outcome, or that skip reason, on the same wave before any member enters H.
+Any change the unit does not cover fails the unit and returns to Plan/user instead of being normalized into the diff. If the tool reports an apply-back conflict for an isolated unit, reopen that unit on top of the new HEAD instead of normalizing the conflict. A shared path does not make two units atomically coupled: each unit keeps its own commit. When a unit's paths still hold another unit's uncommitted changes, commit it through a separate index (shared-path commit below). If that unit's own patch cannot be isolated, commit the first unit, then reopen the later unit on top of the new HEAD. Separately from unit audits, once all producers of a main-owned shared integration edit or check pass audit and commit, perform that integration edit and run plan-defined integration checks before dispatching units that depend on it. Reject cross-owner writes in shared-checkout mode.
 
-No U row for a unit in this wave may be ticked until S has finished or recorded the permitted skip. H must audit the simplified diff, not the pre-simplification one.
+Only after each real unit test passes, change its plan-owned U rows from `☐` to `☑` in the main agent. Never edit U scenario text, the plan's E snapshot, or any authoritative E row/status `⬜`.
 
-### H. [per-unit] Audit the diff against its plan unit, update U status, and commit it
-
-For each completed unit, the main agent inspects the actual diff rather than trusting worker summaries, against only the corresponding approved plan unit. Confirm the diff implements that unit's goal, named interfaces, consumes/produces, allowed write set, test scenarios, and verification command, and that it changes nothing the unit does not own. Judge by reading the diff against the unit text; CLI output, regex, keywords, or validator status cannot substitute. Do not dispatch any agent here and do not broaden this audit past the unit: not the complete spec, not the decision log, not other units. A decision is audited here only when the unit contract already carries it; everything else is J's.
-
-Any change the unit does not cover fails the unit and returns to Plan/user instead of being normalized into the diff. Separately from that audit, run the plan-defined wave/integration checks and reject cross-owner writes or overlapping edits; the main agent performs shared integration only after all producing workers finish, and does not start a dependent wave while this barrier fails. Only after each real unit test passes, change its plan-owned U rows from `☐` to `☑`. Never edit U scenario text, the plan's E snapshot, or any authoritative E row/status `⬜`.
-
-Then commit the unit, one commit per unit, in wave order:
+Then commit the unit at once in the main agent, one commit per unit, serialized in dependency order:
 
 - Name that unit's repository paths explicitly: `git add -- <paths>`, then `git commit -s -- <paths>`, never `git add -A`, `.`, or a bare `git commit`. The pathspec commits only those paths, so anything the user staged before the run stays staged and out of the unit commit. Include main-owned shared integration edits with the unit whose contract requires them; when two units are atomically coupled through one edit, commit them together and say why in the message. `<state>` artifacts are never committed.
+- Shared-path commit: when another unit's uncommitted hunks sit in the same paths, the commands above would take them too. Use a temporary index that holds only this unit's patch, and pass no pathspec: `export GIT_INDEX_FILE=$(mktemp -u)`, `git read-tree HEAD`, `git apply --cached <unit.patch>`, `git commit -s`, `unset GIT_INDEX_FILE`, then `git reset -q -- <paths>` so the real index matches the new HEAD for those paths. The user's other staged paths stay untouched, and the other unit's hunks stay in the working tree. `<unit.patch>` is the unit's own diff, as the worker returned it.
 - Message and identity follow the global Commit Format: plan's Jira ticket or `feat:/`/`fix:/` prefix, the unit ID in the title, `[why]` from the unit goal, `[how]` from the approach.
 - Record the SHA against the unit in Work state. The first unit commit's parent is the range base L hands to review.
 - A J reopen adds a new commit for that unit. Never amend, squash, or rewrite an earlier unit commit.
 
+### S. [whole-workflow] Simplify the full diff once
+
+After the last unit in the DAG is committed in H and before entering J, run [wayne-simplify](../wayne-simplify/SKILL.md) once over the full diff (`<base>..<last unit commit>`), in the main agent, following its `## Inside wayne-work` contract. Do not run it between units. Only a plan containing a single trivial unit may skip this pass. Record the refinement outcome (applied/skipped edits and before/after verification results, or that skip reason) in Work state before entering J.
+
+If `wayne-simplify` changes code, commit those edits in their own commit with explicit pathspecs (`git add -- <paths>` then `git commit -s -- <paths>`), and record that SHA in Work state. Never amend or squash earlier unit commits. J then re-proves the full diff including this commit.
+
 ### J. [whole-workflow] Run the integrated compliance gate
 
-After dependency waves finish, run the plan's full verification and lint commands. Then dispatch one fresh read-only spec-compliance agent with the complete decision log, spec, plan, all units, and the full diff. It must flag missing, changed, and extra behavior or files by contextual reading; CLI output, regex, keywords, headings, or validator status cannot substitute. This gate judges spec, decision, plan, scope, and cross-unit conformance — not general code quality, which stays with `wayne-code-review`.
+After all units finish H and S finishes (or records a permitted skip), run the plan's full verification and lint commands. Then dispatch one fresh read-only spec-compliance agent with the complete decision log, spec, plan, all units, and the full diff. It must flag missing, changed, and extra behavior or files by contextual reading; CLI output, regex, keywords, headings, or validator status cannot substitute. This gate judges spec, decision, plan, scope, and cross-unit conformance — not general code quality, which stays with `wayne-code-review`.
 
-The receipt covers only the diff the gate was given — the base recorded in A through the last unit commit. An implementation finding reopens the affected unit under the same unit boundary and returns to C for a new recorded wave; D dispatches its fresh worker. A plan or spec gap returns to Plan/user. Any correction invalidates the receipt: rerun the gate on the corrected full diff before continuing. Then audit:
+The receipt covers only the diff the gate was given — the base recorded in A through the last unit or simplify commit. An implementation finding reopens the affected unit under the same unit boundary and returns to C to update Work state; D dispatches its fresh worker. A plan or spec gap returns to Plan/user. Any correction invalidates the receipt: rerun the gate on the corrected full diff before continuing. Then audit:
 
 - every unit is DONE with its produces consumed where planned;
 - all requirements and decisions have implementation evidence;
 - the diff contains only plan-owned source, authorized U status changes, and work state; starting Git status, agent write history, and final diff show no unrelated or locked-input mutation;
 - every U row is `☑`, every E row remains `⬜`;
-- every recorded wave has an S record — the refinement outcome with before/after verification, or the permitted skip reason — and each of the wave's current U ticks came after that record. If not, record the ordering violation in Work state and the handoff, reset that wave's U rows to `☐`, run S on its current diff, re-audit its units in H, then rerun this gate on the corrected full diff. The re-run satisfies this check; it does not erase the violation;
-- every unit has its own commit (or a recorded coupled commit) containing exactly its audited paths; nothing is left staged or uncommitted except baseline dirty paths; no branch, push, amend, or downstream action was introduced; judge completeness from code, tests, and plan obligations rather than a substring scan.
+- an S record exists for the run — the refinement outcome with before/after verification (and its own commit SHA if code changed), or the permitted single-trivial-unit skip reason — recorded before J ran. If not, record the violation in Work state and the handoff (V), run S on the current full diff (committing any S edits in their own commit), then rerun this gate on the corrected full diff. The rerun satisfies this check; it does not erase the violation;
+- every unit has its own commit (or a recorded coupled commit) containing exactly its audited paths, plus a separate commit for S if S changed code; nothing is left staged or uncommitted except baseline dirty paths; no branch, push, amend, or downstream action was introduced; judge completeness from code, tests, and plan obligations rather than a substring scan.
 
 Do not claim completion while any command, unit, U row, decision, or scope gate is unresolved.
 
 ### L. [whole-workflow] Handoff to wayne-code-review
 
-Run this once per run, after J passes; it is never a per-unit step. Write one packet under `$STATE/checkpoints/` through `wayne-checkpoint` return-only mode or a supplied canonical contract (`STATE` already resolved in A; do not skip A because checkpoint will write the packet). Verify the file exists and surface its path; without either mechanism, return the shared blocker information. Include plan/matrix paths, units with their commit SHAs, the review range `<base>..<last unit commit>`, passing commands, changed paths, preserved scope, residual risks, and `next_agent: wayne-code-review`; final output repeats that literal but never invokes it.
+Run this once per run, after J passes; it is never a per-unit step. Write one packet under `$STATE/checkpoints/` through `wayne-checkpoint` return-only mode or a supplied canonical contract (`STATE` already resolved in A; do not skip A because checkpoint will write the packet). Verify the file exists and surface its path; without either mechanism, return the shared blocker information. Include plan/matrix paths, units with their commit SHAs (plus any simplify commit SHA), the review range `<base>..<last commit>`, passing commands, changed paths, preserved scope, residual risks, and `next_agent: wayne-code-review`; final output repeats that literal but never invokes it.
 
 ## Red lines
 

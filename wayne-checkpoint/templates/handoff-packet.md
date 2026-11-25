@@ -4,7 +4,7 @@ status: handoff
 branch: {branch}
 timestamp: {ISO-8601}
 pipeline_stage: {triage|brainstorm|plan|work|review|verify|ship}
-pipeline_phase: {specific phase within the calling skill, e.g. "Wave 2 done"}
+pipeline_phase: {specific phase within the calling skill, e.g. "Unit I2 committed"}
 route: {caller route verdict | none for a linear stage}
 snapshot: {primary artifact path}
 next_agent: {one available wayne-* Skill slug}
@@ -53,11 +53,11 @@ Summarize decisions and implementation progress briefly, always linked to the ro
 
 `{next_agent}` — the natural next step after {current stage}.
 
-| Field        | Value                                       |
-| ------------ | ------------------------------------------- |
-| Next agent   | `{next_agent}`                              |
-| Trigger      | {manual — user says "下一步" / "继续" / "go" \| launch — {via} {name} ({target})} |
-| Auto-advance | {NO \| fresh session via launch-stage.sh}   |
+| Field | Value |
+| --- | --- |
+| Next agent | `{next_agent}` |
+| Trigger | {manual — user says "下一步" / "继续" / "go" \| launch — {via} {name} ({target})} |
+| Auto-advance | {NO \| fresh session via launch-stage.sh} |
 
 ### Next Prompt
 
