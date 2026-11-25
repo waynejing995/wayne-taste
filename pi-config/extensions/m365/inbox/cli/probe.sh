@@ -17,9 +17,37 @@ alive=false agent= state= session= text= cap= mux_error= agent_pid=0
 # else the first whose command is not a shell. `bash -lc "omp …"` leaves bash in front and omp as its child.
 find_agent() {
 	[ -n "$1" ] || return 0
+	[ -d "/proc/$1" ] || return 0
+	has_children=false
+	for f in /proc/"$1"/task/*/children; do
+		[ -r "$f" ] && { has_children=true; break; }
+	done
+	if [ "$has_children" = true ]; then
+		queue=$1 seen=" $1 "
+		while [ -n "$queue" ]; do
+			next=
+			for p in $queue; do
+				s=$(ls -l /proc/$p/fd 2>/dev/null | grep -oE '/[^ ]*/sessions/[^/ ]+/[^/ ]+\.jsonl$' | head -1)
+				c=$(cat /proc/$p/comm 2>/dev/null)
+				if [ -n "$s" ]; then session=$s agent=$c agent_pid=$p; return 0; fi
+				case $c in ''|bash|sh|zsh|fish|dash|ksh) ;; *) [ "$agent_pid" = 0 ] && agent=$c agent_pid=$p ;; esac
+				for f in /proc/"$p"/task/*/children; do
+					[ -r "$f" ] || continue
+					{ kids=$(<"$f"); } 2>/dev/null || true
+					for k in $kids; do
+						case $seen in *" $k "*) ;; *) seen="$seen$k " next="$next $k" ;; esac
+					done
+				done
+			done
+			queue=$next
+		done
+		return 0
+	fi
 	for p in $(ps -eo pid=,ppid= | awk -v root="$1" '
-		{ kids[$2] = kids[$2] " " $1 }
-		END { todo = root; while (todo != "") { n = split(todo, q, " "); todo = ""; for (i = 1; i <= n; i++) { print q[i]; todo = todo kids[q[i]] } } }'); do
+		{ kids[$2, ++cnt[$2]] = $1 }
+		END { q[1] = root; seen[root] = 1; head = 1; tail = 1
+		      while (head <= tail) { p = q[head++]; print p; n = cnt[p]
+		        for (i = 1; i <= n; i++) { c = kids[p, i]; if (!seen[c]++) q[++tail] = c } } }'); do
 		s=$(ls -l /proc/$p/fd 2>/dev/null | grep -oE '/[^ ]*/sessions/[^/ ]+/[^/ ]+\.jsonl$' | head -1)
 		c=$(cat /proc/$p/comm 2>/dev/null)
 		if [ -n "$s" ]; then session=$s agent=$c agent_pid=$p; break; fi
