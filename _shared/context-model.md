@@ -30,9 +30,9 @@ Context lives outside the repository, in the project state directory (`pipeline-
 
 Knowledge that a repository reader also needs goes into the module's instruction file the repository already uses (`AGENTS.md` or `CLAUDE.md`), never into `context.md`. `wayne-compress` makes that move.
 
-## Shape
+## Project file shape
 
-Both files use the same five sections. Each entry is one line that ends with its source and date.
+The project file uses five sections. Each entry is one line that ends with its source and date.
 
 ```markdown
 # Context: <project or topic>
@@ -53,11 +53,55 @@ Both files use the same five sections. Each entry is one line that ends with its
 - <open gap>: <which layer>; <who or what can close it>
 ```
 
-A task file holds only what the project file does not already say. A line that is not true yet goes under `## Unknown`, not under its layer.
+## Task file shape
+
+`<state>/runs/<topic>/context.md` is a self-contained brief for one task: why it exists, what it can and cannot reach, what it must deliver, and what it is blocked on. It links the project file and the repository rules instead of copying them. Sections, in order: Header, Background, Reachable resources, Unreachable resources, Requirements, Run, Lines, Questions, Unknown. A section may say `None known`. Soft budget 30–60 lines; review above 80.
+
+```markdown
+# Task context: <topic>
+
+## Header
+- Topic: <slug>; role: <coordinator | executor | delegated session>; date: YYYY-MM-DD
+- Scope: <repo / worktree / host, only when the facts depend on it>
+- Links: <project context path>; <plan path, if any>; <E2E contract rows, if any>; <~/.wayne/CONTEXT.md and repository rules, by heading or path>
+
+## Background
+- <why this task exists; prior decision or work; current observed state>; status: <observed | documented>; source: <file:line, URL, ticket, or named decision>, <date>
+
+## Reachable resources
+- <resource>: <exact path, URL, or host>; access: <command or tool, never a secret value>; from: <host where access was assessed>; status: <observed | documented | unresolved>; source: <reference>, <date>
+
+## Unreachable resources
+- <resource>: <known location, or "location unknown">; reason: <why it cannot be reached>; impact: <which work depends on it>; ask: <person, team, or channel>
+
+## Requirements
+- Goal: <observable outcome>
+- Non-goals: <explicit exclusions>
+- Constraints: <approved limits>
+- Done when: <observable condition>
+
+## Run
+- <command or E2E contract row>; environment/data: <...>; pass: <observable>; status: <documented | observed>; source: <reference>, <date>
+
+## Lines
+- <task-specific boundary>; safe alternative: <...>; source: <reference>, <date>
+
+## Questions
+- <what is blocked and why>; options: A. <...> B. <...>; recommendation: <X>; status: open | answered (<date>, <answer or where recorded>)
+
+## Unknown
+- <gap>; layer: <Run | Reach | Know | Lines | Requirements>; impact: <...>; next safe check: <read-only check>; owner: <person, team, or channel>
+```
+
+Retrieval boundary: `~/.wayne/CONTEXT.md` is the global location index, and the repository `AGENTS.md` or `CLAUDE.md` holds shared commands and conventions. Cite them; never copy them. Add only task-specific deltas. Link background unless leaving it out would mislead.
+
+Status vocabulary: `observed` means checked in the named environment at the stated time; `documented` means supported by a named source but not checked here; `unresolved` means missing, inaccessible, stale, or conflicting. A date alone does not prove current access; revalidate volatile access before relying on it, or downgrade it.
+
+A task file holds only what the project file does not already say. A line that is not true yet goes under `## Unknown`, not under its layer. In a task file each layer has its own section: Run goes under `## Run`, Reach under `## Reachable resources` (or `## Unreachable resources` when the agent cannot read it), Know under `## Background`, and Lines under `## Lines`.
 
 ## Writing rules
 
-- **Init.** `wayne-context-init` creates the task file as its own stage, before the first stage of the task starts. Its probes are read-only.
+- **Init.** `wayne-context-init` creates the task file as its own stage, before the first stage of the task starts. Its probes are read-only. It never creates `<state>/context.md`; that needs a separate, explicit operation.
 - **Mid-task.** An execution agent that finds a gap appends one line to the task file at once: the fact under its layer, or the gap under `## Unknown`. Do not keep it in the conversation only. The execution agents are the `wayne-work` main agent (it writes the gaps its workers report in their result) and delegated sessions; a `wayne-work` worker never writes outside its unit packet. The design and planning stages (`wayne-mind-explode`, `wayne-plan`) only read the task file; their findings live in their own artifacts.
 - **Concurrent writers.** Append; do not rewrite another agent's line. If two lines disagree, keep both and mark the older one `(superseded YYYY-MM-DD)`. The next reader reconciles them.
 - **Close.** `wayne-compress` moves what lasts out of the task file and deletes the rest.
