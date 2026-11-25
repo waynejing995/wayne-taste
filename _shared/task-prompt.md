@@ -1,6 +1,6 @@
 # Task prompt
 
-The single owner of the prompt a Wayne skill writes for another agent to execute: a goal for an autonomous run (`wayne-goal-prompt`), a brief for a delegated session (`delegate-agent-session`), or a quick-lane prompt (`wayne-go`). Callers link here and add only their own delivery step. They do not restate these sections.
+The single owner of the prompt a Wayne skill writes for another agent to execute: a goal for an autonomous run (`wayne-goal-prompt`), a brief for a delegated session (`wayne-inbox`, [references/delegate.md](../wayne-inbox/references/delegate.md)), or a quick-lane prompt (`wayne-go`). Callers link here and add only their own delivery step. They do not restate these sections.
 
 The executor starts blank. Every fact in the prompt is fetched with a tool while you write it, never recalled. Pass pointers (paths, SHAs, URLs, ticket keys), not copies. The prompt is at most 4,000 characters: measure it (`wc -c`) before you return it. If it is too long, cut reconstructible narrative from Context and Tasks first, then merge Verification lines, but keep every test-bar layer.
 
@@ -8,19 +8,32 @@ The executor starts blank. Every fact in the prompt is fetched with a tool while
 
 | Section | Required | Contract |
 | --- | --- | --- |
-| `Goal:` | yes | One outcome sentence, not a task list. |
-| `Context:` | yes | Framing, definitions, the skill the executor follows, the task context file, and every `Do not` boundary that is not owned by one task. |
+| `Pain:` | yes | First section. Observable symptom today: what the user tried, what they saw, why it hurts, a short verbatim quote (who/where/when), and any screenshot path. No solution words. |
+| `Goal:` | yes | One outcome sentence that resolves the Pain, not a task list. |
+| `Context:` | yes | Framing, definitions, the skill the executor follows, the task context file, the relevant glossary lines from `~/.wayne/CONTEXT.md`, and every `Do not` boundary that is not owned by one task. A remote executor cannot read that file, so the brief carries the lines. |
 | `Current correction:` | only when steering an in-flight attempt | The delta from the actual prior attempt: what changed and what was wrong. |
 | `Inputs:` | when the job has concrete starting state | Branch and head SHA, PR, artifact ID and version, ticket keys, paths. Verify each one before you write it. |
 | `Tasks:` | yes | Numbered work. Write each constraint and each `Do not` at the step it governs. |
 | `Verification required before completion:` | yes | The unit-level proof the [test bar](#test-bar) requires, then a light smoke check through the real user entrypoint. Exact commands. Name the tempting fake substitute and forbid it. |
-| `Completion criteria:` | yes | Independently checkable outcomes. Each one maps to a Verification line. |
+| `Completion criteria:` | yes | Independently checkable outcomes (each maps to a Verification line), plus "the Pain is gone, as observed through the real UI or entrypoint". |
 | `Report:` | when the executor runs in a separate session | The deliverable path and the RESULT block below. |
 
-- **Context.** If a Wayne skill owns the work, write `Follow <skill>.` If the repository has rule files (`AGENTS.md`, `CLAUDE.md`, `.claude/rules/`), write `Repository rules in <those paths> win over this prompt.` and name only the paths that exist. If `<state>/runs/<topic>/context.md` exists, point to it and tell the executor to append a line there the moment it finds a gap. State each hard limit as a `Do not` line, for example: no merge, no deploy, no force-push, read-only production database, no Teams or Jira posts.
+- **Context.** If a Wayne skill owns the work, write `Follow <skill>.` If the repository has rule files (`AGENTS.md`, `CLAUDE.md`, `.claude/rules/`), write `Repository rules in <those paths> win over this prompt.` and name only the paths that exist. If `<state>/runs/<topic>/context.md` exists, point to it and tell the executor to append a line there the moment it finds a gap. Copy the glossary lines from `~/.wayne/CONTEXT.md` that name a product, repository, stage, host, or person this task uses. State each hard limit as a `Do not` line, for example: no merge, no deploy, no force-push, read-only production database, no Teams or Jira posts.
 - **Approved plan.** If an approved plan owns the work, name its path as the SSoT. In Tasks, carry only `<unit ID> — <unit heading or outcome> — implement per <plan path>`. Do not copy step bodies, tables, rationale, or implementation detail from the plan. Keep Verification and Completion criteria self-contained.
 - **Secrets.** Never write a secret value. Name the environment variable that owns the secret.
 - **Missing evidence.** If the target, the success criterion, or the verification path is unknown and the repository does not answer it, do not invent one. The calling skill asks the user one question and writes the prompt after the answer.
+- **Mid-session feedback.** Every brief for a separate session carries this line: "When Wayne gives you feedback during the session, the main model writes a lite plan: split the change into independent slices, and for each slice give its files and its acceptance in one or two lines. No design document, and no plan review: skip any review gate on the lite plan. Then it hands each slice to its own default-model subagent, all in parallel, and they do the work directly. The main model does not do the edit itself, and it does not reopen discussion before the subagents start."
+
+### UI flow
+
+For any task that changes user-facing UI, interaction, or copy, `Tasks:` must require these steps in order, and the executor must return the comparison table and review resolutions (in `RESULT.md` under `Report:` when running in a separate session):
+
+1. **Two proposals in parallel.** The main model writes its design while a Gemini subagent independently writes one from the same `Pain`, `Goal`, and `Inputs` without seeing the main model's design.
+2. **Fuse.** The main model compares both in a table (point, A, B, choice, why) and merges them into one design.
+3. **Gemini review.** A Gemini subagent reviews the merged design's interaction and copy (flow, states, feedback, wording, and what the user sees at each step); the main model adopts each point or rejects it with a reason.
+4. **Implement.** Only after step 3 does the main model implement.
+
+Gemini subagent: pass the exact selector as the `task` call's `model`, never a role name. Each host's selector is listed in `~/.wayne/CONTEXT.md`; on the local box it is `magpie/copilot/gemini-4-carbon:auto`. Roles can carry a `retry.fallbackChains` entry that falls back to Opus (local `writer` does), so a role is not enough. If the Gemini call fails, report it and ask; do not rerun it on another model. Never use Opus unless Wayne authorizes it.
 
 ## Test bar
 
@@ -56,7 +69,12 @@ open: <questions for Wayne, or none>
 ## Skeleton
 
 ```text
-Goal: <one outcome sentence>
+Pain:
+- <what the user tried, what they saw, why it hurts; no solution words>
+- Quote: "<verbatim words>" (<who>, <where>, <when>)
+- Screenshot: <path, or omit if none>
+
+Goal: <one outcome sentence resolving the Pain>
 
 Context:
 - <framing fact: what this is, which structure to keep>
@@ -84,6 +102,7 @@ Verification required before completion:
 - Smoke: <real entrypoint run and what it shows>. Do not replace it with <fake substitute>.
 
 Completion criteria:
+- The Pain is gone, as observed through the real UI or entrypoint -> <Verification line>.
 - <checkable outcome -> which verification line (layer) shows it>
 - <negative criterion: no secret printed, no fake substitute used>
 
