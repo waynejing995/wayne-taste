@@ -21,7 +21,7 @@ Start every brief with the `Pain:` section in [_shared/task-prompt.md](../../_sh
 
 For any task changing user-facing UI, interaction, or copy, include the [UI flow](../../_shared/task-prompt.md#ui-flow) in `Tasks:` and require its comparison table and review resolutions in RESULT.
 
-Execution subagents (in every brief and in coordinator `task` calls) use the default/`task` model. The only exception is the Gemini design and review steps of the UI flow, which use the exact Gemini selector given there. Never switch to Opus unless Wayne explicitly authorizes it. If a model fails, report and ask; do not justify an upgrade.
+Execution subagents (in every brief and in coordinator `task` calls) use the default/`task` model. The only exception is the Gemini design and review steps of the UI flow, which use the exact Gemini selector given there. An execution subagent never picks or switches to Opus unless Wayne explicitly authorizes it; if a model fails, report and ask, and do not justify an upgrade. Review agents (the code-review, plan, and spec review voices) keep their own configured model, even when it resolves to Opus.
 
 | Work                                         | Skill                         |
 | -------------------------------------------- | ----------------------------- |
@@ -50,6 +50,8 @@ When the brief pushes to a public remote, put these in the brief as hard rules, 
 ## Launch
 
 Write the brief to a file first. For a remote host, run `ssh <host> mkdir -p <state>/runs/<topic>`, then `scp -q` the file there as `brief.md`. Run `export PATH=$HOME/.local/bin:$HOME/.bun/bin:$PATH` in every ssh command.
+
+Every new task gets its own new worktree, and the session starts there. Never launch it in a shared repository root (the repository's main checkout): that root holds other branches and Wayne's uncommitted work, and omp's `isolated` subagents build their worktrees from the session directory and apply back into it, so a shared root makes `wayne-work` fall back to serial units. Create it on the task's host with `omp worktree add -C <repo> -b <task-branch> ~/checkouts/<topic> <base-ref>` (the base is the PR's target branch, fetched first). Use `ovnfs new --name <topic>` instead only when the task must start from uncommitted state. A follow-up on an existing PR reuses that PR's worktree. Pass the worktree path as `<dir>` below.
 
 Every omp launch carries `WAYNE_AGENT_WATCH=<name>` and `WAYNE_AGENT_RESULT=<deliverable>`. Below, `ENV` means those two assignments. The watch is the omp session (host + session id); the pane is only where it runs now. The reporter runs in every root omp session in a mux pane and ignores nested `omp -p` runs and subagents, so a session launched without `ENV` can still be adopted with `agent add --result`.
 

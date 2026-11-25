@@ -21,7 +21,7 @@ Select one route from observable evidence, write the prompt for that route, and 
 | The user wants to resume earlier work | `wayne-checkpoint` | next-step prompt (resume) |
 | The user wants to understand an unfamiliar repository | `wayne-codebase-report` | next-step prompt |
 | The user wants a long autonomous run on Codex | `wayne-goal-prompt` | next-step prompt |
-| The user wants the work to run in its own tern/herdr/tmux session | `delegate-agent-session` | next-step prompt |
+| The user wants the work to run in its own tern/herdr/tmux session | `wayne-inbox` [references/delegate.md](../wayne-inbox/references/delegate.md) | next-step prompt |
 | none match | — | one question |
 
 The quick lane and the pipeline routes are exclusive. Do not take the quick lane if the change touches a shared interface, a schema, or a migration, or if it alters what code that deletes data, deploys, publishes, or migrates will do. File count does not decide this: a one-line change to a deletion script is irreversible once it runs, and a quick prompt carries no plan to catch that.
