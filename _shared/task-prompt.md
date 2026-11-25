@@ -33,7 +33,7 @@ For any task that changes user-facing UI, interaction, or copy, `Tasks:` must re
 3. **Gemini review.** A Gemini subagent reviews the merged design's interaction and copy (flow, states, feedback, wording, and what the user sees at each step); the main model adopts each point or rejects it with a reason.
 4. **Implement.** Only after step 3 does implementation start, through the executor's normal build path (for example `wayne-work` units).
 
-Gemini subagent: pass the exact selector as the `task` call's `model`, never a role name. Each host's selector is listed in `~/.wayne/CONTEXT.md`. A role can carry a `retry.fallbackChains` entry that falls back to Opus, so a role is not enough. If the Gemini call fails, report it and ask; do not rerun it on another model. Never use Opus unless Wayne authorizes it.
+Gemini subagent: use Gemini 4 Neon (`gemini-4-neon`), not Carbon or another Gemini, and pass its exact selector as the `task` call's `model`, never a role name. Each host's selector is listed in `~/.wayne/CONTEXT.md`. A role can carry a `retry.fallbackChains` entry that falls back to Opus, so a role is not enough. If the Gemini call fails, report it and ask; do not rerun it on another model. Never use Opus unless Wayne authorizes it.
 
 ## Test bar
 

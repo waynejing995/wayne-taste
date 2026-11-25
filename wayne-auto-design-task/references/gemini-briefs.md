@@ -6,7 +6,8 @@ Load this reference before dispatching the Gemini subagent in Node C (Proposal B
 
 Pass the exact model selector in the `task` call's `model` parameter. Never pass a role name, because roles can carry `retry.fallbackChains` that fall back to Opus.
 
-- Every host: the selector listed for that host in `~/.wayne/CONTEXT.md`
+- Model: Gemini 4 Neon (`gemini-4-neon`), Wayne's preferred Gemini for design and review. Do not use Carbon or another Gemini as a substitute.
+- Every host: the exact Neon selector listed for that host in `~/.wayne/CONTEXT.md`
 
 Keep the Gemini subagent read-only (no repository edits). If the Gemini call fails, report the failure to Wayne and ask. Never rerun it on another model, never use Opus, and never continue with only one proposal.
 
