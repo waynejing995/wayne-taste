@@ -1,6 +1,6 @@
 # Fusion table and decision-record template
 
-Load this reference when writing `$STATE/runs/<topic>/fusion.md` in Node D (and updating it with Node R resolutions).
+Load this reference when writing `$STATE/runs/<topic>/fusion.md` in Node D (and updating it with Node R resolutions). `fusion.md` records how the two proposals were compared and chosen. The design itself is `design.md` (SKILL.md Node D), and this table feeds its `## Alternatives considered` and `## Decisions`.
 
 ## `fusion.md` template
 

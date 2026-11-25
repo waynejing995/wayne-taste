@@ -113,10 +113,13 @@ flowchart TB
     X["Record scope conflict"]
     Q["Ask for the environment recipe"]
     QD{"Every environment item confirmed?"}
+    QC{"Invoked by wayne-auto-design-task?"}
+    RU(["Return unconfirmed items to caller"])
     PB{"Save a blocked matrix?"}
     F["Draft locked E scenarios"]
     G{"Coverage and isolation pass?"}
     R["Repair one gap"]
+    HC{"Invoked by wayne-auto-design-task?"}
     H{"User approves matrix?"}
     I{"Scope conflict unresolved?"}
     J{"Nested design caller?"}
@@ -129,14 +132,18 @@ flowchart TB
     E -->|"yes"| Q
     X --> Q
     Q --> QD
-    QD -->|"no"| PB
+    QD -->|"no"| QC
+    QC -->|"yes"| RU
+    QC -->|"no"| PB
     PB -->|"yes"| K
     PB -->|"no"| S
     QD -->|"yes"| F
     F --> G
     G -->|"no"| R
     R --> B
-    G -->|"yes"| H
+    G -->|"yes"| HC
+    HC -->|"yes"| I
+    HC -->|"no"| H
     H -->|"no"| S
     H -->|"yes"| I
     I -->|"yes"| K
@@ -175,7 +182,7 @@ flowchart TB
 
 ### Q. Ask for the environment recipe
 
-Ask every run, before drafting any E `Given`, even when the repository looks self-explanatory. This question is mandatory and it precedes approval.
+Ask every run, before drafting any E `Given`, even when the repository looks self-explanatory. This question is mandatory and it precedes approval. The one exception is a run invoked by `wayne-auto-design-task` (below).
 
 - Read the repository first and propose concrete defaults, then ask exactly this: **"I found the following environment recipe. Confirm or correct every item — I cannot write the matrix until you do."** A README, Makefile, `docker-compose.yml`, or CI job is a candidate, never an answer: it is routinely stale, and a start command that was true for CI is the exact failure this node exists to prevent.
 - Cover, in this order, because a later item is worthless without the earlier one:
@@ -189,6 +196,7 @@ Ask every run, before drafting any E `Given`, even when the repository looks sel
   8. the teardown command, and the check proving the port, process, or resource is free again.
 - Record the answers once in the matrix's `## Environment` section, then restate the relevant facts literally in every E `Given`. When a runtime exists only at a fixed host, port, database, cwd, or main worktree, pin that location; naming only the start command is insufficient.
 - An unconfirmed item is a red card. Never guess a command to keep moving, and never proceed to `F` on a partial answer: present the missing items, ask whether to save a blocked matrix recording them, and stop without a plan handoff.
+- **Invoked by `wayne-auto-design-task`.** Do not ask. Take each item from `~/.wayne/CONTEXT.md`, the task context file, an earlier approved matrix for the same repository, or the repository's own docs, and cite the source on the item in `## Environment`. An item that comes only from repository docs (README, Makefile, compose, CI) counts once the caller has run it and seen its readiness signal or exit status; record that run. A docs-only command that writes data (a migration, seed, or reset) or reaches anything outside the task's checkout is never run for this: it stays unconfirmed. Any item still unconfirmed goes back to the caller as a list, and the caller asks Wayne in its single question. Do not guess it, and do not proceed to `F` without it.
 
 ### F. Draft locked E scenarios
 
@@ -213,6 +221,6 @@ Summarize requirement-to-proof coverage in any compact, readable form. Use AI re
 
 ### H/I/J. Approve and route
 
-- Present the rules and their scenarios, the U-SEED rows, the dimensions kept, the challengeable omissions, the proof conflicts, and the confirmed environment recipe. Write only after approval.
+- Present the rules and their scenarios, the U-SEED rows, the dimensions kept, the challengeable omissions, the proof conflicts, and the confirmed environment recipe. Write only after approval. When invoked by `wayne-auto-design-task`, there is no user approval: write the matrix once the G cross-check passes, and say on its first line that it was written in that caller mode.
 - An unresolved scope conflict produces a blocked matrix and stops without a plan handoff.
-- When invoked by `wayne-mind-explode` or `wayne-plan`, return the written matrix to that caller so it can reference the SSoT; do not auto-advance. Only a standalone, unblocked run emits a return-only handoff to `wayne-plan`. Never plan, implement, or run it here.
+- When invoked by `wayne-mind-explode`, `wayne-plan`, or `wayne-auto-design-task`, return the written matrix (or the list of unconfirmed environment items) to that caller so it can reference the SSoT; do not auto-advance. Only a standalone, unblocked run emits a return-only handoff to `wayne-plan`. Never plan, implement, or run it here.

@@ -4,11 +4,11 @@ Use this protocol for the independent design review after drafting. The [source-
 
 A plan can satisfy every requirement and every decision and still build a different system — state under a different owner, a seam in a different place, a flow that skips a component the spec's diagram routes through. The obligations survive; the architecture does not. That drift is invisible to the other two voices by construction: one checks clauses, the other judges the plan as written.
 
-Read the living spec, the decision log, and the plan. The spec's diagrams, interface blocks, ownership statements, and technology constraints are the design; the plan is a claim about how it will be built. Compare them.
+Read the living spec (or the `wayne-auto-design-task` `design.md` that is the plan's origin), the decision log, and the plan. The spec's diagrams, interface blocks, ownership statements, and technology constraints are the design; the plan is a claim about how it will be built. Compare them.
 
 ## When this voice does not apply
 
-This review needs a design to compare the plan against. When the plan's origin is a converged direct request with no living spec, there is nothing to compare and this voice does not run — do not promote the request's own prose into a substitute design and then check the plan against it, which only confirms the plan agrees with itself.
+This review needs a design to compare the plan against. When the plan's origin is a converged direct request with no living spec and no auto-design `design.md`, there is nothing to compare and this voice does not run — do not promote the request's own prose into a substitute design and then check the plan against it, which only confirms the plan agrees with itself.
 
 That is a declared not-applicable, never a silent omission and never a downgraded review: the plan records `Design conformance: none — <reason>` so a reader can challenge whether the origin really had no design surface. A missing or failed execution of an applicable voice is a different thing and returns `REVIEW_UNAVAILABLE`.
 

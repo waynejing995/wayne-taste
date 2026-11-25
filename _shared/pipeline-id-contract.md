@@ -9,7 +9,7 @@ This file is the single owner of identifiers exchanged between Wayne stages. Pro
 | `N<number>` | `wayne-mind-explode` | decision-DAG node |
 | `D<number>` | `wayne-mind-explode` | durable decision-log row |
 | `F<number>` | design/code review owner | review finding; never a requirement |
-| `R<number>` | approved spec/test design | product requirement |
+| `R<number>` | approved spec / `wayne-auto-design-task` `design.md` / test design | product requirement |
 | `S<number>` | `wayne-test-design` | provisional U-SEED row |
 | `I<number>` | `wayne-plan` | implementation unit |
 | `U<number>` | `wayne-plan` | unit/integration test row |
@@ -116,7 +116,7 @@ Compatibility is read-only. No downstream stage may rewrite an upstream decision
 | Artifact / field | Sole writer | Lifecycle |
 | --- | --- | --- |
 | decision-log records, DAG, `meta.status` | `wayne-mind-explode` | `in-progress` → `design-approved`; downstream read-only |
-| spec requirements `R<number>` | `wayne-mind-explode` / approved product-design stage | authored in the spec's bounded `## Requirements` section; frozen before test design and planning |
+| spec requirements `R<number>` | `wayne-mind-explode` / approved product-design stage / `wayne-auto-design-task` (its run-scoped `design.md`) | authored in the spec's (or `design.md`'s) bounded `## Requirements` section; frozen before test design and planning |
 | U-SEED definitions and seed Status | `wayne-test-design` | authored as `S<number>` + `☐`; downstream preserves source bytes |
 | authoritative E table | `wayne-test-design` | lives in one run-scoped matrix under `<state>/runs/<topic>/` as `E<number>` rows |
 | authoritative E Status | `wayne-verify` | test design initializes `⬜`; Verify alone changes the authoritative matrix to `✅/❌` |

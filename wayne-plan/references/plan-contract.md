@@ -39,11 +39,11 @@ title: <non-empty title>
 type: <feat|fix|refactor>
 status: active
 date: YYYY-MM-DD
-origin: <repo-relative spec path or none — converged direct request>
+origin: <repo-relative spec path, absolute <state>/runs/<topic>/design.md path from wayne-auto-design-task, or none — converged direct request>
 decisions: <absolute <state>/runs/<topic>/decision-log.jsonl path or none — no decision log exists>
 ```
 
-The filename and metadata must agree in meaning. Spec paths stay repository-relative; decision-log and matrix paths are absolute `<state>` paths. Status remains `active` while drafting; one valid independent review round, adjudicated with its revisions applied, authorizes `approved` without a further user approval. `wayne-work` accepts only an approved plan. Metadata order and YAML surface style are not correctness requirements.
+The filename and metadata must agree in meaning. Spec paths stay repository-relative; an auto-design `design.md`, decision-log, and matrix paths are absolute `<state>` paths. Status remains `active` while drafting; one valid independent review round, adjudicated with its revisions applied, authorizes `approved` without a further user approval. `wayne-work` accepts only an approved plan. Metadata order and YAML surface style are not correctness requirements.
 
 ## 3. Required plan information
 
@@ -131,7 +131,7 @@ Independent AI reviews own acceptance:
 
 - source-fidelity reads every upstream artifact and the repository evidence, then checks requirements, decisions, scope, rationale, E ownership, seed disposition, and semantic equivalence in both directions;
 - execution-readiness checks unit closure, dependencies, interfaces, real files and symbols, cleanup, U ownership, E advancement, risks, and whether a fresh executor can work without inventing a decision;
-- design-conformance checks that the plan builds the approved architecture: component realization, state ownership, interface signatures, flow order, carried technology constraints, and whether every deviation from a named spec surface is declared. It applies only when a living spec exists to compare against; otherwise the plan records `Design conformance: none — <reason>` and two voices run. A declared not-applicable voice is not a downgrade; a silently omitted one is.
+- design-conformance checks that the plan builds the approved architecture: component realization, state ownership, interface signatures, flow order, carried technology constraints, and whether every deviation from a named spec surface is declared. It applies when a living spec or a `wayne-auto-design-task` `design.md` exists to compare against; otherwise the plan records `Design conformance: none — <reason>` and two voices run. A declared not-applicable voice is not a downgrade; a silently omitted one is.
 
 Every review compares the recorded starting commit/status, agent write history, and final Git diff before checkpoint handoff. The repository must not change during plan authoring; the plan lives under `<state>/plans/` and is not a git artifact. `wayne-checkpoint` later owns its own artifacts under `<state>/checkpoints/`. A required change to a source artifact or unrelated file means the plan input or scope is incomplete: stop and ask the user. Do not recursively scan repository contents, open unrelated files, or require permission repair to prove scope.
 
