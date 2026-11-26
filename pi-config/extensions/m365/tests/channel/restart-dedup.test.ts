@@ -50,6 +50,8 @@ type Harness = {
 	holdHandoff(p: Promise<void>): void;
 	holdSend(p: Promise<void>): void;
 	failHandoff(n: number): void;
+	onHandoff(fn: (() => void) | undefined): void;
+	nextSendId(id: string): void;
 	handoffStarted(): Promise<void>;
 	sendStarted(): Promise<void>;
 };
@@ -78,6 +80,8 @@ function setup() {
 	let holdHandoff: Promise<void> | undefined;
 	let holdSend: Promise<void> | undefined;
 	let handoffFail = 0;
+	let onHandoff: (() => void) | undefined;
+	let nextSendId: string | undefined;
 	const handoffStarted = Promise.withResolvers<void>();
 	const sendStarted = Promise.withResolvers<void>();
 	let idle = true;
@@ -98,7 +102,8 @@ function setup() {
 			reacts.push(opts?.replyTo !== undefined ? { messageId, type, replyTo: opts.replyTo } : { messageId, type });
 		},
 		send: async (target: SendTarget, message: string, _h: boolean, _m: unknown, _i: unknown, card?: unknown) => {
-			const id = String(20000 + sends.length + 1);
+			const id = nextSendId ?? String(20000 + sends.length + 1);
+			nextSendId = undefined;
 			sends.push({ target, message, card });
 			if (target.kind === "channel") {
 				const text = message.trim() ? message : "card";
@@ -122,6 +127,7 @@ function setup() {
 			turnEvents: true,
 			sendMessage: async () => {},
 			sendUserMessage: async (text: string, options: { deliverAs: string } | undefined, meta: { chatId: string; policy: string }) => {
+				onHandoff?.();
 				if (handoffFail > 0) { handoffFail--; throw new Error("synthetic handoff failure"); }
 				prompts.push({ text, options, meta });
 				handoffStarted.resolve();
@@ -155,6 +161,8 @@ function setup() {
 		holdHandoff: (p: Promise<void>) => { holdHandoff = p; },
 		holdSend: (p: Promise<void>) => { holdSend = p; },
 		failHandoff: (n: number) => { handoffFail = n; },
+		onHandoff: (fn: (() => void) | undefined) => { onHandoff = fn; },
+		nextSendId: (id: string) => { nextSendId = id; },
 		handoffStarted: () => handoffStarted.promise,
 		sendStarted: () => sendStarted.promise,
 	};
@@ -279,4 +287,64 @@ test("redelivered hand-off throw keeps the marked command so the next poll retri
 	expect(s.prompts[0].text).toContain("please restart me");
 	expect(s.prompts[0].text).toContain("(re-delivered after a restart: check the thread before repeating side effects)");
 	expect(s.reacts).toEqual([]);
+});
+
+test("restart keeps unread instructions below answered awaiting ids", async () => {
+	const s = setup();
+	s.stream.push(raw("100", "old note"));
+	await s.start("personal");
+	s.stream.push(raw("101", "first A instruction"));
+	s.stream.push(raw("102", "pending B instruction"));
+	s.stream.push(raw("103", "second A instruction", ME, { rootMessageId: "101" }));
+	const tmp = `${cursorPath(s.key)}.${process.pid}.tmp`;
+	s.onHandoff(() => mkdirSync(tmp));
+	await s.tick();
+	s.onHandoff(undefined);
+	rmSync(tmp, { recursive: true });
+	expect(s.prompts).toHaveLength(1);
+	expect(s.prompts[0].text).toContain("first A instruction");
+	expect(s.prompts[0].text).toContain("second A instruction");
+	expect(s.cursor()?.watermark).toBe("100");
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101", "103"] });
+
+	s.teams.noteAssistantText("A is answered.");
+	s.teams.turnEnded();
+	s.nextSendId("104");
+	s.holdSend(new Promise(() => {}));
+	void s.teams.replyToSelf(s.ctx);
+	await s.sendStarted();
+	expect(s.sends).toHaveLength(1);
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101", "103"] });
+
+	const before = s.prompts.length;
+	await s.restart("personal");
+	expect(s.cursor()?.watermark).toBe("100");
+	expect(s.cursor()?.done).toEqual(["101", "103"]);
+	expect(s.cursor()?.awaiting).toEqual({});
+	let watermarkAtHandoff: string | undefined;
+	s.onHandoff(() => { watermarkAtHandoff = s.cursor()?.watermark; });
+	await s.tick();
+	expect(s.prompts.slice(before)).toHaveLength(1);
+	expect(s.prompts[before].text).toContain("pending B instruction");
+	expect(BigInt(watermarkAtHandoff!)).toBeLessThan(102n);
+});
+
+test("failed first hand-off retries even when removing awaiting fails", async () => {
+	const s = setup();
+	s.stream.push(raw("100", "old note"));
+	await s.start("personal");
+	s.stream.push(raw("101", "retry this instruction"));
+	const tmp = `${cursorPath(s.key)}.${process.pid}.tmp`;
+	s.onHandoff(() => mkdirSync(tmp));
+	s.failHandoff(1);
+	await s.tick();
+	s.onHandoff(undefined);
+	expect(s.prompts).toHaveLength(0);
+	expect(s.cursor()?.watermark).toBe("100");
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+	rmSync(tmp, { recursive: true });
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	expect(s.prompts[0].text).toContain("retry this instruction");
+	expect(s.cursor()?.watermark).toBe("101");
 });

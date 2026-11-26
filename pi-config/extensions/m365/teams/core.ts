@@ -900,7 +900,7 @@ export function createTeams(pi: TeamsHost) {
 	 * One channel watch's poll: its plan of deliveries. Pages are followed until one reaches the watermark or the
 	 * stream ends; a read that passes CHANNEL_PAGE_BUDGET pages without reaching it throws, naming the backlog, and
 	 * the caller plans and marks nothing. Events are the items above the watermark that are neither done, in flight,
-	 * nor awaiting (a pending awaiting id is never delivered twice by the poll).
+	 * nor awaiting, except a failed hand-off in retry.
 	 */
 	async function readChannelPlan(w: WatchState, cursor: CursorFile): Promise<{ entries: DeliveryEntry[]; skipped: string[]; bind: Record<string, string>; rebound: Record<string, string> }> {
 		await reverifyPersonal(w);
@@ -925,7 +925,7 @@ export function createTeams(pi: TeamsHost) {
 		for (const m of raws) {
 			const id = String(m.id ?? "");
 			if (compareIds(id, cursor.watermark) <= 0) continue;
-			if (cursor.done.includes(id) || w.inflight.has(id) || awaited.has(id)) continue;
+			if (cursor.done.includes(id) || w.inflight.has(id) || (awaited.has(id) && !w.retry.has(id))) continue;
 			const event = toChannelEvent(m, w.myOid ?? "");
 			if (event) events.push(event);
 		}
@@ -1174,7 +1174,11 @@ export function createTeams(pi: TeamsHost) {
 			}
 			const present = ids.filter((id) => found.has(id));
 			const answered = present.filter((id) => mine !== "" && scanned.some((e) => e.threadId === threadId && e.agentEcho && e.authorOid === mine && compareIds(e.id, id) > 0));
-			if (answered.length) updateCursor(w.key, (c) => markDone(withoutAwaiting(c, threadId, answered), [...w.inflight, ...w.retry], answered));
+			// The stream has not been polled yet: unread ids may precede these answers.
+			if (answered.length) updateCursor(w.key, (c) => ({
+				...withoutAwaiting(c, threadId, answered),
+				done: [...new Set([...c.done, ...answered])].filter((id) => compareIds(id, c.watermark) > 0).sort(compareIds),
+			}));
 			const pending = present.filter((id) => !answered.includes(id));
 			if (pending.length === 0) continue;
 			const events = pending.flatMap((id) => { const e = found.get(id); return e ? [e] : []; });
