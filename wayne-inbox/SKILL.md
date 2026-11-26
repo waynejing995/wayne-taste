@@ -21,6 +21,7 @@ Facts (endpoints, decisions by anyone, who owes what) live in `~/.wayne/inbox/fa
    | Reply or relay a question | you, now |
    | A live session already owns the topic (`$I agent ls`) | that session: send it the card |
    | Only Wayne can decide | Wayne: `$I ask` |
+   | A reply in a personal-channel thread bound to another owner (relay card) | that owner: relay it; for `inbox:<id>` treat it as Wayne's answer to that row |
 
 2. **Claim it** when someone else has it: `$I set <id> --state claimed --owner <session>`.
 3. **Close it** only when it is really finished: `$I done <id> --note <outcome>`. Delegated work is finished when you have checked its RESULT at the source, not when you hand it off.
@@ -51,6 +52,8 @@ $I then-done <id> <n> [--note <why>]
 
 The `teams-digest` job reads every active Teams chat and adds `ask-wayne` rows. Standing facts go to `facts.md`, not the ledger.
 
+A row that has a thread carries `thread <root id>` in its note; `$I done` on it is followed by ✅ on the thread root.
+
 ## Watching
 
 - PR: add its number to the repo's rules in `~/.wayne/inbox/rules.yaml`.
@@ -60,10 +63,26 @@ The `teams-digest` job reads every active Teams chat and adds `ask-wayne` rows. 
 - In omp or pi: `/inbox watch` (cards come here), `/inbox stop`, `/inbox status`, `/inbox setup`.
 - Recurring work: `$I schedule add …` (shell, prompt or `teams_read` job; see `references/internals.md`). Jobs run while an omp or pi session with the m365 plugin is open.
 
+## The personal channel
+
+- The personal channel (private, only Wayne is a member; `mode: personal` under `teams_watch.channels` in `~/.wayne/inbox/rules.yaml`) is the primary command center. The self-chat keeps working for old habits.
+- One thread = one workstream. A root post or a forwarded email opens one; every follow-up, question and result stays as a reply in that thread (`teams_send target=channel reply_to=<root>`). Never answer a thread's question in another thread or in the self-chat.
+- When you open a topic yourself (alert, PR ready to merge, `ask-wayne`, daily retro, weekly report, reviewer scorecard), post one root per topic with a short `subject` and `bind` its owner:
+  - `bind: "inbox:<row id>"` for an inbox row (the reply in that thread answers the row);
+  - `bind: "agent:<name>"` for a watched agent session (`$I agent ls` names);
+  - omit `bind` when this session owns it.
+  Record the root id on the row: `$I set <id> --note "thread <root id>"`.
+- A relay card (a reply in a thread bound to another owner) is routed, not done here: send it to that session (`$I agent` relay) or close the bound row with Wayne's answer, then react ✅ on his reply.
+- A decision Wayne answers at the desk (in a terminal pane) gets one reply in its thread, `answered at desk: <choice>`, so the phone never shows a stale question.
+- Mobile-readable answers: inline PNG (`images`) plus a 2-4 line summary; no internal-only links as the only content.
+- Finished workstream: final result card in the thread, then ✅ on the root.
+- An email-forwarded thread is material to triage: summarise it and draft a reply in the thread; act only on Wayne's own reply there.
+- Shared chats and shared channels: answer where the work was asked. A private decision or approval needed from Wayne becomes a new root in the personal channel that links the source and binds the owner.
+
 ## After a restart
 
 1. `/inbox watch`. Pushed agent sessions resume from their cursor: events missed while no session delivered arrive once.
-2. For each chat in `teams_watch` of `~/.wayne/inbox/rules.yaml`: `teams_watch` with `action: start`, its `chat_id` and `policy` (`interval_sec` on the first call).
+2. For each chat in `teams_watch.chats` and each channel in `teams_watch.channels` of `~/.wayne/inbox/rules.yaml`: `teams_watch` with `action: start` and its `chat_id` (chats) or `team_id` + `channel_id` (channels) and `policy` (`interval_sec` on the first call). Channel and chat watches resume from their cursor files under `~/.wayne/inbox/cursors/`, with restart reply-dedup checking the thread before redelivering `awaiting` instructions (residual edges: a reply Graph accepted before appearing in the stream can replay once, and chat/self-chat backlog over 20 messages carries a gap note per D13). A channel whose personal check fails starts as shared and says so; report it to Wayne, do not retry blindly.
 3. Report what is watched. Never invent chats or policies.
 
 Your standing card note: `~/.wayne/inbox/card-note.md` (copy `templates/card-note.md`, or update an older copy to match while keeping any local edits); the plugin says it on every card.
