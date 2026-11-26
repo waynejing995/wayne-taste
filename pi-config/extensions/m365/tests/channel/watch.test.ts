@@ -350,6 +350,18 @@ test("U26: mode personal verifies the channel and list says personal (verified)"
 	expect(s.counts().membersCalls).toBe(1);
 });
 
+test("personal start text names every message as instruction; shared keeps the omp: prefix", async () => {
+	const personal = setup();
+	const p = await personal.start("personal");
+	expect(p).toContain("Every message you write here");
+	expect(p).not.toContain('starting with "omp:"');
+
+	const shared = setup();
+	const s = await shared.start();
+	expect(s).toContain('starting with "omp:"');
+	expect(s).not.toContain("Every message you write here");
+});
+
 test("U27: a refused personal mode starts shared, warns once, and the start result and list both name the refusal", async () => {
 	const s1 = setup({ members: async () => ({ membershipType: "standard", memberOids: [OID] }) });
 	const t1 = await s1.start("personal");

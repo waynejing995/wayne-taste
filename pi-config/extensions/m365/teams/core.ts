@@ -1219,7 +1219,9 @@ export function createTeams(pi: TeamsHost) {
 		}
 		// After the watch runs: saving the resume list never decides whether it runs.
 		const warn = save ? rememberChannelWatch({ channel: addr.label, team_id: addr.teamId, channel_id: addr.channelId, mode: state.configuredMode, policy: state.policy }) : "";
-		const commands = ` The user's own messages starting with "omp:" or "pi:" are sent to the agent as their instructions.`;
+		const commands = state.mode === "personal"
+			? ` Every message you write here (except email posts) reaches the agent as your instruction; each thread is its own task.`
+			: ` The user's own messages starting with "omp:" or "pi:" are sent to the agent as their instructions.`;
 		const modeNote = state.mode === "personal"
 			? ` Mode: personal (verified): every message the user posts here is their instruction.`
 			: state.refused !== undefined
