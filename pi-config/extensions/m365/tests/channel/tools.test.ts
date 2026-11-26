@@ -181,6 +181,23 @@ describe("teams_read channel", () => {
 		expect(one).toBeLessThan(two);
 	});
 
+	test("U5: a thread reply with a reaction prints reactions under that reply", async () => {
+		const ROOT = "1700000000001";
+		const { backend } = fakeGraph((path) => {
+			if (path === BASE) return { json: CHANNEL_JSON };
+			if (path === `${BASE}/messages/${ROOT}`) return { json: msg(ROOT, "2026-11-26T08:00:00Z", "Root text") };
+			if (path === `${BASE}/messages/${ROOT}/replies?$top=50`)
+				return { json: { value: [msg("1700000000002", "2026-11-26T08:10:00Z", "Reply with a reaction", { reactions: [{ reactionType: "👍" }] })] } };
+			return undefined;
+		});
+		const call = teamsTools(backend);
+		const out = await call("teams_read", { target: "channel", team_id: TEAM, channel_id: CHANNEL, message_id: ROOT });
+		const reply = out.indexOf("(id: 1700000000002, reply_to: 1700000000001)");
+		const reactions = out.indexOf("reactions: 👍 1");
+		expect(reply).toBeGreaterThan(-1);
+		expect(reactions).toBeGreaterThan(reply);
+	});
+
 	test("U6: a read with neither ids nor names, or until without since, throws before any request", async () => {
 		const { seen, backend } = fakeGraph(DIRECTORY);
 		const call = teamsTools(backend);

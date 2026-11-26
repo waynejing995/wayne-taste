@@ -1848,7 +1848,9 @@ export function createTeams(pi: TeamsHost) {
 		const { roots } = await backend.channelRoots(addr, params.limit ?? HISTORY_MESSAGES);
 		const lines = roots.map(({ root, replyCount }) => {
 			const subject = root.subject ? ` ${root.subject}` : "";
-			return `[${formatLocal(root.at)}] (id: ${root.id ?? ""}) ${root.mine ? "me" : root.sender}${subject} (${replyCount} replies): ${root.text}`;
+			const head = `[${formatLocal(root.at)}] (id: ${root.id ?? ""}) ${root.mine ? "me" : root.sender}${subject} (${replyCount} replies): ${root.text}`;
+			const reactions = reactionLine(root.reactions);
+			return [head, ...(reactions ? [`    reactions: ${reactions}`] : [])].join("\n");
 		});
 		return channelContent(`${label} — ${roots.length} root(s)`, lines, roots.map((r) => r.root), params.images);
 	}
@@ -1859,7 +1861,8 @@ export function createTeams(pi: TeamsHost) {
 		const id = replyTo ? `id: ${m.id ?? ""}, reply_to: ${replyTo}` : `id: ${m.id ?? ""}`;
 		const head = `[${formatLocal(m.at)}] (${id}) ${who}: ${m.text}`;
 		const files = (m.files ?? []).map((f) => `    \u{1f4ce} file: ${f.name}\n       url: ${f.url}`);
-		return [head, ...files].join("\n");
+		const reactions = reactionLine(m.reactions);
+		return [head, ...files, ...(reactions ? [`    reactions: ${reactions}`] : [])].join("\n");
 	}
 
 	/** The result of a channel read: its header and lines, then the pictures of its messages, as a chat read attaches them. */
