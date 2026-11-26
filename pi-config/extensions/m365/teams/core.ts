@@ -1641,7 +1641,6 @@ export function createTeams(pi: TeamsHost) {
 	async function loadRecent(target: SendTarget, limit: number, since?: string, until?: string): Promise<HistoryMessage[]> {
 		if (target.kind === "self") return (await readSelfChat("", since === undefined ? limit : Number.POSITIVE_INFINITY, since, until)).map(selfLine);
 		if (target.kind === "channel") {
-			if (since !== undefined || until !== undefined) throw new Error("reading a channel by time is not supported yet; read the newest roots with `limit`");
 			const addr = await backend.resolveChannel({ teamId: target.teamId, channelId: target.channelId, team: target.team, channel: target.channel });
 			if (target.replyTo !== undefined) return (await backend.channelThread(addr, target.replyTo)).messages;
 			return (await backend.channelRoots(addr, limit)).roots.map((r) => r.root);
@@ -1857,7 +1856,11 @@ export function createTeams(pi: TeamsHost) {
 		message_id?: string;
 		limit?: number;
 		images?: boolean;
+		since?: string;
+		until?: string;
 	}) {
+		if (params.since !== undefined || params.until !== undefined)
+			throw new Error("reading a channel by time is not supported; read the newest roots with `limit`");
 		if (!params.team_id && !params.team) throw new Error("target='channel' requires 'team_id' (preferred) or 'team'");
 		if (!params.channel_id && !params.channel) throw new Error("target='channel' requires 'channel_id' (preferred) or 'channel'");
 		const addr = await backend.resolveChannel({ teamId: params.team_id, channelId: params.channel_id, team: params.team, channel: params.channel });

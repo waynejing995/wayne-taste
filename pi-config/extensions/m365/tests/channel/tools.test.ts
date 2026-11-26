@@ -203,6 +203,7 @@ describe("teams_read channel", () => {
 		const call = teamsTools(backend);
 		await expect(call("teams_read", { target: "channel" })).rejects.toThrow();
 		await expect(call("teams_read", { target: "channel", team_id: TEAM, channel_id: CHANNEL, until: "2026-11-26 09:00" })).rejects.toThrow("`until` needs `since`");
+		await expect(call("teams_read", { target: "channel", team_id: TEAM, channel_id: CHANNEL, since: "2026-11-26 08:00" })).rejects.toThrow("reading a channel by time is not supported; read the newest roots with `limit`");
 		expect(seen).toHaveLength(0);
 	});
 

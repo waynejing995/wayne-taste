@@ -264,15 +264,7 @@ export class ScriptBackend implements Backend {
 		if (target.kind === "self") args.push("--self");
 		else if (target.kind === "chat")
 			args.push(...(target.id ? ["--chat-id", target.id] : ["--chat", target.chat]));
-		else {
-			if (target.teamId !== undefined || target.channelId !== undefined || target.subject !== undefined || target.replyTo !== undefined) {
-				throw new Error(CHANNEL_NEEDS_GRAPH);
-			}
-			if (!target.team || !target.channel) {
-				throw new Error("a channel send needs team and channel names");
-			}
-			args.push("--team", target.team, "--channel", target.channel);
-		}
+		else throw new Error(CHANNEL_NEEDS_GRAPH);
 		args.push("-m", message);
 		if (html) args.push("--html");
 		await this.run(args);

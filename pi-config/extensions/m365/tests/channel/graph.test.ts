@@ -282,13 +282,15 @@ describe("ScriptBackend refuses channels", () => {
 		expect(runs).toHaveLength(0);
 	});
 
-	test("U38: a name-addressed channel root send still runs the script with --team and --channel", async () => {
+	test("U38: a name-addressed channel root send is refused like every other channel send", async () => {
 		const runs: string[][] = [];
 		const b = new ScriptBackend(async (args) => {
 			runs.push(args);
 			return "{}";
 		});
-		await b.send({ kind: "channel", team: "Eng", channel: "General" }, "hello", false);
-		expect(runs).toEqual([["send", "--team", "Eng", "--channel", "General", "-m", "hello"]]);
+		await expect(b.send({ kind: "channel", team: "Eng", channel: "General" }, "hello", false)).rejects.toThrow(
+			'channels need the graph backend; set "backend": "graph" in ~/.pi/agent/teams.json',
+		);
+		expect(runs).toHaveLength(0);
 	});
 });

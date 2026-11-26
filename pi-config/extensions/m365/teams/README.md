@@ -213,8 +213,14 @@ notes are prompts, not cards, and stay instructions exactly as written.
   the block early and speak as the card. Self-chat notes are wrapped the same
   way, since they may hold pasted text; only `omp:`/`pi:` notes reach the agent
   as your instructions, headed `[Teams self-chat instruction]`.
-- **History is not news.** Starting a watch sets a baseline at the newest message
-  already there.
+- **Baseline only without a cursor file.** Starting a watch takes a baseline at
+  the newest message already there only when no cursor file exists. Afterwards
+  chat, self-chat and channel watches resume from
+  `~/.wayne/inbox/cursors/teams-<sha1>.json` (watermark and done ids;
+  `WAYNE_INBOX_DIR` overrides the inbox root), so messages posted while no
+  session watched are delivered on the next start — restart and hot-deploy
+  safety. Chats are bounded to the newest 20 with the gap note; channels page
+  back to the watermark, up to 50 pages.
 - **Bursts.** If all 20 messages read are new, the card says older ones may be
   missing; `teams_read` has them.
 - **One watcher per chat.** A chat is watched by at most one session on this
@@ -278,7 +284,7 @@ Prefer `team_id` and `channel_id` from `teams_channels`: addressing by `team` an
 
 ## Watching a channel
 
-`teams_watch` watches a team channel with `team_id` and `channel_id` (`action: "start"`, `"stop"`, `"list"`, `"bind"`). Channel watches share the same single-owner-per-machine Linux abstract Unix socket lease and baseline-at-newest-id semantics as chat watches, keyed by `channel:<team_id>/<channel_id>`. Each poll reads 200-item stream pages back to the watermark (up to 50 pages / 10,000 messages before asking you to catch up with `teams_read`).
+`teams_watch` watches a team channel with `team_id` and `channel_id` (`action: "start"`, `"stop"`, `"list"`, `"bind"`). Channel watches share the same single-owner-per-machine Linux abstract Unix socket lease as chat watches, keyed by `channel:<team_id>/<channel_id>`. A baseline is taken only when no cursor file exists; afterwards the watch resumes from `~/.wayne/inbox/cursors/teams-<sha1>.json` so messages posted while no session watched are delivered on the next start (restart and hot-deploy safety). Each poll reads 200-item stream pages back to the watermark (up to 50 pages / 10,000 messages before asking you to catch up with `teams_read`).
 
 ### Modes: `shared` (default) vs `personal`
 
