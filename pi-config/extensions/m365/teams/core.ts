@@ -231,6 +231,8 @@ interface WatchState {
 	myOid?: string;
 	/** This session as a thread owner label (`session:<id>`), the same shape teams_send binds roots to. */
 	self?: string;
+	/** Last shared-channel policy-gate failure/unavailable reason notified to UI, to warn once per reason change. */
+	gateWarning?: string;
 }
 /** One poll's news, instructions and ids that need no hand-off. */
 interface WatchRead {
@@ -947,26 +949,42 @@ export function createTeams(pi: TeamsHost) {
 	}
 
 	/** Whether a channel card starts a turn. Personal mode: only an email post does (no policy gate). Shared: the
-	  * channel policy's gate decides, as an unbound chat card's does; a failed gate starts the turn. */
+	  * channel policy's gate decides, and a missing, throwing, or off-format gate fails closed (display-only with a warning). */
 	async function decideChannelTurn(w: WatchState, entry: DeliveryEntry): Promise<{ turn: boolean; delivery: string; gate: string }> {
 		const quiet = "display-only: shown without starting a turn; no reply or action is needed.";
 		if (w.mode === "personal")
 			return entry.events.some((e) => e.email)
 				? { turn: true, delivery: "starts a turn: an email post needs triage.", gate: "email" }
 				: { turn: false, delivery: quiet, gate: "personal" };
-		if (!w.policy) return { turn: false, delivery: quiet, gate: "no policy" };
+		if (!w.policy) {
+			w.gateWarning = undefined;
+			return { turn: false, delivery: quiet, gate: "no policy" };
+		}
+		const warnGate = (reason: string) => {
+			if (watches.get(w.key) === w && w.gateWarning !== reason) {
+				w.gateWarning = reason;
+				watchCtx?.ui.notify(`Teams watch "${w.owner.label}": ${reason}; card shown without a turn`, "warning");
+				console.warn(`[teams] ${reason} for "${w.owner.label}"; card shown without a turn`);
+			}
+		};
 		const messages: GateMessage[] = entry.events.map((e) => ({ from: e.author, from_user: e.authorOid === w.myOid, mentions_user: false, text: e.text, files: (e.files ?? []).map((f) => f.name) }));
-		if (!pi.gate) return { turn: true, delivery: "starts a turn: no policy check runs in this harness, so decide from the policy yourself.", gate: "none" };
+		if (!pi.gate) {
+			warnGate("policy check is unavailable in this harness");
+			return { turn: false, delivery: "display-only: shown without a turn because the policy check is unavailable in this harness.", gate: "none" };
+		}
 		try {
 			if (!watchCtx) throw new Error("no session context");
 			const started = Date.now();
 			const { turn, answer, model } = await pi.gate(watchCtx, w.policy, messages);
+			if (answer !== "YES" && answer !== "NO") throw new Error(`the model answered ${JSON.stringify(answer)}, not YES or NO`);
+			w.gateWarning = undefined;
 			const gate = `${answer} (${model}, ${Date.now() - started} ms)`;
 			return turn ? { turn, delivery: "starts a turn: the policy check found something to act on or reply to.", gate } : { turn, delivery: quiet, gate };
 		} catch (e) {
-			watchCtx?.ui.notify(`Teams watch "${w.owner.label}": policy check failed, so this card starts a turn`, "warning");
-			console.warn(`[teams] policy check failed for "${w.owner.label}": ${e instanceof Error ? e.message : String(e)}`);
-			return { turn: true, delivery: "starts a turn: the policy check failed, so decide from the policy yourself.", gate: "error" };
+			const detail = e instanceof Error ? e.message : String(e);
+			const reason = detail.startsWith("policy check failed") ? detail : `policy check failed: ${detail}`;
+			warnGate(reason);
+			return { turn: false, delivery: "display-only: shown without a turn because the policy check failed.", gate: "error" };
 		}
 	}
 
@@ -1161,6 +1179,7 @@ export function createTeams(pi: TeamsHost) {
 		if (held) {
 			if (opts.policy === undefined) return `Already watching "${label}" in this session (polled every ${watchPollSec}s).`;
 			held.policy = opts.policy.trim();
+			held.gateWarning = undefined;
 			const warn = save ? rememberChannelWatch({ channel: addr.label, team_id: addr.teamId, channel_id: addr.channelId, mode: held.configuredMode, policy: held.policy }) : "";
 			return `Watching "${label}": policy ${held.policy ? `set to: ${held.policy}` : "cleared"}.${warn}`;
 		}

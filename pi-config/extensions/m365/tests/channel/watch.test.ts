@@ -1,7 +1,7 @@
 /**
  * Unit I7: the channel watch engine, end to end over a fake stream (teams/core.ts::startChannelWatch, pollWatches,
  * runChannelCommands, replyToSelf) plus teams_watch's bind action. Covers U13-U16, U19, U24-U28, U30-U32, U34,
- * U39, U41, U42.
+ * U39, U41, U42, U43.
  *
  *   bun test tests/channel/watch.test.ts
  */
@@ -44,8 +44,8 @@ type Harness = {
 	cards: { message: { details: { chatId: string; ids: string[]; thread?: string; route?: string }; content: unknown }; options?: { triggerTurn: boolean; deliverAs?: string }; senders: string[] }[];
 	prompts: { text: string; options?: { deliverAs: string }; meta: { chatId: string; policy: string } }[];
 	notices: string[];
+	warningNotices: string[];
 	gates: { policy: string; messages: unknown[] }[];
-	reacts: { messageId: string; type: string }[];
 	sends: { target: unknown; message: string; card?: unknown }[];
 	start(mode?: "shared" | "personal", policy?: string): Promise<string>;
 	restart(mode?: "shared" | "personal"): Promise<void>;
@@ -55,7 +55,7 @@ type Harness = {
 	teams: { stopAllWatches(): void; startChannelWatch(ctx: unknown, opts: { teamId: string; channelId: string; mode?: "shared" | "personal"; policy?: string }): Promise<string>; watchList(): Promise<string>; noteAssistantText(text: string): void; turnEnded(): void; replyToSelf(ctx: unknown): Promise<void> };
 	idle(v: boolean): void;
 	setMembers(m: Members): void;
-	gateWill(turn: boolean): void;
+	gateWill(turn: boolean | Error | { turn: boolean; answer: string }): void;
 	failStream(n: number): void;
 	holdSend(p: Promise<void>): void;
 	/** Resolves once the backend has taken a send call (the answer POST is in flight). */
@@ -64,6 +64,7 @@ type Harness = {
 };
 const originalInterval = globalThis.setInterval;
 const originalNow = Date.now;
+const originalWarn = console.warn;
 let h: Harness | undefined;
 
 afterEach(() => {
@@ -71,11 +72,12 @@ afterEach(() => {
 	h = undefined;
 	globalThis.setInterval = originalInterval;
 	Date.now = originalNow;
+	console.warn = originalWarn;
 	rmSync(join(process.env.WAYNE_INBOX_DIR!, "cursors"), { recursive: true, force: true });
 	rmSync(WATCH_LOG, { force: true });
 });
 
-function setup(opts: { turnEvents?: boolean; members?: Members } = {}) {
+function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean } = {}) {
 	// An earlier harness in the same test still holds its lease: stop it before its watch blocks this one's start.
 	h?.teams.stopAllWatches();
 	h = undefined;
@@ -88,6 +90,7 @@ function setup(opts: { turnEvents?: boolean; members?: Members } = {}) {
 	const cards: { message: { details: { chatId: string; ids: string[]; thread?: string; route?: string }; content: unknown }; options?: { triggerTurn: boolean; deliverAs?: string }; senders: string[] }[] = [];
 	const prompts: { text: string; options?: { deliverAs: string }; meta: { chatId: string; policy: string } }[] = [];
 	const notices: string[] = [];
+	const warningNotices: string[] = [];
 	const gates: { policy: string; messages: unknown[] }[] = [];
 	const reacts: { messageId: string; type: string }[] = [];
 	const sends: { target: unknown; message: string; card?: unknown }[] = [];
@@ -96,13 +99,13 @@ function setup(opts: { turnEvents?: boolean; members?: Members } = {}) {
 	let membersCalls = 0;
 	let streamFail = 0;
 	let members: Members = opts.members ?? (async () => ({ membershipType: "private", memberOids: [OID] }));
-	let gateNext: { turn: boolean; answer: string }[] = [];
+	let gateNext: ({ turn: boolean; answer: string } | Error)[] = [];
 	let holdSend: Promise<void> | undefined;
 	/** Resolves when the backend takes a send call, held or not: the answer POST is in flight from then on. */
 	const sendStarted = Promise.withResolvers<void>();
 	let idle = true;
 	let poll: (() => Promise<void>) | undefined;
-	const ctx = { cwd: "/tmp", isIdle: () => idle, ui: { notify: (t: string) => notices.push(t) }, sessionManager: { getSessionId: () => SESSION } };
+	const ctx = { cwd: "/tmp", isIdle: () => idle, ui: { notify: (t: string, level?: string) => { notices.push(t); if (level === "warning") warningNotices.push(t); } }, sessionManager: { getSessionId: () => SESSION } };
 	const tools = new Map<string, Tool>();
 
 	const backend = {
@@ -135,7 +138,14 @@ function setup(opts: { turnEvents?: boolean; members?: Members } = {}) {
 			registerTool: (t) => void tools.set((t as { name: string }).name, t as unknown as Tool),
 			exec: async () => ({ code: 0, stdout: "", stderr: "" }),
 			...(opts.turnEvents === undefined ? {} : { turnEvents: opts.turnEvents }),
-			gate: async (_c: unknown, policy: string, messages: unknown[]) => { gates.push({ policy, messages }); return gateNext.shift() ?? { turn: false, answer: "NO", model: "synthetic" }; },
+			...(opts.gate === false ? {} : {
+				gate: async (_c: unknown, policy: string, messages: unknown[]) => {
+					gates.push({ policy, messages });
+					const next = gateNext.shift() ?? { turn: false, answer: "NO" };
+					if (next instanceof Error) throw next;
+					return { ...next, model: "synthetic" };
+				},
+			}),
 			sendMessage: async (message: unknown, options: { triggerTurn: boolean; deliverAs?: string } | undefined, meta: { senders: string[] }) => cards.push({ message: message as never, options, senders: meta.senders }),
 			sendUserMessage: async (text: string, options: { deliverAs: string } | undefined, meta: { chatId: string; policy: string }) => prompts.push({ text, options, meta }),
 		} as TeamsHost);
@@ -157,11 +167,11 @@ function setup(opts: { turnEvents?: boolean; members?: Members } = {}) {
 	const cursor = () => loadCursor(key);
 
 	h = {
-		key, ctx, stream, cards, prompts, notices, gates, reacts, sends, start, restart, tick, tool, cursor,
+		key, ctx, stream, cards, prompts, notices, warningNotices, gates, reacts, sends, start, restart, tick, tool, cursor,
 		get teams() { return teams as unknown as Harness["teams"]; },
 		idle: (v: boolean) => { idle = v; },
 		setMembers: (m: Members) => { members = m; },
-		gateWill: (turn: boolean) => { gateNext.push({ turn, answer: turn ? "YES" : "NO" }); },
+		gateWill: (v: boolean | Error | { turn: boolean; answer: string }) => { gateNext.push(v instanceof Error || typeof v === "object" ? v : { turn: v, answer: v ? "YES" : "NO" }); },
 		failStream: (n: number) => { streamFail = n; },
 		holdSend: (p: Promise<void>) => { holdSend = p; },
 		sendStarted: () => sendStarted.promise,
@@ -648,4 +658,89 @@ test("U42: a relay card is display-only without a policy or on a NO, starts a tu
 	const yes = await run(true, "relay what matters");
 	expect(yes.cards[0].options?.triggerTurn).toBe(true);
 	untrusted(yes);
+});
+
+test("U43: shared channel policy gate fails closed on missing/throwing/off-format gate, warns once per reason change, allows YES, and leaves personal instructions ungated", async () => {
+	const warns: string[] = [];
+	console.warn = (...args: unknown[]) => { warns.push(args.map(String).join(" ")); };
+	const policy = "reply when asked about builds";
+
+	// (a) host without gate: shared card (and relayed card) is display-only, warns once per channel per reason change
+	const noGate = setup({ gate: false });
+	noGate.stream.push(raw("100", "baseline", AUTHOR));
+	await noGate.start("shared", policy);
+	await noGate.tool("teams_watch").execute("t", { action: "bind", team_id: TEAM, channel_id: CHANNEL, thread_id: "500", owner: "inbox:42" }, undefined, undefined, noGate.ctx);
+	noGate.stream.push(raw("101", "build status?", AUTHOR));
+	noGate.stream.push(raw("501", "relayed build status?", AUTHOR, { rootMessageId: "500" }));
+	await noGate.tick();
+	expect(noGate.cards).toHaveLength(2);
+	for (const c of noGate.cards) {
+		expect(c.options?.triggerTurn).toBe(false);
+		expect(String(c.message.content)).toContain("**Delivery**: display-only: shown without a turn because the policy check is unavailable");
+	}
+	expect(noGate.warningNotices).toHaveLength(1);
+	expect(noGate.warningNotices[0]).toContain("#General");
+	expect(noGate.warningNotices[0]).toContain("unavailable");
+	expect(warns.some((w) => w.includes("#General") && w.includes("unavailable"))).toBe(true);
+	// repeating the same missing-gate condition does not repeat the ui warning
+	noGate.stream.push(raw("502", "another message", AUTHOR));
+	await noGate.tick();
+	expect(noGate.cards).toHaveLength(3);
+	expect(noGate.cards[2].options?.triggerTurn).toBe(false);
+	expect(noGate.warningNotices).toHaveLength(1);
+
+	// (b) gate that throws or answers neither YES nor NO: fail closed, warn once per reason change, reset after passing gate
+	// (c) gate YES -> starts a turn
+	warns.length = 0;
+	const s = setup();
+	s.stream.push(raw("100", "baseline", AUTHOR));
+	await s.start("shared", policy);
+	await s.tool("teams_watch").execute("t", { action: "bind", team_id: TEAM, channel_id: CHANNEL, thread_id: "500", owner: "inbox:42" }, undefined, undefined, s.ctx);
+	s.gateWill(new Error("gateway 503"));
+	s.gateWill(new Error("gateway 503"));
+	s.stream.push(raw("101", "build failing?", AUTHOR));
+	s.stream.push(raw("501", "relayed failure?", AUTHOR, { rootMessageId: "500" }));
+	await s.tick();
+	expect(s.cards).toHaveLength(2);
+	for (const c of s.cards) {
+		expect(c.options?.triggerTurn).toBe(false);
+		expect(String(c.message.content)).toContain("**Delivery**: display-only: shown without a turn because the policy check failed.");
+	}
+	expect(s.warningNotices).toHaveLength(1);
+	expect(s.warningNotices[0]).toContain("#General");
+	expect(s.warningNotices[0]).toContain("gateway 503");
+	expect(warns.some((w) => w.includes("#General") && w.includes("gateway 503"))).toBe(true);
+
+	// different failure reason (off-format answer) warns again
+	s.gateWill({ turn: true, answer: "MAYBE" });
+	s.stream.push(raw("502", "another ping", AUTHOR));
+	await s.tick();
+	expect(s.cards[2].options?.triggerTurn).toBe(false);
+	expect(String(s.cards[2].message.content)).toContain("**Delivery**: display-only: shown without a turn because the policy check failed.");
+	expect(s.warningNotices).toHaveLength(2);
+	expect(s.warningNotices[1]).toContain("#General");
+	expect(s.warningNotices[1]).toContain("MAYBE");
+
+	// (c) gate YES -> starts a turn, and clears the warning latch so a later error warns again
+	s.gateWill(true);
+	s.stream.push(raw("503", "please check the build", AUTHOR));
+	await s.tick();
+	expect(s.cards[3].options?.triggerTurn).toBe(true);
+	s.gateWill({ turn: true, answer: "MAYBE" });
+	s.stream.push(raw("504", "after recovery, fails again", AUTHOR));
+	await s.tick();
+	expect(s.cards[4].options?.triggerTurn).toBe(false);
+	expect(s.warningNotices).toHaveLength(3);
+
+	// (e) personal instruction is still an ungated prompt even without a gate; personal email post keeps its turn
+	const personal = setup({ gate: false, turnEvents: true });
+	personal.stream.push(raw("100", "old", ME));
+	await personal.start("personal");
+	personal.stream.push(raw("101", "summarize the release", ME));
+	personal.stream.push(raw("102", "mail alert", ME, { s2spartnername: "MailhookService" }));
+	await personal.tick();
+	expect(personal.prompts).toHaveLength(1);
+	expect(personal.prompts[0].text).toContain("summarize the release");
+	expect(personal.cards).toHaveLength(1);
+	expect(personal.cards[0].options?.triggerTurn).toBe(true);
 });
