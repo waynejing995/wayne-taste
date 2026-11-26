@@ -292,6 +292,24 @@ Verify every dataflow claim by grep before filing it: "produced at X, consumed a
 
 Concrete shape (TRACE example): moving a team-specific value out of shared core into a team plugin slot means every consumer must read it via `resolve_*(ctx)` against the bound team — a diff that adds the slot but leaves any consumer on the old shared-core constant/YAML literal has NOT completed the re-arch, and the second team still hits the wrong value. Check every sibling consumer, not just the one the diff touched.
 
+### Optional: Architecture Bar (for diffs that change structure)
+
+If the diff adds a component, an interface, a dependency that crosses a boundary, an automatic loop, or code that parses text another component writes, read [the architecture bar](../wayne-mind-explode/references/architecture-bar.md) and judge the hunks that change structure. Skip pure logic and bugfix diffs.
+
+The cybernetics lens, the producer-judge check, and the dataflow lens above already cover state ownership, duplicated rules, and producer/consumer drift (bar checks 1 and 2). Do not file those twice. This section adds the per-diff forms of the remaining checks:
+
+- **Boundary bypass (check 4)** — a new import of another component's internals, a new reader or writer of state that another component owns, or a new cycle across a boundary. A deferred import inside a function counts.
+- **Implicit contract (check 5)** — a required call order that the interface does not enforce, or a consumer that parses a log line or status text with no schema.
+- **Pass-through or single-variation abstraction (checks 3 and 7)** — a new component whose removal would make its complexity vanish, or a new interface with one implementation and no second real variation.
+- **Test through internals (check 6)** — a new test that imports internals to reach behavior the interface does not expose.
+- **Unbounded loop (check 9)** — a new retry, repair, poll, or agent loop without a cap, a stop condition, or an owner.
+
+Check 8 judges a design and has no per-diff form. Do not report coupling inside one boundary, and do not ask for an interface between parts that one component owns.
+
+Severity follows the reviewer protocol, by consequence. A finding on check 4, 5, or 9 is CRITICAL only when it meets the hit rate / impact gate. Findings on checks 3, 6, and 7 are INFORMATIONAL. If a ledger rule already governs the hunk, report the finding once, under the ledger rule.
+
+If the plan or spec read in Phase 2 carries a bar check as an `R<n>` or an `## Invariants` line, check that the diff keeps the test or check that proves it. A diff that deletes or weakens that proof breaks a stated contract: report it.
+
 ### Finding Format
 
 ```

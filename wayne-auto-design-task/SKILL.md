@@ -9,7 +9,7 @@ Turn Wayne's raw request into a verified, built result. Wayne takes part only tw
 
 ## Boundary
 
-`wayne-mind-explode` puts each design choice to Wayne and ends with an approved living spec. This skill makes those choices itself from evidence and two independent proposals, and it ends with built, verified work. Reuse mind-explode's research, decision log, conflict review, and spec contract as linked below. Do not use its question loop, its living-spec promotion, or its three-voice review.
+`wayne-mind-explode` puts each design choice to Wayne and ends with an approved living spec. This skill makes those choices itself from evidence and two independent proposals, and it ends with built, verified work. Reuse mind-explode's research, decision log, conflict review, spec contract, and architecture bar as linked below. Do not use its question loop, its living-spec promotion, or its three-voice review.
 
 A small task (a fix of a few dozen lines, a review finding, a copy change of a few words) needs neither skill. Do it directly. An urgent production hotfix with a confirmed root cause also skips dual-proposal design: go straight to a fast `wayne-plan` (lite path) and `wayne-work` fix.
 
@@ -86,9 +86,11 @@ Load [Gemini brief skeletons](references/gemini-briefs.md) before dispatching Pr
 
 Gemini writes with confidence and makes mistakes. Check every claim from B (and every `[guess]` item) against the code, logs, or production data before adopting it. When A and B disagree, evidence decides, not the author.
 
-Send any undecidable row (both options defensible, evidence cannot separate them, and the choice changes the outcome) to G.
+When evidence cannot separate two options, judge both against [the architecture bar](../wayne-mind-explode/references/architecture-bar.md). The option with fewer "no" answers wins, and a "no" on a runtime check outweighs a "no" on a cost-of-change check. Send a row to G only when evidence and the bar both fail to separate the options and the choice changes the outcome.
 
 Load [the fusion template](references/fusion.md) before writing `$STATE/runs/<topic>/fusion.md` and appending `decision` records to `decision-log.jsonl`. The fusion table records how the design was chosen. It is not the design.
+
+Fusion can combine parts that were sound only inside their own proposal. Answer every check of the architecture bar for the fused design, and record the answers in `fusion.md`. For each "no", either change the design or append a `decision` record that names the accepted cost. Carry each check that the design depends on into `design.md` as the bar's last section defines, so that a later change turns a check red.
 
 Then write the design itself to `$STATE/runs/<topic>/design.md`. Read mind-explode's [spec contract](../wayne-mind-explode/references/spec-contract.md) in full and start from its [spec template](../wayne-mind-explode/templates/spec.md), which spells the exact line formats the checker parses. Required: frontmatter; a self-contained narrative with `## Architecture` (layered, at least two `###` levels with prose), `## Interfaces`, and `## Alternatives considered` (sourced from the fusion table), plus whichever of Abstract, Background, Problem statement, Goals, Non-goals, Flows, Failure and concurrency, Observability and Rollback apply; then, below `# Appendices`, `## Requirements` (each `R<n>` with Current, Target and Acceptance), `## Verification` (every `R<n>` mapped to a proof), `## Decisions` (the taken rows of `decision-log.jsonl`), `## Technology and frameworks`, and `## Legacy` when E finds deletions or migrations. Run `uv run <skill-dir>/../wayne-mind-explode/scripts/check_spec_format.py $STATE/runs/<topic>/design.md` and `node <skill-dir>/../wayne-mind-explode/scripts/check_mermaid.mjs $STATE/runs/<topic>/design.md`, and fix what they report. `design.md` stays in the run directory: it is never written to `docs/specs/`.
 
@@ -126,7 +128,7 @@ Finish every part that does not depend on the answer first. Then ask once, in pl
 
 Run `wayne-plan` with `design.md` as its `origin`, this run's decision log, and the matrix from G.
 
-The plan gets exactly one review round, and design-conformance holds it to `design.md`. wayne-plan's standard path already enforces that: one valid round, revisions applied and checked, no re-dispatch of the voices, then approval without waiting for Wayne. Do not ask for a second round, and do not add a plan review of your own. Do not write a second plan format here. If wayne-plan stops with `PLAN_CONFLICT` or `MISSING_E2E` that names the matrix, rerun `wayne-test-design` with that finding, then run `wayne-plan` again on the new matrix.
+The plan gets exactly one review round, and design-conformance holds it to `design.md`. wayne-plan's standard path already enforces that: one valid round, revisions applied and checked, no re-dispatch of the voices, then approval without waiting for Wayne. Do not ask for a second round, and do not add a plan review of your own. Do not write a second plan format here. If wayne-plan stops with `PLAN_CONFLICT` or `MISSING_E2E` that names the matrix, rerun `wayne-test-design` with that finding, then run `wayne-plan` again on the new matrix. If the plan needs a boundary or an interface that `design.md` does not carry, return to D and add it there: `design.md` fixes the interface shapes, and the plan does not invent them.
 
 Then run `wayne-work` on the approved plan. It owns dispatch (each unit starts as soon as its dependencies are committed, with omp subagents on `isolated: true`), the per-unit audit and commit, the simplify pass, and the full-diff gate. Do not dispatch units yourself. The main model stays out of the edits.
 
@@ -141,6 +143,7 @@ Apply the test bar in `../_shared/task-prompt.md`. Then use the result the way W
 Report in 简体中文 and lead with what was built and what Wayne will see change. Then give:
 
 - the fusion summary: what the proposals agreed on, what came from Gemini, what was rejected and why;
+- the architecture-bar result: each "no" on the fused design, and whether the design changed or the cost was accepted;
 - the R resolutions, if R ran;
 - before and after screenshots of every UI change;
 - the verification you ran.

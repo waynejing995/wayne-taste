@@ -1,6 +1,6 @@
 ---
 name: wayne-go
-description: "Wayne's front door: reads a raw request, picks the one Wayne route that fits (quick task prompt, design, plan, triage, build, review, ship, resume, delegate), and returns the prompt for that next step. It writes prompts only; it never runs, invokes, or dispatches anything. Use for /wayne-go, 直接干, 帮我起个头, 这个该走哪个流程, which skill fits, or quick task prompt."
+description: "Wayne's front door: reads a raw request, picks the one Wayne route that fits (quick task prompt, design, plan, triage, build, review, ship, resume, delegate, structure sweep), and returns the prompt for that next step. It writes prompts only; it never runs, invokes, or dispatches anything. Use for /wayne-go, 直接干, 帮我起个头, 这个该走哪个流程, which skill fits, or quick task prompt."
 ---
 
 # Wayne Go
@@ -23,6 +23,7 @@ Select one route from observable evidence, write the prompt for that route, and 
 | A job finished (`status: done`) and needs retro candidates | `wayne-compress` | next-step prompt (top 3 candidates only, apply nothing) |
 | The user wants to resume earlier work | `wayne-checkpoint` | next-step prompt (resume) |
 | The user wants to understand an unfamiliar repository | `wayne-codebase-report` | next-step prompt |
+| The user wants a periodic whole-repository structure check, or asks what to refactor, with no single change in mind | `wayne-arch-sweep` | next-step prompt (scans + ranked candidates; a picked candidate returns a `wayne-auto-design-task` prompt, or `wayne-mind-explode` on a spec reversal) |
 | The user wants a long autonomous run on Codex | `wayne-goal-prompt` | next-step prompt |
 | The user wants work delegated into its own isolated `ovnfs` checkout + tern/herdr/tmux session under inbox watch, or wants a finished session torn down and closed | `wayne-inbox` [references/delegate.md](../wayne-inbox/references/delegate.md) | next-step prompt |
 | none match | — | one question |

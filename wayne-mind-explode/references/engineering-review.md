@@ -17,6 +17,13 @@ You are reviewing the exact frozen bytes, checked against the real repository. A
 - Every declared variant must be dispatched somewhere, or rejected loudly at startup. A type wider than its dispatch is a silent-degradation path.
 - Every boundary a component in `## Architecture` introduces or changes has a signature in `## Interfaces` — a typed declaration in the repository's language, or native notation for a wire format such as HTTP or CLI — and a changed one shows before and after. Check against the repository: a new or changed caller-visible surface the spec leaves out, or a code-level interface written as untyped pseudo-text where the codebase has a type system, is an open interface — two implementers would build different ones.
 
+## Structure
+
+- Answer every check of [the architecture bar](architecture-bar.md) against the spec and the repository. Each "no" is a finding that names the check number.
+- A "no" on a runtime check (1, 2, 4, 5, 9) is at least MAJOR. It is a BLOCKER when two components share state or a format across a boundary and nothing in the spec turns a mismatch into a failure.
+- A "no" on a cost-of-change check (3, 6, 7, 8) is a finding only when you name the concrete change that the shape makes expensive. Coupling inside one boundary is not a finding.
+- For each check that the design depends on, look for the `R<n>` or the `## Invariants` line that carries it. A depended-on answer that no requirement or invariant carries is a finding, because nothing turns red when a later change breaks it (checks 3 and 7 excepted; they carry no machine check).
+
 ## Failure, concurrency, and recovery
 
 - For each external call and each write, state what happens on timeout, partial write, duplicate delivery, and restart mid-operation. A path the spec does not address is unhandled, not implicitly safe.
