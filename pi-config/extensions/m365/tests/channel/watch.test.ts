@@ -41,6 +41,7 @@ type Harness = {
 	key: string;
 	ctx: { cwd: string; isIdle(): boolean; ui: { notify(t: string): void }; sessionManager: { getSessionId(): string } };
 	stream: RawSkypeMessage[];
+	selfNotes: { id: string; at: string; text: string }[];
 	cards: { message: { details: { chatId: string; ids: string[]; thread?: string; route?: string }; content: unknown }; options?: { triggerTurn: boolean; deliverAs?: string }; senders: string[] }[];
 	prompts: { text: string; options?: { deliverAs: string }; meta: { chatId: string; policy: string } }[];
 	notices: string[];
@@ -87,6 +88,7 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 
 	/** The channel stream, seeded by each test; any order, served newest first. */
 	const stream: RawSkypeMessage[] = [];
+	const selfNotes: { id: string; at: string; text: string }[] = [];
 	const cards: { message: { details: { chatId: string; ids: string[]; thread?: string; route?: string }; content: unknown }; options?: { triggerTurn: boolean; deliverAs?: string }; senders: string[] }[] = [];
 	const prompts: { text: string; options?: { deliverAs: string }; meta: { chatId: string; policy: string } }[] = [];
 	const notices: string[] = [];
@@ -127,6 +129,7 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 			sends.push({ target, message, card });
 			return { id: `sent-${sends.length + 9000}` };
 		},
+		selfMessages: async (sinceId: string, top: number) => selfNotes.filter((n) => BigInt(n.id) > BigInt(sinceId || "0")).slice(-top),
 		chatsPage: async () => { otherCalls++; return { chats: [] }; },
 	} as unknown as Backend;
 
@@ -167,6 +170,7 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 	const cursor = () => loadCursor(key);
 
 	h = {
+		selfNotes,
 		key, ctx, stream, cards, prompts, notices, warningNotices, gates, reacts, sends, start, restart, tick, tool, cursor,
 		get teams() { return teams as unknown as Harness["teams"]; },
 		idle: (v: boolean) => { idle = v; },
@@ -743,4 +747,52 @@ test("U43: shared channel policy gate fails closed on missing/throwing/off-forma
 	expect(personal.prompts[0].text).toContain("summarize the release");
 	expect(personal.cards).toHaveLength(1);
 	expect(personal.cards[0].options?.triggerTurn).toBe(true);
+});
+
+test("replyToSelf skips ctx when no reply is due, gates personal channel reply on idle, and preserves the self-chat idle path", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "old", ME));
+	await s.start("personal");
+
+	// (a) No channel or self-chat reply due: replyToSelf(undefined) must not touch ctx or post.
+	s.teams.turnEnded();
+	await s.teams.replyToSelf(undefined as never);
+	expect(s.sends).toHaveLength(0);
+
+	// (b) Personal channel turn ended: replyToSelf waits while busy, then posts the answer once idle.
+	s.stream.push(raw("101", "check status", ME));
+	await s.tick();
+	s.teams.noteAssistantText("all clear");
+	s.teams.turnEnded();
+	s.idle(false);
+	await s.teams.replyToSelf(s.ctx);
+	expect(s.sends).toHaveLength(0);
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+	s.idle(true);
+	await s.teams.replyToSelf(s.ctx);
+	expect(s.sends).toHaveLength(1);
+	expect(s.sends[0].target).toMatchObject({ kind: "channel", teamId: TEAM, channelId: CHANNEL, replyTo: "101" });
+	expect(JSON.stringify(s.sends[0].card)).toContain("all clear");
+	expect(s.cursor()?.awaiting).toEqual({});
+
+	// (c) With no channel answer due, the self-chat idle path still waits while busy and posts once idle.
+	s.selfNotes.push({ id: "100", at: "2026-11-02T09:59:00Z", text: "old note" });
+	await s.tool("teams_watch").execute("w", { action: "start", chat_id: "48:notes" }, undefined, undefined, s.ctx);
+	s.selfNotes.push({ id: "101", at: "2026-11-02T10:00:00Z", text: "omp: report status" });
+	await s.tick();
+	const afterAck = s.sends.length;
+	expect(s.prompts.at(-1)?.text).toContain("report status");
+	s.teams.noteAssistantText("self answer");
+	s.teams.turnEnded();
+	s.idle(false);
+	await s.teams.replyToSelf(s.ctx);
+	expect(s.sends).toHaveLength(afterAck);
+	s.idle(true);
+	await s.teams.replyToSelf(s.ctx);
+	expect(s.sends).toHaveLength(afterAck + 1);
+	expect(s.sends.at(-1)?.target).toEqual({ kind: "self" });
+	expect(JSON.stringify(s.sends.at(-1)?.card)).toContain("self answer");
+
+	await s.teams.replyToSelf(undefined as never);
+	expect(s.sends).toHaveLength(afterAck + 1);
 });

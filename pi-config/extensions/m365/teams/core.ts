@@ -2394,7 +2394,7 @@ export function createTeams(pi: TeamsHost) {
 	 * answered in its thread the same way (see answerChannelTurn).
 	 */
 	async function replyToSelf(ctx: TeamsContext): Promise<void> {
-		if (ctx.isIdle()) await answerChannelTurn(ctx);
+		if (channelTurnDue && channelTurn && ctx.isIdle()) await answerChannelTurn(ctx);
 		if (!selfReplyPending || !replyDue || !ctx.isIdle()) return;
 		selfReplyPending = false;
 		replyDue = false;
