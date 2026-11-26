@@ -233,6 +233,10 @@ interface WatchState {
 	self?: string;
 	/** Last shared-channel policy-gate failure/unavailable reason notified to UI, to warn once per reason change. */
 	gateWarning?: string;
+	/** Last session-liveness lookup failure notified to UI, to warn once per error change. */
+	livenessWarning?: string;
+	/** Start-up re-delivery of `awaiting` failed; retried at the start of later channel polls until it succeeds. */
+	redeliverPending?: boolean;
 }
 /** One poll's news, instructions and ids that need no hand-off. */
 interface WatchRead {
@@ -932,7 +936,20 @@ export function createTeams(pi: TeamsHost) {
 		const plan = planDelivery(events, { mode: w.mode ?? "shared", myOid: w.myOid ?? "", self: w.self ?? "", threads });
 		if (!plan.entries.some((e) => e.owner.startsWith("session:") && e.owner !== w.self)) return plan;
 		// Dead-session liveness is decided by the sessions holding a watch right now, so the plan reads the live set only when it has a foreign session owner.
-		const liveSessionIds = new Set((await listOwners()).map((o) => o.sessionId));
+		let liveSessionIds: Set<string>;
+		try {
+			liveSessionIds = new Set((await listOwners()).map((o) => o.sessionId));
+			w.livenessWarning = undefined;
+		} catch (e) {
+			const detail = e instanceof Error ? e.message : String(e);
+			if (watches.get(w.key) === w && w.livenessWarning !== detail) {
+				w.livenessWarning = detail;
+				watchCtx?.ui.notify(`Teams watch "${w.owner.label}": session liveness check failed (${detail}); relaying to foreign session owners`, "warning");
+				console.warn(`[teams] session liveness check failed for "${w.owner.label}": ${detail}`);
+			}
+			// Explicit fallback: a hung or unreadable watch socket must not block the channel poll; keep relaying foreign session owners as before liveness checks.
+			return plan;
+		}
 		return planDelivery(events, { mode: w.mode ?? "shared", myOid: w.myOid ?? "", self: w.self ?? "", threads, liveSessionIds });
 	}
 
@@ -1193,6 +1210,17 @@ export function createTeams(pi: TeamsHost) {
 		}
 	}
 
+	/** Re-deliver persisted `awaiting` ids, marking the watch for retry on later polls if the scan fails. */
+	async function tryRedeliverAwaiting(w: WatchState, ctx: TeamsContext | undefined): Promise<void> {
+		try {
+			await redeliverAwaiting(w, loadCursor(w.key)?.awaiting ?? {});
+			w.redeliverPending = false;
+		} catch (e) {
+			w.redeliverPending = true;
+			ctx?.ui.notify(`Teams watch "${w.owner.label}": re-delivering awaited instructions failed: ${e instanceof Error ? e.message : String(e)}`, "warning");
+		}
+	}
+
 	/**
 	 * Start watching a team channel in this session. The lease and the cursor key are the channel's
 	 * (`channel:<team>/<channel>`), so teams_channels marks it `[watched here]` and the lease names it the same way.
@@ -1263,12 +1291,7 @@ export function createTeams(pi: TeamsHost) {
 			claimed.lease.close();
 			throw e;
 		}
-		try {
-			await redeliverAwaiting(state, loadCursor(key)?.awaiting ?? {});
-		} catch (e) {
-			// The watch runs; the instructions stay in `awaiting` on disk, so the next start re-delivers them.
-			ctx.ui.notify(`Teams watch "${label}": re-delivering awaited instructions failed: ${e instanceof Error ? e.message : String(e)}`, "warning");
-		}
+		await tryRedeliverAwaiting(state, ctx);
 		// After the watch runs: saving the resume list never decides whether it runs.
 		const warn = save ? rememberChannelWatch({ channel: addr.label, team_id: addr.teamId, channel_id: addr.channelId, mode: state.configuredMode, policy: state.policy }) : "";
 		const commands = state.mode === "personal"
@@ -1575,6 +1598,10 @@ export function createTeams(pi: TeamsHost) {
 			const channelCards: { w: WatchState; entry: DeliveryEntry; threads: Record<string, ThreadBinding> }[] = [];
 			for (const [chatId, w] of watches) {
 				try {
+					if (w.addr && w.redeliverPending) {
+						await tryRedeliverAwaiting(w, watchCtx);
+						if (watches.get(chatId) !== w) continue;
+					}
 					const cursor = loadCursor(w.key);
 					if (!cursor) throw new Error(`no cursor for ${w.key}`);
 					if (w.addr) {

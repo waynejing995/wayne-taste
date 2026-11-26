@@ -41,7 +41,7 @@ type Harness = {
 	reacts: { messageId: string; type: string; replyTo?: string }[];
 	sends: { target: unknown; message: string; card?: unknown }[];
 	start(mode?: "shared" | "personal"): Promise<string>;
-	restart(mode?: "shared" | "personal"): Promise<void>;
+	restart(mode?: "shared" | "personal", opts?: { failStream?: number }): Promise<void>;
 	tick(): Promise<void>;
 	tool(name: string): Tool;
 	cursor(): CursorFile | null;
@@ -140,11 +140,11 @@ function setup() {
 
 	let teams = makeTeams();
 	const start = (mode?: "shared" | "personal") => teams.startChannelWatch(ctx, { teamId: TEAM, channelId: CHANNEL, mode });
-	const restart = async (mode?: "shared" | "personal") => {
+	const restart = async (mode?: "shared" | "personal", opts?: { failStream?: number }) => {
 		holdHandoff = undefined;
 		holdSend = undefined;
 		handoffFail = 0;
-		streamFail = 0;
+		streamFail = opts?.failStream ?? 0;
 		teams.stopAllWatches();
 		teams = makeTeams();
 		poll = undefined;
@@ -384,4 +384,33 @@ test("redelivered command when first post-restart stream read throws keeps water
 	const afterSecondPoll = s.prompts.slice(before);
 	expect(afterSecondPoll).toHaveLength(2);
 	expect(afterSecondPoll[1].text).toContain("unread instruction in thread B");
+});
+
+test("failed start-up re-delivery scan is retried on the next poll without dropping awaiting ids", async () => {
+	const s = setup();
+	s.stream.push(raw("100", "old note", ME));
+	await s.start("personal");
+	s.stream.push(raw("101", "please keep this after a flaky restart", ME));
+	const tmp = `${cursorPath(s.key)}.${process.pid}.tmp`;
+	s.onHandoff(() => mkdirSync(tmp));
+	await s.tick();
+	s.onHandoff(undefined);
+	rmSync(tmp, { recursive: true });
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+	expect(s.cursor()?.done ?? []).not.toContain("101");
+
+	const before = s.prompts.length;
+	await s.restart("personal", { failStream: 1 });
+	expect(s.prompts.slice(before)).toHaveLength(0);
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+
+	await s.tick();
+	const afterFirstPoll = s.prompts.slice(before);
+	expect(afterFirstPoll).toHaveLength(1);
+	expect(afterFirstPoll[0].text).toContain("please keep this after a flaky restart");
+	expect(afterFirstPoll[0].text).toContain("(re-delivered after a restart: check the thread before repeating side effects)");
+
+	s.teams.turnEnded();
+	await s.tick();
+	expect(s.prompts.slice(before)).toHaveLength(1);
 });

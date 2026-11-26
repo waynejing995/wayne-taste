@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import * as net from "node:net";
 import { createTeams, type TeamsHost } from "../../teams/core.ts";
 import type { Backend } from "../../teams/backend.ts";
 import { type CursorFile, cursorKey, cursorPath, loadCursor } from "../../teams/cursor-store.ts";
@@ -111,7 +112,7 @@ type Harness = {
 	tool(name: string): Tool;
 	tick(): Promise<void>;
 	cursor(): CursorFile | null;
-	teams: { stopAllWatches(): void };
+	teams: { stopAllWatches(): void; watches: ReadonlyMap<string, { error: string }> };
 };
 
 const originalInterval = globalThis.setInterval;
@@ -195,7 +196,7 @@ test("restart: a follow-up in session A's thread is handled here as session B; l
 		version: 1,
 		key: s.key,
 		watermark: "201",
-		done: ["201"],
+		done: [],
 		threads: {
 			"201": { owner: DEAD, subject: "Old job" },
 			"301": { owner: LIVE },
@@ -284,3 +285,56 @@ test("a root posted by the channel watch holder binds to that session", async ()
 	await s.tool("teams_send").execute("t", { target: "channel", team_id: TEAM, channel_id: CHANNEL, message: "Root", card: false }, undefined, undefined, s.ctx);
 	expect(s.cursor()?.threads?.["201"]).toEqual({ owner: SELF });
 });
+
+test("liveness lookup failure warns once and keeps relaying foreign session owners without failing the poll", async () => {
+	const s = setup();
+	mkdirSync(join(process.env.WAYNE_INBOX_DIR!, "cursors"), { recursive: true });
+	writeFileSync(cursorPath(s.key), JSON.stringify({
+		version: 1,
+		key: s.key,
+		watermark: "201",
+		done: [],
+		threads: { "201": { owner: DEAD, subject: "Old job" } },
+	}));
+	await s.start();
+
+	const hungSockets: net.Socket[] = [];
+	const hungServer = net.createServer((c) => { hungSockets.push(c); });
+	hungServer.unref();
+	const listening = Promise.withResolvers<void>();
+	hungServer.once("error", listening.reject);
+	hungServer.listen(`\0pi-teams-watch:${process.getuid?.() ?? 0}:synthetic-hung-holder`, () => listening.resolve());
+	await listening.promise;
+	extraLeases.push({
+		close(cb?: (err?: Error) => void) {
+			for (const sock of hungSockets.splice(0)) sock.destroy();
+			hungServer.close(cb);
+		},
+	} as unknown as WatchLease);
+
+	const warned: string[] = [];
+	const origWarn = console.warn;
+	console.warn = (...args: unknown[]) => { warned.push(args.map(String).join(" ")); };
+	try {
+		s.stream.push(raw("202", "follow-up while another holder hangs", { rootMessageId: "201" }));
+		await s.tick();
+
+		expect(s.prompts).toHaveLength(1);
+		expect(s.prompts[0].text).toContain("follow-up while another holder hangs");
+		expect(s.prompts[0].text).toContain(`This thread is owned by ${DEAD}; hand it to that owner rather than answering here.`);
+		expect(s.cursor()?.threads?.["201"]).toEqual({ owner: DEAD, subject: "Old job" });
+		expect(s.teams.watches.get(s.key)?.error).toBe("");
+		expect(s.warningNotices.filter((n) => n.includes("did not answer"))).toHaveLength(1);
+		expect(warned.filter((w) => w.includes("did not answer"))).toHaveLength(1);
+
+		s.stream.push(raw("203", "second follow-up while holder still hangs", { rootMessageId: "201" }));
+		await s.tick();
+		expect(s.prompts).toHaveLength(2);
+		expect(s.prompts[1].text).toContain(`This thread is owned by ${DEAD}; hand it to that owner rather than answering here.`);
+		expect(s.teams.watches.get(s.key)?.error).toBe("");
+		expect(s.warningNotices.filter((n) => n.includes("did not answer"))).toHaveLength(1);
+		expect(warned.filter((w) => w.includes("did not answer"))).toHaveLength(1);
+	} finally {
+		console.warn = origWarn;
+	}
+}, 10_000);
