@@ -16,6 +16,8 @@ For a Teams-origin card, read the source chat with `teams_read`, about 15 messag
 ## Write the brief
 
 Follow `$WAYNE_SKILLS_DIR/_shared/task-prompt.md`. Copy the relevant glossary lines from `~/.wayne/CONTEXT.md` into the brief. A remote session cannot read that file.
+When `<state>/context.md` exists on the destination host, include its path in `Context:` and instruct the worker to read it first before touching the repo or remotes.
+When a target repository maintains an in-repo glossary (e.g. `docs/current_status/glossary.md` kept current by a commit hook), point the brief at that file on `origin/main` for product terminology, while `~/.wayne/CONTEXT.md` supplies Wayne's dev-env/host/cross-repo specifics.
 
 Start every brief with the `Pain:` section in [_shared/task-prompt.md](../../_shared/task-prompt.md#sections) before stating the goal or ask; put who asked, where, and when (`Asia/Shanghai`) as a quote in `Pain:`. `Inputs` names the files and URLs; `Report` names the deliverable and the facts that must be rechecked at source.
 
@@ -83,6 +85,7 @@ The watch lasts as long as the session: closing its thens never removes it. `/in
 A no-result, ask or blocked card means the session stopped without a new RESULT (`agent-no-result` / `agent-ask`). Read what it last said, then advance it yourself (only when within existing authorization and the brief's limits: a decision Wayne already made; a recommended option with no prod write, merge, deploy or spend; a question a tool can answer) or leave it to Wayne. Its row closes only with a verdict: `inbox done <id> --verdict advanced|waiting-user|nothing-pending --note "<what you did / the question / why nothing is owed>"`; `waiting-user` keeps it live as an `ask-wayne` row. A `RESULT` with `status: blocked` produces an `agent-result` row instead (not handled by `--verdict`) and fires any armed `agent-result` `then` on that watch; after resolving the blocker (opening an `ask-wayne` row with `inbox ask` if it waits on Wayne), close the fired `then` with `inbox then-done`, re-arm the completion plan on the live task row before resuming the worker, and close the `agent-result` row.
 
 Answer an agent question yourself when a read can settle it, then send the answer into the session. Ask Wayne only for a decision: one concrete Chinese question, with the blocker, why, and 2–3 options. Close a fulfilled then-action with `inbox then-done`.
+**Check direct user replies before asking Wayne:** Wayne sometimes answers a watched session directly in its pane (in addition to messages sent by the coordinator). Before re-asking Wayne about a session's open question or closing a question as unanswered, inspect all `role: "user"` messages in that session's `.jsonl` since the last check (distinguishing coordinator-prefixed messages from Wayne's direct input). If Wayne already answered there, close the coordinator ask row and do not ask him again.
 
 ## Follow up and verify
 
@@ -100,4 +103,12 @@ Report one short message in the request channel: session, machine, mux, pane, cw
 
 ## Close
 
-When every PR a watched session owns is merged, close the session: check `rules.yaml` for any other open PRs that session still owns first, then close it. `inbox agent close <name>` prints liveness, phase, idle time, the RESULT status/open/verified lines, the RESULT version and open thens, and closes nothing. Verify the RESULT at its source, then run `inbox agent close <name> --ack <version|none> --note "<what you verified>"`. It refuses while the session is working or asking, while a fired then is open, or when the RESULT changed since you read it; if a session stays `working` with no output for hours, report it to Wayne and do not force it. A gone session's watch is removed at once; a live idle one becomes `closing`. Only then kill the pane: `tern kill`, `tmux kill-*` and `herdr pane close` on a watched pane are blocked until the close is acknowledged. The probe removes the watch once the pane is gone.
+When every PR a watched session owns is merged (or a read-only / no-PR session finishes its retro and Wayne picks/declines its candidates), close and clean up the session:
+
+1. **No remaining work:** check `rules.yaml` for any other open PRs that session still owns, and confirm its retro round has run (or was skipped per above).
+2. **Teardown before killing the pane** (ask the session to run its own teardown while still live, or run it on the session's host after confirming nothing else uses it):
+   - Stop and remove any isolated Docker containers, demo stacks, dev servers, or background services this session started (`docker rm -f <prefix>-*`, stop supervised services, verify `ss -ltn` no longer listens on its ports).
+   - Remove its scratch `/tmp/<prefix>-*` dirs, env files (which may hold secrets), and any throwaway DBs/schemas it created. Never touch shared DBs or another session's containers.
+   - Prune `<state>/runs/<topic>/context.md` per `wayne-compress` §P (promote durable lines to `<state>/context.md`, delete task-local lines; keep `RESULT*.md` as the run record).
+3. **Acknowledge close and kill the pane:** run `inbox agent close <name>` first (it prints liveness, phase, idle time, RESULT status/open/verified, version, and open thens, and closes nothing). Verify the RESULT at its source, then run `inbox agent close <name> --ack <version|none> --note "<what you verified and cleaned>"`. It refuses while the session is working or asking, while a fired then is open, or when the RESULT changed since you read it; if a session stays `working` with no output for hours, report it to Wayne and do not force it. A gone session's watch is removed at once; a live idle one becomes `closing`. Only then kill the pane (`tern kill`, `tmux kill-*`, or `herdr pane close` — blocked until close is acknowledged). The probe removes the watch once the pane is gone.
+4. **Remove the checkout:** once the pane is gone and every commit from that checkout is merged or discarded, remove the task checkout (`ovnfs rm <name>` for ovnfs checkouts, or `git worktree remove <path>` for git worktrees). Report what was cleaned (containers, `/tmp`, checkout, pane) in the close note.
