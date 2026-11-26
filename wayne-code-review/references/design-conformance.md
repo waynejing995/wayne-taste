@@ -29,7 +29,7 @@ Exactly two levels, chosen by consequence and never by category:
 - **CRITICAL** — a surviving consumer, stored datum, or documented contract now disagrees with the change at runtime; or a doc describing a design this change replaced was left stale, or updated inside the range without a reason.
 - **INFORMATIONAL** — drift with no wrong-result path today, a convention violation, or a stale doc that misleads nobody yet.
 
-Every finding states its **hit rate / impact**: how often the conflicting path is hit in practice (every run, every deploy, a rare race, operator-only) and how large the observable consequence is (data loss, a machine stuck for 30 days, a wrong status, cosmetic). CRITICAL needs both a reachable trigger and a significant impact; a rare trigger with a non-significant impact is INFORMATIONAL. Rare is not hypothetical: a rare trigger whose impact is data loss or corruption, a security or authz hole, or a resource held for days stays CRITICAL.
+Every finding states its **hit rate / impact**. The hit rate is a number: the estimated probability that the conflicting path is hit on one run of it (one save, one deploy, one Sync, one request), with the arithmetic and what each factor rests on (logs, run counts, user counts, load). A probability with no such basis cannot claim ≥ 1%. The impact is the observable consequence (data loss, a machine stuck for 30 days, a wrong status, cosmetic). CRITICAL needs **≥ 1%** and a significant impact; below 1% is INFORMATIONAL whatever its impact, with no request for a fix. The only exception is a security or authz hole an attacker can trigger on purpose.
 
 ## Confidence
 

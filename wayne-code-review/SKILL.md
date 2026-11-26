@@ -398,7 +398,7 @@ When the project keeps a decision log — a `wayne-mind-explode` or `wayne-plan`
 
 ### Gate CRITICAL on hit rate / impact
 
-Then re-rule every CRITICAL on its hit rate / impact, the voices' and your own — a voice tends to rate by category, and a category in Phase 3's critical table is a place to look, not a verdict. CRITICAL stays only with a reachable trigger and a significant impact. A rare trigger with a non-significant impact drops to INFORMATIONAL and is listed under `CRITICAL candidates downgraded` with the reason, so the drop is visible and arguable. Rare is not hypothetical: a rare trigger whose impact is data loss or corruption, a security or authz hole, or a resource held for days stays CRITICAL. A missing hit rate / impact is filled in by you from the evidence, never assumed rare.
+Then re-rule every CRITICAL on its hit rate / impact, the voices' and your own — a voice tends to rate by category, and a category in Phase 3's critical table is a place to look, not a verdict. The hit rate is a number: the estimated probability that the trigger happens on one run of the affected path (one save, one deploy, one Sync, one request), with the arithmetic from the conditions it needs and what each factor rests on (logs, run counts, user counts, load). A probability with no such basis cannot claim ≥ 1%, and factors multiply only when independent. CRITICAL stays only at **≥ 1%** with a significant impact (a crash, data loss or corruption, a wrong result users see, a stuck resource). Below 1% is INFORMATIONAL whatever the impact, listed under `CRITICAL candidates downgraded` with its probability, so the drop is visible and arguable; it gets no request for a fix or a test. Illustrative arithmetic only (assumed numbers), below 1%: browser offline (~0.1% of saves) × Retry clicked × another TL saving the same selection in that window (~1%) ≈ 0.001%; a race that needs two requests inside the same few milliseconds. The only exception is a security or authz hole: an attacker can make it happen on purpose, so its probability is not low. A missing probability is filled in by you from the evidence, never assumed low.
 
 ### Synthesis Output (in Chinese)
 
@@ -429,7 +429,7 @@ DUAL-VOICE CODE REVIEW SYNTHESIS
 {findings suppressed by a documented rule — each naming the rule file:line}
 
 ## CRITICAL candidates downgraded
-{raised as CRITICAL, rare trigger + non-significant impact — each with its hit rate / impact and the reason}
+{raised as CRITICAL, probability < 1% or non-significant impact — each with its probability / impact and the reason}
 ==================================================
 ```
 
@@ -437,7 +437,7 @@ Every finding section above is a table with one column for hit rate / impact:
 
 | Severity | File:line | Problem | Hit rate / impact | Fix | Source |
 | --- | --- | --- | --- | --- | --- |
-| CRITICAL (9/10) | `app/models/user.rb:42` | state transition races | every concurrent submit; order status overwritten | `WHERE status = 'draft'` on the UPDATE | subagent + Codex |
+| CRITICAL (9/10) | `app/models/user.rb:42` | state transition races | ~5% of submits (request log: 1 in 20 submits arrives twice from a double-click); order status overwritten | `WHERE status = 'draft'` on the UPDATE | subagent + Codex |
 
 ### User Sovereignty Rule
 
