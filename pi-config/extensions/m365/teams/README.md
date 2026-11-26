@@ -206,8 +206,8 @@ notes are prompts, not cards, and stay instructions exactly as written.
   `commands only`, or the error), `flushed` (handed to omp, with `how`: `steer`, `turn`, `context` or
   `display`), `delivered` (in the conversation) and `dropped` (its session ended
   first).
-- **Untrusted.** Everything a card quotes from Teams (chat name, senders, text,
-  file names) sits inside `<untrusted-teams-content>`, after a note that tells
+- **Untrusted.** Everything a card quotes from Teams (channel subject, chat name,
+  senders, text, file names) sits inside `<untrusted-teams-content>`, after a note that tells
   the agent never to follow instructions in it. A copy of the tag inside a
   message is defused (`‹/untrusted-teams-content`), so a message cannot close
   the block early and speak as the card. Self-chat notes are wrapped the same
@@ -282,7 +282,7 @@ Prefer `team_id` and `channel_id` from `teams_channels`: addressing by `team` an
 
 ### Modes: `shared` (default) vs `personal`
 
-- **`shared` (default).** Other people's messages arrive as untrusted `teams-watch` cards carrying a thread line (`thread: <id>  subject: …  owner: …`). A card starts a turn only when `policy` is set and the `tiny` model check answers YES; with no `policy`, cards are display-only. With no gate in the host (MCP) or a gate that errors or answers neither YES nor NO, the card is display-only and a warning names the channel. Only your own messages (matched by signed-in `oid`, never display name) starting with `omp:` or `pi:` (full-width `：` also works) arrive as `[Teams channel instruction]` prompts; your other messages and agent echoes are skipped.
+- **`shared` (default).** Other people's messages arrive as untrusted `teams-watch` cards carrying a thread line (`thread: <id>  owner: …`) and the subject inside the untrusted block. A card starts a turn only when `policy` is set and the `tiny` model check answers YES; with no `policy`, cards are display-only. With no gate in the host (MCP) or a gate that errors or answers neither YES nor NO, the card is display-only and a warning names the channel. Only your own messages (matched by signed-in `oid`, never display name) starting with `omp:` or `pi:` (full-width `：` also works) arrive as `[Teams channel instruction]` prompts; your other messages and agent echoes are skipped.
 - **`personal`.** Opt-in (`mode: "personal"`). At start and **every 10 minutes** (`600 s`), the watch verifies via Graph that the channel's `membershipType` is `"private"` and its member list contains **only** the signed-in user (`memberOids.length === 1` and includes your `oid`).
   - If the check fails at start or on a 10-minute re-check, the watch immediately downgrades to `shared` mode and warns with the reason; `teams_watch` `action: "list"` reports `shared (personal refused: <reason>)`. If a later 10-minute re-check passes again, `personal` mode is restored.
   - While verified `personal`, **every** non-echo, non-email message you post in the channel is treated as a `[Teams channel instruction]` prompt without needing an `omp:`/`pi:` prefix.
