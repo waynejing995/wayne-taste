@@ -25,7 +25,7 @@ import { createOutlook } from "../outlook/tools.ts";
 import { setAgentHarness } from "../teams/card.ts";
 import { createTeams, type TeamsHost } from "../teams/core.ts";
 import { describeOwner } from "../teams/watch.ts";
-import { type Channel, CHANNEL_INSTRUCTIONS, type ChannelEvent, logFailure, type Push, startChannel } from "./channel.ts";
+import { type Channel, CHANNEL_INSTRUCTIONS, type ChannelEvent, type Push, startChannel } from "./channel.ts";
 import { inboxTools } from "./inbox.ts";
 import { Type } from "typebox";
 
@@ -98,10 +98,14 @@ export function createServer(): Server {
 	const tools: ToolDef[] = [];
 	let pushEvent: Push | undefined;
 	let channel: Channel | undefined;
-	const send = (event: ChannelEvent) => pushEvent && logFailure(pushEvent(event));
+	const send = (event: ChannelEvent) => {
+		if (!pushEvent) throw new Error("m365 channel is not available for watch delivery");
+		return pushEvent(event);
+	};
 	const host: TeamsHost = {
 		registerTool: (tool) => void tools.push(tool as unknown as ToolDef),
 		exec: run,
+		turnEvents: false,
 		sendMessage: (message, delivery, meta) =>
 			send({
 				kind: "card",
