@@ -30,9 +30,11 @@ import { cursorPages } from "./paging.ts";
 import { REACTIONS, reactionLine, reactionType } from "./reactions.ts";
 import { SKYPE_SCOPES, SkypeClient } from "./skype.ts";
 import type { GateMessage } from "./turn-gate.ts";
-import type { ChatRef, ChatsPage, HistoryMessage, SendTarget } from "./types.ts";
+import type { ChannelPost, ChannelRef, ChannelRoot, ChatRef, ChatsPage, HistoryMessage, SendTarget } from "./types.ts";
 import { HISTORY_MESSAGES } from "./types.ts";
 import { claim, describeOwner, listOwners, type WatchLease, type WatchOwner } from "./watch.ts";
+import type { ChannelAddr } from "./channel.ts";
+import { cursorKey, updateCursor } from "./cursor-store.ts";
 import { forgetWatch, rememberInterval, rememberWatch } from "./watch-list.ts";
 
 /** Local `StringEnum` helper — `Type.Unsafe({type:"string", enum})` so tool schemas
@@ -214,6 +216,8 @@ export type CardDetails = { chatId: string; label: string; count: number; policy
 /** What a harness gives the Teams core. The optional parts are what only some harnesses have. */
 export interface TeamsHost {
 	registerTool: RegisterTool;
+	/** A test seam: the backend to use in place of makeBackend(), which builds the real MSAL clients. */
+	backend?: Backend;
 	exec(command: string, args: string[], options: { timeout?: number; cwd?: string }): Promise<{ code: number; stdout: string; stderr: string }>;
 	/** Hand a watch card to the agent. `meta.senders` names who wrote its messages, for a harness that labels pushed events. */
 	sendMessage(
@@ -315,6 +319,7 @@ export function createTeams(pi: TeamsHost) {
 	function makeBackend(): Backend {
 		if (cfg.backend === "script") return new ScriptBackend(runScript);
 		return new GraphBackend(new GraphClient(() => auth.getToken({ scopes: auth.GRAPH_SCOPES })), {
+			oid: async () => auth.tokenClaim(await auth.getToken({ scopes: auth.GRAPH_SCOPES }), "oid"),
 			// From the signed-in account, never from a constant. See auth.identity().
 			whoami: async () => (await auth.identity()).displayName,
 			// A different scope, so a different token: the self-chat is chatsvc,
@@ -353,7 +358,7 @@ export function createTeams(pi: TeamsHost) {
 		});
 	}
 
-	const backend: Backend = clearErrorOnSuccess(makeBackend());
+	const backend: Backend = clearErrorOnSuccess(pi.backend ?? makeBackend());
 
 	// ── Unread poll ─────────────────────────────────────────────────────────
 
@@ -505,7 +510,27 @@ export function createTeams(pi: TeamsHost) {
 	function describeTarget(t: SendTarget): string {
 		if (t.kind === "self") return "self-chat (48:notes)";
 		if (t.kind === "chat") return t.chat ? `chat "${t.chat}"` : `chat ${t.id}`;
-		return `#${t.channel} in "${t.team}"`;
+		return t.channel !== undefined ? `#${t.channel} in "${t.team ?? ""}"` : `channel ${t.channelId ?? ""} in team ${t.teamId ?? ""}`;
+	}
+
+	/**
+	 * Send, and say what was posted. A channel send also returns the new message (its id and web URL), which the
+	 * caller needs to bind a root or reply to it; every other send returns no post.
+	 */
+	async function sendPosted(
+		target: SendTarget,
+		message: string,
+		html: boolean,
+		mentions: Mention[] = [],
+		images: string[] = [],
+		card?: Record<string, unknown>,
+		files: string[] = [],
+	): Promise<{ text: string; post?: ChannelPost }> {
+		const post = await backend.send(target, message, html, mentions, images, card, files);
+		const all = [...images, ...files];
+		const uploaded = all.length ? ` Uploaded: ${all.join(", ")}.` : "";
+		if (post) return { text: `Posted${card ? " a card" : ""} to ${describeTarget(target)}. (id: ${post.id})${post.webUrl ? ` ${post.webUrl}` : ""}${uploaded}`, post };
+		return { text: `Sent ${card ? "a card " : ""}to ${describeTarget(target)}.${uploaded}` };
 	}
 
 	async function send(
@@ -517,26 +542,61 @@ export function createTeams(pi: TeamsHost) {
 		card?: Record<string, unknown>,
 		files: string[] = [],
 	): Promise<string> {
-		await backend.send(target, message, html, mentions, images, card, files);
-		const all = [...images, ...files];
-		const uploaded = all.length ? ` Uploaded: ${all.join(", ")}.` : "";
-		return `Sent ${card ? "a card " : ""}to ${describeTarget(target)}.${uploaded}`;
+		return (await sendPosted(target, message, html, mentions, images, card, files)).text;
 	}
 
 	/**
 	 * Send `spec` as an Adaptive Card. A card cannot notify: its mentions show as bold names, and go into the message
 	 * body beside it as real ones.
 	 */
+	async function sendCardPosted(
+		target: SendTarget,
+		spec: Omit<CardSpec, "text"> & { message: string },
+		images: string[] = [],
+		files: string[] = [],
+	): Promise<{ text: string; post?: ChannelPost }> {
+		const { text, mentions: inCard } = cardMentions(spec.message);
+		const card = buildCard({ ...spec, text });
+		const { html: notify, mentions } = renderWithMentions(inCard.map(mentionSyntax).join(" "));
+		return sendPosted(target, mentions.length > 0 ? notify : "", true, mentions, images, card, files);
+	}
+
 	async function sendCard(
 		target: SendTarget,
 		spec: Omit<CardSpec, "text"> & { message: string },
 		images: string[] = [],
 		files: string[] = [],
 	): Promise<string> {
-		const { text, mentions: inCard } = cardMentions(spec.message);
-		const card = buildCard({ ...spec, text });
-		const { html: notify, mentions } = renderWithMentions(inCard.map(mentionSyntax).join(" "));
-		return send(target, mentions.length > 0 ? notify : "", true, mentions, images, card, files);
+		return (await sendCardPosted(target, spec, images, files)).text;
+	}
+
+	/**
+	 * Called for each reply the session posts to a channel thread. A no-op here: thread completion (I7) records it.
+	 */
+	function noteThreadReply(_key: string, _root: string): void {}
+
+	/**
+	 * Thread bookkeeping after a channel post. A root in a channel a live watch holds binds its thread to `bind`, else
+	 * to this session. A channel nobody watches binds nothing, even when an old cursor file is on disk: the live lease,
+	 * not the file, says who watches now. A reply goes to the thread-reply hook.
+	 */
+	async function afterChannelPost(
+		addr: ChannelAddr,
+		replyTo: string | undefined,
+		post: ChannelPost,
+		subject: string | undefined,
+		bind: string | undefined,
+		sessionId: string,
+	): Promise<void> {
+		const key = cursorKey({ teamId: addr.teamId, channelId: addr.channelId });
+		if (replyTo !== undefined) {
+			noteThreadReply(key, replyTo);
+			return;
+		}
+		const owners = await listOwners();
+		if (!owners.some((o) => o.chatId === key)) return;
+		const owner = bind ?? `session:${sessionId}`;
+		updateCursor(key, (c) => ({ ...c, threads: { ...c.threads, [post.id]: { owner, ...(subject ? { subject } : {}) } } }));
 	}
 
 	// ── Markdown → Teams HTML ───────────────────────────────────────────────
@@ -987,7 +1047,12 @@ export function createTeams(pi: TeamsHost) {
 	/** The newest `limit` messages, or every message at or after `since` and before `until`, oldest first. */
 	async function loadRecent(target: SendTarget, limit: number, since?: string, until?: string): Promise<HistoryMessage[]> {
 		if (target.kind === "self") return (await readSelfChat("", since === undefined ? limit : Number.POSITIVE_INFINITY, since, until)).map(selfLine);
-		if (target.kind === "channel") throw new Error("reading channel history is not supported yet");
+		if (target.kind === "channel") {
+			if (since !== undefined || until !== undefined) throw new Error("reading a channel by time is not supported yet; read the newest roots with `limit`");
+			const addr = await backend.resolveChannel({ teamId: target.teamId, channelId: target.channelId, team: target.team, channel: target.channel });
+			if (target.replyTo !== undefined) return (await backend.channelThread(addr, target.replyTo)).messages;
+			return (await backend.channelRoots(addr, limit)).roots.map((r) => r.root);
+		}
 		const payload = await backend.messages({ id: target.id, name: target.chat }, limit, since, until);
 		return payload.messages.map((m) => ({ ...m, me: payload.me }));
 	}
@@ -1055,8 +1120,13 @@ export function createTeams(pi: TeamsHost) {
 			chat: Type.Optional(
 				Type.String({ description: "Chat name, if you have no id. Ambiguous names are an error." }),
 			),
-			team: Type.Optional(Type.String({ description: "Team name, required when target='channel'" })),
-			channel: Type.Optional(Type.String({ description: "Channel name, required when target='channel'" })),
+			team_id: Type.Optional(Type.String({ description: "With target='channel': the team's id from teams_channels (preferred over `team`)" })),
+			channel_id: Type.Optional(Type.String({ description: "With target='channel': the channel's id from teams_channels (preferred over `channel`)" })),
+			team: Type.Optional(Type.String({ description: "Team name, if you have no `team_id`" })),
+			channel: Type.Optional(Type.String({ description: "Channel name, if you have no `channel_id`" })),
+			subject: Type.Optional(Type.String({ description: "With target='channel' and no reply_to: the new root post's subject" })),
+			reply_to: Type.Optional(Type.String({ description: "With target='channel': the root post's id to reply to in its thread" })),
+			bind: Type.Optional(Type.String({ description: "With target='channel' and no reply_to: the owner label the new root's thread is bound to; default this session" })),
 			images: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
@@ -1132,6 +1202,7 @@ export function createTeams(pi: TeamsHost) {
 			const files = (params.files ?? []).map((p) => path.resolve(ctx.cwd ?? process.cwd(), p));
 			const message = params.message;
 			let target: SendTarget;
+			let addr: ChannelAddr | undefined;
 			if (params.target === "self") {
 				target = { kind: "self" };
 			} else if (params.target === "chat") {
@@ -1139,9 +1210,13 @@ export function createTeams(pi: TeamsHost) {
 					throw new Error("target='chat' requires 'chat_id' (preferred) or 'chat'");
 				target = { kind: "chat", chat: params.chat ?? "", id: params.chat_id };
 			} else {
-				if (!params.team || !params.channel)
-					throw new Error("target='channel' requires both 'team' and 'channel'");
-				target = { kind: "channel", team: params.team, channel: params.channel };
+				if (!params.team_id && !params.team) throw new Error("target='channel' requires 'team_id' (preferred) or 'team'");
+				if (!params.channel_id && !params.channel) throw new Error("target='channel' requires 'channel_id' (preferred) or 'channel'");
+				if (params.subject !== undefined && params.reply_to !== undefined) throw new Error("a channel reply cannot set a subject; omit subject or reply_to");
+				// Resolved before anything is posted: a name that matches no channel, or several, fails here, and the post
+				// and the thread bookkeeping both key on the channel's real ids, never on the names the caller typed.
+				addr = await backend.resolveChannel({ teamId: params.team_id, channelId: params.channel_id, team: params.team, channel: params.channel });
+				target = { kind: "channel", teamId: addr.teamId, channelId: addr.channelId, subject: params.subject, replyTo: params.reply_to };
 			}
 
 			flash(ctx, "sending…", 30_000);
@@ -1158,12 +1233,14 @@ export function createTeams(pi: TeamsHost) {
 				// script backend sends it as text, and refuses a card it was asked for.
 				const cardFields = ["title", "facts", "decision", "links", "details", "agents"] as const;
 				const asCard = params.card ?? (cardFields.some((k) => params[k] !== undefined) || cfg.backend !== "script");
-				let msg: string;
-				if (asCard) msg = await sendCard(target, params, images, files);
+				let sent: { text: string; post?: ChannelPost };
+				if (asCard) sent = await sendCardPosted(target, params, images, files);
 				else {
 					const { html: payload, mentions } = renderWithMentions(message + agentFooter());
-					msg = await send(target, payload, true, mentions, images, undefined, files);
+					sent = await sendPosted(target, payload, true, mentions, images, undefined, files);
 				}
+				if (target.kind === "channel" && addr && sent.post) await afterChannelPost(addr, params.reply_to, sent.post, params.subject, params.bind, ctx.sessionManager.getSessionId());
+				const msg = sent.text;
 				// The agent answered in the self-chat itself: the automatic reply would post the same answer twice.
 				if (target.kind === "self") selfSentThisTurn = true;
 				flash(ctx, "sent ✓");
@@ -1175,13 +1252,95 @@ export function createTeams(pi: TeamsHost) {
 		},
 	});
 
+	/**
+	 * A channel's roots or one thread, rendered as `teams_read` lines. Ids are used as given; names are resolved
+	 * first, and a name that matches no channel or several throws before any message is read.
+	 */
+	async function readChannel(params: {
+		team_id?: string;
+		channel_id?: string;
+		team?: string;
+		channel?: string;
+		message_id?: string;
+		limit?: number;
+		images?: boolean;
+	}) {
+		if (!params.team_id && !params.team) throw new Error("target='channel' requires 'team_id' (preferred) or 'team'");
+		if (!params.channel_id && !params.channel) throw new Error("target='channel' requires 'channel_id' (preferred) or 'channel'");
+		const addr = await backend.resolveChannel({ teamId: params.team_id, channelId: params.channel_id, team: params.team, channel: params.channel });
+		const label = `#${addr.label}`;
+		if (params.message_id !== undefined) {
+			const { messages } = await backend.channelThread(addr, params.message_id);
+			const lines = messages.map((m) => renderChannelLine(m, m.id === params.message_id ? undefined : params.message_id));
+			return channelContent(`${label} — thread ${params.message_id}, ${messages.length} message(s)`, lines, messages, params.images);
+		}
+		const { roots } = await backend.channelRoots(addr, params.limit ?? HISTORY_MESSAGES);
+		const lines = roots.map(({ root, replyCount }) => {
+			const subject = root.subject ? ` ${root.subject}` : "";
+			return `[${formatLocal(root.at)}] (id: ${root.id ?? ""}) ${root.mine ? "me" : root.sender}${subject} (${replyCount} replies): ${root.text}`;
+		});
+		return channelContent(`${label} — ${roots.length} root(s)`, lines, roots.map((r) => r.root), params.images);
+	}
+
+	/** One thread line: a root has `(id: …)`, a reply also `reply_to`, and the text is kept as the chat render keeps it. */
+	function renderChannelLine(m: HistoryMessage, replyTo: string | undefined): string {
+		const who = m.mine ? "me" : m.sender;
+		const id = replyTo ? `id: ${m.id ?? ""}, reply_to: ${replyTo}` : `id: ${m.id ?? ""}`;
+		const head = `[${formatLocal(m.at)}] (${id}) ${who}: ${m.text}`;
+		const files = (m.files ?? []).map((f) => `    \u{1f4ce} file: ${f.name}\n       url: ${f.url}`);
+		return [head, ...files].join("\n");
+	}
+
+	/** The result of a channel read: its header and lines, then the pictures of its messages, as a chat read attaches them. */
+	async function channelContent(header: string, lines: string[], messages: HistoryMessage[], images: boolean | undefined) {
+		const content: ({ type: "text"; text: string } | ImagePart)[] = [
+			{ type: "text", text: `${header}\n${lines.length === 0 ? "(no messages)" : lines.join("\n")}` },
+		];
+		if (images !== false) {
+			const urls = messages.flatMap(pictureSources);
+			for (const { line, part } of (await receivePictures(urls)).pictures) {
+				content.push({ type: "text", text: line });
+				if (part) content.push(part);
+			}
+		}
+		return { content, details: {} };
+	}
+
+	pi.registerTool({
+		name: "teams_channels",
+		label: "Teams Channels",
+		description:
+			"List the team channels you belong to, one per line: team and channel names, `team_id` and `channel_id` (the ids " +
+			"teams_read, teams_send and teams_react take), membership type, the channel's email address when it has one, " +
+			"`[archived]`, and `[watched here]` when this session watches it. `query` filters by a case-insensitive " +
+			"substring of the team or channel name.",
+		parameters: Type.Object({
+			query: Type.Optional(Type.String({ description: "Case-insensitive substring of the team or channel name" })),
+		}),
+		async execute(_id, params) {
+			const channels = await backend.channels(params.query);
+			if (channels.length === 0) return { content: [{ type: "text", text: `No channel matches "${params.query ?? ""}".` }], details: {} };
+			const lines = channels.map((c) => {
+				const email = c.email ? `  email: ${c.email}` : "";
+				const archived = c.archived ? "  [archived]" : "";
+				const watched = watches.has(cursorKey({ teamId: c.teamId, channelId: c.channelId })) ? "  [watched here]" : "";
+				return `${c.team} / ${c.channel}  team_id: ${c.teamId}  channel_id: ${c.channelId}  ${c.membershipType}${email}${archived}${watched}`;
+			});
+			return { content: [{ type: "text", text: lines.join("\n") }], details: {} };
+		},
+	});
+
 	pi.registerTool({
 		name: "teams_read",
 		label: "Teams Read",
 		description:
 			"Read the recent messages of one Microsoft Teams conversation, oldest first; `limit` says how many (default 20, up to 200). `since` reads every message at or after that time instead, with no count cap; `until` stops before a later time. " +
 			"target='self' reads the user's own self-chat (48:notes); target='chat' reads a person " +
-			"or group chat by name. Chat names are matched by substring and an ambiguous name is an " +
+			"or group chat by name; target='channel' reads a team channel by `team_id` and `channel_id` (or `team` and " +
+			"`channel` names, and then a name matching no channel or several is an error): without `message_id` it lists " +
+			"the newest root posts, each with its id, subject and reply count; with `message_id` it reads that root and " +
+			"all its replies, the replies carrying `reply_to`. " +
+			"Chat names are matched by substring and an ambiguous name is an " +
 			"error. HTML is already converted to plain text, and messages that contained a picture read " +
 			"as [image]. The newest pictures are attached to the result as images, each with the local path " +
 			"it was saved to, so look at them and describe what they show instead of telling the user to open " +
@@ -1190,11 +1349,16 @@ export function createTeams(pi: TeamsHost) {
 			"chose it. Use teams_unread first " +
 			"when you need to find out which conversation has new activity.",
 		parameters: Type.Object({
-			target: StringEnum(["self", "chat"], { description: "Which conversation to read" }),
+			target: StringEnum(["self", "chat", "channel"], { description: "Which conversation to read" }),
 			chat_id: Type.Optional(
 				Type.String({ description: "Chat id from teams_chats. Preferred over `chat`." }),
 			),
 			chat: Type.Optional(Type.String({ description: "Chat name, if you have no id" })),
+			team_id: Type.Optional(Type.String({ description: "With target='channel': the team's id from teams_channels (preferred over `team`)" })),
+			channel_id: Type.Optional(Type.String({ description: "With target='channel': the channel's id from teams_channels (preferred over `channel`)" })),
+			team: Type.Optional(Type.String({ description: "With target='channel': team name, if you have no `team_id`" })),
+			channel: Type.Optional(Type.String({ description: "With target='channel': channel name, if you have no `channel_id`" })),
+			message_id: Type.Optional(Type.String({ description: "With target='channel': a root post's id; reads that thread instead of the roots" })),
 			images: Type.Optional(
 				Type.Boolean({ description: "Attach the pictures themselves so you can describe them (default true)" }),
 			),
@@ -1209,6 +1373,8 @@ export function createTeams(pi: TeamsHost) {
 			),
 		}),
 		async execute(_id, params) {
+			if (params.until !== undefined && params.since === undefined) throw new Error("`until` needs `since`");
+			if (params.target === "channel") return readChannel(params);
 			if (params.target === "chat" && !params.chat_id && !params.chat)
 				throw new Error("target='chat' requires 'chat_id' (preferred) or 'chat'");
 			const target: SendTarget =
@@ -1216,7 +1382,6 @@ export function createTeams(pi: TeamsHost) {
 					? { kind: "self" }
 					: { kind: "chat", chat: params.chat ?? "", id: params.chat_id };
 
-			if (params.until !== undefined && params.since === undefined) throw new Error("`until` needs `since`");
 			const msgs = await loadRecent(target, params.limit ?? HISTORY_MESSAGES, params.since, params.until);
 			/**
 			 * One line per message with its id (teams_react's message_id), a line per shared file, and one for the
@@ -1262,19 +1427,36 @@ export function createTeams(pi: TeamsHost) {
 		label: "Teams React",
 		description:
 			"React to one Teams message, e.g. a thumbs up, or take your reaction back with remove=true. " +
-			"`message_id` is the id teams_read prints on each message line; `chat_id` is the chat it is in " +
-			"(from teams_chats, or \"48:notes\" for the self-chat). `reaction` is like, heart, laugh, surprised, " +
-			"sad, angry, or an emoji such as 👍.",
+			"`message_id` is the id teams_read prints on each message line. In a chat, `chat_id` is the chat it is in " +
+			"(from teams_chats, or \"48:notes\" for the self-chat). In a team channel, give `team_id` and `channel_id` " +
+			"(from teams_channels) instead of `chat_id`, and `reply_to` when the message is a reply to a root post. " +
+			"`reaction` is like, heart, laugh, surprised, sad, angry, or an emoji such as 👍.",
 		parameters: Type.Object({
-			chat_id: Type.String({ description: "The chat the message is in: an id from teams_chats, or 48:notes for the self-chat" }),
+			chat_id: Type.Optional(Type.String({ description: "The chat the message is in: an id from teams_chats, or 48:notes for the self-chat" })),
+			team_id: Type.Optional(Type.String({ description: "The channel's team id, from teams_channels (with channel_id, instead of chat_id)" })),
+			channel_id: Type.Optional(Type.String({ description: "The channel's id, from teams_channels (with team_id, instead of chat_id)" })),
+			reply_to: Type.Optional(Type.String({ description: "With a channel: the root post's id when the message is a reply" })),
 			message_id: Type.String({ description: "The message's id, as teams_read prints it" }),
 			reaction: Type.String({ description: `${Object.keys(REACTIONS).join(", ")}, or an emoji` }),
 			remove: Type.Optional(Type.Boolean({ description: "Take my reaction back instead of adding it (default false)" })),
 		}),
 		async execute(_id, params) {
 			const type = reactionType(params.reaction);
-			await backend.react(params.chat_id, params.message_id, type, params.remove === true);
-			const where = params.chat_id === SELF_CHAT ? "the self-chat" : `chat ${params.chat_id}`;
+			const inChannel = params.team_id !== undefined || params.channel_id !== undefined;
+			const complete = params.team_id !== undefined && params.channel_id !== undefined;
+			const addresses = (params.chat_id !== undefined ? 1 : 0) + (inChannel ? 1 : 0);
+			if (addresses !== 1 || (inChannel && !complete))
+				throw new Error("teams_react needs exactly one of chat_id, or team_id together with channel_id");
+			if (complete) {
+				const addr = await backend.resolveChannel({ teamId: params.team_id, channelId: params.channel_id });
+				await backend.reactChannel(addr, params.message_id, type, { replyTo: params.reply_to, remove: params.remove === true });
+				const where = `channel ${addr.label}`;
+				const text = params.remove ? `Removed ${type} from message ${params.message_id} in ${where}.` : `Reacted ${type} to message ${params.message_id} in ${where}.`;
+				return { content: [{ type: "text", text }], details: {} };
+			}
+			const chatId = params.chat_id as string;
+			await backend.react(chatId, params.message_id, type, params.remove === true);
+			const where = chatId === SELF_CHAT ? "the self-chat" : `chat ${chatId}`;
 			const text = params.remove ? `Removed ${type} from message ${params.message_id} in ${where}.` : `Reacted ${type} to message ${params.message_id} in ${where}.`;
 			return { content: [{ type: "text", text }], details: {} };
 		},
