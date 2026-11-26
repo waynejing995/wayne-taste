@@ -19,7 +19,8 @@ import YAML from "yaml";
 import { replaceBlock } from "../core/rules-block.ts";
 
 export type SavedWatch = { chat: string; chat_id: string; policy: string };
-export type WatchList = { interval_sec?: number; chats: SavedWatch[] };
+export type SavedChannelWatch = { channel: string; team_id: string; channel_id: string; mode?: "shared" | "personal"; policy: string };
+export type WatchList = { interval_sec?: number; chats: SavedWatch[]; channels?: SavedChannelWatch[] };
 
 export const WATCH_LIST = path.join(process.env.WAYNE_INBOX_DIR ?? path.join(os.homedir(), ".wayne", "inbox"), "rules.yaml");
 const SECTION = "teams_watch";
@@ -33,12 +34,14 @@ function split(): { text: string; list: WatchList } {
 	const data = (YAML.parse(text) ?? {}) as Record<string, unknown>;
 	const list = (data[SECTION] ?? { chats: [] }) as WatchList;
 	if (!Array.isArray(list.chats)) throw new Error(`${WATCH_LIST}: \`${SECTION}.chats\` must be a list`);
+	if (list.channels !== undefined && !Array.isArray(list.channels)) throw new Error(`${WATCH_LIST}: \`${SECTION}.channels\` must be a list`);
 	return { text, list };
 }
 
-/** The saved watches, as a harness resuming them reads them. */
+/** The saved watches, as a harness resuming them reads them. A channel with no mode is shared, the design's default. */
 export function savedWatches(): WatchList {
-	return split().list;
+	const { list } = split();
+	return list.channels === undefined ? list : { ...list, channels: list.channels.map((c) => ({ ...c, mode: c.mode ?? "shared" })) };
 }
 
 /** Hold the lock file for one read-modify-write. A lock older than LOCK_STALE_MS belonged to a process that died. */
@@ -88,4 +91,15 @@ export function forgetWatch(chatId: string): string {
 
 export function rememberInterval(sec: number): string {
 	return save((l) => ({ ...l, interval_sec: sec }));
+}
+
+export function rememberChannelWatch(w: SavedChannelWatch): string {
+	return save((l) => ({
+		...l,
+		channels: [...(l.channels ?? []).filter((c) => c.team_id !== w.team_id || c.channel_id !== w.channel_id), w],
+	}));
+}
+
+export function forgetChannelWatch(teamId: string, channelId: string): string {
+	return save((l) => ({ ...l, channels: (l.channels ?? []).filter((c) => c.team_id !== teamId || c.channel_id !== channelId) }));
 }
