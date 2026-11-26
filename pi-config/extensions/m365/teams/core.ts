@@ -899,7 +899,8 @@ export function createTeams(pi: TeamsHost) {
 	/**
 	 * One channel watch's poll: its plan of deliveries. Pages are followed until one reaches the watermark or the
 	 * stream ends; a read that passes CHANNEL_PAGE_BUDGET pages without reaching it throws, naming the backlog, and
-	 * the caller plans and marks nothing. Events are the items above the watermark that are neither done nor in flight.
+	 * the caller plans and marks nothing. Events are the items above the watermark that are neither done, in flight,
+	 * nor awaiting (a pending awaiting id is never delivered twice by the poll).
 	 */
 	async function readChannelPlan(w: WatchState, cursor: CursorFile): Promise<{ entries: DeliveryEntry[]; skipped: string[]; bind: Record<string, string> }> {
 		await reverifyPersonal(w);
@@ -923,7 +924,7 @@ export function createTeams(pi: TeamsHost) {
 		for (const m of raws) {
 			const id = String(m.id ?? "");
 			if (compareIds(id, cursor.watermark) <= 0) continue;
-			if (cursor.done.includes(id) || w.inflight.has(id)) continue;
+			if (cursor.done.includes(id) || w.inflight.has(id) || Object.values(cursor.awaiting ?? {}).flat().includes(id)) continue;
 			const event = toChannelEvent(m, w.myOid ?? "");
 			if (event) events.push(event);
 		}
@@ -1019,17 +1020,34 @@ export function createTeams(pi: TeamsHost) {
 		}
 	}
 
+	/** Record personal instruction ids in `awaiting[thread]` before the host is handed them. */
+	function addAwaiting(key: string, threadId: string, ids: string[]): void {
+		updateCursor(key, (c) => {
+			const awaiting = { ...(c.awaiting ?? {}) };
+			awaiting[threadId] = [...new Set([...(awaiting[threadId] ?? []), ...ids])];
+			return { ...c, awaiting };
+		});
+	}
+
 	/**
-	 * Hand one channel prompt to the agent. A personal here-instruction is ACKed with a 👀 on each id first (a
-	 * failure warns, never blocks), and once the host has taken the prompt one cursor write both marks the ids done
-	 * and adds them to `awaiting[thread]`, so a crash cannot leave an id half-recorded.
+	 * Hand one channel prompt to the agent. A personal here-instruction is recorded in `awaiting[thread]` first, then
+	 * ACKed with a 👀 on each id (a reply uses `replyTo: threadId`; a failure warns, never blocks). Once the host has
+	 * taken the prompt the ids are marked done. Merging a new instruction into a running channelTurn resets `replied`
+	 * so the follow-up is answered at turn end.
 	 */
 	async function deliverChannelCommand(ctx: TeamsContext, c: ChannelCommand, options: { deliverAs: "steer" } | undefined): Promise<void> {
 		if (watches.get(c.key) !== c.w) return;
 		if (c.personal && !c.redelivered) {
+			try {
+				addAwaiting(c.key, c.threadId, c.ids);
+			} catch (e) {
+				for (const id of c.ids) { c.w.inflight.delete(id); c.w.retry.add(id); }
+				watchError(c.w, e);
+				return;
+			}
 			for (const id of c.ids) {
 				try {
-					await backend.reactChannel(c.w.addr!, id, "👀");
+					await backend.reactChannel(c.w.addr!, id, "👀", id !== c.threadId ? { replyTo: c.threadId } : undefined);
 				} catch (e) {
 					ctx.ui.notify(`Teams watch "${c.w.owner.label}": ACK reaction failed on message ${id}: ${e instanceof Error ? e.message : String(e)}`, "warning");
 				}
@@ -1040,6 +1058,7 @@ export function createTeams(pi: TeamsHost) {
 		try {
 			await pi.sendUserMessage(`${c.mark}\n${c.body}`, options, { chatId: c.key, policy: c.policy });
 		} catch (e) {
+			if (c.personal && !c.redelivered) removeAwaiting(c.key, c.threadId, c.ids);
 			for (const id of c.ids) { c.w.inflight.delete(id); c.w.retry.add(id); }
 			watchError(c.w, e);
 			return;
@@ -1047,13 +1066,7 @@ export function createTeams(pi: TeamsHost) {
 		if (watches.get(c.key) !== c.w) return;
 		for (const id of c.ids) c.w.inflight.delete(id);
 		try {
-			updateCursor(c.key, (cur) => {
-				const next = markDone(cur, [...c.w.inflight, ...c.w.retry], c.ids);
-				if (!c.personal) return next;
-				const awaiting = { ...(next.awaiting ?? {}) };
-				awaiting[c.threadId] = [...new Set([...(awaiting[c.threadId] ?? []), ...c.ids])];
-				return { ...next, awaiting };
-			});
+			updateCursor(c.key, (cur) => markDone(cur, [...c.w.inflight, ...c.w.retry], c.ids));
 		} catch (e) {
 			for (const id of c.ids) c.w.inflight.add(id);
 			watchError(c.w, e);
@@ -1062,7 +1075,7 @@ export function createTeams(pi: TeamsHost) {
 			turnThread = c.threadId;
 			if (c.personal) {
 				channelTurn = channelTurn && channelTurn.key === c.key && channelTurn.threadId === c.threadId
-					? { ...channelTurn, ids: [...new Set([...channelTurn.ids, ...c.ids])] }
+					? { ...channelTurn, ids: [...new Set([...channelTurn.ids, ...c.ids])], replied: false }
 					: { key: c.key, threadId: c.threadId, ids: [...c.ids], w: c.w, addr: c.w.addr!, replied: false };
 			}
 		}
@@ -1099,7 +1112,7 @@ export function createTeams(pi: TeamsHost) {
 		}
 	}
 
-	/** Scan the stream back for specific ids: the events a restart re-delivers, read by id as the cursor file names them. */
+	/** Scan the stream back for specific ids: the events a restart re-delivers, plus every other event on those pages so a later agent reply in the same thread is visible. */
 	async function readEventsById(addr: ChannelAddr, wanted: Set<string>): Promise<Map<string, ChannelEvent>> {
 		const found = new Map<string, ChannelEvent>();
 		const seen = new Set<string>();
@@ -1112,7 +1125,7 @@ export function createTeams(pi: TeamsHost) {
 				if (!id) continue;
 				seen.add(id);
 				if (oldest === undefined || compareIds(id, oldest) < 0) oldest = id;
-				if (wanted.has(id) && !found.has(id)) {
+				if (!found.has(id)) {
 					const event = toChannelEvent(m, "");
 					if (event) found.set(id, event);
 				}
@@ -1129,35 +1142,42 @@ export function createTeams(pi: TeamsHost) {
 
 	/**
 	 * `awaiting` a previous process left behind: queue each id's prompt again, so the restart does not lose the
-	 * instruction. The mark says it was re-delivered and the 👀 is not repeated; ids the channel no longer has are
-	 * dropped from `awaiting` with a warning (they can never be answered).
+	 * instruction — unless the thread already has an own agent reply (footer + my oid) with id greater than the awaited
+	 * id, in which case it is cleared, not re-delivered. The mark says it was re-delivered and the 👀 is not repeated;
+	 * ids the channel no longer has are dropped from `awaiting` with a warning (they can never be answered).
 	 */
 	async function redeliverAwaiting(w: WatchState, awaiting: Record<string, string[]>): Promise<void> {
 		const wanted = new Set(Object.values(awaiting).flat());
 		if (wanted.size === 0) return;
 		const found = await readEventsById(w.addr!, wanted);
+		const scanned = [...found.values()];
+		const mine = w.myOid ?? "";
 		const threads = loadCursor(w.key)?.threads ?? {};
 		for (const [threadId, ids] of Object.entries(awaiting)) {
 			if (ids.length === 0) continue;
-			const events = ids.flatMap((id) => { const e = found.get(id); return e ? [e] : []; });
 			const missing = ids.filter((id) => !found.has(id));
 			if (missing.length) {
 				removeAwaiting(w.key, threadId, missing);
 				watchCtx?.ui.notify(`Teams watch "${w.owner.label}": ${missing.length} awaited instruction(s) in thread ${threadId} are no longer in the channel; they are dropped`, "warning");
 			}
-			if (events.length === 0) continue;
+			const present = ids.filter((id) => found.has(id));
+			const answered = present.filter((id) => mine !== "" && scanned.some((e) => e.threadId === threadId && e.agentEcho && e.authorOid === mine && compareIds(e.id, id) > 0));
+			if (answered.length) removeAwaiting(w.key, threadId, answered);
+			const pending = present.filter((id) => !answered.includes(id));
+			if (pending.length === 0) continue;
+			const events = pending.flatMap((id) => { const e = found.get(id); return e ? [e] : []; });
 			let mark = `${CHANNEL_COMMAND_MARK} ${w.owner.label}  team_id: ${w.addr!.teamId}  channel_id: ${w.addr!.channelId}  thread: ${threadId}  subject: ${events.find((e) => e.subject)?.subject ?? threads[threadId]?.subject ?? ""}  owner: ${threads[threadId]?.owner ?? "unbound"}`;
 			if (w.mode === "personal" && !turnEvents) mark += `\nAnswer in this thread with teams_send reply_to=${threadId}`;
 			mark += "\n(re-delivered after a restart: check the thread before repeating side effects)";
 			pendingChannelCommands.push({
-				w, key: w.key, threadId, route: "here", ids: [...ids], mark,
+				w, key: w.key, threadId, route: "here", ids: [...pending], mark,
 				body: events.map((e) => e.text).filter(Boolean).join("\n\n"),
 				policy: w.policy,
 				personal: w.mode === "personal",
 				redelivered: true,
 				seq: commandSeq++,
 			});
-			logCard("queued", { chatId: w.key, ids: [...ids], thread: threadId, route: "here" }, { kind: "prompt", how: "re-delivered" });
+			logCard("queued", { chatId: w.key, ids: [...pending], thread: threadId, route: "here" }, { kind: "prompt", how: "re-delivered" });
 		}
 	}
 
