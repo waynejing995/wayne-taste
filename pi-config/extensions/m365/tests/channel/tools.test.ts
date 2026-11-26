@@ -261,11 +261,11 @@ describe("teams_send channel root and the cursor store", () => {
 		try {
 			const first = await call("teams_send", { target: "channel", team_id: TEAM, channel_id: CHANNEL, message: "First root", card: false });
 			expect(first).toContain("(id: 1700000000100) https://teams.test/general/post");
-			expect(readCursor(key).threads).toEqual({ "1700000000100": { owner: `session:${SESSION}` } });
+			expect(readCursor(key).threads).toEqual({ "1700000000100": { owner: "session:other-session" } });
 
 			await call("teams_send", { target: "channel", team_id: TEAM, channel_id: CHANNEL, message: "Second root", card: false, subject: "Daily", bind: "inbox:42" });
 			expect(readCursor(key).threads).toEqual({
-				"1700000000100": { owner: `session:${SESSION}` },
+				"1700000000100": { owner: "session:other-session" },
 				"1700000000101": { owner: "inbox:42", subject: "Daily" },
 			});
 		} finally {
@@ -302,7 +302,7 @@ describe("teams_send channel root and the cursor store", () => {
 			const text = await call("teams_send", { target: "channel", team: "Eng", channel: "General", message: "Named root", card: false, subject: "By name" });
 			expect(text).toContain("(id: 1700000000200) https://teams.test/general/named");
 			expect(JSON.parse(readFileSync(cursorPath(key), "utf8")).threads).toMatchObject({
-				"1700000000200": { owner: `session:${SESSION}`, subject: "By name" },
+				"1700000000200": { owner: "session:other-session", subject: "By name" },
 			});
 			expect(existsSync(cursorPath(cursorKey({ teamId: "Eng", channelId: "General" })))).toBe(false);
 		} finally {

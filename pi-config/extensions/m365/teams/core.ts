@@ -663,8 +663,8 @@ export function createTeams(pi: TeamsHost) {
 
 	/**
 	 * Thread bookkeeping after a channel post. A root in a channel a live watch holds binds its thread to `bind`, else
-	 * to this session. A channel nobody watches binds nothing, even when an old cursor file is on disk: the live lease,
-	 * not the file, says who watches now. A reply goes to the thread-reply hook.
+	 * to the watch-holding session. A channel nobody watches binds nothing, even when an old cursor file is on disk:
+	 * the live lease, not the file, says who watches now. A reply goes to the thread-reply hook.
 	 */
 	async function afterChannelPost(
 		addr: ChannelAddr,
@@ -672,16 +672,15 @@ export function createTeams(pi: TeamsHost) {
 		post: ChannelPost,
 		subject: string | undefined,
 		bind: string | undefined,
-		sessionId: string,
 	): Promise<void> {
 		const key = cursorKey({ teamId: addr.teamId, channelId: addr.channelId });
 		if (replyTo !== undefined) {
 			noteThreadReply(key, replyTo);
 			return;
 		}
-		const owners = await listOwners();
-		if (!owners.some((o) => o.chatId === key)) return;
-		const owner = bind ?? `session:${sessionId}`;
+		const watchOwner = (await listOwners()).find((o) => o.chatId === key);
+		if (!watchOwner) return;
+		const owner = bind ?? `session:${watchOwner.sessionId}`;
 		updateCursor(key, (c) => ({ ...c, threads: { ...c.threads, [post.id]: { owner, ...(subject ? { subject } : {}) } } }));
 	}
 
@@ -1755,7 +1754,7 @@ export function createTeams(pi: TeamsHost) {
 			channel: Type.Optional(Type.String({ description: "Channel name, if you have no `channel_id`" })),
 			subject: Type.Optional(Type.String({ description: "With target='channel' and no reply_to: the new root post's subject" })),
 			reply_to: Type.Optional(Type.String({ description: "With target='channel': the root post's id to reply to in its thread" })),
-			bind: Type.Optional(Type.String({ description: "With target='channel' and no reply_to: the owner label the new root's thread is bound to; default this session" })),
+			bind: Type.Optional(Type.String({ description: "With target='channel' and no reply_to: the owner label the new root's thread is bound to; default the channel watch-holding session" })),
 			images: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
@@ -1868,7 +1867,7 @@ export function createTeams(pi: TeamsHost) {
 					const { html: payload, mentions } = renderWithMentions(message + agentFooter());
 					sent = await sendPosted(target, payload, true, mentions, images, undefined, files);
 				}
-				if (target.kind === "channel" && addr && sent.post) await afterChannelPost(addr, params.reply_to, sent.post, params.subject, params.bind, ctx.sessionManager.getSessionId());
+				if (target.kind === "channel" && addr && sent.post) await afterChannelPost(addr, params.reply_to, sent.post, params.subject, params.bind);
 				const msg = sent.text;
 				// The agent answered in the self-chat itself: the automatic reply would post the same answer twice.
 				if (target.kind === "self") selfSentThisTurn = true;

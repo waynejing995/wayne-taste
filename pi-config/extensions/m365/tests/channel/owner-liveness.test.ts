@@ -108,6 +108,7 @@ type Harness = {
 	reacts: { messageId: string; type: string }[];
 	warningNotices: string[];
 	start(): Promise<string>;
+	tool(name: string): Tool;
 	tick(): Promise<void>;
 	cursor(): CursorFile | null;
 	teams: { stopAllWatches(): void };
@@ -140,6 +141,7 @@ function setup() {
 	const reacts: { messageId: string; type: string }[] = [];
 	const warningNotices: string[] = [];
 	let poll: (() => Promise<void>) | undefined;
+	let nextPostId = 201;
 	const ctx = {
 		cwd: "/tmp",
 		isIdle: () => true,
@@ -157,7 +159,7 @@ function setup() {
 			return { raw: all.slice(start, start + size), older: start + size < all.length ? String(start + size) : undefined };
 		},
 		reactChannel: async (_a: unknown, messageId: string, type: string) => { reacts.push({ messageId, type }); },
-		send: async () => ({ id: "sent-1" }),
+		send: async () => ({ id: String(nextPostId++) }),
 		selfMessages: async () => [],
 		chatsPage: async () => ({ chats: [] }),
 	} as unknown as Backend;
@@ -177,6 +179,7 @@ function setup() {
 		prompts,
 		reacts,
 		warningNotices,
+		tool: (name) => { const tool = tools.get(name); if (!tool) throw new Error(`missing tool ${name}`); return tool; },
 		start: () => teams.startChannelWatch(ctx, { teamId: TEAM, channelId: CHANNEL, mode: "personal" }),
 		tick: async () => { if (!poll) throw new Error("watch timer missing"); await poll(); },
 		cursor: () => loadCursor(key),
@@ -237,4 +240,47 @@ test("restart: a follow-up in session A's thread is handled here as session B; l
 		"401": { owner: AGENT },
 	});
 	expect(s.warningNotices.some((n) => n.includes(DEAD))).toBe(true);
+});
+
+test("a root posted by a non-watching session binds to the channel watch owner and its reply routes there", async () => {
+	const s = setup();
+	mkdirSync(join(process.env.WAYNE_INBOX_DIR!, "cursors"), { recursive: true });
+	writeFileSync(cursorPath(s.key), JSON.stringify({ version: 1, key: s.key, watermark: "200", done: [] }));
+	const peer = await claim({
+		chatId: s.key,
+		label: "Synthetic channel",
+		pid: process.pid,
+		sessionId: "sess-owner-live",
+		cwd: "/tmp",
+		since: new Date().toISOString(),
+	});
+	if (!("lease" in peer)) throw new Error("synthetic channel watch already held");
+	extraLeases.push(peer.lease);
+	await s.tool("teams_send").execute("t", { target: "channel", team_id: TEAM, channel_id: CHANNEL, message: "Root", card: false }, undefined, undefined, s.ctx);
+	expect(s.cursor()?.threads?.["201"]).toEqual({ owner: LIVE });
+	await s.tool("teams_send").execute("t", { target: "channel", team_id: TEAM, channel_id: CHANNEL, message: "Worker root", card: false, bind: AGENT }, undefined, undefined, s.ctx);
+	expect(s.cursor()?.threads?.["202"]).toEqual({ owner: AGENT });
+
+	const closed = Promise.withResolvers<void>();
+	peer.lease.close((e) => (e ? closed.reject(e) : closed.resolve()));
+	await closed.promise;
+	extraLeases.splice(extraLeases.indexOf(peer.lease), 1);
+	s.ctx.sessionManager.getSessionId = () => "sess-owner-live";
+	await s.start();
+	s.stream.push(raw("203", "follow-up for the watch holder", { rootMessageId: "201" }));
+	await s.tick();
+	const replies = s.prompts.filter((p) => p.text.includes("follow-up for the watch holder"));
+	expect(replies).toHaveLength(1);
+	expect(replies[0].text).toContain(`owner: ${LIVE}`);
+	expect(replies[0].text).toContain("Answer in this thread with teams_send reply_to=201");
+	expect(replies[0].text).not.toContain("hand it to that owner");
+	expect(s.cursor()?.threads?.["201"]).toEqual({ owner: LIVE });
+	expect(s.warningNotices.some((n) => n.includes("is no longer running"))).toBe(false);
+});
+
+test("a root posted by the channel watch holder binds to that session", async () => {
+	const s = setup();
+	await s.start();
+	await s.tool("teams_send").execute("t", { target: "channel", team_id: TEAM, channel_id: CHANNEL, message: "Root", card: false }, undefined, undefined, s.ctx);
+	expect(s.cursor()?.threads?.["201"]).toEqual({ owner: SELF });
 });
