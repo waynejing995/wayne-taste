@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createTeams, type TeamsHost } from "../../teams/core.ts";
 import type { Backend } from "../../teams/backend.ts";
-import { type CursorFile, cursorKey, cursorPath, loadCursor } from "../../teams/cursor-store.ts";
+import { type CursorFile, cursorKey, cursorPath, loadCursor, updateCursor } from "../../teams/cursor-store.ts";
 import type { RawSkypeMessage } from "../../teams/skype.ts";
 import type { SendTarget } from "../../teams/types.ts";
 
@@ -281,7 +281,7 @@ test("redelivered hand-off throw keeps the marked command so the next poll retri
 	s.stream.push(raw("100", "old", ME));
 	s.stream.push(raw("101", "please restart me", ME));
 	mkdirSync(join(process.env.WAYNE_INBOX_DIR!, "cursors"), { recursive: true });
-	writeFileSync(cursorPath(s.key), JSON.stringify({ version: 1, key: s.key, watermark: "100", done: ["101"], awaiting: { "101": ["101"] } }, null, 2));
+	writeFileSync(cursorPath(s.key), JSON.stringify({ version: 1, key: s.key, watermark: "100", done: ["101"], awaiting: { "101": ["101"] }, threads: { "101": { owner: `session:${SESSION}` } } }, null, 2));
 	s.failHandoff(1);
 	await s.start("personal");
 	await s.tick();
@@ -415,6 +415,60 @@ test("failed start-up re-delivery scan is retried on the next poll without dropp
 	expect(s.prompts.slice(before)).toHaveLength(1);
 });
 
+test("failed restart scan retries only instructions awaiting at start-up", async () => {
+	const s = setup();
+	s.stream.push(raw("100", "old note"));
+	await s.start("personal");
+	s.stream.push(raw("101", "old instruction in thread A"));
+	await s.tick();
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+
+	const before = s.prompts.length;
+	await s.restart("personal", { failStream: 2 });
+	s.stream.push(raw("102", "new instruction in thread B"));
+	await s.tick();
+	expect(s.prompts.slice(before)).toHaveLength(1);
+	expect(s.prompts[before].text).toContain("new instruction in thread B");
+	expect(s.prompts[before].text).not.toContain("(re-delivered after a restart");
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"], "102": ["102"] });
+
+	s.teams.turnEnded();
+	await s.tick();
+	s.teams.turnEnded();
+	await s.tick();
+	const after = s.prompts.slice(before);
+	expect(after.filter((p) => p.text.includes("old instruction in thread A"))).toHaveLength(1);
+	expect(after.find((p) => p.text.includes("old instruction in thread A"))!.text).toContain("(re-delivered after a restart: check the thread before repeating side effects)");
+	expect(after.filter((p) => p.text.includes("new instruction in thread B"))).toHaveLength(1);
+});
+
+test("restart retry excludes snapshot ids no longer awaiting", async () => {
+	const s = setup();
+	s.stream.push(
+		raw("100", "old note"),
+		raw("101", "answered instruction A"),
+		raw("102", "still pending instruction A", ME, { rootMessageId: "101" }),
+		raw("103", "answered instruction B"),
+	);
+	mkdirSync(join(process.env.WAYNE_INBOX_DIR!, "cursors"), { recursive: true });
+	writeFileSync(cursorPath(s.key), JSON.stringify({
+		version: 1, key: s.key, watermark: "100", done: ["101", "102", "103"],
+		awaiting: { "101": ["101", "102"], "103": ["103"] },
+		threads: { "101": { owner: `session:${SESSION}` }, "103": { owner: `session:${SESSION}` } },
+	}, null, 2));
+	s.failStream(1);
+	await s.start("personal");
+	updateCursor(s.key, (c) => ({ ...c, awaiting: { "101": ["102"] } }));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	expect(s.prompts[0].text).toContain("still pending instruction A");
+	expect(s.prompts[0].text).not.toContain("answered instruction A");
+	expect(s.prompts[0].text).toContain("(re-delivered after a restart");
+	s.teams.turnEnded();
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+});
+
 test("failed awaiting cursor clear during start-up scan does not queue pending threads twice on poll retry", async () => {
 	const s = setup();
 	s.stream.push(
@@ -430,6 +484,7 @@ test("failed awaiting cursor clear during start-up scan does not queue pending t
 		watermark: "100",
 		done: [],
 		awaiting: { "101": ["101"], "102": ["102"] },
+		threads: { "101": { owner: `session:${SESSION}` }, "102": { owner: `session:${SESSION}` } },
 	}, null, 2));
 
 	const tmp = `${cursorPath(s.key)}.${process.pid}.tmp`;

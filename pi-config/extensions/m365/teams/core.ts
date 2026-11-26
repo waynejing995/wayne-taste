@@ -237,6 +237,8 @@ interface WatchState {
 	livenessWarning?: string;
 	/** Start-up re-delivery of `awaiting` failed; retried at the start of later channel polls until it succeeds. */
 	redeliverPending?: boolean;
+	/** The instructions present when the start-up recovery scan began, retained across failed scans. */
+	redeliverSnapshot?: Record<string, string[]>;
 }
 /** One poll's news, instructions and ids that need no hand-off. */
 interface WatchRead {
@@ -1227,7 +1229,15 @@ export function createTeams(pi: TeamsHost) {
 	/** Re-deliver persisted `awaiting` ids, marking the watch for retry on later polls if the scan fails. */
 	async function tryRedeliverAwaiting(w: WatchState, ctx: TeamsContext | undefined): Promise<void> {
 		try {
-			await redeliverAwaiting(w, loadCursor(w.key)?.awaiting ?? {});
+			const current = loadCursor(w.key)?.awaiting ?? {};
+			w.redeliverSnapshot ??= current;
+			const awaiting: Record<string, string[]> = {};
+			for (const [threadId, ids] of Object.entries(w.redeliverSnapshot)) {
+				const remaining = ids.filter((id) => current[threadId]?.includes(id));
+				if (remaining.length) awaiting[threadId] = remaining;
+			}
+			await redeliverAwaiting(w, awaiting);
+			w.redeliverSnapshot = undefined;
 			w.redeliverPending = false;
 		} catch (e) {
 			w.redeliverPending = true;
