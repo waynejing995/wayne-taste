@@ -12,16 +12,19 @@ Select one route from observable evidence, write the prompt for that route, and 
 | Observable signal | Route | Prompt it returns |
 | --- | --- | --- |
 | Small or low-stakes work with a clear target: one repository, no open design question, and nothing in the table's next note | [quick lane](references/quick-lane.md) | a complete task prompt any agent can run |
-| The idea, scope, or behavior is still unsettled | `wayne-mind-explode` | next-step prompt |
-| The behavior is settled and the work needs care: shared interface, several files, or a change someone else consumes | `wayne-plan` | next-step prompt (Plan takes its lite path when no decision log exists) |
-| An approved plan exists for this topic | `wayne-work` | next-step prompt naming the plan path |
+| New medium or large task (feature, redesign, multi-file change) where Wayne wants autonomous design + build without an interview loop | `wayne-auto-design-task` | next-step prompt (dual proposals w/ Gemini 4 Neon → `design.md` → `wayne-test-design` → `wayne-plan` → `wayne-work`) |
+| The idea, scope, or behavior is unsettled AND Wayne explicitly asks to brainstorm / be grilled, or the change reverses a living spec in `docs/specs/` | `wayne-mind-explode` | next-step prompt |
+| The behavior is settled (or a small/focused multi-file change needs an executable plan without full dual-proposal design) | `wayne-plan` | next-step prompt (Plan takes its lite path when no decision log exists) |
+| An approved plan exists for this topic | `wayne-work` | next-step prompt naming the plan path (parallel `isolated: true` units, one commit per unit) |
 | Something is failing: an error, a log, a red test, an incident, an issue | `wayne-triage` | next-step prompt carrying the symptom |
-| A diff is ready for review | `wayne-code-review` | next-step prompt naming the range |
+| Existing PR review comments need verification before fixing | `wayne-fix-review` | next-step prompt naming the PR |
+| A diff is ready for review | `wayne-code-review` | next-step prompt naming the range (≥1% evidence-backed CRITICAL gate) |
 | Review passed and the user wants to commit, push, or open a PR | `wayne-ship` | next-step prompt |
+| A job finished (`status: done`) and needs retro candidates or session teardown | `wayne-compress` | next-step prompt (candidates only, apply nothing) |
 | The user wants to resume earlier work | `wayne-checkpoint` | next-step prompt (resume) |
 | The user wants to understand an unfamiliar repository | `wayne-codebase-report` | next-step prompt |
-| The user wants a long autonomous run on Codex | `wayne-goal-prompt` | next-step prompt |
-| The user wants the work to run in its own tern/herdr/tmux session | `wayne-inbox` [references/delegate.md](../wayne-inbox/references/delegate.md) | next-step prompt |
+| The user wants a long autonomous run on omp/Codex | `wayne-goal-prompt` | next-step prompt |
+| The user wants work delegated into its own isolated `ovnfs` checkout + tern/herdr/tmux session under inbox watch | `wayne-inbox` [references/delegate.md](../wayne-inbox/references/delegate.md) | next-step prompt |
 | none match | — | one question |
 
 The quick lane and the pipeline routes are exclusive. Do not take the quick lane if the change touches a shared interface, a schema, or a migration, or if it alters what code that deletes data, deploys, publishes, or migrates will do. File count does not decide this: a one-line change to a deletion script is irreversible once it runs, and a quick prompt carries no plan to catch that.
