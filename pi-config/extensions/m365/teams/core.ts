@@ -1242,7 +1242,7 @@ export function createTeams(pi: TeamsHost) {
 			? ` Every message you write here (except email posts) reaches the agent as your instruction; each thread is its own task.`
 			: ` The user's own messages starting with "omp:" or "pi:" are sent to the agent as their instructions.`;
 		const modeNote = state.mode === "personal"
-			? ` Mode: personal (verified): every message the user posts here is their instruction.`
+			? ` Mode: personal (verified).`
 			: state.refused !== undefined
 				? ` ${channelRefusal(label, state.refused)}`
 				: ` Mode: shared.`;
