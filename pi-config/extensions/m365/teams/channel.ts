@@ -62,11 +62,16 @@ export function toChannelEvent(raw: RawSkypeMessage, _myOid: string): ChannelEve
 	};
 }
 
-/** Keep instructions separate from untrusted data before routing both to the thread owner. */
+/**
+ * Keep instructions separate from untrusted data before routing both to the thread owner. `liveSessionIds` names the
+ * sessions that still run. Without it every session owner counts as live and relays; with it, a `session:<id>` owner
+ * that is neither `self` nor listed is dead: its thread is routed here, bound to `self`, and reported in `rebound`
+ * with the old owner.
+ */
 export function planDelivery(
 	events: ChannelEvent[],
-	opts: { mode: ChannelMode; myOid: string; self: string; threads: Record<string, ThreadBinding> },
-): { entries: DeliveryEntry[]; skipped: string[]; bind: Record<string, string> } {
+	opts: { mode: ChannelMode; myOid: string; self: string; threads: Record<string, ThreadBinding>; liveSessionIds?: ReadonlySet<string> },
+): { entries: DeliveryEntry[]; skipped: string[]; bind: Record<string, string>; rebound: Record<string, string> } {
 	const groups = new Map<string, { prompt: ChannelEvent[]; card: ChannelEvent[] }>();
 	const skipped: string[] = [];
 	const bind: Record<string, string> = {};
@@ -93,8 +98,14 @@ export function planDelivery(
 		} else group.card.push(event);
 	}
 	const entries: DeliveryEntry[] = [];
+	const rebound: Record<string, string> = {};
 	for (const [threadId, group] of groups) {
-		const owner = opts.threads[threadId]?.owner ?? opts.self;
+		const bound = opts.threads[threadId]?.owner;
+		if (bound !== undefined && isDeadSession(bound, opts)) {
+			rebound[threadId] = bound;
+			bind[threadId] = opts.self;
+		}
+		const owner = bound === undefined || threadId in rebound ? opts.self : bound;
 		for (const [kind, items] of [["prompt", group.prompt], ["card", group.card]] as const) {
 			if (items.length === 0) continue;
 			const relay = owner !== opts.self;
@@ -105,5 +116,11 @@ export function planDelivery(
 			});
 		}
 	}
-	return { entries, skipped, bind };
+	return { entries, skipped, bind, rebound };
+}
+
+/** A `session:<id>` owner other than this session whose id no live watch holds. Without a live set nothing is dead. */
+function isDeadSession(owner: string, opts: { self: string; liveSessionIds?: ReadonlySet<string> }): boolean {
+	if (opts.liveSessionIds === undefined || owner === opts.self || !owner.startsWith("session:")) return false;
+	return !opts.liveSessionIds.has(owner.slice("session:".length));
 }

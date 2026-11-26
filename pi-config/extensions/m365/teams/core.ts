@@ -902,7 +902,7 @@ export function createTeams(pi: TeamsHost) {
 	 * the caller plans and marks nothing. Events are the items above the watermark that are neither done, in flight,
 	 * nor awaiting (a pending awaiting id is never delivered twice by the poll).
 	 */
-	async function readChannelPlan(w: WatchState, cursor: CursorFile): Promise<{ entries: DeliveryEntry[]; skipped: string[]; bind: Record<string, string> }> {
+	async function readChannelPlan(w: WatchState, cursor: CursorFile): Promise<{ entries: DeliveryEntry[]; skipped: string[]; bind: Record<string, string>; rebound: Record<string, string> }> {
 		await reverifyPersonal(w);
 		const raws: RawSkypeMessage[] = [];
 		const seen = new Set<string>();
@@ -928,7 +928,12 @@ export function createTeams(pi: TeamsHost) {
 			const event = toChannelEvent(m, w.myOid ?? "");
 			if (event) events.push(event);
 		}
-		return planDelivery(events, { mode: w.mode ?? "shared", myOid: w.myOid ?? "", self: w.self ?? "", threads: cursor.threads ?? {} });
+		const threads = cursor.threads ?? {};
+		const plan = planDelivery(events, { mode: w.mode ?? "shared", myOid: w.myOid ?? "", self: w.self ?? "", threads });
+		if (!plan.entries.some((e) => e.owner.startsWith("session:") && e.owner !== w.self)) return plan;
+		// Dead-session liveness is decided by the sessions holding a watch right now, so the plan reads the live set only when it has a foreign session owner.
+		const liveSessionIds = new Set((await listOwners()).map((o) => o.sessionId));
+		return planDelivery(events, { mode: w.mode ?? "shared", myOid: w.myOid ?? "", self: w.self ?? "", threads, liveSessionIds });
 	}
 
 	/** Queue a prompt entry for the agent: the mark names the channel, thread, subject and owner. */
@@ -1600,6 +1605,7 @@ export function createTeams(pi: TeamsHost) {
 								return { ...c, threads: next };
 							}).threads ?? {};
 						}
+						for (const [tid, dead] of Object.entries(plan.rebound)) watchCtx?.ui.notify(`Teams watch "${w.owner.label}": thread ${tid} was bound to ${dead}, which is no longer running; it is now bound to this session.`, "warning");
 						for (const entry of plan.entries) {
 							if (entry.untrusted) channelCards.push({ w, entry, threads });
 							else queueChannelPrompt(w, entry, threads);
