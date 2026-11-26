@@ -921,10 +921,11 @@ export function createTeams(pi: TeamsHost) {
 			older = page.older;
 		}
 		const events: ChannelEvent[] = [];
+		const awaited = new Set(Object.values(cursor.awaiting ?? {}).flat());
 		for (const m of raws) {
 			const id = String(m.id ?? "");
 			if (compareIds(id, cursor.watermark) <= 0) continue;
-			if (cursor.done.includes(id) || w.inflight.has(id) || Object.values(cursor.awaiting ?? {}).flat().includes(id)) continue;
+			if (cursor.done.includes(id) || w.inflight.has(id) || awaited.has(id)) continue;
 			const event = toChannelEvent(m, w.myOid ?? "");
 			if (event) events.push(event);
 		}
@@ -1009,16 +1010,19 @@ export function createTeams(pi: TeamsHost) {
 		};
 	}
 
-	/** Remove answered ids from a thread's `awaiting`; ids a newer instruction added stay. */
+	/** The cursor without `ids` in a thread's `awaiting`; ids a newer instruction added stay. */
+	function withoutAwaiting(c: CursorFile, threadId: string, ids: string[]): CursorFile {
+		const rest = (c.awaiting?.[threadId] ?? []).filter((id) => !ids.includes(id));
+		const awaiting = { ...(c.awaiting ?? {}) };
+		if (rest.length) awaiting[threadId] = rest;
+		else delete awaiting[threadId];
+		return { ...c, awaiting };
+	}
+
+	/** Remove answered ids from a thread's `awaiting`. */
 	function removeAwaiting(key: string, threadId: string, ids: string[]): void {
 		try {
-			updateCursor(key, (c) => {
-				const rest = (c.awaiting?.[threadId] ?? []).filter((id) => !ids.includes(id));
-				const awaiting = { ...(c.awaiting ?? {}) };
-				if (rest.length) awaiting[threadId] = rest;
-				else delete awaiting[threadId];
-				return { ...c, awaiting };
-			});
+			updateCursor(key, (c) => withoutAwaiting(c, threadId, ids));
 		} catch (e) {
 			// The answer is already posted: a cursor failure here must not fail that send, but it is said, never swallowed.
 			console.warn(`[teams] could not record answered channel instructions: ${e instanceof Error ? e.message : String(e)}`);
@@ -1170,15 +1174,7 @@ export function createTeams(pi: TeamsHost) {
 			}
 			const present = ids.filter((id) => found.has(id));
 			const answered = present.filter((id) => mine !== "" && scanned.some((e) => e.threadId === threadId && e.agentEcho && e.authorOid === mine && compareIds(e.id, id) > 0));
-			if (answered.length) {
-				updateCursor(w.key, (c) => {
-					const rest = (c.awaiting?.[threadId] ?? []).filter((id) => !answered.includes(id));
-					const awaiting = { ...(c.awaiting ?? {}) };
-					if (rest.length) awaiting[threadId] = rest;
-					else delete awaiting[threadId];
-					return markDone({ ...c, awaiting }, [...w.inflight, ...w.retry], answered);
-				});
-			}
+			if (answered.length) updateCursor(w.key, (c) => markDone(withoutAwaiting(c, threadId, answered), [...w.inflight, ...w.retry], answered));
 			const pending = present.filter((id) => !answered.includes(id));
 			if (pending.length === 0) continue;
 			const events = pending.flatMap((id) => { const e = found.get(id); return e ? [e] : []; });
