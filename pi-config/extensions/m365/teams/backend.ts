@@ -65,13 +65,6 @@ export interface ChatAddr {
 	name?: string;
 }
 
-/** A conversation's messages as a backend returns them: oldest first, my own name, and the cursor for the page before. */
-export interface ChatHistoryPage {
-	messages: HistoryMessage[];
-	me?: string;
-	older?: string;
-}
-
 /** The self-chat's messages, oldest first, and the cursor for the page before. */
 export interface SelfHistoryPage {
 	messages: SelfMessage[];
@@ -89,8 +82,6 @@ export interface Backend {
 	chatsPage(cursor?: string): Promise<ChatsPage>;
 	/** Up to `top` of a chat's newest messages, or every message at or after `since` and before `until`, oldest first. */
 	messages(addr: ChatAddr, top: number, since?: string, until?: string): Promise<{ messages: HistoryMessage[]; me?: string }>;
-	/** One page of a conversation: the newest with no cursor, the page before `cursor` otherwise. Oldest first. */
-	historyPage(addr: ChatAddr, cursor?: string): Promise<ChatHistoryPage>;
 	/**
 	 * The self-chat. With `sinceId`, one page of what is newer than it (the self-chat
 	 * watch's cursor). Without, the newest `top`, walking back as far as needed.
@@ -117,7 +108,6 @@ export interface Backend {
 	 * `19:meeting_...@thread.v2` conversation via chatsvc + SharePoint.
 	 */
 	transcript(addr: ChatAddr, opts?: { date?: string; list?: boolean }): Promise<MeetingTranscriptResult>;
-	markRead(chatId: string): Promise<void>;
 	/**
 	 * `mentions` are the @mentions cut from the Markdown (mentions.ts): people and apps. Only the
 	 * graph backend can post them, so the script backend refuses.
@@ -174,12 +164,6 @@ export class ScriptBackend implements Backend {
 		return { messages: payload.messages ?? [], me: payload.me };
 	}
 
-	async historyPage(addr: ChatAddr, cursor?: string): Promise<ChatHistoryPage> {
-		if (cursor !== undefined) throw scriptNoPaging("conversation");
-		const page = await this.messages(addr, HISTORY_MESSAGES);
-		return { ...page, older: page.messages.length >= HISTORY_MESSAGES ? SCRIPT_MORE : undefined };
-	}
-
 	async selfMessages(sinceId: string, top: number): Promise<SelfMessage[]> {
 		const args = ["chats", "--self", "--format", "json", "--top", String(top)];
 		if (sinceId) args.push("--since-id", sinceId);
@@ -201,10 +185,6 @@ export class ScriptBackend implements Backend {
 
 	async people(query: string): Promise<Person[]> {
 		return lastJsonLine<{ people: Person[] }>(await this.run(["people", "--search", query])).people ?? [];
-	}
-
-	async markRead(chatId: string): Promise<void> {
-		await this.run(["markread", "--chat-id", chatId]);
 	}
 
 	downloadFile(): Promise<never> {

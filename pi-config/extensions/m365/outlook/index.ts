@@ -1,17 +1,12 @@
 /**
- * Outlook for pi: seven agent tools, an Inbox unread count in the status bar,
- * and the /outlook overlay. Every call goes through one Mailbox, which reaches
- * Graph with the Teams sign-in (teams/auth.ts), so nothing here stores a credential.
+ * Outlook for pi: ten agent tools, an Inbox unread count in the status bar,
+ * and `/outlook signature`. Every call goes through one Mailbox, which reaches
+ * Graph with the Teams sign-in (core/auth.ts), so nothing here stores a credential.
  */
-import { createHash } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { describeImage } from "../core/describe-image.ts";
-import { downloadShared } from "../core/shares.ts";
 import { setStatusPart } from "../core/status-row.ts";
-import { downloads, saveAttachment } from "./files.ts";
-import { type OverlayDeps, openOutlookOverlay } from "./overlay.ts";
 import { readSignature, signaturePath, writeSignature } from "./signature.ts";
-import { createOutlook, humanSize, MAX_IMAGE_BYTES, MODEL_IMAGE_TYPES } from "./tools.ts";
+import { createOutlook } from "./tools.ts";
 
 const HINT = "not authenticated — run /teams init";
 const POLL_MS = 60_000;
@@ -23,8 +18,8 @@ function shortError(e: unknown): string {
 }
 
 export default function (pi: ExtensionAPI) {
-	// The outlook_* tools: shared with the MCP server. What stays here is omp's status bar and /outlook overlay.
-	const { graph, mailbox } = createOutlook({
+	// The outlook_* tools: shared with the MCP server. What stays here is omp's status bar and `/outlook signature`.
+	const { mailbox } = createOutlook({
 		registerTool: (tool) => pi.registerTool(tool as Parameters<ExtensionAPI["registerTool"]>[0]),
 		flash: (ctx, text, holdMs) => flash(ctx as ExtensionContext, text, holdMs),
 		pollUnread: (ctx) => pollUnread(ctx as ExtensionContext),
@@ -77,7 +72,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 	pi.registerCommand("outlook", {
-		description: "Outlook: browse folders, read, reply, forward and compose mail; `/outlook signature` edits your signature",
+		description: "Outlook: `/outlook signature` edits your signature",
 		getArgumentCompletions: (prefix: string) => ("signature".startsWith(prefix) ? [{ value: "signature", label: "signature" }] : null),
 		handler: async (args, ctx) => {
 			const arg = args.trim();
@@ -88,33 +83,10 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(edited.trim() ? `signature saved to ${signaturePath()}` : "signature removed", "info");
 				return;
 			}
-			if (arg !== "") {
-				ctx.ui.notify(`unknown /outlook argument "${arg}" — try /outlook or /outlook signature`, "error");
-				return;
-			}
-			const deps: OverlayDeps = {
-				list: mailbox.list.bind(mailbox),
-				search: mailbox.search.bind(mailbox),
-				read: mailbox.read.bind(mailbox),
-				draftFor: mailbox.draftFor.bind(mailbox),
-				build: mailbox.build.bind(mailbox),
-				submit: mailbox.submit.bind(mailbox),
-				saveDraft: mailbox.saveDraft.bind(mailbox),
-				move: mailbox.move.bind(mailbox),
-				setRead: mailbox.setRead.bind(mailbox),
-				folders: mailbox.folders.bind(mailbox),
-				refreshUnread: () => pollUnread(ctx),
-				signature: readSignature,
-				saveAttachment: async (a) => saveAttachment(a),
-				saveLink: async (url) => (await downloadShared(graph, url, downloads())).path,
-				describe: async (image) => {
-					if (!MODEL_IMAGE_TYPES.includes(image.mimeType)) throw new Error(`${image.mimeType} is not a type the model reads`);
-					if (image.size > MAX_IMAGE_BYTES) throw new Error(`${humanSize(image.size)} is over the per-image limit`);
-					const key = `outlook:${createHash("sha256").update(image.content).digest("hex")}`;
-					return describeImage(ctx, key, async () => ({ base64: image.content.toString("base64"), mime: image.mimeType }));
-				},
-			};
-			await openOutlookOverlay(ctx, deps);
+			ctx.ui.notify(
+				arg ? `unknown /outlook argument "${arg}" — try /outlook signature` : "usage: /outlook signature",
+				"error",
+			);
 		},
 	});
 

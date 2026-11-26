@@ -23,7 +23,6 @@ const jiti = createJiti(import.meta.url, {
 		"@earendil-works/pi-coding-agent": `${D}/dist/index.js`,
 		"@earendil-works/pi-ai": `${D}/node_modules/@earendil-works/pi-ai/dist/compat.js`,
 		typebox: `${D}/node_modules/typebox/build/index.mjs`,
-		"@earendil-works/pi-tui": `${D}/node_modules/@earendil-works/pi-tui/dist/index.js`,
 	},
 	interopDefault: true,
 });
@@ -83,22 +82,24 @@ check("subscribes to session_start and session_shutdown", events.includes("sessi
 equal("no network call at load", netCalls, []);
 equal("no process started at load", execCalls, 0);
 
-console.log("\n== /outlook opens the overlay ==");
+console.log("\n== /outlook notifies usage instead of opening an overlay ==");
 let opened = 0;
+const notes = [];
 const ctx = {
 	hasUI: true,
 	ui: {
+		notify: (message, level) => notes.push({ message, level }),
 		custom: () => {
 			opened++;
-			return new Promise(() => {}); // settles only when the user quits the overlay
+			return new Promise(() => {});
 		},
 	},
 };
-// The handler is not awaited: its promise settles only when the overlay closes.
-specs.outlook?.handler("", ctx)?.catch((e) => console.log(`FAIL /outlook handler (${e.message})`));
-equal("one overlay opened through ctx.ui.custom", opened, 1);
+await specs.outlook?.handler("", ctx);
+equal("no overlay opened through ctx.ui.custom", opened, 0);
+equal("notifies usage error", notes, [{ message: "usage: /outlook signature", level: "error" }]);
+equal("completions offer only signature", specs.outlook?.getArgumentCompletions(""), [{ value: "signature", label: "signature" }]);
 equal("no network call from the command", netCalls, []);
-
 console.log(`\n${passed} passed, ${failed} failed`);
 console.log(failed === 0 ? "all ok" : "FAIL");
 process.exit(failed === 0 ? 0 : 1);

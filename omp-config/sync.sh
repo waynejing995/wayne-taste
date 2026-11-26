@@ -101,11 +101,10 @@ for ext_file in "${SOT}"/extensions/*.ts; do
 done
 
 # ── Plugins ────────────────────────────────────────────────────────────────
-# m365 (Teams and Outlook in one package) runs as an omp plugin. The list is explicit:
-# slai and mind-explode-dag are pi-only and stay out. The package's npm dependencies are
-# installed in its checkout, where Node resolves them. The lock file is omp's plugin
-# registry: this merges one entry per plugin and leaves every other entry alone, except
-# that the retired plugins below lose theirs.
+# m365 (Teams and Outlook in one package) runs as an omp plugin. The package's npm
+# dependencies are installed in its checkout, where Node resolves them. The lock file is
+# omp's plugin registry: this merges one entry per plugin and leaves every other entry
+# alone, except that the retired plugins below lose theirs.
 PLUGINS="${HOME}/.omp/plugins"
 PLUGIN_LOCK="${PLUGINS}/omp-plugins.lock.json"
 

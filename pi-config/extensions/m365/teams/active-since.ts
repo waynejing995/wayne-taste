@@ -5,7 +5,7 @@
  * and `NaN < boundary` is false, so the comparison alone would count it as active. It is not.
  */
 import { GraphError } from "../core/graph.ts";
-import type { ChatRef } from "./compose-overlay.ts";
+import type { ChatRef } from "./types.ts";
 
 export function activeSince(chat: ChatRef, boundary: number): boolean {
 	const at = new Date(chat.last_at ?? "").getTime();

@@ -46,13 +46,7 @@ export class GraphClient {
 		private readonly doFetch: Transport = fetch as unknown as Transport,
 	) {}
 
-	/**
-	 * The raw access token.
-	 *
-	 * markChatReadForUser identifies the user in the BODY, and the only place
-	 * that identity exists is the token's oid/tid claims. Exposed here rather
-	 * than threading a second token source through the backend.
-	 */
+	/** The access token, used to identify the signed-in user for reactions and forwarded messages. */
 	rawToken(): Promise<string> {
 		return this.token();
 	}

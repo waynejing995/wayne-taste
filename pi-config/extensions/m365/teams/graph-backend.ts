@@ -19,7 +19,7 @@ import { tokenClaim } from "../core/auth.ts";
 import { GraphError, type GraphClient } from "../core/graph.ts";
 import { colleagueId, type Person, searchPeople } from "../core/people.ts";
 import { type DownloadedFile, downloadShared } from "../core/shares.ts";
-import type { Backend, ChatAddr, ChatHistoryPage, SelfHistoryPage, SelfMessage, UnreadItem, UnreadPayload } from "./backend.ts";
+import type { Backend, ChatAddr, SelfHistoryPage, SelfMessage, UnreadItem, UnreadPayload } from "./backend.ts";
 import { HISTORY_MESSAGES, type ChatRef, type ChatsPage, type HistoryMessage, type SendTarget } from "./types.ts";
 import { attachedCardText, CARD_CONTENT_TYPE, isCardType } from "./card.ts";
 import { type ForwardContext, type ForwardNeed, type ForwardRef, forwardedAttachmentIds, forwardNeed, forwardParts, NO_FORWARD_CONTEXT, type Original, originalKey, partImages, partsText, type Part } from "./forward.ts";
@@ -726,25 +726,6 @@ export class GraphBackend implements Backend {
 		return { raw: page.value ?? [], older: page["@odata.nextLink"] };
 	}
 
-	/**
-	 * One page of a conversation for the pane: the newest with no cursor, the page before `cursor` otherwise. The cursor
-	 * is Graph's own nextLink. A page of events alone is passed over, and the walk reads on through as many of them as
-	 * there are, so a page is never blank while older messages exist.
-	 */
-	async historyPage(addr: ChatAddr, cursor?: string): Promise<ChatHistoryPage> {
-		const myName = await this.myName();
-		const chat = await this.resolveChat(addr);
-		const start = cursor ?? `/chats/${chat.id}/messages?$top=${HISTORY_MESSAGES}`;
-		let messages: HistoryMessage[] = [];
-		let older: string | undefined;
-		for await (const page of cursorPages(await this.messagesPage(start), (p) => p.older, (c) => this.messagesPage(c))) {
-			messages = this.project(page.raw, myName, chat.id, await this.forwardContext(page.raw));
-			older = page.older;
-			if (messages.length > 0) break;
-		}
-		return { messages, me: myName, older };
-	}
-
 	/** 48:notes is chatsvc, not Graph. See skype.ts. */
 	selfMessages(sinceId: string, top: number): Promise<SelfMessage[]> {
 		return this.requireSkype().selfMessages(sinceId, top, (need) => this.lookupForwards(need));
@@ -780,19 +761,6 @@ export class GraphBackend implements Backend {
 	}
 	async people(query: string): Promise<Person[]> {
 		return searchPeople(this.graph, query);
-	}
-
-	/**
-	 * Move my read watermark to now, the same thing the Teams client does.
-	 *
-	 * This changes the real state rather than hiding an unread badge locally, so
-	 * the desktop client agrees instead of the two views drifting apart.
-	 */
-	async markRead(chatId: string): Promise<void> {
-		const token = await this.graph.rawToken();
-		const oid = tokenClaim(token, "oid");
-		const tid = tokenClaim(token, "tid");
-		await this.graph.post(`/chats/${chatId}/markChatReadForUser`, { user: { id: oid, tenantId: tid } });
 	}
 
 	/**

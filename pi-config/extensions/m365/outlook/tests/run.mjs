@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const suites = ["render.test.mjs", "convert.test.mjs", "mime.test.mjs", "mailbox.test.mjs", "overlay.test.mjs", "tools.test.mjs", "status.test.mjs", "load.test.mjs"];
+const suites = ["render.test.mjs", "convert.test.mjs", "mime.test.mjs", "mailbox.test.mjs", "tools.test.mjs", "status.test.mjs", "load.test.mjs"];
 let failed = 0;
 
 for (const s of suites) {

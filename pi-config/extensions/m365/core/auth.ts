@@ -258,7 +258,7 @@ export function saveIdentity(id: Identity): void {
 	fs.chmodSync(p, 0o600);
 }
 
-/** One claim out of a JWT. markChatReadForUser needs `oid` and `tid`. */
+/** One claim out of a JWT. */
 export function tokenClaim(token: string, key: string): string {
 	const part = token.split(".")[1];
 	if (!part) throw new Error("access token is not a JWT");

@@ -1,25 +1,23 @@
 # Outlook (part of pi-ext-m365)
 
 Outlook mail for omp and pi. The agent gets ten mail tools and an Inbox unread
-count in the status bar, and you get a NeoMutt-style `/outlook` overlay. Mail is
-written in Markdown, rendered to Outlook-styled HTML with semantic colours, and
-sent as MIME through Microsoft Graph. Mail is read from its raw MIME and
-converted back to Markdown.
+count in the status bar. Mail is written in Markdown, rendered to Outlook-styled
+HTML with semantic colours, and sent as MIME through Microsoft Graph. Mail is
+read from its raw MIME and converted back to Markdown.
 
 ## Requirements
 
 This is the Outlook half of `pi-ext-m365` (`../README.md`). It uses the shared
 modules in `../core/`: the sign-in (`auth.ts`) and Graph client (`graph.ts`),
 people search (`people.ts`, behind `outlook_people`), SharePoint downloads
-(`shares.ts`), file saving (`save-file.ts`), picture descriptions
-(`describe-image.ts`), the @mention syntax (`mention.ts`) and the status row.
+(`shares.ts`), file saving (`save-file.ts`), the @mention syntax (`mention.ts`)
+and the status row.
 
 ## Layout
 
 | File | Role |
 | --- | --- |
-| `index.ts` | Entry point: the ten tools, `/outlook` and the status-bar count. |
-| `overlay.ts` | `openOutlookOverlay`: the index, folder picker, pager and compose screens. |
+| `index.ts` | Entry point: the ten tools, `/outlook signature` and the status-bar count. |
 | `mailbox.ts` | `Mailbox`: every mail operation against Graph, folders, and `FOLDER_LABELS`. |
 | `mime.ts` | `buildEml`, `parseEml`, `respondDefaults`, `withMentioned`, `mailImages`, `AGENT_FOOTER`: the MIME in and out. |
 | `render.ts` | `renderMarkdown`, `TONES`, `CALLOUTS`: Markdown to HTML, and the palette. |
@@ -52,17 +50,12 @@ cache silently.
 - **Status bar:** the unread count in Inbox, on the same row as the Teams count
   (`Outlook: 6 unread Teams: 0`); both write their part through
   `../core/status-row.ts`, because omp gives each status key its own line.
-- **`/outlook`:** at a frame 140 columns or wider, Outlook's three panes:
-  folders | messages | reading pane. The reading pane follows the highlighted
-  message once it rests (200 ms) without marking it read; Enter opens it there
-  and marks it read. Narrower, one pane at a time: index, then pager, then
-  compose. A draft always takes the whole frame.
 - **`/outlook signature`:** edit your signature (below).
 
 `outlook_send` sends only when the user asks for it explicitly. Mail the agent
 sends carries the footer `sent by omp agent` right after its own body (and
 signature), above any quoted original, so a reply never stacks its footer under
-someone else's mail. Mail you send from `/outlook` carries no footer. The quoted
+someone else's mail. The quoted
 original's header gives `Sent` in local time and leaves out `Cc` when there was none.
 Recipient and @mention addresses come from `outlook_people`
 or from the mail being answered; the tool descriptions forbid guessing one.
@@ -75,8 +68,7 @@ dialect as a mail body; saving it empty removes it. It is stored in
 exposes no Outlook signature, so the one set in Outlook itself is not used.
 It is read at every send, so a change applies to the next message.
 
-Every message gets it — agent-sent and drafted mail, and mail you write in
-`/outlook`, where it shows dimmed under the body. It goes after the body and
+Every message gets it — agent-sent and drafted mail. It goes after the body and
 above the quoted original, as Outlook places it; the agent footer follows it.
 The tool descriptions tell the agent not to sign mail itself.
 
@@ -95,12 +87,7 @@ A picture in a mail body reads as `[image N: file name]`. `outlook_read` attache
 the first four pictures to its result, so the model sees them; a picture of a
 type the model cannot read, or over 3.75 MB, is named as not attached with the
 reason. Exchange labels inline images `Content-Disposition: attachment`, so any
-part the HTML cites by `cid:` counts as inline. The pager shows a model-written
-description after each label, cached on disk by content hash, and lists
-attachments the body does not show, a picture among them with its description.
-
-Pictures are described, not drawn: showing them in tty7 was tried and the layout
-came out wrong (see `../teams/README.md`, Pictures).
+attachments the body does not show, a picture among them.
 
 ### Attachments and linked files
 
@@ -108,78 +95,9 @@ Nothing is saved unless you ask. `outlook_read` lists the attachments and the
 SharePoint/OneDrive files the body links to (ordinary web links are not files).
 `outlook_download` saves one of them — an attachment by name, or a linked file
 by its URL through Graph's `/shares` — and its description tells the agent to
-call it only when you ask. In the pager, `s` lists the same and Enter saves the
-highlighted one. Saves go to `~/Downloads` under the file's own name and never
+call it only when you ask. Saves go to `~/Downloads` under the file's own name and never
 overwrite: a taken name becomes `name (1).ext`. Protected (`rpmsg`) mail and
 meeting invites are attachments like any other; Graph cannot decrypt the former.
-
-## Keys
-
-The `/outlook` overlay uses this key set. In the three-pane layout, ← / → / Tab
-move between panes: ← or `c` from messages to folders, → or Tab back; Enter, →
-or Tab from messages to the reading pane, ← / Esc / `q` back; Tab from the
-reading pane to folders. The folders pane is the folder picker below.
-
-In a Tern pane the same keys apply; a click selects a message or folder, a
-double-click opens it, and the Send?/Discard? prompts also have Yes/No buttons.
-
-### Index
-
-| Key | Action |
-| --- | --- |
-| `j` / `k` / ↓ / ↑ | Next / previous message; past the last row the next 50 load |
-| PgDn / PgUp | One screen down / up |
-| Enter / → | Open in the pager (marks it read) |
-| `/` | Search |
-| `c` | Folder picker |
-| `m` | New mail |
-| `r` / `g` / `f` | Reply / reply all / forward |
-| `a` | Archive |
-| `d` | Delete (moves to Deleted Items) |
-| `N` | Toggle read / unread |
-| `q` / Esc | Close |
-
-### Search prompt
-
-Type the query, then Enter runs it. Esc cancels and reloads the folder.
-
-### Folder picker
-
-Every mail folder, subfolders indented under their parent with their unread
-count. It opens on the folder listed now.
-
-| Key | Action |
-| --- | --- |
-| `j` / `k` / ↓ / ↑ | Down / up |
-| PgDn / PgUp | One screen down / up |
-| Enter | Open the folder |
-| `q` / Esc | Cancel |
-
-### Pager
-
-| Key | Action |
-| --- | --- |
-| `j` / `k` / ↓ / ↑ | One line down / up |
-| Space / PgDn, PgUp | One screen down / up |
-| `s` | Save an attachment or a linked file (Enter saves, Esc back) |
-| `r` / `g` / `f` | Reply / reply all / forward, as in the index |
-| `q` / Esc / ← | Back to the index |
-
-### Compose
-
-The fields are To, Cc, Subject and Body.
-
-| Key | Action |
-| --- | --- |
-| Tab | Next field |
-| Ctrl+S | Send. Asks `Send? (y/n)` |
-| Ctrl+P | Save to Drafts |
-| Esc | Leave. Asks `Discard draft? (y/n)` when anything was typed |
-| Enter | New line in Body; nothing in the other fields |
-
-### Prompts
-
-`y` answers yes; `n` or Esc answers no.
 
 ## Markdown dialect
 

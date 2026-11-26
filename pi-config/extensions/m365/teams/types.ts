@@ -1,6 +1,6 @@
 /**
- * The shapes a Teams backend returns and a send targets. No UI and no harness import, so the backends, the
- * tool layer and the /teams overlay all share them.
+ * The shapes a Teams backend returns and a send targets. No UI and no harness import, so the backends and the
+ * tool layer share them.
  */
 import type { ReactionCount } from "./reactions.ts";
 
@@ -54,12 +54,6 @@ export interface HistoryMessage {
 	files?: { name: string; url: string }[];
 	/** Reactions on it, each emoji with how many chose it; absent when there are none. */
 	reactions?: ReactionCount[];
-}
-
-/** One page of a conversation, oldest first. `older` names the page before it; absent when nothing is older. */
-export interface HistoryPage {
-	messages: HistoryMessage[];
-	older?: string;
 }
 
 export type SendTarget =

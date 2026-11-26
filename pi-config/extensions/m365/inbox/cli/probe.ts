@@ -254,7 +254,7 @@ export function teamsSender(send: TeamsSend): DigestSender {
 }
 
 /** The Teams core, behind its own send. The footer names the inbox as the sending agent. */
-async function coreSender(): Promise<DigestSender> {
+export async function coreSender(): Promise<DigestSender> {
 	// Imported only when a digest is due: the core pulls in MSAL and the Graph client, which every other `inbox`
 	// command (each a fresh process) would otherwise load for nothing.
 	const { createTeams } = await import("../../teams/core.ts");

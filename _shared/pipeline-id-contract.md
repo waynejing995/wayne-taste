@@ -27,6 +27,7 @@ ${WAYNE_HOME:-~/.wayne}/projects/<key>/      # <state> below
   plans/               implementation plans from wayne-plan
   checkpoints/         checkpoints and handoff packets from wayne-checkpoint
   triage/              evidence files from wayne-triage
+  arch-sweep/          ledger and scan baselines from wayne-arch-sweep
 ```
 
 Resolve `<state>` only with [the resolver](scripts/wayne-state-dir.sh): `bash <skills>/_shared/scripts/wayne-state-dir.sh [dir]` prints the absolute path and creates it. `<key>` is the `origin` repository path (`example-org/TRACE`), or the main worktree's directory name when there is no `origin`. Every clone and worktree of one repository therefore shares one `<state>`; a worktree never gets its own. Outside a git repository the resolver exits non-zero: report that, never fall back to a repo-local `.wayne/` or `/tmp`.

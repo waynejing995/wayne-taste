@@ -38,7 +38,6 @@ const jiti = createJiti(import.meta.url, {
 		"@earendil-works/pi-coding-agent": `${D}/dist/index.js`,
 		"@earendil-works/pi-ai": `${D}/node_modules/@earendil-works/pi-ai/dist/compat.js`,
 		typebox: `${D}/node_modules/typebox/build/index.mjs`,
-		"@earendil-works/pi-tui": `${D}/node_modules/@earendil-works/pi-tui/dist/index.js`,
 	},
 	interopDefault: true,
 });

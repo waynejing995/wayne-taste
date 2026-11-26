@@ -6,9 +6,9 @@ both; each half keeps its own tools (`teams_*`, `outlook_*`), its own command
 
 | Directory | What it is | Read |
 | --- | --- | --- |
-| `core/` | What both halves use: sign-in, Graph, people, SharePoint files, saving, picture descriptions, @mention syntax, status row, time | below |
-| `teams/` | Chats: unread count, the `/teams` overlay, send/read/people/download/transcript tools, chat watches (the self-chat takes `omp:`/`pi:` instructions) | `teams/README.md` — read its sign-in note first |
-| `outlook/` | Mail: the `/outlook` three-pane reader and composer, ten mail tools, signature | `outlook/README.md` |
+| `core/` | What both halves use: sign-in, Graph, people, SharePoint files, saving, @mention syntax, status row, time | below |
+| `teams/` | Chats: unread count, `/teams` status/unread/watch commands, send/read/people/download/transcript tools, chat watches (the self-chat takes `omp:`/`pi:` instructions) | `teams/README.md` — read its sign-in note first |
+| `outlook/` | Mail: ten mail tools, status-bar unread count, `/outlook signature` | `outlook/README.md` |
 | `inbox/` | The inbox: a general ledger + scheduler. `inbox/cli/` is the `inbox` command (`bin/inbox`), the scheduler runs its jobs while a session is open, `/inbox watch` pushes new `notify`/`do` rows into this session as cards | [Inbox](#inbox) below |
 | `mcp/` | The same tools as an MCP server for Claude Code, Codex and Cursor, with Claude Code's channel for watch and inbox cards | [Other harnesses (MCP)](#other-harnesses-mcp) below |
 
@@ -21,10 +21,8 @@ both; each half keeps its own tools (`teams_*`, `outlook_*`), its own command
 | `people.ts` | `searchPeople` (`teams_people`, `outlook_people`) and `colleagueId` (resolving an @mention) — through `/me/people`, which the tenant does not throttle the way it throttles `/users` and `/me` |
 | `shares.ts` | `downloadShared`: a SharePoint/OneDrive file by its link (`teams_download`, `outlook_download`) |
 | `save-file.ts` | Writing a file without ever overwriting one: a given path must not exist, a free name gets ` (1)`, ` (2)`, … |
-| `describe-image.ts` | A model-written description of a picture, cached on disk (`~/.cache/pi/teams-alt`) |
 | `mention.ts` | The `@[Name](address)` and `@[Name](app:<app id>)` syntax as a Markdown extension, so code and escaped examples never mention anyone |
 | `status-row.ts` | One status-bar row for both counts (omp gives each status key its own line) |
-| `tern-native.ts` | The Tern layer: TSP node builders the two overlays describe themselves with (below) |
 | `time.ts` | Local time formatting |
 
 ## Inbox
@@ -247,27 +245,6 @@ approval_mode = "approve"
   }
 }
 ```
-
-## In Tern
-
-When omp runs in a [Tern](https://docs.stencil.so/tern/protocol/) pane it speaks
-the Tern Surface Protocol, and both overlays describe themselves as native nodes
-(`describe(cx)`): Tern draws `/teams` and `/outlook` with its own lists, Markdown,
-fields and keycaps, across the whole pane. Without that layer Tern shows the
-terminal rows in a narrow frame labelled "fallback".
-
-Only the drawing changes: keys still reach `handleInput`, so every shortcut is the
-same; a click or double-click on a list item, or on a Yes/No button, goes to the code
-path of the matching key. Elsewhere (a plain terminal, tmux, pi) nobody calls
-`describe`, and the overlays draw rows as before.
-
-Tern details the layer relies on, from omp 18.13 and Tern 0.9.5:
-
-- the sheet body scrolls as a whole and does not pass its height down, so the panes
-  get an explicit height in lines, and a list needs `max.lines` for a scroller of its own;
-- Tern focuses the first `input`/`editor` a focused overlay describes, so only the
-  active pane gets a field and the other shows its text;
-- Tern's Markdown reads `$…$` as TeX, so `$` outside code is escaped (`mdNoMath`).
 
 ## Install
 

@@ -20,7 +20,7 @@
  * Surfaces:
  *   1. Status bar   -- how many chats hold unread activity (polled, cached).
  *   2. teams_send / teams_read / teams_unread / teams_chats / teams_people / teams_watch.
- *   3. /teams       -- compose box, unread list, login, chat watches.
+ *   3. /teams       -- status, unread list, login, chat watches.
  *
  * Watches: `/teams watch self` turns notes starting with `omp:` or `pi:` into
  * prompts in this session, ACKs them, and posts the answer back to the self-chat.
@@ -31,13 +31,10 @@ import * as fs from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TextContent } from "@earendil-works/pi-ai";
 import * as auth from "../core/auth.ts";
-import { describeImage } from "../core/describe-image.ts";
 import { setStatusPart } from "../core/status-row.ts";
 import { setAgentHarness } from "./card.ts";
-import { openComposeOverlay } from "./compose-overlay.ts";
-import { CHATS_REVALIDATE_MS, createTeams } from "./core.ts";
+import { createTeams } from "./core.ts";
 import { askTurnGate } from "./turn-gate.ts";
-import type { ChatsPage } from "./types.ts";
 
 export default function (pi: ExtensionAPI) {
 	// The agent's sends are footed "sent by omp agent"; the echo guard knows this footer, and only this one.
@@ -57,7 +54,7 @@ export default function (pi: ExtensionAPI) {
 		flash: (ctx, text, holdMs) => flash(ctx as ExtensionContext, text, holdMs),
 		gate: (ctx, policy, messages) => askTurnGate(ctx as ExtensionContext, policy, messages),
 	});
-	const { cfg, backend, getChats, loadHistoryPage, send, mdToHtml, chatsCacheAgeMs, pollUnread, searchPeople, loadImage } = teams;
+	const { cfg, pollUnread } = teams;
 	const { watchList, setWatchInterval, startWatch, unwatch, stopAllWatches, replyToSelf, flushCards } = teams;
 
 	// ── Status bar ──────────────────────────────────────────────────────────
@@ -97,58 +94,18 @@ export default function (pi: ExtensionAPI) {
 			}
 		}, holdMs).unref?.();
 	}
-	// ── Compose overlay ─────────────────────────────────────────────
-
-	async function compose(ctx: ExtensionContext) {
-		let first: ChatsPage;
-		try {
-			first = await getChats();
-		} catch (e) {
-			ctx.ui.notify(`Cannot load chat list: ${e}`, "error");
-			return;
-		}
-		await openComposeOverlay(ctx, {
-			chats: first,
-			loadChats: (cursor) => backend.chatsPage(cursor),
-			loadHistory: (t, cursor) => loadHistoryPage(t, cursor),
-			send: (t, message, html) => send(t, message, html),
-			mdToHtml,
-			refreshChats: () => getChats(true),
-			revalidateChats: async () => {
-				const age = chatsCacheAgeMs();
-				if (age !== null && age < CHATS_REVALIDATE_MS) return null;
-				return getChats(true);
-			},
-			// Callbacks, not a copy: unreadItems is owned by the poll loop, and a
-			// snapshot handed to the overlay would drift the moment it refreshes.
-			unreadIds: () => teams.unreadItems.map((i) => i.id),
-			refreshUnread: () => pollUnread(ctx),
-			searchPeople,
-			loadImage,
-			altText: (url, source) => describeImage(ctx, url, () => loadImage(url, source), source ?? ""),
-			markRead: async (chatId) => {
-				// Teams itself now reports this chat as read, so pruning the
-				// local list is the derived view catching up, not a second
-				// opinion about what "read" means.
-				await teams.markRead(chatId);
-				renderStatus(ctx);
-			},
-		});
-	}
 	// ── Command ─────────────────────────────────────────────────────────────
 
-	const SUBCOMMANDS = ["compose", "unread", "refresh", "watch", "watch-interval", "unwatch", "watches", "status", "login", "init", "verify"];
+	const SUBCOMMANDS = ["unread", "refresh", "watch", "watch-interval", "unwatch", "watches", "status", "login", "init", "verify"];
 
 	pi.registerCommand("teams", {
-		description: "Teams: compose a message, check unread, watch chats",
+		description: "Teams: show status, check unread, watch chats",
 		getArgumentCompletions: (prefix: string) => {
 			const items = SUBCOMMANDS.filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s }));
 			return items.length > 0 ? items : null;
 		},
 		handler: async (args, ctx) => {
 			const arg = args.trim();
-
-			if (arg === "" || arg === "compose") return compose(ctx as unknown as ExtensionContext);
 
 			/**
 			 * Log in, then PROVE it. A login that only says "saved" defers the real
@@ -199,7 +156,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			if (arg === "status") {
+			if (arg === "" || arg === "status") {
 				const authState = fs.existsSync(auth.cachePath()) ? `cache ${auth.cachePath()}` : "NOT authenticated (/teams init)";
 				ctx.ui.notify(
 					`Teams · backend ${cfg.backend} · script ${cfg.script}\n` +
