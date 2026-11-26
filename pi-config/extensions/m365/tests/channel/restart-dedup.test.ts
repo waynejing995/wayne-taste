@@ -50,6 +50,7 @@ type Harness = {
 	holdHandoff(p: Promise<void>): void;
 	holdSend(p: Promise<void>): void;
 	failHandoff(n: number): void;
+	failStream(n: number): void;
 	onHandoff(fn: (() => void) | undefined): void;
 	nextSendId(id: string): void;
 	handoffStarted(): Promise<void>;
@@ -77,6 +78,7 @@ function setup() {
 	const prompts: Harness["prompts"] = [];
 	const reacts: Harness["reacts"] = [];
 	const sends: Harness["sends"] = [];
+	let streamFail = 0;
 	let holdHandoff: Promise<void> | undefined;
 	let holdSend: Promise<void> | undefined;
 	let handoffFail = 0;
@@ -94,6 +96,7 @@ function setup() {
 		me: async () => ({ oid: OID, name: "Synthetic User" }),
 		channelMembers: async () => ({ membershipType: "private", memberOids: [OID] }),
 		channelStream: async (_a: unknown, size: number, cursor?: string) => {
+			if (streamFail > 0) { streamFail--; throw new Error("synthetic stream failure"); }
 			const all = [...stream].sort((a, b) => (BigInt(String(b.id)) < BigInt(String(a.id)) ? -1 : 1));
 			const start = cursor === undefined ? 0 : Number(cursor);
 			return { raw: all.slice(start, start + size), older: start + size < all.length ? String(start + size) : undefined };
@@ -141,6 +144,7 @@ function setup() {
 		holdHandoff = undefined;
 		holdSend = undefined;
 		handoffFail = 0;
+		streamFail = 0;
 		teams.stopAllWatches();
 		teams = makeTeams();
 		poll = undefined;
@@ -157,6 +161,7 @@ function setup() {
 		key, ctx, stream, prompts, reacts, sends, start, restart, tick, tool,
 		cursor: () => loadCursor(key),
 		get teams() { return teams as unknown as Harness["teams"]; },
+		failStream: (n: number) => { streamFail = n; },
 		idle: (v: boolean) => { idle = v; },
 		holdHandoff: (p: Promise<void>) => { holdHandoff = p; },
 		holdSend: (p: Promise<void>) => { holdSend = p; },
@@ -347,4 +352,36 @@ test("failed first hand-off retries even when removing awaiting fails", async ()
 	expect(s.prompts).toHaveLength(1);
 	expect(s.prompts[0].text).toContain("retry this instruction");
 	expect(s.cursor()?.watermark).toBe("101");
+});
+
+
+test("redelivered command when first post-restart stream read throws keeps watermark below unread ids", async () => {
+	const s = setup();
+	s.stream.push(raw("100", "old note", ME));
+	await s.start("personal");
+	s.stream.push(raw("105", "awaiting instruction in thread A", ME));
+	s.holdHandoff(new Promise(() => {}));
+	void s.tick();
+	await s.handoffStarted();
+	expect(s.cursor()?.watermark).toBe("100");
+	expect(s.cursor()?.awaiting).toEqual({ "105": ["105"] });
+
+	s.stream.push(raw("104", "unread instruction in thread B", ME));
+	const before = s.prompts.length;
+	await s.restart("personal");
+	s.failStream(1);
+	await s.tick();
+
+	const afterFirstPoll = s.prompts.slice(before);
+	expect(afterFirstPoll).toHaveLength(1);
+	expect(afterFirstPoll[0].text).toContain("awaiting instruction in thread A");
+	expect(afterFirstPoll[0].text).toContain("(re-delivered after a restart");
+	expect(BigInt(s.cursor()!.watermark)).toBeLessThan(104n);
+	expect(s.cursor()?.done).toEqual(["105"]);
+
+	s.teams.turnEnded();
+	await s.tick();
+	const afterSecondPoll = s.prompts.slice(before);
+	expect(afterSecondPoll).toHaveLength(2);
+	expect(afterSecondPoll[1].text).toContain("unread instruction in thread B");
 });

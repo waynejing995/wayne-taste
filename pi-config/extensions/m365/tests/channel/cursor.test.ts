@@ -110,6 +110,39 @@ describe("markDone", () => {
 	});
 });
 
+
+describe("addDone", () => {
+	const cursorArb = fc.record({
+		version: fc.constant(1),
+		key: fc.constant("k"),
+		watermark: digitId,
+		done: fc.array(digitId, { maxLength: 8 }),
+	});
+	const idsArb = fc.array(digitId, { maxLength: 8 });
+	const above = (id: string, floor: string) => store.compareIds(id, floor) > 0;
+	const sorted = (ids: string[]) => [...ids].sort(store.compareIds);
+
+	test("never moves the watermark, keeps only deduped ids above it, and sorts with compareIds", () => {
+		fc.assert(
+			fc.property(cursorArb, idsArb, (c, ids) => {
+				const before = JSON.stringify(c);
+				const next = store.addDone(c, ids);
+				expect(JSON.stringify(c)).toBe(before);
+				expect(next.watermark).toBe(c.watermark);
+				const expected = sorted([...new Set([...c.done, ...ids])].filter((id) => above(id, c.watermark)));
+				expect(next.done).toEqual(expected);
+			}),
+		);
+	});
+
+	test("filters at-or-below watermark, dedupes, and sorts numerically without advancing watermark", () => {
+		const c = { version: 1, key: "k", watermark: "5", done: ["10", "5", "4"] } as CursorFile;
+		const next = store.addDone(c, ["9", "10", "3", "6"]);
+		expect(next.watermark).toBe("5");
+		expect(next.done).toEqual(["6", "9", "10"]);
+	});
+});
+
 describe("cursor files", () => {
 	test("cursorKey is the chat id, or channel:<team>/<channel>", () => {
 		expect(store.cursorKey({ chatId: CHAT })).toBe(CHAT);

@@ -34,7 +34,7 @@ import type { ChannelPost, ChannelRef, ChannelRoot, ChatRef, ChatsPage, HistoryM
 import { HISTORY_MESSAGES } from "./types.ts";
 import { claim, describeOwner, listOwners, type WatchLease, type WatchOwner } from "./watch.ts";
 import { COMMAND, planDelivery, toChannelEvent, type ChannelAddr, type ChannelEvent, type ChannelMode, type DeliveryEntry } from "./channel.ts";
-import { compareIds, cursorKey, loadCursor, markDone, updateCursor, type CursorFile, type ThreadBinding } from "./cursor-store.ts";
+import { addDone, compareIds, cursorKey, loadCursor, markDone, updateCursor, type CursorFile, type ThreadBinding } from "./cursor-store.ts";
 import { forgetChannelWatch, forgetWatch, rememberChannelWatch, rememberInterval, rememberWatch } from "./watch-list.ts";
 
 /** Local `StringEnum` helper — `Type.Unsafe({type:"string", enum})` so tool schemas
@@ -1077,7 +1077,7 @@ export function createTeams(pi: TeamsHost) {
 		if (watches.get(c.key) !== c.w) return;
 		for (const id of c.ids) c.w.inflight.delete(id);
 		try {
-			updateCursor(c.key, (cur) => markDone(cur, [...c.w.inflight, ...c.w.retry], c.ids));
+			updateCursor(c.key, (cur) => (c.redelivered ? addDone(cur, c.ids) : markDone(cur, [...c.w.inflight, ...c.w.retry], c.ids)));
 		} catch (e) {
 			for (const id of c.ids) c.w.inflight.add(id);
 			watchError(c.w, e);
@@ -1174,10 +1174,7 @@ export function createTeams(pi: TeamsHost) {
 			const present = ids.filter((id) => found.has(id));
 			const answered = present.filter((id) => mine !== "" && scanned.some((e) => e.threadId === threadId && e.agentEcho && e.authorOid === mine && compareIds(e.id, id) > 0));
 			// The stream has not been polled yet: unread ids may precede these answers.
-			if (answered.length) updateCursor(w.key, (c) => ({
-				...withoutAwaiting(c, threadId, answered),
-				done: [...new Set([...c.done, ...answered])].filter((id) => compareIds(id, c.watermark) > 0).sort(compareIds),
-			}));
+			if (answered.length) updateCursor(w.key, (c) => addDone(withoutAwaiting(c, threadId, answered), answered));
 			const pending = present.filter((id) => !answered.includes(id));
 			if (pending.length === 0) continue;
 			const events = pending.flatMap((id) => { const e = found.get(id); return e ? [e] : []; });

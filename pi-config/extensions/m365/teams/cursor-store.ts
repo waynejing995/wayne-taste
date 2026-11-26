@@ -120,3 +120,13 @@ export function markDone(c: CursorFile, pending: string[], doneIds: string[]): C
 	const watermark = top !== undefined && compareIds(top, c.watermark) > 0 ? top : c.watermark;
 	return { ...c, watermark, done: done.filter((d) => compareIds(d, watermark) > 0).sort(compareIds) };
 }
+
+/**
+ * Record handed-over or answered ids in `done` without moving the watermark. Use during recovery before the stream
+ * has been read, when unread ids may sit below `ids`; the next normal poll's `markDone` advances the watermark.
+ * Pure: returns the new cursor, leaves `c` alone.
+ */
+export function addDone(c: CursorFile, ids: string[]): CursorFile {
+	const done = [...new Set([...c.done, ...ids])].filter((id) => compareIds(id, c.watermark) > 0).sort(compareIds);
+	return { ...c, done };
+}
