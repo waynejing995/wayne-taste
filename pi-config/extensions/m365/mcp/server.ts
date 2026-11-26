@@ -129,11 +129,11 @@ export function createServer(): Server {
 	// A watch here delivers only through the channel; without one its cards would go nowhere.
 	const watchTool = tools.find((t) => t.name === "teams_watch")!;
 	const watchExecute = watchTool.execute.bind(watchTool);
-	watchTool.description += ` With action='start' and no chat_id or chat, the chats saved in rules.yaml are resumed, the self-chat included; one another session holds is skipped and named.${LIVE_ONLY}`;
+	watchTool.description += ` With action='start' and no chat_id, chat, team_id or channel_id, the chats and channels saved in rules.yaml are resumed, the self-chat included; one another session holds is skipped and named.${LIVE_ONLY}`;
 	watchTool.execute = async (id, params, signal, onUpdate, ctx) => {
-		const p = params as { action?: string; chat_id?: string; chat?: string };
+		const p = params as { action?: string; chat_id?: string; chat?: string; team_id?: string; channel_id?: string };
 		if (p.action === "start" && !channel) throw new Error(`teams_watch start is refused: ${noPush()}.`);
-		if (p.action === "start" && channel && !p.chat_id && !p.chat) return text(await channel.resume());
+		if (p.action === "start" && channel && !p.chat_id && !p.chat && !p.team_id && !p.channel_id) return text(await channel.resume());
 		const result = await watchExecute(id, params, signal, onUpdate, ctx);
 		if (p.action !== "list" || !channel?.held.length) return result;
 		const held = channel.held.map((h) => `- ${h.label}  id: ${h.chatId}\n  held by ${describeOwner(h.owner)}`).join("\n");

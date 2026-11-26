@@ -57,8 +57,8 @@ const until = async (pred, ms = 5000) => {
 	while (!pred() && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const rules = (chats) =>
-	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "rules.yaml"), `teams_watch:\n  chats:\n${chats.map((c) => `    - { chat: '${c.chat}', chat_id: '${c.id}', policy: '' }\n`).join("") || "    []\n"}`);
+const rules = (chats, channels = []) =>
+	writeFileSync(join(process.env.WAYNE_INBOX_DIR, "rules.yaml"), `teams_watch:\n  chats:\n${chats.map((c) => `    - { chat: '${c.chat}', chat_id: '${c.id}', policy: '' }\n`).join("") || "    []\n"}  channels:\n${channels.map((c) => `    - { channel: '${c.channel}', team_id: '${c.team_id}', channel_id: '${c.channel_id}', mode: '${c.mode ?? "shared"}', policy: '' }\n`).join("") || "    []\n"}`);
 /** Another session's lock on `chatId`: a lease held in this process under a pid that is not ours. */
 const holdAs = async (chatId, pid) => {
 	const claimed = await claim({ chatId, label: chatId, pid, sessionId: `other-${pid}`, cwd: "/elsewhere", since: new Date().toISOString() });
@@ -218,6 +218,50 @@ rules([]);
 	);
 	await server.close();
 	busy.close();
+	rules([]);
+}
+
+// ── Saved channels: resumed with the chats; one held by another pid is skipped and named; start with channel_id starts the channel ──
+{
+	rules([{ chat: "self-chat", id: "48:notes" }], [
+		{ channel: "General", team_id: "team-1", channel_id: "19:fake-channel@thread.skype", mode: "personal" },
+		{ channel: "Held", team_id: "team-1", channel_id: "19:held@thread.skype", mode: "shared" },
+	]);
+	const heldChannel = await holdAs("channel:team-1/19:held@thread.skype", 999994);
+	const startedChannels = [];
+	const chanTeams = {
+		startWatch: async (_ctx, chatId) => (startedChannels.push(chatId), `Watching ${chatId}`),
+		startChannelWatch: async (_ctx, opts) => (startedChannels.push(`channel:${opts.teamId}/${opts.channelId}:${opts.mode}`), `Watching #General`),
+		setWatchInterval: () => "",
+		stopAllWatches: () => {},
+	};
+	const chanEvents = [];
+	const direct = startChannel({ teams: chanTeams, context: {}, push: async (e) => void chanEvents.push(e.kind) });
+	const channelSummary = await direct.resume();
+	check("resume starts the saved channels with the chats, in their saved mode", () =>
+		deepStrictEqual(startedChannels.sort(), ["48:notes", "channel:team-1/19:fake-channel@thread.skype:personal"]),
+	);
+	check("a channel another session holds is skipped and named with its holder", () =>
+		deepStrictEqual([direct.held.map((hh) => [hh.chatId, hh.owner.pid]), /Skipped "#Held": held by pid 999994/.test(channelSummary)], [[["channel:team-1/19:held@thread.skype", 999994]], true]),
+	);
+	direct.stop();
+	heldChannel.close();
+
+	// Through the server: a held channel is named by resume and by list; start with channel_id starts the channel, not a resume.
+	rules([], [{ channel: "Held", team_id: "team-1", channel_id: "19:held@thread.skype", mode: "shared" }]);
+	const heldAgain = await holdAs("channel:team-1/19:held@thread.skype", 999995);
+	const { client: chanClient, server: chanServer } = await connect("claude-code");
+	const resumedChannels = await chanClient.callTool({ name: "teams_watch", arguments: { action: "start" } });
+	const listChannels = await chanClient.callTool({ name: "teams_watch", arguments: { action: "list" } });
+	check("teams_watch resume names the held channel, and so does list", () =>
+		deepStrictEqual([resumedChannels.isError ?? false, /Skipped "#Held": held by pid 999995/.test(text(resumedChannels)), /#Held.*held by pid 999995/s.test(text(listChannels))], [false, true, true]),
+	);
+	const startOne = await chanClient.callTool({ name: "teams_watch", arguments: { action: "start", team_id: "team-1", channel_id: "19:fake-channel@thread.skype" } });
+	check("start with channel_id starts that channel instead of resuming", () =>
+		deepStrictEqual([startOne.isError, /not authenticated.*run \/teams init in omp/.test(text(startOne)), /Skipped/.test(text(startOne))], [true, true, false]),
+	);
+	await chanServer.close();
+	heldAgain.close();
 	rules([]);
 }
 

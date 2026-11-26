@@ -19,6 +19,7 @@ import { DIR, LAUNCHER, LEASE_ID, PUSHED, readCursor, readRows, writeCursor } fr
 import { SELF_WATCH_NOTE, WATCH_NOTE } from "../teams/core.ts";
 import { claim, describeOwner, listOwners, type WatchOwner } from "../teams/watch.ts";
 import { savedWatches } from "../teams/watch-list.ts";
+import { cursorKey } from "../teams/cursor-store.ts";
 
 const BACKSTOP_MS = 60_000;
 
@@ -35,11 +36,12 @@ export type Push = (event: ChannelEvent) => Promise<void>;
 /** The part of the Teams core the channel drives. */
 interface TeamsWatches {
 	startWatch(ctx: ToolContext, chatId?: string, name?: string, policy?: string, save?: boolean): Promise<string>;
+	startChannelWatch(ctx: ToolContext, opts: { teamId: string; channelId: string; mode?: "shared" | "personal"; policy?: string; save?: boolean }): Promise<string>;
 	setWatchInterval(sec: number, save?: boolean): string;
 	stopAllWatches(): void;
 }
 
-/** A saved chat the channel did not resume, because another session holds its lock. */
+/** A saved chat or channel the resume skipped, because another session holds its lock. */
 export interface HeldChat {
 	chatId: string;
 	label: string;
@@ -78,7 +80,7 @@ export function startChannel(opts: { teams: TeamsWatches; context: ToolContext; 
 
 	async function resume(): Promise<string> {
 		const saved = savedWatches();
-		if (saved.chats.length === 0) return "No watch is saved in the teams_watch section of rules.yaml.";
+		if (saved.chats.length === 0 && (saved.channels ?? []).length === 0) return "No watch is saved in the teams_watch section of rules.yaml.";
 		if (saved.interval_sec !== undefined) teams.setWatchInterval(saved.interval_sec, false);
 		const owners = await listOwners();
 		held.length = 0;
@@ -103,6 +105,29 @@ export function startChannel(opts: { teams: TeamsWatches; context: ToolContext; 
 			} catch (e) {
 				if (signal.aborted) throw e;
 				lines.push(`Skipped "${w.chat}": ${e instanceof Error ? e.message : e}`);
+			}
+		}
+		for (const c of saved.channels ?? []) {
+			if (signal.aborted) throw new Error("the channel stopped; nothing is watched");
+			const key = cursorKey({ teamId: c.team_id, channelId: c.channel_id });
+			const owner = owners.find((o) => o.chatId === key && o.pid !== process.pid);
+			if (owner) {
+				held.push({ chatId: key, label: `#${c.channel}`, owner });
+				console.error(`[m365] channel: skipped "#${c.channel}" (${key}): held by ${describeOwner(owner)}`);
+				lines.push(`Skipped "#${c.channel}": held by ${describeOwner(owner)}.`);
+				continue;
+			}
+			try {
+				const started = await teams.startChannelWatch(context, { teamId: c.team_id, channelId: c.channel_id, mode: c.mode, policy: c.policy, save: false });
+				// Stopped while that watch was starting: it was not running yet when the watches were stopped.
+				if (signal.aborted) {
+					teams.stopAllWatches();
+					throw new Error("the channel stopped; nothing is watched");
+				}
+				lines.push(started);
+			} catch (e) {
+				if (signal.aborted) throw e;
+				lines.push(`Skipped "#${c.channel}": ${e instanceof Error ? e.message : e}`);
 			}
 		}
 		return lines.join("\n");
