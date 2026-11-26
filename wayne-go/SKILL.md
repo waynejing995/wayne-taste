@@ -14,7 +14,7 @@ Select one route from observable evidence, write the prompt for that route, and 
 | Small or low-stakes work with a clear target: one repository, no open design question, and nothing in the table's next note | [quick lane](references/quick-lane.md) | a complete task prompt any agent can run |
 | New medium or large task (feature, redesign, multi-file change) where Wayne wants autonomous design + build without an interview loop | `wayne-auto-design-task` | next-step prompt (dual proposals w/ Gemini 4 Neon → `design.md` → `wayne-test-design` → `wayne-plan` → `wayne-work`) |
 | The idea, scope, or behavior is unsettled AND Wayne explicitly asks to brainstorm / be grilled, or the change reverses a living spec in `docs/specs/` | `wayne-mind-explode` | next-step prompt |
-| The behavior is settled (or a small/focused multi-file change needs an executable plan without full dual-proposal design) | `wayne-plan` | next-step prompt (Plan takes its lite path when no decision log exists) |
+| The behavior is settled (a focused multi-file change, or an urgent hotfix whose root cause is already confirmed — never dual-proposal design for hotfixes) | `wayne-plan` | next-step prompt (Plan takes its lite path when no decision log exists) |
 | An approved plan exists for this topic | `wayne-work` | next-step prompt naming the plan path (parallel `isolated: true` units, one commit per unit) |
 | Something is failing: an error, a log, a red test, an incident, an issue | `wayne-triage` | next-step prompt carrying the symptom |
 | Existing PR review comments need verification before fixing | `wayne-fix-review` | next-step prompt naming the PR |

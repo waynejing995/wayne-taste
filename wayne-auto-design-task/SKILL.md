@@ -11,7 +11,7 @@ Turn Wayne's raw request into a verified, built result. Wayne takes part only tw
 
 `wayne-mind-explode` puts each design choice to Wayne and ends with an approved living spec. This skill makes those choices itself from evidence and two independent proposals, and it ends with built, verified work. Reuse mind-explode's research, decision log, conflict review, and spec contract as linked below. Do not use its question loop, its living-spec promotion, or its three-voice review.
 
-A small task (a fix of a few dozen lines, a review finding, a copy change of a few words) needs neither skill. Do it directly.
+A small task (a fix of a few dozen lines, a review finding, a copy change of a few words) needs neither skill. Do it directly. An urgent production hotfix with a confirmed root cause also skips dual-proposal design: go straight to a fast `wayne-plan` (lite path) and `wayne-work` fix.
 
 Route to `wayne-mind-explode` and stop if any of these is true:
 

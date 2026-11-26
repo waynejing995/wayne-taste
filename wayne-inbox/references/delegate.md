@@ -28,6 +28,7 @@ Execution subagents (in every brief and in coordinator `task` calls) use the def
 | Work                                         | Skill                         |
 | -------------------------------------------- | ----------------------------- |
 | New medium or large task: design, then build | `wayne-auto-design-task`      |
+| Urgent production hotfix (root cause known)  | fast `wayne-plan` (lite) + `wayne-work` (skip dual-proposal design) |
 | Implementation of an approved plan           | `wayne-work`                  |
 | Review fixes                                 | `wayne-fix-review`            |
 | Research                                     | `deep-research`               |
