@@ -214,4 +214,5 @@ Run this once per run, after J passes; it is never a per-unit step. Write one pa
 - No compliance agent inside the per-unit loop, no per-unit audit substituted for the whole-workflow gate, and no gate receipt carried over a corrected diff.
 - No test weakening, hidden substitute command, unchecked U row, or changed E row.
 - No completion claim without full verification and actual scope-diff proof.
+- No mention of a database write (report, RESULT, chat) without its host, container, database name, owner and the command in the same sentence.
 - No branch, push, amend of a unit commit, `git add -A`, code-quality review, verify, ship, or auto-advance.
