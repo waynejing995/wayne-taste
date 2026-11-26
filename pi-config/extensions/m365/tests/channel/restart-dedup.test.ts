@@ -6,10 +6,10 @@
  */
 import { afterEach, expect, test } from "bun:test";
 import { join } from "node:path";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createTeams, type TeamsHost } from "../../teams/core.ts";
 import type { Backend } from "../../teams/backend.ts";
-import { type CursorFile, cursorKey, loadCursor } from "../../teams/cursor-store.ts";
+import { type CursorFile, cursorKey, cursorPath, loadCursor } from "../../teams/cursor-store.ts";
 import type { RawSkypeMessage } from "../../teams/skype.ts";
 import type { SendTarget } from "../../teams/types.ts";
 
@@ -49,6 +49,7 @@ type Harness = {
 	idle(v: boolean): void;
 	holdHandoff(p: Promise<void>): void;
 	holdSend(p: Promise<void>): void;
+	failHandoff(n: number): void;
 	handoffStarted(): Promise<void>;
 	sendStarted(): Promise<void>;
 };
@@ -76,6 +77,7 @@ function setup() {
 	const sends: Harness["sends"] = [];
 	let holdHandoff: Promise<void> | undefined;
 	let holdSend: Promise<void> | undefined;
+	let handoffFail = 0;
 	const handoffStarted = Promise.withResolvers<void>();
 	const sendStarted = Promise.withResolvers<void>();
 	let idle = true;
@@ -120,6 +122,7 @@ function setup() {
 			turnEvents: true,
 			sendMessage: async () => {},
 			sendUserMessage: async (text: string, options: { deliverAs: string } | undefined, meta: { chatId: string; policy: string }) => {
+				if (handoffFail > 0) { handoffFail--; throw new Error("synthetic handoff failure"); }
 				prompts.push({ text, options, meta });
 				handoffStarted.resolve();
 				if (holdHandoff) await holdHandoff;
@@ -131,6 +134,7 @@ function setup() {
 	const restart = async (mode?: "shared" | "personal") => {
 		holdHandoff = undefined;
 		holdSend = undefined;
+		handoffFail = 0;
 		teams.stopAllWatches();
 		teams = makeTeams();
 		poll = undefined;
@@ -150,6 +154,7 @@ function setup() {
 		idle: (v: boolean) => { idle = v; },
 		holdHandoff: (p: Promise<void>) => { holdHandoff = p; },
 		holdSend: (p: Promise<void>) => { holdSend = p; },
+		failHandoff: (n: number) => { handoffFail = n; },
 		handoffStarted: () => handoffStarted.promise,
 		sendStarted: () => sendStarted.promise,
 	};
@@ -237,4 +242,41 @@ test("explicit reply mid-turn then a steered follow-up is answered at turn end",
 	expect(s.sends.length).toBeGreaterThanOrEqual(2);
 	expect(s.sends.at(-1)?.target).toMatchObject({ kind: "channel", teamId: TEAM, channelId: CHANNEL, replyTo: "101" });
 	expect(JSON.stringify(s.sends.at(-1)?.card)).toContain("follow-up is handled");
+});
+
+test("crash after hand-off before done, own reply already visible: restart does not re-deliver as a fresh prompt", async () => {
+	const s = setup();
+	s.stream.push(raw("100", "old note", ME));
+	await s.start("personal");
+	s.stream.push(raw("101", "please summarize the deploy thread", ME));
+	s.holdHandoff(new Promise(() => {}));
+	void s.tick();
+	await s.handoffStarted();
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+	expect(s.cursor()?.done ?? []).not.toContain("101");
+	s.stream.push(raw("102", "Summarized: the deploy went out at noon.\n\nsent by agent", ME, { rootMessageId: "101" }));
+
+	const before = s.prompts.length;
+	await s.restart("personal");
+	await s.tick();
+	expect(s.prompts.slice(before)).toHaveLength(0);
+	expect(s.cursor()?.awaiting).toEqual({});
+});
+
+test("redelivered hand-off throw keeps the marked command so the next poll retries it", async () => {
+	const s = setup();
+	s.stream.push(raw("100", "old", ME));
+	s.stream.push(raw("101", "please restart me", ME));
+	mkdirSync(join(process.env.WAYNE_INBOX_DIR!, "cursors"), { recursive: true });
+	writeFileSync(cursorPath(s.key), JSON.stringify({ version: 1, key: s.key, watermark: "100", done: ["101"], awaiting: { "101": ["101"] } }, null, 2));
+	s.failHandoff(1);
+	await s.start("personal");
+	await s.tick();
+	expect(s.prompts).toHaveLength(0);
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	expect(s.prompts[0].text).toContain("please restart me");
+	expect(s.prompts[0].text).toContain("(re-delivered after a restart: check the thread before repeating side effects)");
+	expect(s.reacts).toEqual([]);
 });

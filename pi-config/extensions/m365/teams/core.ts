@@ -1058,8 +1058,11 @@ export function createTeams(pi: TeamsHost) {
 		try {
 			await pi.sendUserMessage(`${c.mark}\n${c.body}`, options, { chatId: c.key, policy: c.policy });
 		} catch (e) {
-			if (c.personal && !c.redelivered) removeAwaiting(c.key, c.threadId, c.ids);
-			for (const id of c.ids) { c.w.inflight.delete(id); c.w.retry.add(id); }
+			if (c.redelivered) pendingChannelCommands.push(c);
+			else {
+				if (c.personal) removeAwaiting(c.key, c.threadId, c.ids);
+				for (const id of c.ids) { c.w.inflight.delete(id); c.w.retry.add(id); }
+			}
 			watchError(c.w, e);
 			return;
 		}
@@ -1143,7 +1146,7 @@ export function createTeams(pi: TeamsHost) {
 	/**
 	 * `awaiting` a previous process left behind: queue each id's prompt again, so the restart does not lose the
 	 * instruction — unless the thread already has an own agent reply (footer + my oid) with id greater than the awaited
-	 * id, in which case it is cleared, not re-delivered. The mark says it was re-delivered and the 👀 is not repeated;
+	 * id, in which case it is marked done and cleared from `awaiting`, not re-delivered. The mark says it was re-delivered and the 👀 is not repeated;
 	 * ids the channel no longer has are dropped from `awaiting` with a warning (they can never be answered).
 	 */
 	async function redeliverAwaiting(w: WatchState, awaiting: Record<string, string[]>): Promise<void> {
@@ -1162,7 +1165,15 @@ export function createTeams(pi: TeamsHost) {
 			}
 			const present = ids.filter((id) => found.has(id));
 			const answered = present.filter((id) => mine !== "" && scanned.some((e) => e.threadId === threadId && e.agentEcho && e.authorOid === mine && compareIds(e.id, id) > 0));
-			if (answered.length) removeAwaiting(w.key, threadId, answered);
+			if (answered.length) {
+				updateCursor(w.key, (c) => {
+					const rest = (c.awaiting?.[threadId] ?? []).filter((id) => !answered.includes(id));
+					const awaiting = { ...(c.awaiting ?? {}) };
+					if (rest.length) awaiting[threadId] = rest;
+					else delete awaiting[threadId];
+					return markDone({ ...c, awaiting }, [...w.inflight, ...w.retry], answered);
+				});
+			}
 			const pending = present.filter((id) => !answered.includes(id));
 			if (pending.length === 0) continue;
 			const events = pending.flatMap((id) => { const e = found.get(id); return e ? [e] : []; });
