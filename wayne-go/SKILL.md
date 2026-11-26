@@ -20,11 +20,11 @@ Select one route from observable evidence, write the prompt for that route, and 
 | Existing PR review comments need verification before fixing | `wayne-fix-review` | next-step prompt naming the PR |
 | A diff is ready for review | `wayne-code-review` | next-step prompt naming the range (≥1% evidence-backed CRITICAL gate) |
 | Review passed and the user wants to commit, push, or open a PR | `wayne-ship` | next-step prompt |
-| A job finished (`status: done`) and needs retro candidates or session teardown | `wayne-compress` | next-step prompt (candidates only, apply nothing) |
+| A job finished (`status: done`) and needs retro candidates | `wayne-compress` | next-step prompt (top 3 candidates only, apply nothing) |
 | The user wants to resume earlier work | `wayne-checkpoint` | next-step prompt (resume) |
 | The user wants to understand an unfamiliar repository | `wayne-codebase-report` | next-step prompt |
-| The user wants a long autonomous run on omp/Codex | `wayne-goal-prompt` | next-step prompt |
-| The user wants work delegated into its own isolated `ovnfs` checkout + tern/herdr/tmux session under inbox watch | `wayne-inbox` [references/delegate.md](../wayne-inbox/references/delegate.md) | next-step prompt |
+| The user wants a long autonomous run on Codex | `wayne-goal-prompt` | next-step prompt |
+| The user wants work delegated into its own isolated `ovnfs` checkout + tern/herdr/tmux session under inbox watch, or wants a finished session torn down and closed | `wayne-inbox` [references/delegate.md](../wayne-inbox/references/delegate.md) | next-step prompt |
 | none match | — | one question |
 
 The quick lane and the pipeline routes are exclusive. Do not take the quick lane if the change touches a shared interface, a schema, or a migration, or if it alters what code that deletes data, deploys, publishes, or migrates will do. File count does not decide this: a one-line change to a deletion script is irreversible once it runs, and a quick prompt carries no plan to catch that.

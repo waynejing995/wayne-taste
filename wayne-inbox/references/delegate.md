@@ -103,7 +103,7 @@ Report one short message in the request channel: session, machine, mux, pane, cw
 
 ## Close
 
-When every PR a watched session owns is merged (or a read-only / no-PR session finishes its retro and Wayne picks/declines its candidates), close and clean up the session:
+When every PR a watched session owns is merged (or a read-only / no-PR session writes its retro RESULT and its candidates are queued in `~/.wayne/inbox/retro-queue.md`), close and clean up the session without waiting for the 17:00 digest pick:
 
 1. **No remaining work:** check `rules.yaml` for any other open PRs that session still owns, and confirm its retro round has run (or was skipped per above).
 2. **Teardown before killing the pane** (ask the session to run its own teardown while still live, or run it on the session's host after confirming nothing else uses it):

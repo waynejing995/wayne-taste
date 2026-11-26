@@ -29,7 +29,7 @@ flowchart LR
 - **Coordinator stays thin**: reads the ledger/RESULTs, routes work, answers questions from evidence, escalates only real decisions to Wayne (plain Chinese, 2–3 options with recommendation), and verifies claimed outcomes at source (`gh pr view`, live runtime checks). Never edits product code inline.
 - **One isolated checkout per task**: every new task runs in its own `ovnfs` checkout (`ovnfs new --name <topic> --rev origin/main` from the source repo root) inside a `tern` session, registered via `inbox agent add` with a completion `then` trigger — push, never poll.
 - **Check direct user replies**: before re-asking Wayne about a watched session's open question, check all `role: "user"` messages in that session's `.jsonl` since the last check.
-- **Model routing**: execution subagents use the default/`task` model (never Opus unless Wayne authorizes it); UI/design Gemini steps use exact `gemini-4-neon` selector; review voices keep their own configured model.
+- **Model routing**: execution subagents use the default/`task` model (never Opus unless Wayne authorizes it); UI/design Gemini steps use `gemini-4-neon` (exact per-host selector in `~/.wayne/CONTEXT.md`); review voices keep their own configured model.
 
 ### 2. Design & test bar (`wayne-auto-design-task`, `wayne-test-design`, `wayne-plan`)
 - **Medium/large tasks default to `wayne-auto-design-task`**: main model + Gemini 4 Neon draft independent proposals → fused `design.md` (with `## Invariants`) → Gemini interaction/copy review for UI → `wayne-test-design` → `wayne-plan` (single review round) → `wayne-work`. Use `wayne-mind-explode` only when Wayne wants an interview loop or the change reverses a living spec in `docs/specs/`.
@@ -37,13 +37,12 @@ flowchart LR
   - **Unit + changed-branch coverage** (`diff-cover`) + **Bug-fix red→green** (seeded fakes must cite the production line that writes that state, else drive the real write path).
   - **Property & Differential tests** (`Hypothesis` / `fast-check`): required (or explicit `none — <reason>`) whenever touching state machines, parsers, migration/rollback round-trips, concurrency monotonicity, or rewrites with an existing oracle; `wayne-plan` never silently downgrades a `property` seed to a single example unit test.
   - **UI changes**: real browser verification + before/after screenshots shown to Wayne.
-  - **Hot deploy by default**: every design states how in-flight state survives a mid-operation deploy with old and new builds running together.
 
 ### 3. Execution, review & verification (`wayne-work`, `wayne-code-review`, `wayne-fix-review`)
 - **`wayne-work`**: dispatches ready DAG units in parallel (`isolated: true`), one signed commit per unit (`git commit -s`), runs `wayne-simplify` once on the full diff, then runs an independent whole-diff spec-compliance gate.
 - **`wayne-code-review`**: multi-source (structured + Voice 1 + Voice 2 + design-conformance) against the frozen base/head range and repo rule ledger.
   - **CRITICAL gate**: requires **≥ 1% estimated per-run probability** (with stated evidence — logs, run counts, load — and only multiplying independent factors) **AND** a serious impact (crash, data loss/corruption, wrong user-visible result, stuck resource). Below 1% is `INFORMATIONAL` with no fix/test requested (security/authz holes excepted).
-  - **Eval loop**: weekly scorecard + curated false-positive/miss cases frozen into `eval/wayne-code-review/cases/`.
+  - **Eval loop**: regression cases frozen into `eval/wayne-code-review/cases/`.
 - **`wayne-fix-review`**: treats comments as hypotheses; verifies at source first, plans fixes in the main model before dispatching workers, never passes raw review comments to subagents.
 
 ### 4. Wrap-up: retro & mandatory cleanup (`wayne-compress`, `wayne-inbox/references/delegate.md`)
