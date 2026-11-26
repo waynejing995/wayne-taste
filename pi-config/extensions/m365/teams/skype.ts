@@ -27,6 +27,8 @@ import { escapeHtml } from "./html.ts";
 import { htmlToMarkdown } from "./markdown.ts";
 import { fillMentions, type ResolvedPerson } from "./mentions.ts";
 import { cursorPages } from "./paging.ts";
+export { forwardParts, partImages, partsText } from "./forward.ts";
+export { htmlToMarkdown } from "./markdown.ts";
 import { skypeReactions } from "./reactions.ts";
 
 export const SKYPE_SCOPES = ["https://api.spaces.skype.com/.default"];
@@ -62,18 +64,22 @@ export interface RawSkypeMessage {
 	composetime?: string;
 	content?: string;
 	messagetype?: string;
+	s2spartnername?: string;
+	imdisplayname?: string;
+	rootMessageId?: string;
+	conversationLink?: string;
 	/** `cards` is a JSON string: [{cardClientId, contentType, content}], what a Graph card send stores. `files` is
 	 * one too: [{fileName, objectUrl, …}], the files sent in it, each a share on the sender's OneDrive. */
-	properties?: { cards?: string; files?: string; originalMessageContext?: unknown; emotions?: unknown };
+	properties?: { cards?: string; files?: string; originalMessageContext?: unknown; emotions?: unknown; subject?: string; emaildetails?: unknown };
 }
 
 /** A chatsvc message's sender as a user id (the forwards in it are authorized by it); "" when not a person. */
-function senderOf(m: RawSkypeMessage): string {
+export function senderOf(m: RawSkypeMessage): string {
 	return /\/8:orgid:([^/?]+)$/.exec(m.from ?? "")?.[1] ?? "";
 }
 
 /** The files a chatsvc message carries, as the Graph backend names them. */
-function sentFiles(m: RawSkypeMessage): { name: string; url: string }[] {
+export function sentFiles(m: RawSkypeMessage): { name: string; url: string }[] {
 	if (!m.properties?.files) return [];
 	let files: unknown;
 	try {
@@ -90,7 +96,7 @@ function sentFiles(m: RawSkypeMessage): { name: string; url: string }[] {
 }
 
 /** The text of the cards a chatsvc message carries; `sep` joins blocks ("\n\n" for Markdown, see cardText). */
-function cardsText(m: RawSkypeMessage, sep = "\n"): string {
+export function cardsText(m: RawSkypeMessage, sep = "\n"): string {
 	if (!m.properties?.cards) return "";
 	let cards: unknown;
 	try {
@@ -192,17 +198,17 @@ export class SkypeClient {
 	}
 
 	/**
-	 * One page of the self-chat as chatsvc sends it: newest first, with the link to the page before it.
+	 * One page of a chatsvc conversation, newest first, with the link to the page before it.
 	 *
 	 * The link is `_metadata.backwardLink`. Checked against the live service: it sits on the messaging host, and its
 	 * query carries startTime, syncState, pageSize and view. A page with no messages ends the history, whatever link it
 	 * carries. The link is followed with the skype token, so only on the host that issued it.
 	 */
-	private async fetchPage(pageSize: number, cursor?: string): Promise<{ raw: RawSkypeMessage[]; older?: string }> {
+	async conversationPage(conversationId: string, pageSize: number, cursor?: string): Promise<{ raw: RawSkypeMessage[]; older?: string }> {
 		const r = await this.skypeFetch(({ skypeToken, messaging }) => {
 			let url: string;
 			if (cursor === undefined) {
-				url = this.conversationUrl(messaging, `?pageSize=${pageSize}&view=msnp24Equivalent|supportsMessageProperties`);
+				url = this.conversationUrl(messaging, `?pageSize=${pageSize}&view=msnp24Equivalent|supportsMessageProperties`, conversationId);
 			} else {
 				if (new URL(cursor).origin !== new URL(messaging).origin) {
 					throw new Error("chatsvc named an older page on another host; refusing to send the token there");
@@ -225,6 +231,10 @@ export class SkypeClient {
 		const body = JSON.parse(text) as { messages?: RawSkypeMessage[]; _metadata?: { backwardLink?: string } };
 		const raw = body.messages ?? [];
 		return { raw, older: raw.length > 0 ? body._metadata?.backwardLink || undefined : undefined };
+	}
+
+	private fetchPage(pageSize: number, cursor?: string): Promise<{ raw: RawSkypeMessage[]; older?: string }> {
+		return this.conversationPage(SELF_CONVERSATION, pageSize, cursor);
 	}
 
 	/**
