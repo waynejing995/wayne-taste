@@ -100,7 +100,7 @@ export function planDelivery(
 			const relay = owner !== opts.self;
 			entries.push({
 				threadId, kind: relay ? "relay" : kind, ids: items.map((item) => item.id), events: items, owner,
-				turn: relay || kind === "prompt" || (opts.mode === "personal" && items.some((item) => item.email)),
+				turn: kind === "prompt" || (opts.mode === "personal" && items.some((item) => item.email)),
 				untrusted: kind === "card",
 			});
 		}

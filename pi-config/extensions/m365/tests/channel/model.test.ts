@@ -48,14 +48,20 @@ describe("channel model", () => {
 	});
 
 	test("U33: route bound threads and bind an unbound instruction", () => {
-		const messages = [event(raw("1", "a")), event(raw("2", "b")), event(raw("3", "c"))];
-		const result = plan(messages, "personal", { "1": { owner: SELF }, "2": { owner: "inbox:42" } });
-		expect(result.entries.map(({ threadId, kind, owner, turn }) => ({ threadId, kind, owner, turn }))).toEqual([
-			{ threadId: "1", kind: "prompt", owner: SELF, turn: true },
-			{ threadId: "2", kind: "relay", owner: "inbox:42", turn: true },
-			{ threadId: "3", kind: "prompt", owner: SELF, turn: true },
+		const messages = [
+			event(raw("1", "omp: a")),
+			event(raw("2", "omp: b")),
+			event(raw("3", "omp: untrusted", OTHER, { rootMessageId: "2" })),
+			event(raw("4", "omp: c")),
+		];
+		const result = plan(messages, "shared", { "1": { owner: SELF }, "2": { owner: "inbox:42" } });
+		expect(result.entries.map(({ threadId, kind, owner, turn, untrusted }) => ({ threadId, kind, owner, turn, untrusted }))).toEqual([
+			{ threadId: "1", kind: "prompt", owner: SELF, turn: true, untrusted: false },
+			{ threadId: "2", kind: "relay", owner: "inbox:42", turn: true, untrusted: false },
+			{ threadId: "2", kind: "relay", owner: "inbox:42", turn: false, untrusted: true },
+			{ threadId: "4", kind: "prompt", owner: SELF, turn: true, untrusted: false },
 		]);
-		expect(result.bind).toEqual({ "3": SELF });
+		expect(result.bind).toEqual({ "4": SELF });
 	});
 
 	test("groups trusted and untrusted items separately in id order and routes both", () => {
@@ -74,6 +80,18 @@ describe("channel model", () => {
 		const foreign = plan(messages, "shared", { "10": { owner: "inbox:42" } });
 		expect(foreign.entries.map(({ kind, owner, turn, untrusted }) => ({ kind, owner, turn, untrusted }))).toEqual([
 			{ kind: "relay", owner: "inbox:42", turn: true, untrusted: false },
+			{ kind: "relay", owner: "inbox:42", turn: false, untrusted: true },
+		]);
+	});
+
+	test("relay preserves personal card turn for email and non-email", () => {
+		const messages = [
+			event(raw("1", "other", OTHER)),
+			event(raw("2", "email", ME, { s2spartnername: "MailhookService" })),
+		];
+		const result = plan(messages, "personal", { "1": { owner: "inbox:42" }, "2": { owner: "inbox:42" } });
+		expect(result.entries.map(({ kind, owner, turn, untrusted }) => ({ kind, owner, turn, untrusted }))).toEqual([
+			{ kind: "relay", owner: "inbox:42", turn: false, untrusted: true },
 			{ kind: "relay", owner: "inbox:42", turn: true, untrusted: true },
 		]);
 	});
