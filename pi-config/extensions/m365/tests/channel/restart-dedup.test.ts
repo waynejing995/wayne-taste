@@ -414,3 +414,40 @@ test("failed start-up re-delivery scan is retried on the next poll without dropp
 	await s.tick();
 	expect(s.prompts.slice(before)).toHaveLength(1);
 });
+
+test("failed awaiting cursor clear during start-up scan does not queue pending threads twice on poll retry", async () => {
+	const s = setup();
+	s.stream.push(
+		raw("100", "old note", ME),
+		raw("101", "pending thread A instruction", ME),
+		raw("102", "answered thread B instruction", ME),
+		raw("103", "B answer\n\nsent by agent", ME, { rootMessageId: "102" }),
+	);
+	mkdirSync(join(process.env.WAYNE_INBOX_DIR!, "cursors"), { recursive: true });
+	writeFileSync(cursorPath(s.key), JSON.stringify({
+		version: 1,
+		key: s.key,
+		watermark: "100",
+		done: [],
+		awaiting: { "101": ["101"], "102": ["102"] },
+	}, null, 2));
+
+	const tmp = `${cursorPath(s.key)}.${process.pid}.tmp`;
+	mkdirSync(tmp);
+	await s.start("personal");
+	rmSync(tmp, { recursive: true });
+	expect(s.prompts).toHaveLength(0);
+
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	expect(s.prompts[0].text).toContain("pending thread A instruction");
+	expect(s.prompts[0].text).toContain("(re-delivered after a restart: check the thread before repeating side effects)");
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+	expect(s.cursor()?.watermark).toBe("103");
+	expect(s.cursor()?.done).toEqual([]);
+
+	s.teams.turnEnded();
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	expect(s.cursor()?.awaiting).toEqual({});
+});

@@ -1181,20 +1181,34 @@ export function createTeams(pi: TeamsHost) {
 		const scanned = [...found.values()];
 		const mine = w.myOid ?? "";
 		const threads = loadCursor(w.key)?.threads ?? {};
+		const missingEntries: [string, string[]][] = [];
+		const answeredEntries: [string, string[]][] = [];
+		const toQueue: { threadId: string; pending: string[]; events: ChannelEvent[] }[] = [];
 		for (const [threadId, ids] of Object.entries(awaiting)) {
 			if (ids.length === 0) continue;
 			const missing = ids.filter((id) => !found.has(id));
-			if (missing.length) {
-				removeAwaiting(w.key, threadId, missing);
-				watchCtx?.ui.notify(`Teams watch "${w.owner.label}": ${missing.length} awaited instruction(s) in thread ${threadId} are no longer in the channel; they are dropped`, "warning");
-			}
+			if (missing.length) missingEntries.push([threadId, missing]);
 			const present = ids.filter((id) => found.has(id));
 			const answered = present.filter((id) => mine !== "" && scanned.some((e) => e.threadId === threadId && e.agentEcho && e.authorOid === mine && compareIds(e.id, id) > 0));
-			// The stream has not been polled yet: unread ids may precede these answers.
-			if (answered.length) updateCursor(w.key, (c) => addDone(withoutAwaiting(c, threadId, answered), answered));
+			if (answered.length) answeredEntries.push([threadId, answered]);
 			const pending = present.filter((id) => !answered.includes(id));
 			if (pending.length === 0) continue;
 			const events = pending.flatMap((id) => { const e = found.get(id); return e ? [e] : []; });
+			toQueue.push({ threadId, pending, events });
+		}
+		for (const [threadId, missing] of missingEntries) {
+			removeAwaiting(w.key, threadId, missing);
+			watchCtx?.ui.notify(`Teams watch "${w.owner.label}": ${missing.length} awaited instruction(s) in thread ${threadId} are no longer in the channel; they are dropped`, "warning");
+		}
+		if (answeredEntries.length) {
+			// Finish all cursor updates before queuing any command so a write failure cannot trigger duplicate re-deliveries on retry.
+			updateCursor(w.key, (c) => {
+				let next = c;
+				for (const [threadId, answered] of answeredEntries) next = addDone(withoutAwaiting(next, threadId, answered), answered);
+				return next;
+			});
+		}
+		for (const { threadId, pending, events } of toQueue) {
 			let mark = `${CHANNEL_COMMAND_MARK} ${w.owner.label}  team_id: ${w.addr!.teamId}  channel_id: ${w.addr!.channelId}  thread: ${threadId}  subject: ${events.find((e) => e.subject)?.subject ?? threads[threadId]?.subject ?? ""}  owner: ${threads[threadId]?.owner ?? "unbound"}`;
 			if (w.mode === "personal" && !turnEvents) mark += `\nAnswer in this thread with teams_send reply_to=${threadId}`;
 			mark += "\n(re-delivered after a restart: check the thread before repeating side effects)";
