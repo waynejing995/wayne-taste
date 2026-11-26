@@ -21,9 +21,11 @@
 import * as fs from "node:fs";
 import type { DownloadedFile } from "../core/shares.ts";
 import type { Person } from "../core/people.ts";
-import { type ChatRef, type ChatsPage, type HistoryMessage, HISTORY_MESSAGES, type SendTarget } from "./types.ts";
+import type { ChannelAddr } from "./channel.ts";
+import { type ChannelPost, type ChannelRef, type ChannelRoot, type ChatRef, type ChatsPage, type HistoryMessage, HISTORY_MESSAGES, type SendTarget } from "./types.ts";
 import type { Mention } from "./mentions.ts";
 import type { ReactionCount } from "./reactions.ts";
+import type { RawSkypeMessage } from "./skype.ts";
 import type { MeetingTranscriptResult } from "./transcript.ts";
 
 /** One chat holding unread activity. Chat-level: Graph's preview carries no
@@ -115,9 +117,17 @@ export interface Backend {
 	 * `card` is an Adaptive Card (card.ts) posted after `message`, which then holds only the mentions.
 	 * `files` are local files of any type, uploaded to OneDrive (a chat) or the channel's folder and attached.
 	 */
-	send(target: SendTarget, message: string, html: boolean, mentions?: Mention[], images?: string[], card?: Record<string, unknown>, files?: string[]): Promise<void>;
+	send(target: SendTarget, message: string, html: boolean, mentions?: Mention[], images?: string[], card?: Record<string, unknown>, files?: string[]): Promise<ChannelPost | void>;
 	/** Add (or with `remove`, take back) my reaction to one message. `reactionType` is the emoji (reactions.ts). */
 	react(chatId: string, messageId: string, reactionType: string, remove?: boolean): Promise<void>;
+	channels(query?: string): Promise<ChannelRef[]>;
+	resolveChannel(addr: { teamId?: string; channelId?: string; team?: string; channel?: string }): Promise<ChannelAddr & { label: string }>;
+	channelRoots(addr: ChannelAddr, top: number): Promise<{ roots: ChannelRoot[]; me: string }>;
+	channelThread(addr: ChannelAddr, rootId: string): Promise<{ messages: HistoryMessage[]; me: string }>;
+	channelMembers(addr: ChannelAddr): Promise<{ membershipType: string; memberOids: string[] }>;
+	reactChannel(addr: ChannelAddr, messageId: string, reactionType: string, opts?: { replyTo?: string; remove?: boolean }): Promise<void>;
+	channelStream(addr: ChannelAddr, pageSize: number, cursor?: string): Promise<{ raw: RawSkypeMessage[]; older?: string }>;
+	me(): Promise<{ oid: string; name: string }>;
 }
 
 /** The script logs progress to stderr and emits exactly one JSON line on stdout. */
@@ -138,6 +148,8 @@ export type ScriptRunner = (args: string[]) => Promise<string>;
 function scriptNoPaging(what: string): Error {
 	return new Error(`the script backend cannot load more of the ${what}; set "backend": "graph" in ~/.pi/agent/teams.json`);
 }
+
+const CHANNEL_NEEDS_GRAPH = 'channels need the graph backend; set "backend": "graph" in ~/.pi/agent/teams.json';
 
 export class ScriptBackend implements Backend {
 	constructor(private readonly run: ScriptRunner) {}
@@ -205,7 +217,39 @@ export class ScriptBackend implements Backend {
 		);
 	}
 
-	async send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = [], images: string[] = [], card?: Record<string, unknown>, files: string[] = []): Promise<void> {
+	channels(): Promise<never> {
+		return Promise.reject(new Error(CHANNEL_NEEDS_GRAPH));
+	}
+
+	resolveChannel(): Promise<never> {
+		return Promise.reject(new Error(CHANNEL_NEEDS_GRAPH));
+	}
+
+	channelRoots(): Promise<never> {
+		return Promise.reject(new Error(CHANNEL_NEEDS_GRAPH));
+	}
+
+	channelThread(): Promise<never> {
+		return Promise.reject(new Error(CHANNEL_NEEDS_GRAPH));
+	}
+
+	channelMembers(): Promise<never> {
+		return Promise.reject(new Error(CHANNEL_NEEDS_GRAPH));
+	}
+
+	reactChannel(): Promise<never> {
+		return Promise.reject(new Error(CHANNEL_NEEDS_GRAPH));
+	}
+
+	channelStream(): Promise<never> {
+		return Promise.reject(new Error(CHANNEL_NEEDS_GRAPH));
+	}
+
+	me(): Promise<never> {
+		return Promise.reject(new Error(CHANNEL_NEEDS_GRAPH));
+	}
+
+	async send(target: SendTarget, message: string, html: boolean, mentions: Mention[] = [], images: string[] = [], card?: Record<string, unknown>, files: string[] = []): Promise<ChannelPost | void> {
 		if (files.length > 0)
 			throw new Error('files need the graph backend. Set "backend": "graph" in ~/.pi/agent/teams.json, or send without files.');
 		if (images.length > 0)
@@ -220,7 +264,15 @@ export class ScriptBackend implements Backend {
 		if (target.kind === "self") args.push("--self");
 		else if (target.kind === "chat")
 			args.push(...(target.id ? ["--chat-id", target.id] : ["--chat", target.chat]));
-		else args.push("--team", target.team, "--channel", target.channel);
+		else {
+			if (target.teamId !== undefined || target.channelId !== undefined || target.subject !== undefined || target.replyTo !== undefined) {
+				throw new Error(CHANNEL_NEEDS_GRAPH);
+			}
+			if (!target.team || !target.channel) {
+				throw new Error("a channel send needs team and channel names");
+			}
+			args.push("--team", target.team, "--channel", target.channel);
+		}
 		args.push("-m", message);
 		if (html) args.push("--html");
 		await this.run(args);

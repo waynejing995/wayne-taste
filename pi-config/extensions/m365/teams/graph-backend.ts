@@ -20,7 +20,8 @@ import { GraphError, type GraphClient } from "../core/graph.ts";
 import { colleagueId, type Person, searchPeople } from "../core/people.ts";
 import { type DownloadedFile, downloadShared } from "../core/shares.ts";
 import type { Backend, ChatAddr, SelfHistoryPage, SelfMessage, UnreadItem, UnreadPayload } from "./backend.ts";
-import { HISTORY_MESSAGES, type ChatRef, type ChatsPage, type HistoryMessage, type SendTarget } from "./types.ts";
+import type { ChannelAddr } from "./channel.ts";
+import { HISTORY_MESSAGES, type ChannelPost, type ChannelRef, type ChannelRoot, type ChatRef, type ChatsPage, type HistoryMessage, type SendTarget } from "./types.ts";
 import { attachedCardText, CARD_CONTENT_TYPE, isCardType } from "./card.ts";
 import { type ForwardContext, type ForwardNeed, type ForwardRef, forwardedAttachmentIds, forwardNeed, forwardParts, NO_FORWARD_CONTEXT, type Original, originalKey, partImages, partsText, type Part } from "./forward.ts";
 import { escapeHtml, htmlToText } from "./html.ts";
@@ -28,7 +29,7 @@ import { htmlToMarkdown } from "./markdown.ts";
 import { fillMentions, type Mention, type ResolvedMention, type ResolvedPerson } from "./mentions.ts";
 import { cursorPages } from "./paging.ts";
 import { graphReactions } from "./reactions.ts";
-import type { SkypeClient } from "./skype.ts";
+import type { RawSkypeMessage, SkypeClient } from "./skype.ts";
 import { fetchMeetingTranscript, type MeetingTranscriptResult } from "./transcript.ts";
 
 /** The self-chat's conversation id, on Graph and on chatsvc alike. */
@@ -78,11 +79,28 @@ interface RawMessage {
 	id?: string;
 	createdDateTime?: string;
 	messageType?: string;
+	subject?: string;
 	from?: { user?: { id?: string; displayName?: string }; application?: { id?: string; displayName?: string } } | null;
 	body?: { contentType?: string; content?: string };
 	mentions?: { mentioned?: { user?: { displayName?: string } }; mentionText?: string }[];
 	attachments?: RawAttachment[];
 	reactions?: unknown;
+	replies?: RawMessage[];
+	"replies@odata.count"?: number;
+}
+
+interface RawTeam {
+	id: string;
+	displayName?: string;
+	isArchived?: boolean;
+}
+
+interface RawChannel {
+	id: string;
+	displayName?: string;
+	membershipType?: string;
+	email?: string;
+	isArchived?: boolean;
 }
 
 interface RawChat {
@@ -302,6 +320,7 @@ export function msgImages(m: RawMessage, fwd: ForwardContext = NO_FORWARD_CONTEX
  */
 export function isEmptyEvent(m: RawMessage): boolean {
 	if (m.messageType && m.messageType !== "message") return true;
+	if (m.subject?.trim()) return false;
 	if (attachmentList(m).length > 0 || attachmentError(m)) return false;
 	return !msgText(m);
 }
@@ -348,6 +367,7 @@ export class GraphBackend implements Backend {
 		private readonly graph: GraphClient,
 		private readonly opts: {
 			whoami: () => Promise<string>;
+			oid?: () => Promise<string>;
 			skype?: SkypeClient;
 			sharepointToken?: (host: string) => Promise<string>;
 		},
@@ -365,6 +385,11 @@ export class GraphBackend implements Backend {
 	private async myName(): Promise<string> {
 		if (this.myNameCache === undefined) this.myNameCache = await this.opts.whoami();
 		return this.myNameCache;
+	}
+
+	async me(): Promise<{ oid: string; name: string }> {
+		if (!this.opts.oid) throw new Error("me() needs an oid resolver; none was configured for this backend");
+		return { oid: await this.opts.oid(), name: await this.myName() };
 	}
 
 	/**
@@ -639,7 +664,7 @@ export class GraphBackend implements Backend {
 	}
 
 	/** Graph messages as the panes show them: system events dropped, oldest first. */
-	private project(raw: RawMessage[], myName: string, chatId: string, fwd: ForwardContext): HistoryMessage[] {
+	private project(raw: RawMessage[], myName: string, messageBase: string, fwd: ForwardContext): HistoryMessage[] {
 		const me = myName.toLowerCase();
 		return raw
 			.flatMap((m): HistoryMessage[] => {
@@ -651,7 +676,7 @@ export class GraphBackend implements Backend {
 					const images = msgImages(m, fwd);
 					const badAttachment = attachmentError(m);
 					const text = `${msgText(m, fwd)}${badAttachment}`;
-					const messageUrl = `https://graph.microsoft.com/v1.0/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(m.id ?? "")}/`;
+					const messageUrl = `${messageBase}${encodeURIComponent(m.id ?? "")}/`;
 					const resolved: string[] = [];
 					let imageError = "";
 					for (const src of images) {
@@ -701,7 +726,8 @@ export class GraphBackend implements Backend {
 			? (await this.graph.getAll<RawMessage>(`/chats/${chat.id}/messages?$top=${MESSAGE_PAGE}`, { max: top })).slice(0, top)
 			: await this.messagesSince(chat.id, since, until);
 		const myName = await this.myName();
-		return { messages: this.project(raw, myName, chat.id, await this.forwardContext(raw)), me: myName, chat: chat.label, display: chat.display };
+		const messageBase = `https://graph.microsoft.com/v1.0/chats/${encodeURIComponent(chat.id)}/messages/`;
+		return { messages: this.project(raw, myName, messageBase, await this.forwardContext(raw)), me: myName, chat: chat.label, display: chat.display };
 	}
 
 	/** Every message at or after `since` (and before `until`), oldest first. Graph pages newest-first, so the walk stops at the first older page. */
@@ -763,6 +789,116 @@ export class GraphBackend implements Backend {
 		return searchPeople(this.graph, query);
 	}
 
+	async channels(query?: string): Promise<ChannelRef[]> {
+		const teams = await this.graph.getAll<RawTeam>("/me/joinedTeams");
+		const out: ChannelRef[] = [];
+		for (const team of teams) {
+			const list = await this.graph.getAll<RawChannel>(`/teams/${encodeURIComponent(team.id)}/channels`);
+			for (const c of list) {
+				out.push({
+					teamId: team.id,
+					team: team.displayName ?? "",
+					channelId: c.id,
+					channel: c.displayName ?? "",
+					membershipType: c.membershipType ?? "",
+					...(c.email ? { email: c.email } : {}),
+					archived: Boolean(c.isArchived || team.isArchived),
+				});
+			}
+		}
+		const q = (query ?? "").trim().toLowerCase();
+		return q ? out.filter((c) => c.team.toLowerCase().includes(q) || c.channel.toLowerCase().includes(q)) : out;
+	}
+
+	async resolveChannel(addr: { teamId?: string; channelId?: string; team?: string; channel?: string }): Promise<ChannelAddr & { label: string }> {
+		if (addr.teamId && addr.channelId) {
+			const ch = await this.graph.get<RawChannel>(
+				`/teams/${encodeURIComponent(addr.teamId)}/channels/${encodeURIComponent(addr.channelId)}`,
+			);
+			return { teamId: addr.teamId, channelId: addr.channelId, label: ch.displayName || addr.channelId };
+		}
+		if (!addr.team && !addr.teamId) throw new Error("channel address needs teamId+channelId or team+channel");
+		if (!addr.channel && !addr.channelId) throw new Error("channel address needs teamId+channelId or team+channel");
+		let teamId = addr.teamId;
+		if (!teamId) {
+			const teams = await this.graph.getAll<RawTeam>("/me/joinedTeams");
+			teamId = matchOne(teams.map((t) => ({ ...t, label: t.displayName ?? "" })), addr.team ?? "", "team").id;
+		}
+		if (addr.channelId) {
+			const ch = await this.graph.get<RawChannel>(
+				`/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(addr.channelId)}`,
+			);
+			return { teamId, channelId: addr.channelId, label: ch.displayName || addr.channelId };
+		}
+		const list = await this.graph.getAll<RawChannel>(`/teams/${encodeURIComponent(teamId)}/channels`);
+		const channel = matchOne(list.map((c) => ({ ...c, label: c.displayName ?? "" })), addr.channel ?? "", "channel");
+		return { teamId, channelId: channel.id, label: channel.displayName || channel.id };
+	}
+
+	async channelRoots(addr: ChannelAddr, top: number): Promise<{ roots: ChannelRoot[]; me: string }> {
+		const base = `/teams/${encodeURIComponent(addr.teamId)}/channels/${encodeURIComponent(addr.channelId)}/messages`;
+		const raw = (await this.graph.getAll<RawMessage>(`${base}?$top=${top}&$expand=replies`, { max: top })).slice(0, top);
+		const myName = await this.myName();
+		const fwd = await this.forwardContext(raw);
+		const messageBase = `https://graph.microsoft.com/v1.0${base}/`;
+		const roots = raw
+			.flatMap((m): ChannelRoot[] => {
+				const [projected] = this.project([m], myName, messageBase, fwd);
+				if (!projected) return [];
+				return [{
+					root: { ...projected, ...(m.subject ? { subject: m.subject } : {}) },
+					replyCount: m["replies@odata.count"] ?? m.replies?.length ?? 0,
+				}];
+			})
+			.sort((a, b) => (a.root.at < b.root.at ? -1 : a.root.at > b.root.at ? 1 : 0));
+		return { roots, me: myName };
+	}
+
+	async channelThread(addr: ChannelAddr, rootId: string): Promise<{ messages: HistoryMessage[]; me: string }> {
+		const base = `/teams/${encodeURIComponent(addr.teamId)}/channels/${encodeURIComponent(addr.channelId)}/messages`;
+		const rootPath = `${base}/${encodeURIComponent(rootId)}`;
+		const root = await this.graph.get<RawMessage>(rootPath);
+		const replies = await this.graph.getAll<RawMessage>(`${rootPath}/replies?$top=${MESSAGE_PAGE}`, { max: Number.POSITIVE_INFINITY });
+		const myName = await this.myName();
+		const fwd = await this.forwardContext([root, ...replies]);
+		const msgBase = `https://graph.microsoft.com/v1.0${base}/`;
+		const replyBase = `https://graph.microsoft.com/v1.0${rootPath}/replies/`;
+		const messages = [...this.project([root], myName, msgBase, fwd), ...this.project(replies, myName, replyBase, fwd)].sort(
+			(a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0),
+		);
+		return { messages, me: myName };
+	}
+
+	async channelMembers(addr: ChannelAddr): Promise<{ membershipType: string; memberOids: string[] }> {
+		const base = `/teams/${encodeURIComponent(addr.teamId)}/channels/${encodeURIComponent(addr.channelId)}`;
+		const channel = await this.graph.get<RawChannel>(base);
+		const members = await this.graph.getAll<{ userId?: string }>(`${base}/members`, { max: Number.POSITIVE_INFINITY });
+		return {
+			membershipType: channel.membershipType ?? "",
+			memberOids: members.map((m) => m.userId ?? ""),
+		};
+	}
+
+	async reactChannel(
+		addr: ChannelAddr,
+		messageId: string,
+		reactionType: string,
+		opts: { replyTo?: string; remove?: boolean } = {},
+	): Promise<void> {
+		const team = encodeURIComponent(addr.teamId);
+		const channel = encodeURIComponent(addr.channelId);
+		const message = encodeURIComponent(messageId);
+		const verb = opts.remove ? "unsetReaction" : "setReaction";
+		const endpoint = opts.replyTo
+			? `/teams/${team}/channels/${channel}/messages/${encodeURIComponent(opts.replyTo)}/replies/${message}/${verb}`
+			: `/teams/${team}/channels/${channel}/messages/${message}/${verb}`;
+		await this.graph.post(endpoint, { reactionType });
+	}
+
+	async channelStream(addr: ChannelAddr, pageSize: number, cursor?: string): Promise<{ raw: RawSkypeMessage[]; older?: string }> {
+		return this.requireSkype().conversationPage(addr.channelId, pageSize, cursor);
+	}
+
 	/**
 	 * My reaction on one message: Graph's setReaction / unsetReaction. The self-chat is "48:notes" on Graph too, and its
 	 * chatsvc message ids are the Graph ids.
@@ -803,7 +939,10 @@ export class GraphBackend implements Backend {
 		images: string[] = [],
 		card?: Record<string, unknown>,
 		files: string[] = [],
-	): Promise<void> {
+	): Promise<ChannelPost | void> {
+		if (target.kind === "channel" && target.subject !== undefined && target.replyTo !== undefined) {
+			throw new Error("a channel reply cannot set a subject; omit subject or replyTo");
+		}
 		if (mentions.length > 0 && !html) throw new Error("an @mention can only be sent as html");
 		if (images.length > 0 && !html) throw new Error("an image can only be sent as html");
 		if (files.length > 0 && !html) throw new Error("a file can only be sent as html");
@@ -862,16 +1001,14 @@ export class GraphBackend implements Backend {
 				return sharedFile(item);
 			};
 		} else {
-			const teams = await this.graph.getAll<{ id: string; displayName?: string }>("/me/joinedTeams");
-			const team = matchOne(teams.map((t) => ({ ...t, label: t.displayName ?? "" })), target.team, "team");
-			const channels = await this.graph.getAll<{ id: string; displayName?: string }>(`/teams/${team.id}/channels`);
-			const channel = matchOne(channels.map((c) => ({ ...c, label: c.displayName ?? "" })), target.channel, "channel");
-			post = `/teams/${team.id}/channels/${channel.id}/messages`;
+			const ch = await this.resolveChannel(target);
+			const base = `/teams/${encodeURIComponent(ch.teamId)}/channels/${encodeURIComponent(ch.channelId)}/messages`;
+			post = target.replyTo ? `${base}/${encodeURIComponent(target.replyTo)}/replies` : base;
 			// A channel's files live in its own folder of the team's library, which its members can already read.
 			upload = async (name, bytes) => {
-				const folder = await this.graph.get<DriveItem>(`/teams/${team.id}/channels/${channel.id}/filesFolder`);
+				const folder = await this.graph.get<DriveItem>(`/teams/${encodeURIComponent(ch.teamId)}/channels/${encodeURIComponent(ch.channelId)}/filesFolder`);
 				const drive = folder.parentReference?.driveId;
-				if (!drive || !folder.id) throw new Error(`channel ${target.channel} has no files folder`);
+				if (!drive || !folder.id) throw new Error(`channel ${ch.label} has no files folder`);
 				return sharedFile(await this.graph.upload<DriveItem>(`/drives/${drive}/items/${folder.id}:/${encodeURIComponent(name)}:`, bytes));
 			};
 		}
@@ -913,6 +1050,7 @@ export class GraphBackend implements Backend {
 		];
 		// Only present when someone is mentioned: a plain message's body is unchanged.
 		const body = {
+			...(target.kind === "channel" && target.subject && !target.replyTo ? { subject: target.subject } : {}),
 			body: { contentType: html ? "html" : "text", content },
 			...(graphMentions.length > 0 ? { mentions: graphMentions } : {}),
 			...(pictures.length > 0
@@ -926,7 +1064,11 @@ export class GraphBackend implements Backend {
 				: {}),
 			...(attachments.length > 0 ? { attachments } : {}),
 		};
-		await this.graph.post(post, body);
+		const created = await this.graph.post<{ id?: string; webUrl?: string }>(post, body);
+		if (target.kind === "channel") {
+			if (!created.id) throw new Error(`Graph did not return an id for posted channel message on ${post}`);
+			return { id: created.id, ...(created.webUrl ? { webUrl: created.webUrl } : {}) };
+		}
 	}
 
 	/**

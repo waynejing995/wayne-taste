@@ -56,9 +56,28 @@ export interface HistoryMessage {
 	reactions?: ReactionCount[];
 }
 
+export interface ChannelRef {
+	teamId: string;
+	team: string;
+	channelId: string;
+	channel: string;
+	membershipType: string;
+	email?: string;
+	archived: boolean;
+}
+
+export interface ChannelPost {
+	id: string;
+	webUrl?: string;
+}
+
+export interface ChannelRoot {
+	root: HistoryMessage & { subject?: string };
+	replyCount: number;
+}
 export type SendTarget =
 	| { kind: "self" }
 	// `chat` is the name the script matches on; `id` skips that lookup, which
 	// costs ~2.6s of the ~4.3s a name-addressed call takes.
 	| { kind: "chat"; chat: string; id?: string }
-	| { kind: "channel"; team: string; channel: string };
+	| { kind: "channel"; team?: string; channel?: string; teamId?: string; channelId?: string; subject?: string; replyTo?: string };
