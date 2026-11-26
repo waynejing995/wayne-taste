@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Watch your open PRs and feed new reviews, failed checks and merges into the inbox.
-# One event per native id (review id, comment id, check-run id, merge), so a later review or CI run on the same PR is new.
+# One event per native id (review id, comment id, check-run id, merge) among what happened since the cursor, so a later review,
+# CI run or merge on the same PR is new; history from before the cursor is skipped instead of re-emitted every run.
 # The TRACE multi-source auto-review posts from your own login, as a review or a PR comment whose body has
 # "Multi-source auto-review". It is recorded as event=review actor=auto-review (so an `actor: <you>` ignore rule
 # does not swallow it), with verdict=clean|critical and commit=<sha> when the body names one. Other PR comments are not read.
@@ -64,13 +65,13 @@ for repo in "${repos[@]}"; do
       '.comments[]? | select(.createdAt >= $since and (.body // "" | contains($auto)))' <<<"$pr" | while read -r c; do
       emit_auto "github:$repo#$n:comment:$(jq -r .id <<<"$c")" comment "$(jq -r .url <<<"$c")" COMMENTED "$c"
     done
-    jq -c '.statusCheckRollup[]? | select(.__typename=="CheckRun" and .status=="COMPLETED")' <<<"$pr" | while read -r c; do
+    jq -c --arg since "$since" '.statusCheckRollup[]? | select(.__typename=="CheckRun" and .status=="COMPLETED" and ((.completedAt // "") == "" or .completedAt >= $since))' <<<"$pr" | while read -r c; do
       # One check run = one job; its id is the /job/<id> in detailsUrl (the run id is shared by every job).
       emit "github:$repo#$n:check:$(jq -r '(.detailsUrl // "" | capture("/job/(?<id>[0-9]+)").id) // .name' <<<"$c")" "$subj" \
         "$(jq -r '.name + " " + .conclusion' <<<"$c"): $title" "$(jq -r .detailsUrl <<<"$c")" \
         "number=$n" "event=check" "state=$(jq -r .conclusion <<<"$c")"
     done
-    if [ "$(jq -r .mergedAt <<<"$pr")" != "null" ]; then
+    if jq -e --arg since "$since" '.mergedAt != null and .mergedAt >= $since' <<<"$pr" >/dev/null; then
       emit "github:$repo#$n:merged" "$subj" "merged: $title" "$url" "number=$n" "event=merged" "state=MERGED"
     fi
   done

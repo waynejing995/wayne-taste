@@ -264,6 +264,44 @@ await check("watch-prs records one matching review through the inbox launcher", 
 		equal(row[6], "notify");
 	});
 });
+await check("watch-prs skips check runs and merges from before the cursor", () => {
+	const since = "2026-11-20T00:00:00Z";
+	const check = (name, completedAt) => ({
+		__typename: "CheckRun", name, status: "COMPLETED", conclusion: "SUCCESS", detailsUrl: null,
+		...(completedAt === undefined ? {} : { completedAt }),
+	});
+	const fixture = [
+		{ // old merge and old check run: before the cursor, must not be re-emitted every run
+			number: 18, title: "Old history", url: "https://github.com/o/r/pull/18", state: "MERGED",
+			mergedAt: "2026-11-19T00:00:00Z", reviews: [], comments: [],
+			statusCheckRollup: [check("old-check", "2026-11-19T12:00:00Z"), check("edge-check", since),
+				check("new-check", "2026-11-21T00:00:00Z"), check("undated-check")],
+		},
+		{ // recent merge: at or after the cursor, must be emitted
+			number: 19, title: "Fresh merge", url: "https://github.com/o/r/pull/19", state: "MERGED",
+			mergedAt: "2026-11-21T06:00:00Z", reviews: [], comments: [], statusCheckRollup: [],
+		},
+	];
+	withFakeGh(fixture, (dir, env) => {
+		const inboxDir = join(dir, "inbox");
+		mkdirSync(join(inboxDir, "cursors"), { recursive: true });
+		writeFileSync(join(inboxDir, "rules.yaml"),
+			"github:\n  o/r:\n" +
+			"    - when: { event: check }\n      tag: pr-check\n      action: notify\n" +
+			"    - when: { event: merged }\n      tag: pr-merged\n      action: notify\n");
+		writeFileSync(join(inboxDir, "cursors", "github-prs.since"), `${since}\n`);
+		const result = run(watchScript, [], { env: { ...env, WAYNE_INBOX_DIR: inboxDir } });
+		equal(result.status, 0, result.stdout + result.stderr);
+		const keys = readFileSync(join(inboxDir, "ledger.tsv"), "utf8").trimEnd().split("\n").slice(1)
+			.map((line) => line.split("\t")[1]).sort();
+		deepStrictEqual(keys, [
+			"github:o/r#18:check:edge-check",
+			"github:o/r#18:check:new-check",
+			"github:o/r#18:check:undated-check",
+			"github:o/r#19:merged",
+		].sort(), result.stdout + result.stderr);
+	});
+});
 
 console.log(failed === 0 ? "all green" : `${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
