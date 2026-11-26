@@ -47,7 +47,7 @@ flowchart LR
 - **`wayne-fix-review`**: treats comments as hypotheses; verifies at source first, plans fixes in the main model before dispatching workers, never passes raw review comments to subagents.
 
 ### 4. Wrap-up: retro & mandatory cleanup (`wayne-compress`, `wayne-inbox/references/delegate.md`)
-- After a watched session finishes (`status: done`), run one unattended `wayne-compress` retro round (candidates only, apply nothing) and present a short curated table to Wayne.
+- After a watched session finishes (`status: done`), run one unattended `wayne-compress` retro round (**top 3** costliest candidates only, apply nothing). Routine candidates are de-duplicated into `~/.wayne/inbox/retro-queue.md` and sent as one consolidated Teams self-chat digest daily at **17:00** (only data-destructive/high-risk findings escalate immediately).
 - **Mandatory 4-step `Close`** once all owned PRs merge (or a no-PR run completes retro):
   1. Confirm zero open PRs remain in `rules.yaml`.
   2. **Teardown before killing the pane**: stop/remove session-owned Docker stacks/containers/dev servers, remove `/tmp/<prefix>-*` and secret env files, prune task `context.md` (keep `RESULT*.md`).
