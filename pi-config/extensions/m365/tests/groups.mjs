@@ -40,14 +40,16 @@ export const groups = [
 	{ label: "teams core send", script: join(root, "inbox", "tests", "teams-send.test.mjs"), local: false, runtime: "bun", isolated: true },
 	{ label: "teams history scan", script: join(root, "tests", "history-scan.test.mjs"), local: false },
 	{ label: "teams (local-only)", script: join(root, "teams", "tests", "run.mjs"), local: true, isolated: true },
+	{ label: "teams channel (bun test)", script: join(root, "tests", "channel"), runtime: "bun", args: ["test", "tests/channel"], cwd: root, local: false, isolated: true },
 ];
 
-export function runGroup({ script, isolated, runtime = process.versions.bun ? "node" : process.execPath }) {
+export function runGroup({ script, isolated, runtime = process.versions.bun ? "node" : process.execPath, args, cwd }) {
 	// A Teams watch is claimed with an abstract socket, which is per network namespace: in the
 	// host's namespace the suite collides with a live session's watch (the self-chat). `unshare
 	// -rn` gives it a namespace of its own, no root needed.
-	const [cmd, args] = isolated ? ["unshare", ["-rn", runtime, script]] : [runtime, [script]];
-	const r = spawnSync(cmd, args, { encoding: "utf8", cwd: dirname(dirname(script)), env: process.env });
+	const argv = args ?? [script];
+	const [cmd, cmdArgs] = isolated ? ["unshare", ["-rn", runtime, ...argv]] : [runtime, argv];
+	const r = spawnSync(cmd, cmdArgs, { encoding: "utf8", cwd: cwd ?? dirname(dirname(script)), env: process.env });
 	if (r.error) throw r.error;
 	return r;
 }
