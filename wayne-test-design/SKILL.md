@@ -75,6 +75,8 @@ Each `Case` must still communicate a concrete input or precondition, an action, 
 | concurrency               | multiple actors on shared mutable state          |
 | error-path                | a reachable downstream/startup/partial failure   |
 | persistence               | a real write/reload/restart boundary             |
+| property (invariant)      | a one-line law over generated inputs or call sequences: round-trip, idempotence, monotonicity, state-machine transitions, or parser/boundary arithmetic (`Hypothesis` / `fast-check`) |
+| differential              | a rewrite or migration where an existing implementation is the oracle over generated or sampled inputs |
 
 This is a considered menu, not a quota. Omit structurally impossible dimensions. Write `none — <reason>` only when a competent reviewer would expect the dimension and should be able to challenge its exclusion. Merge cases that prove the same branch.
 
@@ -170,7 +172,7 @@ flowchart TB
 ### C. Draft U-SEED
 
 - Fill the U-SEED table with `S<number>` rows at Status `☐`, clearly labelled provisional so `wayne-plan` knows it must re-author and lock them. Do not bind a row to an implementation unit that does not exist yet.
-- Use `unit` or `integration` as the layer. If no U-SEED row is sound, state that with a reviewable reason instead of padding.
+- Use `unit`, `property` (naming the law and tool: `Hypothesis` / `fast-check`), `differential` (naming the oracle), or `integration` as the layer. When a rule governs a state machine, parser, round-trip migration/serialization, or concurrency monotonicity, either emit a `property` seed or write `property: none — <reason>` so a reviewer can challenge the omission. If no U-SEED row is sound, state that with a reviewable reason instead of padding.
 
 ### D/E. Audit proof axes and native evidence
 

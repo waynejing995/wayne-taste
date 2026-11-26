@@ -145,6 +145,10 @@ sequenceDiagram
 
 <Prose. Each mode: what a caller observes, and how the system recovers. Never silent degradation.>
 
+## Invariants
+
+<Statements that MUST hold across all valid inputs or sequences — round-trips, monotonicity, idempotency, state-machine bounds, or equivalence to an older path during migration. Each line becomes a property or differential test seed in `wayne-test-design`. Omit if the change has none.>
+
 ## Observability
 
 <What is logged, at what level, and what a reader can conclude from it.>

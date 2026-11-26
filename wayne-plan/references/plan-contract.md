@@ -91,6 +91,7 @@ Each U scenario must:
 - name the real repository-relative unit surface it exercises;
 - communicate concrete preconditions or inputs, action, branches where relevant, and observable outcome in natural prose; and
 - start at `☐`, which only `wayne-work` may advance.
+- preserve the layer when a source seed is `property` (keeping the invariant and generator tool: `Hypothesis` / `fast-check`) or `differential` (keeping the oracle); never downgrade a `property` seed to a single example-based unit test without an evidence-backed drop reason; and
 
 Re-authoring may change the unit surface and wording, but it must preserve the source seed’s accepted and rejected behavior sets, boundary classes, ordering, state timing, quantities, modality, negation, and every other qualifier. Do not narrow, widen, normalize, or omit those obligations. A drop reason must show from approved sources and repository evidence why no U scenario is warranted without discarding or weakening the seed’s behavior. Source-fidelity review compares each original seed in context with its mapped U scenario or drop reason; any changed obligation fails the review and returns the plan to revision.
 
