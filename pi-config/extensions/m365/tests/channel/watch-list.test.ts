@@ -6,21 +6,21 @@
  *   bun test tests/channel/watch-list.test.ts
  */
 import { expect, test, beforeEach } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
+import * as m from "../../teams/watch-list.ts";
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const LIST_TS = join(PKG, "teams", "watch-list.ts");
-const DIR = mkdtempSync(join(tmpdir(), "watch-list-channel-"));
-process.on("exit", () => rmSync(DIR, { recursive: true, force: true }));
+const LIST_TS = join(PKG, "teams", "watch-list.ts"); // absolute path for the child-process writer below
 
-// Dynamic import is the exception here: WATCH_LIST is read when the module loads, so WAYNE_INBOX_DIR must be set
-// before the module is evaluated, and a static import would evaluate it first.
-process.env.WAYNE_INBOX_DIR = DIR;
-const m = await import(LIST_TS);
+// The preload (tests/channel/preload.ts, wired through bunfig.toml) has already pointed WAYNE_INBOX_DIR at a
+// throwaway directory before any test module loads, so watch-list.ts's module-level WATCH_LIST is isolated
+// however this file is ordered among the other channel tests in one process. Nothing here may set the env
+// again: another file may have loaded the module first.
+const DIR = process.env.WAYNE_INBOX_DIR;
+if (!DIR) throw new Error("WAYNE_INBOX_DIR is not set: bunfig.toml must load tests/channel/preload.ts first");
 const RULES = join(DIR, "rules.yaml");
 
 const HAND_WRITTEN = [
@@ -118,7 +118,7 @@ if (warnings.join("")) { console.error(warnings.join("")); process.exit(1); }
 	);
 	const ids = (p: string) => Array.from({ length: 30 }, (_, i) => `19:${p}${i}@thread.skype`);
 	const run = (list: string[]) =>
-		Bun.spawn([process.execPath, writer, ...list], { env: { ...process.env, WAYNE_INBOX_DIR: DIR }, stdout: "ignore", stderr: "pipe" });
+		Bun.spawn([process.execPath, writer, ...list], { env: process.env, stdout: "ignore", stderr: "pipe" });
 	const procs = [run(ids("a")), run(ids("b"))];
 	const codes = await Promise.all(procs.map((p) => p.exited));
 	const errs = await Promise.all(procs.map((p) => new Response(p.stderr).text()));

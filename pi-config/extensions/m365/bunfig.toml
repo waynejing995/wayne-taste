@@ -1,3 +1,5 @@
+# The channel tests must never touch the real home or inbox: the preload isolates HOME, XDG_CACHE_HOME
+# and WAYNE_INBOX_DIR in a throwaway directory before any test module loads.
 [test]
-root = "tests/bun"
+preload = ["./tests/channel/preload.ts"]
 timeout = 300000

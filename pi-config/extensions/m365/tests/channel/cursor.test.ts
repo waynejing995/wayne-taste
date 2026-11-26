@@ -3,20 +3,20 @@
  *
  *   bun test tests/channel/cursor.test.ts
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import * as fc from "fast-check";
-import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, utimesSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import * as store from "../../teams/cursor-store.ts";
 import type { CursorFile } from "../../teams/cursor-store.ts";
 
-// The store reads WAYNE_INBOX_DIR once, when it loads, so the import must follow the env assignment: a static
-// import would hoist above it and point the store at the real inbox. This test exercises that load boundary.
-const inbox = mkdtempSync(join(tmpdir(), "cursor-store-"));
-process.env.WAYNE_INBOX_DIR = inbox;
-afterAll(() => rmSync(inbox, { recursive: true, force: true }));
-const store = await import("../../teams/cursor-store.ts");
+// The preload (tests/channel/preload.ts, wired through bunfig.toml) has already pointed WAYNE_INBOX_DIR at a
+// throwaway directory before any test module loads, so the store's module-level INBOX is isolated however
+// this file is ordered among the other channel tests in one process. Nothing here may set the env again:
+// another file may have loaded the store first.
+const inbox = process.env.WAYNE_INBOX_DIR;
+if (!inbox) throw new Error("WAYNE_INBOX_DIR is not set: bunfig.toml must load tests/channel/preload.ts first");
 const STORE = fileURLToPath(new URL("../../teams/cursor-store.ts", import.meta.url));
 
 const CHAT = "19:fake-channel@thread.skype";
