@@ -16,6 +16,7 @@ Every skill is one kebab-case directory that contains `SKILL.md`. The YAML front
 - repeated operational work in `scripts/`
 - conditional knowledge in one-level `references/`
 - output material in `assets/` or `templates/`
+- worked case studies in one-level `examples/` (normalized to neutral third-person view, never first-person diary prose)
 
 ### Start from the strongest-model baseline
 
@@ -221,3 +222,4 @@ Show the files and the eval result in plain Chinese. Write only after approval. 
 - Do not auto-forge every repeated prompt. If an existing owner can take the rule, extend that owner.
 - Do not ship a skill that inlines long branch-conditional material without a placement decision. Pressure for leanness makes this failure the default, not an unlikely case.
 - Do not hardcode volatile source line numbers or copy live source enums/code blocks into a skill or its references; anchor to module or file paths plus stable symbol, event, or key names so the agent resolves live code at runtime.
+- Do not inline first-person investigation diaries or one-off case studies into `SKILL.md` or rule references; move reusable worked cases into `examples/` normalized to neutral third-person view.

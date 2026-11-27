@@ -37,6 +37,7 @@ Use this for a deep review after loader metadata validation. Report findings by 
 - **critical** — `SKILL.md` is within the hard boundary in the forge's lean-defaults table.
 - **major** — it is within that table's target; excess is justified by behavioral eval evidence.
 - **major** — detailed schemas, variants, examples, and long checklists live in direct references, not the always-loaded body.
+- **major** — worked case studies live in `examples/` normalized to neutral third-person view, never inline as first-person investigation diaries inside `SKILL.md` or rule references.
 - **major** — repeated or deterministic work is a script, not generated code.
 - **major** — every shipped resource is linked directly from `SKILL.md`.
 - **major** — no fact is duplicated between body, reference, template, or sibling skill.
