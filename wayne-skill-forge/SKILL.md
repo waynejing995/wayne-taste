@@ -220,3 +220,4 @@ Show the files and the eval result in plain Chinese. Write only after approval. 
 - Keep mechanical validation only where an actual non-AI consumer requires it.
 - Do not auto-forge every repeated prompt. If an existing owner can take the rule, extend that owner.
 - Do not ship a skill that inlines long branch-conditional material without a placement decision. Pressure for leanness makes this failure the default, not an unlikely case.
+- Do not hardcode volatile source line numbers or copy live source enums/code blocks into a skill or its references; anchor to module or file paths plus stable symbol, event, or key names so the agent resolves live code at runtime.

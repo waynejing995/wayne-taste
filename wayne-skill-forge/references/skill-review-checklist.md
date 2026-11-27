@@ -72,6 +72,7 @@ Use this for a deep review after loader metadata validation. Report findings by 
 - **critical** — failure is visible; missing configuration does not silently degrade.
 - **major** — exact verification matches the real user path where behavior is user-visible.
 - **major** — cross-agent skills avoid one agent's hardcoded home path or tool name, or isolate those details in direct agent-specific references.
+- **major** — code pointers anchor to module or file paths plus stable symbol, event, or key names; hardcoded source line numbers and copied live source enums/code blocks are absent.
 
 ## 7. Evaluation evidence
 
