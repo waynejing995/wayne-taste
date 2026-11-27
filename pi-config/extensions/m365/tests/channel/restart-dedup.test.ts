@@ -506,3 +506,55 @@ test("failed awaiting cursor clear during start-up scan does not queue pending t
 	expect(s.prompts).toHaveLength(1);
 	expect(s.cursor()?.awaiting).toEqual({});
 });
+
+test("a probe digest post in the thread does not answer an awaited instruction on restart", async () => {
+	const s = setup();
+	s.stream.push(
+		raw("100", "old note", ME),
+		raw("101", "instruction that needs the coordinator", ME),
+		raw("102", "agent progress\n\nsent by inbox agent", ME, { rootMessageId: "101" }),
+		raw("103", "real coordinator answer\n\nsent by agent", ME, { rootMessageId: "101" }),
+	);
+	mkdirSync(join(process.env.WAYNE_INBOX_DIR!, "cursors"), { recursive: true });
+	writeFileSync(cursorPath(s.key), JSON.stringify({
+		version: 1,
+		key: s.key,
+		watermark: "100",
+		done: [],
+		awaiting: { "101": ["101"] },
+		threads: { "101": { owner: `session:${SESSION}` } },
+	}, null, 2));
+	await s.start("personal");
+	// The probe digest (sent by inbox agent) is an agent echo but not a coordinator answer: 101 stays awaiting...
+	// ...until the real coordinator reply (sent by agent) with a greater id marks it done.
+	expect(s.cursor()?.awaiting).toEqual({});
+	expect(s.prompts).toHaveLength(0);
+	expect(s.cursor()?.done).toContain("101");
+});
+
+test("a probe digest alone leaves an awaited instruction pending for re-delivery", async () => {
+	const s = setup();
+	s.stream.push(
+		raw("100", "old note", ME),
+		raw("101", "instruction that needs the coordinator", ME),
+		raw("102", "agent progress\n\nsent by inbox agent", ME, { rootMessageId: "101" }),
+	);
+	mkdirSync(join(process.env.WAYNE_INBOX_DIR!, "cursors"), { recursive: true });
+	writeFileSync(cursorPath(s.key), JSON.stringify({
+		version: 1,
+		key: s.key,
+		watermark: "100",
+		done: [],
+		awaiting: { "101": ["101"] },
+		threads: { "101": { owner: `session:${SESSION}` } },
+	}, null, 2));
+	await s.start("personal");
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	expect(s.prompts[0].text).toContain("instruction that needs the coordinator");
+	expect(s.prompts[0].text).toContain("(re-delivered after a restart");
+	s.teams.turnEnded();
+	await s.tick();
+	expect(s.cursor()?.awaiting).toEqual({});
+});

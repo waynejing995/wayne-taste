@@ -97,6 +97,8 @@ function fakeTeams(f) {
 	return {
 		card: (spec) => ((asked = { spec }), real.card(spec)),
 		text: (digest) => ((asked = { digest }), real.text(digest)),
+		channelCard: (target, spec) => ((asked = { spec }), real.channelCard(target, spec)),
+		channelText: (target, digest) => ((asked = { digest }), real.channelText(target, digest)),
 	};
 }
 

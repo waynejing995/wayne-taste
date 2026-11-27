@@ -22,13 +22,19 @@
  * It comes off only by `inbox agent close`: an entry it marked `closing` records only a new RESULT version, and is
  * removed once no agent is left in its pane.
  *
- * Progress digest (every --digest-min minutes): one self-chat progress card (`agents`: one row per session, status,
- * idle minutes, the tail behind a tap; sessions that need the user first), lists each running session whose entry
+ * Progress digest (every --digest-min minutes): one progress card (`agents`: one row per session, status,
+ * idle minutes, the tail behind a tap; sessions that need the user first) for each running session whose entry
  * changed since the last digest sent; an entry is its status plus its line without the `last activity` time, so a
- * session turning to `waiting on question` with the same tail is news. The card is built here and sent through the
- * Teams core's own send, with no model in between: a model asked to copy it could be refused by a content filter or
- * time out after the send. A card send that fails is logged and the same digest goes out as plain text. A digest counts
- * as sent only when Teams accepted it; otherwise the run fails, naming the send, and the next due run sends it again.
+ * session turning to `waiting on question` with the same tail is news. With no channel watched in `mode: personal`
+ * it is the one self-chat card listing every changed session. With one, nothing goes to the self-chat: each changed
+ * session's card goes to its own thread in that channel — the watch's `thread` field first, then the thread the
+ * channel's cursor binds to `agent:<name>`, else a new root post (subject `🤖 <name>`) whose id is bound in that
+ * cursor the moment Teams answers, so replies route to the session and a crash between runs never posts a second
+ * root. The card is built here and sent through the Teams core's own send, with no model in between: a model asked
+ * to copy it could be refused by a content filter or time out after the send. A card send that fails is logged and
+ * the same digest goes out as plain text. A digest counts as sent only when Teams accepted it; otherwise the run
+ * fails, naming the send, and the next due run sends it again — per thread, so a failed one does not lose the
+ * receipts of the threads that succeeded.
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -39,9 +45,10 @@ import { gunzipSync } from "node:zlib";
 import { agentFooterText, buildCard, setAgentHarness, type AgentRow, type AgentStatus } from "../../teams/card.ts";
 import { escapeHtml } from "../../teams/html.ts";
 import type { SendTarget } from "../../teams/types.ts";
+import { compareIds, cursorKey, loadCursor, updateCursor, type CursorFile, type ThreadBinding } from "../../teams/cursor-store.ts";
 import { askShown, legacyReported, minuteAtLeast, readAgents, recordAgentRow, removeClosed, resolveAsks, type AgentEntry } from "./agents.ts";
 import { runProcess } from "./jobs.ts";
-import { inboxFile, InboxError, readTsv } from "./ledger.ts";
+import { inboxFile, InboxError, readRulesFile, readTsv } from "./ledger.ts";
 import { readObserved, updateObserved, type Observed, type Phase } from "./observed.ts";
 import { checkThens } from "./thens.ts";
 
@@ -232,25 +239,79 @@ function sessionEntry(a: AgentEntry, active: number | undefined, p: Probe): Entr
  * is part of it, so a session turning to `waiting on question` with the same tail is still news. */
 export const unchanged = (e: Entry) => `${e.row.status}:${e.line.replace(/ \u00b7 last activity \d\d:\d\d/, "")}`;
 
-/** How the digest reaches the self-chat. Each call resolves with Teams' receipt once Teams accepted the message, and rejects otherwise. */
+/** Where a channel digest goes: one thread of a personal channel — a reply into `replyTo`, or a root post with `subject`. */
+export interface ThreadTarget {
+	teamId: string;
+	channelId: string;
+	/** The thread's root message id: the digest replies inside its thread. */
+	replyTo?: string;
+	/** A new thread's subject: the digest starts one. */
+	subject?: string;
+}
+
+/**
+ * How the digest reaches Teams. Each call resolves with Teams' receipt once Teams accepted the message, and rejects
+ * otherwise. A channel post also answers with the new message's id, so a root send can bind its thread.
+ */
 export interface DigestSender {
 	card(spec: { title: string; agents: AgentRow[] }): Promise<string>;
 	text(digest: string): Promise<string>;
+	channelCard(target: ThreadTarget, spec: { title: string; text: string; agents: AgentRow[] }): Promise<{ receipt: string; id?: string }>;
+	channelText(target: ThreadTarget, digest: string): Promise<{ receipt: string; id?: string }>;
+	/** Verifies the personal channel stays private (only the user): refuses routing when it does not. */
+	verifyPersonal?(channel: { teamId: string; channelId: string }): Promise<{ ok: boolean; reason: string }>;
 }
 
-/** The Teams core's send, as the probe calls it: no images, files or mentions. */
-type TeamsSend = (target: SendTarget, message: string, html: boolean, mentions: [], images: [], card?: Record<string, unknown>) => Promise<string>;
+/** The Teams core's send, as the probe calls it: no images, files or mentions. A channel post answers with the new message's id as well. */
+type TeamsSend = (target: SendTarget, message: string, html: boolean, mentions: [], images: [], card?: Record<string, unknown>) => Promise<string | { text: string; id?: string }>;
+
+/** One send's answer: its receipt, and the new message's id when it made one. */
+const posted = (r: string | { text: string; id?: string }): { receipt: string; id?: string } =>
+	typeof r === "string" ? { receipt: r } : { receipt: r.text, ...(r.id !== undefined ? { id: r.id } : {}) };
 
 /**
  * A DigestSender over the Teams core's `send`: the progress card built by teams/card.ts, or the digest as escaped
  * HTML text ending with the agent footer, so the self-chat watch reads it as the agent's. A digest tail may hold any
- * text; nothing in it is read as a mention.
+ * text; nothing in it is read as a mention. A channel send addresses one thread: a reply (`replyTo`), or a root
+ * post (`subject`).
  */
 export function teamsSender(send: TeamsSend): DigestSender {
+	const asText = (digest: string) => escapeHtml(`${digest}\n\n${agentFooterText()}`).replaceAll("\n", "<br>");
 	return {
-		card: (spec) => send({ kind: "self" }, "", true, [], [], buildCard({ ...spec, text: "" })),
-		text: (digest) => send({ kind: "self" }, escapeHtml(`${digest}\n\n${agentFooterText()}`).replaceAll("\n", "<br>"), true, [], []),
+		card: async (spec) => posted(await send({ kind: "self" }, "", true, [], [], buildCard({ ...spec, text: "" }))).receipt,
+		text: async (digest) => posted(await send({ kind: "self" }, asText(digest), true, [], [])).receipt,
+		channelCard: (target, spec) => send({ kind: "channel", ...target }, "", true, [], [], buildCard(spec)).then(posted),
+		channelText: (target, digest) => send({ kind: "channel", ...target }, asText(digest), true, [], []).then(posted),
 	};
+}
+
+/** The personal channel the digest routes to, when `rules.yaml` watches one: its team and channel ids, else undefined. */
+export function personalChannel(): { teamId: string; channelId: string } | undefined {
+	const watch = readRulesFile().teams_watch as { channels?: { channel?: string; team_id?: string; channel_id?: string; mode?: string }[] } | undefined;
+	const c = watch?.channels?.find((w) => w.mode === "personal");
+	if (!c) return undefined;
+	if (!c.team_id || !c.channel_id) throw new InboxError(`rules.yaml teams_watch: the personal channel "${c.channel}" needs team_id and channel_id`);
+	return { teamId: c.team_id, channelId: c.channel_id };
+}
+
+/**
+ * Where one changed session's progress goes in the personal channel: its entry's `thread` first, then the thread the
+ * channel's cursor binds to `agent:<name>` (the most recent id when several), else undefined (the caller creates one).
+ */
+export function boundThread(a: AgentEntry, cursorThreads: Record<string, ThreadBinding>): string | undefined {
+	const t = a.thread !== undefined ? String(a.thread).trim() : "";
+	if (t) return t;
+	const bound = Object.entries(cursorThreads).filter(([, b]) => b.owner === `agent:${a.name}`).map(([id]) => id);
+	return bound.sort(compareIds).at(-1);
+}
+
+/** Records a new root's thread in the personal channel's cursor, so the next poll and the next digest route to the session. */
+export function bindNewThread(key: string, rootId: string, agent: string, subject: string): void {
+	updateCursor(key, (c) => ({ ...c, threads: { ...c.threads, [rootId]: { owner: `agent:${agent}`, subject } } }));
+}
+
+export function threadSubject(name: string): string {
+	return `🤖 ${name}`;
 }
 
 /** The Teams core, behind its own send. The footer names the inbox as the sending agent. */
@@ -275,11 +336,18 @@ export async function coreSender(): Promise<DigestSender> {
 			throw new Error("the probe watches no chat");
 		},
 	});
-	return teamsSender((target, message, html, mentions, images, card) => teams.send(target, message, html, mentions, images, card));
+	// sendPosted, not send: a channel root post must answer with its id, so the digest can bind the thread it made.
+	const sender = teamsSender(async (target, message, html, mentions, images, card) => {
+		const { text, post } = await teams.sendPosted(target, message, html, mentions, images, card);
+		return post?.id === undefined ? text : { text, id: post.id };
+	});
+	// verifyPersonal is the same privacy gate the channel watch uses: the digest refuses to route to a channel that
+	// is not a private channel whose only member is the user, even though rules.yaml still says mode: personal.
+	return { ...sender, verifyPersonal: (channel) => teams.verifyPersonal(channel) };
 }
 
 /** `send`, failing with `what` and the cause, or with a timeout after SEND_TIMEOUT_MS. The deadline holds the process open: a send nothing else waits on still ends in an answer. */
-async function within(what: string, send: () => Promise<string>): Promise<string> {
+async function within<T>(what: string, send: () => Promise<T>): Promise<T> {
 	const { promise: deadline, reject } = Promise.withResolvers<never>();
 	const timer = setTimeout(() => reject(new Error(`timed out after ${SEND_TIMEOUT_MS / 1000}s`)), SEND_TIMEOUT_MS);
 	try {
@@ -300,6 +368,111 @@ async function postDigest(digest: string, rows: AgentRow[], sender: DigestSender
 		log(`progress card not sent, sending the text digest: ${e instanceof Error ? e.message : String(e)}`);
 	}
 	return within("Teams text send", () => to.text(digest));
+}
+
+/**
+ * Delivers each changed session's progress to its own thread in the personal channel and returns the names whose
+ * send Teams accepted. Fails loudly before posting anything when the channel has no cursor yet, so an unstarted
+ * watch never accumulates orphan roots. A session with no bound thread gets a new root, and that root's id is bound
+ * in the cursor the moment Teams answers, before any other send. Sessions sharing a thread go in one card (with
+ * plain-text fallback if the card send fails). A failed send is reported through `fail` and leaves its sessions
+ * unrecorded, so the next due run owes them again; the others are unaffected.
+ */
+async function sendToThreads(
+	fresh: [string, Entry][],
+	channel: { teamId: string; channelId: string },
+	sender: DigestSender | undefined,
+	log: (line: string) => void,
+	fail: (name: string, e: unknown) => void,
+): Promise<Set<string>> {
+	const key = cursorKey({ teamId: channel.teamId, channelId: channel.channelId });
+	let cursor: CursorFile | null;
+	try {
+		cursor = loadCursor(key);
+	} catch (e) {
+		fail("progress digest not sent", e);
+		return new Set();
+	}
+	if (!cursor) {
+		fail("progress digest not sent", new InboxError(`personal channel ${channel.channelId} has no cursor yet; start teams_watch on it first`));
+		return new Set();
+	}
+	let to: DigestSender;
+	try {
+		to = sender ?? (await coreSender());
+	} catch (e) {
+		fail("progress digest not sent", e);
+		return new Set();
+	}
+	if (to.verifyPersonal) {
+		// The channel's privacy is re-checked before any post: rules.yaml may still say personal after a live watch
+		// refused or downgraded the channel, and routing agent progress into a shared channel would leak it.
+		try {
+			const check = await to.verifyPersonal({ teamId: channel.teamId, channelId: channel.channelId });
+			if (!check.ok) {
+				fail("progress digest not sent", new InboxError(`personal channel ${channel.channelId} failed its privacy check: ${check.reason}`));
+				return new Set();
+			}
+		} catch (e) {
+			fail("progress digest not sent", e);
+			return new Set();
+		}
+	}
+	const agents = readAgents();
+	const cursorThreads = cursor.threads ?? {};
+	const sent = new Set<string>();
+	const byThread = new Map<string, [string, Entry][]>();
+	const unbound: [AgentEntry, Entry][] = [];
+	for (const [name, e] of fresh) {
+		const a = agents.find((x) => x.name === name);
+		if (!a) continue;
+		const threadId = boundThread(a, cursorThreads);
+		if (threadId === undefined) unbound.push([a, e]);
+		else byThread.set(threadId, [...(byThread.get(threadId) ?? []), [name, e]]);
+	}
+	const sendChannel = async (target: ThreadTarget, spec: { title: string; text: string; agents: AgentRow[] }, digestText: string) => {
+		try {
+			return await within("Teams channel card send", () => to.channelCard(target, spec));
+		} catch (e) {
+			log(`progress card not sent, sending the text digest: ${e instanceof Error ? e.message : String(e)}`);
+		}
+		return within("Teams channel text send", () => to.channelText(target, digestText));
+	};
+	for (const [threadId, group] of byThread) {
+		try {
+			const title = group.map(([n, e]) => `${n} · ${e.row.status}`).join(" · ");
+			const digestText = `${title}\n${group.map(([, e]) => e.line).join("\n")}`;
+			const { receipt } = await sendChannel(
+				{ teamId: channel.teamId, channelId: channel.channelId, replyTo: threadId },
+				{ title, text: "", agents: group.map(([, e]) => e.row) },
+				digestText,
+			);
+			log(`progress to thread ${threadId}: ${receipt}`);
+			for (const [n] of group) sent.add(n);
+		} catch (e) {
+			for (const [n] of group) fail(n, e);
+		}
+	}
+	for (const [a, e] of unbound) {
+		try {
+			const subject = threadSubject(a.name);
+			const goal = a.goal ? `Goal: ${a.goal}` : "";
+			const digestText = [subject, ...(goal ? [goal] : []), e.line].join("\n");
+			const posted = await sendChannel(
+				{ teamId: channel.teamId, channelId: channel.channelId, subject },
+				{ title: subject, text: goal, agents: [e.row] },
+				digestText,
+			);
+			if (posted.id === undefined) throw new Error("Teams did not return the new thread's id");
+			// Bound before anything else: a crash after this point cannot post a second root for this session.
+			bindNewThread(key, posted.id, a.name, subject);
+			log(`progress to new thread ${posted.id} for ${a.name}: ${posted.receipt}`);
+			sent.add(a.name);
+		} catch (e) {
+			fail(a.name, e);
+		}
+	}
+	return sent;
 }
 
 const LAST_CAP = 1500;
@@ -511,6 +684,29 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 	}
 	// Only new information goes out: an entry equal to the one last sent for that session is dropped.
 	const fresh = lines.filter(([name, e]) => unchanged(e) !== before.watches[name]?.digested);
+	let personal: { teamId: string; channelId: string } | undefined;
+	let routingFailed = false;
+	try {
+		personal = digestDue && fresh.length ? personalChannel() : undefined;
+	} catch (e) {
+		// A malformed teams_watch block is a routing failure, not a reason to fall back to the self-chat digest: the
+		// run fails below, the state cleanup still runs, and the next due run owes the sessions again.
+		routingFailed = true;
+		fail("progress digest not sent", e);
+		personal = undefined;
+	}
+	if (personal || routingFailed) {
+		// Per-thread delivery: each session's receipt is recorded alone, so a failed thread is owed again on its own.
+		const sentNames = personal ? await sendToThreads(fresh, personal, o.sender, log, fail) : new Set<string>();
+		await updateObserved((state) => {
+			const watched = new Set(readAgents().map((a) => a.name));
+			for (const name of Object.keys(state.watches)) if (!watched.has(name)) delete state.watches[name];
+			if (sentNames.size) state.digest = { at: now };
+			for (const [name, e] of fresh) if (sentNames.has(name) && state.watches[name]) state.watches[name].digested = unchanged(e);
+		});
+		if (errors.length) throw new InboxError([...out, ...errors].join("\n"));
+		return out.join("\n");
+	}
 	let sent = false;
 	if (digestDue && lines.length && !fresh.length) {
 		log("progress digest due, nothing changed since the last one; not sent");

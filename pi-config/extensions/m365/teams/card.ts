@@ -440,10 +440,21 @@ export function isAgentFooterLine(line: string): boolean {
  * carries come after the footer, each on its own line as "[name]" (a name may hold brackets: "[shot[1].png]"), so
  * whole bracketed lines and blank lines are cut from the end before the check.
  */
+function lastFooterLine(text: string): string {
+	const lines = text.trim().split("\n");
+	while (lines.length > 1 && /^\s*(\[.*\])?\s*$/.test(lines.at(-1) ?? "")) lines.pop();
+	return (lines.at(-1) ?? "").trim().replace(/^\*+|\*+$/g, "");
+}
+
 export function isAgentSend(text: string): boolean {
 	const lines = text.trim().split("\n");
 	while (lines.length > 1 && /^\s*(\[.*\])?\s*$/.test(lines.at(-1) ?? "")) lines.pop();
 	return isAgentFooterLine(lines.at(-1) ?? "");
+}
+
+/** Sent by a specific harness (e.g. "inbox"): matches its footer line so restart recovery does not confuse a probe card for the coordinator's own reply. */
+export function isHarnessSend(text: string, harness: string): boolean {
+	return lastFooterLine(text) === footerTextFor(harness);
 }
 
 /**

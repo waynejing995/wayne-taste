@@ -171,8 +171,9 @@ const COMMANDS: Record<string, Command> = {
 			host: { default: "local", help: "local, or the ssh host the pane lives on" },
 			result: { default: "", help: "the file the session writes its RESULT to" },
 			goal: { default: "", help: "one line: what it was asked to do" },
+			thread: { default: "", help: "the personal-channel thread its progress goes to (a root message id); default: the thread bound to agent:<name>, else a new one" },
 		},
-		run: (p) => addAgent({ name: p.args[0], mux: p.opts.mux!, pane: p.opts.pane!, row: p.opts.row, then: p.opts.then, host: p.opts.host, result: p.opts.result, goal: p.opts.goal }),
+		run: (p) => addAgent({ name: p.args[0], mux: p.opts.mux!, pane: p.opts.pane!, row: p.opts.row, then: p.opts.then, host: p.opts.host, result: p.opts.result, goal: p.opts.goal, thread: p.opts.thread || undefined }),
 	},
 	"agent close": {
 		help: "End a watch. Without --ack it probes the session, prints its state, RESULT and open thens, and closes nothing; with --ack it closes a gone session and marks a live idle one for removal once its pane is gone.",

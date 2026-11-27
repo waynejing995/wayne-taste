@@ -19,6 +19,8 @@ export interface AgentEntry {
 	host: string;
 	pane: string;
 	result?: string;
+	/** The personal-channel thread (root message id) this session's progress is posted to; absent: the thread the channel's cursor binds to `agent:<name>`, else a new one. */
+	thread?: string;
 	goal?: string;
 	since?: string;
 	/** Set by `inbox agent close --ack`: the close was acknowledged, the pane may be killed, and the probe removes the entry once it is gone. */
@@ -43,13 +45,15 @@ export function writeAgents(agents: AgentEntry[]): void {
  * A new plan closes the name's previous unfired ones; an add without one leaves them armed.
  */
 export async function addAgent(
-	a: { name: string; mux: string; pane: string; host?: string; result?: string; goal?: string; row?: string; then?: string },
+	a: { name: string; mux: string; pane: string; host?: string; result?: string; goal?: string; thread?: string; row?: string; then?: string },
 	probe: (a: AgentEntry, want: boolean, events: boolean) => Promise<Probe> = runProbe,
 ): Promise<string> {
 	if (!MUXES.includes(a.mux)) throw new InboxError(`--mux must be one of ${MUXES.join(", ")}`);
 	if ((a.row === undefined) !== (a.then === undefined)) throw new InboxError("--row and --then go together: the plan is armed on the row the session works for");
 	const entry: AgentEntry = { name: a.name, mux: a.mux, host: a.host || "local", pane: a.pane };
 	if (a.result) entry.result = a.result;
+	const thread = a.thread !== undefined ? String(a.thread).trim() : "";
+	if (thread) entry.thread = thread;
 	if (a.goal) entry.goal = clean(a.goal);
 	// Seconds, not minutes: a close and the probe tell a re-registration of the same name by a changed `since`.
 	entry.since = stamp(new Date(), true);

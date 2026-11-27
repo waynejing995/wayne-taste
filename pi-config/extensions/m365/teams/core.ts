@@ -22,7 +22,7 @@ import { formatLocal } from "../core/time.ts";
 import { activeSince, throttledRetry } from "./active-since.ts";
 import type { Backend, SelfMessage, UnreadItem } from "./backend.ts";
 import { ScriptBackend } from "./backend.ts";
-import { AGENT_STATUSES, agentFooterText, buildCard, type CardSpec, cardMentions, isAgentSend } from "./card.ts";
+import { AGENT_STATUSES, agentFooterText, buildCard, type CardSpec, cardMentions, isAgentSend, isHarnessSend } from "./card.ts";
 import { findChat, GraphBackend } from "./graph-backend.ts";
 import { escapeHtml } from "./html.ts";
 import { type Mention, mentionSyntax, renderWithMentions } from "./mentions.ts";
@@ -1195,7 +1195,7 @@ export function createTeams(pi: TeamsHost) {
 			const missing = ids.filter((id) => !found.has(id));
 			if (missing.length) missingEntries.push([threadId, missing]);
 			const present = ids.filter((id) => found.has(id));
-			const answered = present.filter((id) => mine !== "" && scanned.some((e) => e.threadId === threadId && e.agentEcho && e.authorOid === mine && compareIds(e.id, id) > 0));
+			const answered = present.filter((id) => mine !== "" && scanned.some((e) => e.threadId === threadId && e.agentEcho && e.authorOid === mine && compareIds(e.id, id) > 0 && !isHarnessSend(e.text, "inbox")));
 			if (answered.length) answeredEntries.push([threadId, answered]);
 			const pending = present.filter((id) => !answered.includes(id));
 			if (pending.length === 0) continue;
@@ -2639,7 +2639,20 @@ export function createTeams(pi: TeamsHost) {
 
 
 	return {
+		/** The probe's channel digest needs the new post's id: `sendPosted` answers with it, `send` only with the text. */
+		sendPosted,
 		cfg,
+		/** The privacy gate a personal channel passes at watch start and re-verification; the inbox probe re-checks it before routing digests. */
+		async verifyPersonal(target: { teamId: string; channelId: string }): Promise<{ ok: boolean; reason: string }> {
+			const addr = await backend.resolveChannel({ teamId: target.teamId, channelId: target.channelId });
+			let myOid = "";
+			try {
+				({ oid: myOid } = await backend.me());
+			} catch {
+				return { ok: false, reason: "could not read the signed-in user" };
+			}
+			return verifyPersonal(addr, myOid);
+		},
 		backend,
 		get backendError() { return backendError; },
 		get unreadCount() { return unreadCount; },
@@ -2648,7 +2661,7 @@ export function createTeams(pi: TeamsHost) {
 		watches: watches as ReadonlyMap<string, WatchState>,
 		get watchPollSec() { return watchPollSec; },
 		pollUnread,
-		/** The Teams send the inbox probe's digest goes through (cli/probe.ts coreSender). */
+		/** The Teams send the inbox probe's digest goes through (cli/probe.ts coreSender); see `sendPosted`. */
 		send,
 		startWatch,
 		startChannelWatch,

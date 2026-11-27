@@ -12,6 +12,7 @@ export const groups = [
 	{ label: "inbox agents", script: join(root, "inbox", "tests", "agents.test.mjs"), local: false },
 	{ label: "inbox schedule", script: join(root, "inbox", "tests", "schedule.test.mjs"), local: false },
 	{ label: "inbox probe", script: join(root, "inbox", "tests", "probe.test.mjs"), local: false },
+	{ label: "inbox probe channel", script: join(root, "inbox", "tests", "probe-channel.test.mjs"), local: false },
 	{ label: "inbox auto-review", script: join(root, "inbox", "tests", "auto-review.test.mjs"), local: false },
 	{ label: "pr ready", script: join(root, "tests", "pr-ready.test.mjs"), local: false },
 	{ label: "inbox jobs", script: join(root, "inbox", "tests", "jobs.test.mjs"), local: false },

@@ -70,5 +70,11 @@ await check("the probe's digest text reaches the core's send", async () => {
 	await rejects(async () => to.text("digest"), /not authenticated — run \/teams init/);
 });
 
+await check("the probe's personal-channel privacy check reaches the core's backend", async () => {
+	const to = await coreSender();
+	strictEqual(typeof to.verifyPersonal, "function");
+	await rejects(async () => to.verifyPersonal({ teamId: "team-1", channelId: "19:fake-channel@thread.skype" }), /not authenticated — run \/teams init/);
+});
+
 console.log(failed === 0 ? "\nall green" : `\n${failed} check(s) failed`);
 process.exit(failed === 0 ? 0 : 1);

@@ -192,9 +192,10 @@ export const inboxTools: ToolDef[] = [
 			host: Type.Optional(Type.String({ description: "local (default), or the ssh host the pane lives on" })),
 			result: Type.Optional(Type.String({ description: "The file the session writes its RESULT to" })),
 			goal: Type.Optional(Type.String({ description: "One line: what it was asked to do" })),
+			thread: Type.Optional(Type.String({ description: "The personal-channel thread (root message id) its progress goes to; default: the thread bound to agent:<name>, else a new one" })),
 		}),
 		async execute(_id, p, signal) {
-			const opts = options({ mux: p.mux as string, pane: p.pane, row: p.row, then: p.then, host: p.host, result: p.result, goal: p.goal });
+			const opts = options({ mux: p.mux as string, pane: p.pane, row: p.row, then: p.then, host: p.host, result: p.result, goal: p.goal, thread: p.thread });
 			return text(await inbox(["agent", "add", ...opts, "--", p.name], signal));
 		},
 	},

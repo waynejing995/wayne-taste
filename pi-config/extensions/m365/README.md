@@ -105,6 +105,14 @@ the dispatcher's plan for the session's result (expected outcome, whom to reply 
 `agent-result:<name>` then on that row, against the RESULT version that already exists, and closes the name's
 previous unfired plans. A result row is one per RESULT version, and a session keeps one live attention row.
 
+`--thread <rootId>` (optional) names the personal-channel thread a session's progress goes to; it is kept in its
+`agent_watch` entry. Progress reaches the channel only when `rules.yaml` has a `teams_watch` channel with
+`mode: personal`. Then `inbox agent probe` posts each changed session's progress card to its own thread, not the
+self-chat digest, in this order: the entry's `thread`; the thread the channel's cursor binds to `agent:<name>`; else a
+new root post, subject `🤖 <name>`, whose id is bound to `agent:<name>` in the cursor the moment Teams answers, so the
+next run and the session's replies use the same thread. Sessions sharing a thread share one card. A thread whose send
+fails leaves only its sessions owed for the next due run. With no personal channel the self-chat digest is unchanged.
+
 Each watch has one record in `cursors/agents.json` (`inbox/cli/observed.ts`): its phase (working, asking, idle, gone),
 when and by whom it was last seen, and the agent process last seen in the pane (pid, session, cwd). Two sensors write
 it under one lock, and neither keeps a copy in memory: `inbox agent probe` looks at every watch on each run, and the

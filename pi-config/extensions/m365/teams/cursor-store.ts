@@ -21,8 +21,7 @@ export type CursorFile = {
 	awaiting?: Record<string, string[]>;
 };
 
-const INBOX = process.env.WAYNE_INBOX_DIR ?? path.join(os.homedir(), ".wayne", "inbox");
-const CURSOR_DIR = path.join(INBOX, "cursors");
+const cursorDir = () => path.join(process.env.WAYNE_INBOX_DIR ?? path.join(os.homedir(), ".wayne", "inbox"), "cursors");
 const LOCK_STALE_MS = 10_000;
 const LOCK_WAIT_MS = 2000;
 
@@ -33,7 +32,7 @@ export function cursorKey(target: { chatId: string } | { teamId: string; channel
 
 /** The file for a key. The key is hashed so a channel key with slashes and colons is a safe file name. */
 export function cursorPath(key: string): string {
-	return path.join(CURSOR_DIR, `teams-${crypto.createHash("sha1").update(key).digest("hex")}.json`);
+	return path.join(cursorDir(), `teams-${crypto.createHash("sha1").update(key).digest("hex")}.json`);
 }
 
 /** The cursor for a key, or null when none exists. A file that does not parse or has another version is an error. */
@@ -83,7 +82,7 @@ export function updateCursor(
 	init?: () => CursorFile,
 ): CursorFile {
 	const file = cursorPath(key);
-	fs.mkdirSync(CURSOR_DIR, { recursive: true });
+	fs.mkdirSync(cursorDir(), { recursive: true });
 	return withLock(file, () => {
 		const current = loadCursor(key) ?? init?.();
 		if (!current) throw new Error(`no cursor for ${key}`);
