@@ -38,17 +38,59 @@ function pr(comments, checks = GREEN, mergeable = "MERGEABLE") {
 	};
 }
 
-function withFakeGh(fixture, fn) {
+function stackMeta(overrides = {}) {
+	return {
+		data: {
+			repository: {
+				defaultBranchRef: { name: "main" },
+				pullRequest: {
+					number: 1,
+					state: "OPEN",
+					baseRefName: "main",
+					stackEntry: null,
+					stack: null,
+					...overrides,
+				},
+			},
+		},
+	};
+}
+
+function withFakeGh(fixture, fn, options = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "m365-pr-ready-"));
 	const fixturePath = join(dir, "gh.json");
+	const graphqlPath = join(dir, "graphql.json");
+	const prsDir = join(dir, "prs");
 	const ghPath = join(dir, "gh");
 	writeFileSync(fixturePath, JSON.stringify(fixture));
-	writeFileSync(ghPath, '#!/bin/sh\ncat "$GH_FIXTURE"\n');
+	writeFileSync(graphqlPath, JSON.stringify(options.graphql ?? stackMeta()));
+	if (options.prs) {
+		mkdirSync(prsDir);
+		for (const [num, data] of Object.entries(options.prs)) {
+			writeFileSync(join(prsDir, `${num}.json`), JSON.stringify(data));
+		}
+	}
+	writeFileSync(
+		ghPath,
+		[
+			"#!/bin/sh",
+			'if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then',
+			'  cat "$GH_GRAPHQL_FIXTURE"',
+			'elif [ "$1" = "pr" ] && [ "$2" = "view" ] && [ -n "$GH_PRS_DIR" ] && [ -f "$GH_PRS_DIR/$3.json" ]; then',
+			'  cat "$GH_PRS_DIR/$3.json"',
+			"else",
+			'  cat "$GH_FIXTURE"',
+			"fi",
+			"",
+		].join("\n"),
+	);
 	chmodSync(ghPath, 0o755);
 	const env = {
 		...process.env,
 		PATH: `${dir}:${process.env.PATH ?? ""}`,
 		GH_FIXTURE: fixturePath,
+		GH_GRAPHQL_FIXTURE: graphqlPath,
+		...(options.prs ? { GH_PRS_DIR: prsDir } : {}),
 	};
 	try {
 		return fn(dir, env);
@@ -63,8 +105,8 @@ function run(command, args, options) {
 	return result;
 }
 
-function runReady(fixture) {
-	return withFakeGh(fixture, (_dir, env) => run(readyScript, ["o/r", "1"], { env }));
+function runReady(fixture, options = {}) {
+	return withFakeGh(fixture, (_dir, env) => run(readyScript, ["o/r", String(options.pr ?? 1)], { env }), options);
 }
 
 function gate(out, name) {
@@ -230,6 +272,90 @@ await check("head without any check fails CI", () => {
 	equal(result.status, 1);
 	ok(result.stdout.split("\n").includes("ci            FAIL     no checks on head"));
 	equal(result.stdout.trim().split("\n").at(-1), "NOT READY: ci");
+});
+
+await check("native GitHub stack passes when every open lower PR through target is clean", () => {
+	const gql = stackMeta({
+		number: 102,
+		baseRefName: "feat/layer1",
+		stackEntry: { position: 2 },
+		stack: {
+			number: 32,
+			baseRefName: "main",
+			entries: {
+				nodes: [
+					{ position: 0, pullRequest: { number: 99, state: "MERGED" } },
+					{ position: 1, pullRequest: { number: 101, state: "OPEN" } },
+					{ position: 2, pullRequest: { number: 102, state: "OPEN" } },
+					{ position: 3, pullRequest: { number: 103, state: "OPEN" } },
+				],
+			},
+		},
+	});
+	const r = runReady(pr([]), {
+		pr: 102,
+		graphql: gql,
+		prs: { 101: pr([["2026-11-18T10:00:00Z", CLEAN]]), 102: pr([["2026-11-18T10:01:00Z", CLEAN]]) },
+	});
+	equal(r.status, 0, r.stdout + r.stderr);
+	match(r.stdout, /native stack #32 \(#101 -> #102\) targeting main/);
+	match(r.stdout, /^READY$/m);
+});
+
+await check("native GitHub stack fails when a lower PR has a critical review even if target PR is clean", () => {
+	const gql = stackMeta({
+		number: 102,
+		baseRefName: "feat/layer1",
+		stackEntry: { position: 2 },
+		stack: {
+			number: 32,
+			baseRefName: "main",
+			entries: {
+				nodes: [
+					{ position: 1, pullRequest: { number: 101, state: "OPEN" } },
+					{ position: 2, pullRequest: { number: 102, state: "OPEN" } },
+				],
+			},
+		},
+	});
+	const crit = `Multi-source auto-review @ ${HEAD.slice(0, 8)}: 1 critical issue found.`;
+	const r = runReady(pr([]), {
+		pr: 102,
+		graphql: gql,
+		prs: { 101: pr([["2026-11-18T10:00:00Z", crit]]), 102: pr([["2026-11-18T10:01:00Z", CLEAN]]) },
+	});
+	equal(r.status, 1, r.stdout);
+	match(r.stdout, /^NOT READY: \[#101\]:review-clean$/m);
+});
+
+await check("unregistered PR targeting a non-default branch fails stack-base", () => {
+	const gql = stackMeta({ number: 102, baseRefName: "feat/layer1", stackEntry: null, stack: null });
+	const r = runReady(pr([["2026-11-18T10:00:00Z", CLEAN]]), { pr: 102, graphql: gql });
+	equal(r.status, 1, r.stdout);
+	equal(gate(r.stdout, "stack-base"), "FAIL");
+	match(r.stdout, /^NOT READY: stack-base$/m);
+});
+
+await check("native GitHub stack with a closed lower PR fails stack-base", () => {
+	const gql = stackMeta({
+		number: 102,
+		baseRefName: "feat/layer1",
+		stackEntry: { position: 2 },
+		stack: {
+			number: 32,
+			baseRefName: "main",
+			entries: {
+				nodes: [
+					{ position: 1, pullRequest: { number: 101, state: "CLOSED" } },
+					{ position: 2, pullRequest: { number: 102, state: "OPEN" } },
+				],
+			},
+		},
+	});
+	const r = runReady(pr([["2026-11-18T10:00:00Z", CLEAN]]), { pr: 102, graphql: gql });
+	equal(r.status, 1, r.stdout);
+	equal(gate(r.stdout, "stack-base"), "FAIL");
+	match(r.stdout, /^NOT READY: stack-base$/m);
 });
 
 await check("watch-prs records one matching review through the inbox launcher", () => {

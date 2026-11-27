@@ -59,6 +59,15 @@ decisions: <repo-relative decision-log path or none — no decision log exists>
 
 - `path/to/file` — <responsibility and planned change.>
 
+## PR Stack Plan
+
+<!-- Required for large changes (>= 4 units or > 600 estimated LOC); write `none — single PR (<reason>)` for small plans. -->
+
+| Layer | Branch | Base | Units | Scope & CI surface (backend / frontend / docs) | Hot-deploy safety |
+| --- | --- | --- | --- | --- | --- |
+| PR 1 | `<branch-1>` | `main` | `I1, I2` | `<foundation / additive schema or core>` | `<backward-compatible>` |
+| PR 2 | `<branch-2>` | `<branch-1>` | `I3, I4` | `<API / consumer / UI wiring>` | `<safe on top of PR 1>` |
+
 ## Implementation Units
 
 ### Unit I1 — <Dependency-ordered unit name>

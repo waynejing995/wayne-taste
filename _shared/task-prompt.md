@@ -10,6 +10,7 @@ The executor starts blank. Every fact in the prompt is fetched with a tool while
 | --- | --- | --- |
 | `Pain:` | yes | First section. Observable symptom today: what the user tried, what they saw, why it hurts, a short verbatim quote (who/where/when), and any screenshot path. No solution words. |
 | `Goal:` | yes | One outcome sentence that resolves the Pain, not a task list. |
+| `Skill:` | yes | Exact owning Wayne skill(s) right below `Goal:` (e.g. `Follow wayne-auto-design-task`, `Follow wayne-plan (lite) + wayne-work`, `Follow wayne-fix-review`, `Follow wayne-triage`). Instruct the executor to read `skill://<name>` first. Never omit for coding, fix, design, or review work; only trivial read-only checks may write `none (read-only)`. |
 | `Context:` | yes | Framing, definitions, the skill the executor follows, the task context file, the relevant glossary lines from `~/.wayne/CONTEXT.md`, and every `Do not` boundary that is not owned by one task. A remote executor cannot read that file, so the brief carries the lines. |
 | `Current correction:` | only when steering an in-flight attempt | The delta from the actual prior attempt: what changed and what was wrong. |
 | `Inputs:` | when the job has concrete starting state | Branch and head SHA, PR, artifact ID and version, ticket keys, paths. Verify each one before you write it. |
@@ -20,9 +21,11 @@ The executor starts blank. Every fact in the prompt is fetched with a tool while
 
 - **Context.** If a Wayne skill owns the work, write `Follow <skill>.` If the repository has rule files (`AGENTS.md`, `CLAUDE.md`, `.claude/rules/`), write `Repository rules in <those paths> win over this prompt.` and name only the paths that exist. If `<state>/runs/<topic>/context.md` exists, point to it and tell the executor to append a line there the moment it finds a gap. Copy the glossary lines from `~/.wayne/CONTEXT.md` that name a product, repository, stage, host, or person this task uses. State each hard limit as a `Do not` line, for example: no merge, no deploy, no force-push, read-only production database, no Teams or Jira posts.
 - **Approved plan.** If an approved plan owns the work, name its path as the SSoT. In Tasks, carry only `<unit ID> — <unit heading or outcome> — implement per <plan path>`. Do not copy step bodies, tables, rationale, or implementation detail from the plan. Keep Verification and Completion criteria self-contained.
+- **Isolated checkouts (`ovnfs`).** Always run `ovnfs new --rev` from the source repository directory (never from inside another checkout), pass the checkout's absolute path in every worker brief so relative edits cannot land in the source repo, and verify the source repository's `git status` is still clean before reporting completion.
 - **Secrets.** Never write a secret value. Name the environment variable that owns the secret.
 - **Missing evidence.** If the target, the success criterion, or the verification path is unknown and the repository does not answer it, do not invent one. The calling skill asks the user one question and writes the prompt after the answer.
-- **Mid-session feedback.** Every brief for a separate session carries this line: "When Wayne gives you feedback during the session, the main model writes a lite plan: split the change into independent slices, and for each slice give its files and its acceptance in one or two lines. No design document, and no plan review: skip any review gate on the lite plan. Then it hands each slice to its own default-model subagent, all in parallel, and they do the work directly. The main model does not do the edit itself, and it does not reopen discussion before the subagents start."
+- **Coding/testing worker model policy (mandatory in every brief).** Every brief and task requirement MUST state: coding and testing subagents use only the `task` role model (or `small-model`). Never self-promote a coding/testing worker to Opus or `highend-nonopus`; if stuck or hitting a model failure, stop and ask the coordinator for help instead.
+- **Mid-session feedback.** Every brief for a separate session carries this line: "When Wayne gives you feedback during the session, the main model writes a lite plan: split the change into independent slices, and for each slice give its files and its acceptance in one or two lines. No design document, and no plan review: skip any review gate on the lite plan. Then it hands each slice to its own `task`-model subagent, all in parallel, and they do the work directly. The main model does not do the edit itself, and it does not reopen discussion before the subagents start."
 
 ### UI flow
 
@@ -76,12 +79,15 @@ Pain:
 
 Goal: <one outcome sentence resolving the Pain>
 
+Skill: Follow <exact wayne skill(s)> — read `skill://<name>` first before acting.
+
 Context:
 - <framing fact: what this is, which structure to keep>
 - <definition: what "done" or "correct" means here>
 - Follow <wayne skill>. Repository rules in <AGENTS.md / CLAUDE.md / .claude/rules/, only those that exist> win over this prompt.
 - Task context: <state>/runs/<topic>/context.md. Append a line there when you find a gap.
 - Do not <hard limit>.
+- Coding/testing worker model rule: use only the `task` role model (or `small-model`) for coding and testing subagents; never self-promote to Opus or `highend-nonopus` — ask the coordinator for help instead.
 - Do not claim completion until <the real proof> has happened.
 
 Current correction:            <- only when steering an in-flight attempt

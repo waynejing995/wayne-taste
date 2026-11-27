@@ -257,6 +257,15 @@ git fetch origin && git rebase origin/<resolved-base>   # rebase onto latest rem
 
 Rebase onto the remote base (not a local copy) so the PR is against the current tip. Cherry-picking a specific PR onto this branch is the same base discipline: `git cherry-pick <sha>` after confirming the branch is current.
 
+### Stacked PRs (GitHub native / `gh stack`)
+
+For large changes whose plan defines a `## PR Stack Plan` (or when Wayne asks to ship as a PR stack):
+
+1. **Cut, push, and register slices in order** — create one branch per slice (`<branch-1>` from the resolved trunk/base, `<branch-2>` on `<branch-1>`, etc.) without rewriting audited unit commits, then submit as a registered GitHub native stack via `gh stack submit` (or push + open PRs with `--base` and link them with `gh stack link <pr1> <pr2> ...`). Plain `--base <prev-branch>` PRs that are not registered into a native stack can only merge bottom-up after retargeting to the default branch, not via one-shot stack merge.
+2. **Review progressively** — open lower-layer PRs as soon as their slices pass the review gate so human reviewers and per-layer auto-review (`base..head` diff) run in parallel while upper slices are built.
+3. **Rebase cleanly & protect CI reuse** — when a lower layer changes or trunk moves, prefer GitHub's native **Rebase stack** (preserves approvals on unchanged layers) or `git rebase --update-refs`. Batch lower-layer fixes before rebasing upper layers so CI does not re-trigger unnecessarily across the whole stack.
+4. **Merge (bottom-up or one-shot stack merge)** — for a registered GitHub native stack, merging the top PR (or `gh stack merge <pr-or-stack>`) lands the entire contiguous stack bottom-up in one operation once **every** unmerged PR from the bottom layer through the target PR passes review, CI, and mergeable gates (`pr-ready.sh` verifies every PR in the registered native stack down to the default branch and rejects unregistered non-default-base PRs until their parent merges and retargets).
+
 ---
 
 ## Phase 8: Handoff

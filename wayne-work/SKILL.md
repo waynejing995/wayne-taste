@@ -129,6 +129,7 @@ Build each worker's packet from exactly what H will audit: one fixed unit ID; fu
 - If the host's subagent tool offers isolation (in omp, the `task` tool's `isolated: true`), dispatch every ready unit with it. Units with overlapping write sets may then run in parallel. The tool creates the worktree and applies successful changes back to the parent. Never create, inspect, or manage a worktree yourself. If the tool reports an apply-back conflict, reopen that unit on top of the new HEAD.
 - If the host has no subagent isolation (for example codex), launch in parallel only ready units whose dependencies have passed H and whose write sets are disjoint. If two ready units share a path, dispatch one fresh worker agent at a time and record the conflicting path.
 - Serial execution never authorizes inline implementation.
+- **Coding/testing worker model rule:** Coding and testing workers MUST use only the default `task` role model (or `small-model`). Never self-promote a coding/testing worker to Opus or `highend-nonopus`; if stuck or hitting a model error, stop and ask the coordinator for help instead.
 
 Count a worker dispatch as started only when the tool returns a real worker handle or result. If the tool is unavailable or dispatch fails, quote the exact error in both the handoff and final result, then use F's inline fallback. Never claim parallel execution after a dispatch error.
 
@@ -168,6 +169,7 @@ Run the unit's exact verification command. If it fails, connect the failure to t
 When a unit passes G, inspect its actual diff rather than trusting worker summaries, against only the corresponding approved plan unit. Confirm the diff implements that unit's goal, named interfaces, consumes/produces, allowed write set, test scenarios, and verification command, and changes nothing the unit does not own. Judge by reading the diff against the unit text; CLI output, regex, keywords, or validator status cannot substitute.
 
 When several finished units await audit at the same time, the main agent may dispatch parallel read-only audit subagents (one per unit, scoped strictly to that unit's contract and diff). Do not broaden any unit audit past the unit: not the complete spec, not the decision log, and not other units. A decision is audited here only when the unit contract already carries it; everything else belongs to J.
+Before committing an isolated worker's unit, compare the worker's reported patch/diff against the applied working tree so dropped or mis-merged hunks never slip through silently, and confirm the source repository outside the checkout remains clean.
 
 Any change the unit does not cover fails the unit and returns to Plan/user instead of being normalized into the diff. If the tool reports an apply-back conflict for an isolated unit, reopen that unit on top of the new HEAD instead of normalizing the conflict. A shared path does not make two units atomically coupled: each unit keeps its own commit. When a unit's paths still hold another unit's uncommitted changes, commit it through a separate index (shared-path commit below). If that unit's own patch cannot be isolated, commit the first unit, then reopen the later unit on top of the new HEAD. Separately from unit audits, once all producers of a main-owned shared integration edit or check pass audit and commit, perform that integration edit and run plan-defined integration checks before dispatching units that depend on it. Reject cross-owner writes in shared-checkout mode.
 
@@ -190,6 +192,7 @@ If `wayne-simplify` changes code, commit those edits in their own commit with ex
 ### J. [whole-workflow] Run the integrated compliance gate
 
 After all units finish H and S finishes (or records a permitted skip), run the plan's full verification and lint commands. Then dispatch one fresh read-only spec-compliance agent with the complete decision log, spec, plan, all units, and the full diff. It must flag missing, changed, and extra behavior or files by contextual reading; CLI output, regex, keywords, headings, or validator status cannot substitute. This gate judges spec, decision, plan, scope, and cross-unit conformance — not general code quality, which stays with `wayne-code-review`.
+When 2 or more parallel slices were merged/committed during the run, the integrated HEAD MUST pass the full affected unit test suite before handoff or push; per-unit targeted runs never substitute for testing the integrated HEAD.
 
 The receipt covers only the diff the gate was given — the base recorded in A through the last unit or simplify commit. An implementation finding reopens the affected unit under the same unit boundary and returns to C to update Work state; D dispatches its fresh worker. A plan or spec gap returns to Plan/user. Any correction invalidates the receipt: rerun the gate on the corrected full diff before continuing. Then audit:
 
@@ -206,10 +209,13 @@ Do not claim completion while any command, unit, U row, decision, or scope gate 
 
 Run this once per run, after J passes; it is never a per-unit step. Write one packet under `$STATE/checkpoints/` through `wayne-checkpoint` return-only mode or a supplied canonical contract (`STATE` already resolved in A; do not skip A because checkpoint will write the packet). Verify the file exists and surface its path; without either mechanism, return the shared blocker information. Include plan/matrix paths, units with their commit SHAs (plus any simplify commit SHA), the review range `<base>..<last commit>`, passing commands, changed paths, preserved scope, residual risks, and `next_agent: wayne-code-review`; final output repeats that literal but never invokes it.
 
+**PR Stack plans:** when the approved plan defines a `## PR Stack Plan`, execute units in slice order and record the exact commit range (`<slice-base>..<slice-tip>`) for each completed slice in Work state (and checkpoint handoff) so `wayne-ship` can push each slice branch and open its stacked PR (`--base <prev-branch>`) progressively as slices complete—accelerating human and auto-review without waiting for the entire feature to finish. Never amend or squash committed units when cutting slice branches.
+
 ## Red lines
 
 - No implementation with incomplete/conflicting source contracts.
 - No inline implementation without an observable, quoted native-dispatch error.
+- No self-promoting a coding/testing worker to Opus or `highend-nonopus`; use the `task` role / `small-model` and ask the coordinator for help instead.
 - No provider-specific task API, shell-process substitute, silent serial fallback, or claimed parallel success after a tool error.
 - No compliance agent inside the per-unit loop, no per-unit audit substituted for the whole-workflow gate, and no gate receipt carried over a corrected diff.
 - No test weakening, hidden substitute command, unchecked U row, or changed E row.
