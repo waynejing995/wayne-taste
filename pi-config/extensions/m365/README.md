@@ -167,6 +167,7 @@ preserve the `board:` block):
 
 ```yaml
 teams_watch:
+  chats: []
   channels:
     - channel: my-agent
       team_id: 00000000-0000-4000-8000-000000000010

@@ -322,8 +322,9 @@ const COMMANDS: Record<string, Command> = {
 		},
 		run: (p) =>
 			runBoard(async (client) => {
-				const { channel, board } = requirePersonalBoard({ teamId: p.opts["team-id"], channelId: p.opts["channel-id"] });
 				const threadId = p.args[0].trim();
+				if (!threadId) throw new InboxError("thread-id must not be empty");
+				const { channel, board } = requirePersonalBoard({ teamId: p.opts["team-id"], channelId: p.opts["channel-id"] });
 				let defaultThreadUrl: string | undefined;
 				if (p.opts["thread-url"] === undefined) {
 					const tenantId = await client.resolveTenantId(board);
@@ -351,8 +352,10 @@ const COMMANDS: Record<string, Command> = {
 		opts: { "team-id": {}, "channel-id": {} },
 		run: (p) =>
 			runBoard(async (client) => {
+				const threadId = p.args[0].trim();
+				if (!threadId) throw new InboxError("thread-id must not be empty");
 				const { board } = requirePersonalBoard({ teamId: p.opts["team-id"], channelId: p.opts["channel-id"] });
-				const res = await client.moveCard(board, p.args[0].trim(), "done");
+				const res = await client.moveCard(board, threadId, "done");
 				return res.updated
 					? `Moved card #${res.id} for thread ${res.threadId} to "${res.column}".`
 					: `No card found on board for thread ${res.threadId} (no-op).`;
@@ -368,6 +371,7 @@ const COMMANDS: Record<string, Command> = {
 				const parts: string[] = [];
 				parts.push(res.createdFields.length > 0 ? `created fields: ${res.createdFields.join(", ")}` : "all fields present");
 				if (res.updatedFields.length > 0) parts.push(`updated fields: ${res.updatedFields.join(", ")}`);
+				if (res.addedViewFields.length > 0) parts.push(`added view fields: ${res.addedViewFields.join(", ")}`);
 				parts.push(res.viewPatched ? `patched KANBAN view "${res.viewTitle ?? "Board"}"` : "no KANBAN Board view found to patch");
 				return `Board setup complete (${parts.join("; ")}).`;
 			}),

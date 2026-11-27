@@ -69,6 +69,7 @@ export interface MoveCardResult {
 export interface EnsureSchemaResult {
 	createdFields: string[];
 	updatedFields: string[];
+	addedViewFields: string[];
 	viewPatched: boolean;
 	viewTitle?: string;
 }
@@ -133,6 +134,8 @@ function assertStatus(status: string): BoardStatus {
 	return status as BoardStatus;
 }
 
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function normalizeSiteUrl(siteUrl: string): { siteUrl: string; origin: string } {
 	let parsed: URL;
 	try {
@@ -140,19 +143,26 @@ function normalizeSiteUrl(siteUrl: string): { siteUrl: string; origin: string } 
 	} catch {
 		throw new Error(`Invalid board site_url: "${siteUrl}"`);
 	}
-	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-		throw new Error(`Board site_url must be http(s): "${siteUrl}"`);
+	if (parsed.protocol !== "https:") {
+		throw new Error(`Board site_url must be https: "${siteUrl}"`);
 	}
 	const cleanPath = parsed.pathname.replace(/\/+$/, "");
 	return { siteUrl: `${parsed.origin}${cleanPath}`, origin: parsed.origin };
 }
 
-function normalizeListId(listId: string): string {
-	const cleaned = listId.trim().replace(/^\{|\}$/g, "");
-	if (!cleaned || /['/?#]/.test(cleaned)) {
-		throw new Error(`Invalid board list_id: "${listId}"`);
+function normalizeGuid(raw: unknown, label: string): string {
+	if (typeof raw !== "string") {
+		throw new Error(`Invalid ${label}: expected GUID string`);
+	}
+	const cleaned = raw.trim().replace(/^\{|\}$/g, "");
+	if (!GUID_RE.test(cleaned)) {
+		throw new Error(`Invalid ${label}: "${raw}" (expected RFC-4122 GUID)`);
 	}
 	return cleaned;
+}
+
+function normalizeListId(listId: string): string {
+	return normalizeGuid(listId, "board list_id");
 }
 
 function escapeOData(value: string): string {
@@ -404,8 +414,8 @@ export class BoardClient {
 		return auth.tokenClaim(token, "tid");
 	}
 
-	private async getDigest(siteUrl: string, origin: string, token: string, forceRefresh = false): Promise<string> {
-		const cached = this.digestCache.get(origin);
+	private async getDigest(siteUrl: string, token: string, forceRefresh = false): Promise<string> {
+		const cached = this.digestCache.get(siteUrl);
 		if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
 			return cached.value;
 		}
@@ -430,7 +440,7 @@ export class BoardClient {
 			? info.FormDigestTimeoutSeconds
 			: 1800;
 		const ttlMs = timeoutSec > 60 ? (timeoutSec - 60) * 1000 : timeoutSec * 500;
-		this.digestCache.set(origin, { value: digest, expiresAt: Date.now() + ttlMs });
+		this.digestCache.set(siteUrl, { value: digest, expiresAt: Date.now() + ttlMs });
 		return digest;
 	}
 
@@ -470,10 +480,11 @@ export class BoardClient {
 				body,
 			});
 		};
-		let digest = await this.getDigest(siteUrl, origin, token, false);
+		let digest = await this.getDigest(siteUrl, token, false);
 		let r = await runOnce(digest);
 		if (r.status === 403) {
-			digest = await this.getDigest(siteUrl, origin, token, true);
+			await r.text().catch(() => {});
+			digest = await this.getDigest(siteUrl, token, true);
 			r = await runOnce(digest);
 		}
 		const text = await r.text();
@@ -518,7 +529,20 @@ export class BoardClient {
 			seen.add(next);
 			const page = unwrapCollection(await this.getJson(next, origin));
 			for (const item of page.items) cards.push(toCard(item, cols));
-			next = page.next;
+			if (page.next) {
+				let parsedNext: URL;
+				try {
+					parsedNext = new URL(page.next, origin);
+				} catch {
+					throw new Error(`Invalid SharePoint pagination link: ${page.next}`);
+				}
+				if (parsedNext.protocol !== "https:" || parsedNext.origin !== origin) {
+					throw new Error(`SharePoint pagination link must stay on same https origin (${origin}): ${page.next}`);
+				}
+				next = parsedNext.toString();
+			} else {
+				next = undefined;
+			}
 		}
 		return cards;
 	}
@@ -645,7 +669,7 @@ export class BoardClient {
 					: [];
 			const missing = wantedChoices.filter((c) => !existingChoices.includes(c));
 			if (missing.length > 0) {
-				const fieldId = normalizeListId(String(choiceField.Id));
+				const fieldId = normalizeGuid(choiceField.Id, "field Id");
 				const patchUrl = `${siteUrl}/_api/web/lists(guid'${escapeOData(listId)}')/fields(guid'${escapeOData(fieldId)}')`;
 				await this.sendMutation(
 					patchUrl,
@@ -679,18 +703,35 @@ export class BoardClient {
 
 		const viewsUrl = `${siteUrl}/_api/web/lists(guid'${escapeOData(listId)}')/views?$select=Id,Title,ViewType,ViewType2,CustomFormatter`;
 		const { items: views } = unwrapCollection(await this.getJson(viewsUrl, origin));
-		const boardView =
-			views.find((v) => v.ViewType2 === "KANBAN" || v.ViewType === "KANBAN") ??
-			views.find((v) => v.Title === "Board");
+		const kanbanViews = views.filter((v) => v.ViewType2 === "KANBAN" || v.ViewType === "KANBAN");
+		const boardView = kanbanViews.find((v) => v.Title === "Board") ?? kanbanViews[0];
 
 		if (!boardView) {
-			return { createdFields, updatedFields, viewPatched: false };
+			return { createdFields, updatedFields, addedViewFields: [], viewPatched: false };
 		}
 
-		const viewId = normalizeListId(String(boardView.Id));
-		const patchViewUrl = `${siteUrl}/_api/web/lists(guid'${escapeOData(listId)}')/views(guid'${escapeOData(viewId)}')`;
+		const viewId = normalizeGuid(boardView.Id, "view Id");
+		const viewUrl = `${siteUrl}/_api/web/lists(guid'${escapeOData(listId)}')/views(guid'${escapeOData(viewId)}')`;
+		const vfRaw = unwrapSingle(await this.getJson(`${viewUrl}/ViewFields`, origin));
+		const rawVfItems = vfRaw.Items;
+		const existingViewFields: string[] = Array.isArray(rawVfItems)
+			? rawVfItems.filter((f): f is string => typeof f === "string")
+			: isRecord(rawVfItems) && Array.isArray(rawVfItems.results)
+				? rawVfItems.results.filter((f): f is string => typeof f === "string")
+				: [];
+		const addedViewFields: string[] = [];
+		const hasTitleField = existingViewFields.some((f) => f === "LinkTitle" || f === "Title" || f === "LinkTitleNoMenu");
+		const neededViewFields = [
+			...(hasTitleField ? [] : ["LinkTitle"]),
+			...["board_x0020_choice", "Summary", "ThreadLink"].filter((f) => !existingViewFields.includes(f)),
+		];
+		for (const vf of neededViewFields) {
+			await this.sendMutation(`${viewUrl}/ViewFields/addViewField('${escapeOData(vf)}')`, siteUrl, origin, {});
+			addedViewFields.push(vf);
+		}
+
 		await this.sendMutation(
-			patchViewUrl,
+			viewUrl,
 			siteUrl,
 			origin,
 			{ __metadata: { type: "SP.View" }, CustomFormatter: JSON.stringify(buildKanbanFormatter()) },
@@ -700,6 +741,7 @@ export class BoardClient {
 		return {
 			createdFields,
 			updatedFields,
+			addedViewFields,
 			viewPatched: true,
 			viewTitle: typeof boardView.Title === "string" ? boardView.Title : "Board",
 		};

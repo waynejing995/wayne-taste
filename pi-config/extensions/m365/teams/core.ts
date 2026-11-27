@@ -2139,12 +2139,29 @@ export function createTeams(pi: TeamsHost) {
 				await backend.reactChannel(addr, params.message_id, type, { replyTo: params.reply_to, remove: params.remove === true });
 				const where = `channel ${addr.label}`;
 				let text = params.remove ? `Removed ${type} from message ${params.message_id} in ${where}.` : `Reacted ${type} to message ${params.message_id} in ${where}.`;
-				if (params.remove !== true && type === "✅" && !params.reply_to) {
+				if (params.remove !== true && type.replace(/\ufe0f/g, "") === "✅" && !params.reply_to) {
 					try {
 						const hit = findPersonalBoard(addr.teamId, addr.channelId);
 						if (hit) {
-							const moved = await boardClient.moveCard(hit.board, params.message_id, "done");
-							if (moved.updated) text += ` Board card #${moved.id} moved to "${moved.column}".`;
+							const w = watches.get(cursorKey(addr));
+							let allowed = false;
+							let denyReason = "";
+							if (w) {
+								allowed = w.mode === "personal";
+								if (!allowed) denyReason = w.refused ? `personal mode refused: ${w.refused}` : `channel watch is in ${w.mode} mode`;
+							} else {
+								const check = await verifyPersonal(addr, (await backend.me()).oid);
+								allowed = check.ok;
+								if (!allowed) denyReason = check.reason;
+							}
+							if (!allowed) {
+								const msg = `personal verification failed (${denyReason})`;
+								console.warn(`[teams_react] board sync skipped for ${params.message_id}: ${msg}`);
+								text += ` Warning: board sync skipped (${msg}).`;
+							} else {
+								const moved = await boardClient.moveCard(hit.board, params.message_id, "done");
+								if (moved.updated) text += ` Board card #${moved.id} moved to "${moved.column}".`;
+							}
 						}
 					} catch (e) {
 						const msg = e instanceof Error ? e.message : String(e);
@@ -2221,6 +2238,7 @@ export function createTeams(pi: TeamsHost) {
 				const parts: string[] = [];
 				parts.push(res.createdFields.length > 0 ? `created fields: ${res.createdFields.join(", ")}` : "all fields present");
 				if (res.updatedFields.length > 0) parts.push(`updated fields: ${res.updatedFields.join(", ")}`);
+				if (res.addedViewFields.length > 0) parts.push(`added view fields: ${res.addedViewFields.join(", ")}`);
 				parts.push(res.viewPatched ? `patched KANBAN view "${res.viewTitle ?? "Board"}"` : "no KANBAN Board view found to patch");
 				text = `Board setup complete (${parts.join("; ")}).`;
 			}

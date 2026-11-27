@@ -171,3 +171,26 @@ test("board config on a personal channel survives rememberChannelWatch, remember
 		},
 	]);
 });
+
+test("omitted teams_watch.chats defaults to [] while non-array chats still fails", () => {
+	writeFileSync(
+		RULES,
+		[
+			"teams_watch:",
+			"  channels:",
+			"    - channel: Agent Desk",
+			"      team_id: team-1",
+			'      channel_id: "19:fake-channel@thread.skype"',
+			"      mode: personal",
+			'      policy: ""',
+			"",
+		].join("\n"),
+	);
+	expect(m.savedWatches().chats).toEqual([]);
+	expect(m.rememberInterval(15)).toBe("");
+	expect(m.savedWatches().interval_sec).toBe(15);
+
+	writeFileSync(RULES, "teams_watch:\n  chats: 5\n");
+	const warn = m.rememberInterval(20);
+	expect(warn.startsWith(" Warning: not saved")).toBe(true);
+});

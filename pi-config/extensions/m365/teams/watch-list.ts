@@ -34,9 +34,10 @@ const HEADER = "# Teams watches to resume in a new session. Written by the m365 
 function split(): { text: string; list: WatchList } {
 	const text = fs.existsSync(WATCH_LIST) ? fs.readFileSync(WATCH_LIST, "utf8") : "";
 	const data = (YAML.parse(text) ?? {}) as Record<string, unknown>;
-	const list = (data[SECTION] ?? { chats: [] }) as WatchList;
-	if (!Array.isArray(list.chats)) throw new Error(`${WATCH_LIST}: \`${SECTION}.chats\` must be a list`);
-	if (list.channels !== undefined && !Array.isArray(list.channels)) throw new Error(`${WATCH_LIST}: \`${SECTION}.channels\` must be a list`);
+	const raw = (data[SECTION] ?? { chats: [] }) as Partial<WatchList>;
+	if (raw.chats !== undefined && !Array.isArray(raw.chats)) throw new Error(`${WATCH_LIST}: \`${SECTION}.chats\` must be a list`);
+	if (raw.channels !== undefined && !Array.isArray(raw.channels)) throw new Error(`${WATCH_LIST}: \`${SECTION}.channels\` must be a list`);
+	const list: WatchList = { ...raw, chats: raw.chats ?? [] };
 	return { text, list };
 }
 

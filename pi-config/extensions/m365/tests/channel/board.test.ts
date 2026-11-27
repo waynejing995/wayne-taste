@@ -77,25 +77,30 @@ interface FakeSharePointView {
 	ViewType: string;
 	ViewType2?: string;
 	CustomFormatter?: string;
+	ViewFields?: string[];
 }
 
 function makeFakeSharePoint(opts: {
 	items?: FakeSharePointItem[];
+	itemsNextLink?: string;
 	fields?: FakeSharePointField[];
 	views?: FakeSharePointView[];
 	staleDigestCount?: number;
 	always403Mutation?: boolean;
 	failAllRequests?: boolean;
+	siteUrl?: string;
 } = {}) {
+	const baseSiteUrl = opts.siteUrl ?? SITE_URL;
 	const seen: SeenReq[] = [];
 	const scopesRequested: string[] = [];
+	const drained403: boolean[] = [];
 	const items: FakeSharePointItem[] = [...(opts.items ?? [])];
 	const fields: FakeSharePointField[] = [...(opts.fields ?? [])];
-	const views: FakeSharePointView[] = [...(opts.views ?? [])];
+	const views: FakeSharePointView[] = (opts.views ?? []).map((v) => ({ ...v, ViewFields: v.ViewFields ? [...v.ViewFields] : [] }));
 	let nextId = items.reduce((m, i) => Math.max(m, i.Id), 0) + 1;
 	let digestGen = 0;
 	let remaining403 = opts.staleDigestCount ?? 0;
-
+	const guidFor = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 	const transport: BoardTransport = async (rawUrl, init) => {
 		const url = decodeURIComponent(rawUrl);
 		const method = init.method ?? "GET";
@@ -106,7 +111,7 @@ function makeFakeSharePoint(opts: {
 			return { status: 500, text: async () => JSON.stringify({ error: { message: "SharePoint unavailable" } }) };
 		}
 
-		if (url === `${SITE_URL}/_api/contextinfo` && method === "POST") {
+		if (url === `${baseSiteUrl}/_api/contextinfo` && method === "POST") {
 			digestGen++;
 			return {
 				status: 200,
@@ -114,7 +119,7 @@ function makeFakeSharePoint(opts: {
 					JSON.stringify({
 						d: {
 							GetContextWebInformation: {
-								FormDigestValue: `digest-${digestGen}`,
+								FormDigestValue: `digest-${baseSiteUrl.split("/").at(-1)}-${digestGen}`,
 								FormDigestTimeoutSeconds: 1800,
 							},
 						},
@@ -126,28 +131,36 @@ function makeFakeSharePoint(opts: {
 			if (remaining403 > 0) remaining403--;
 			return {
 				status: 403,
-				text: async () =>
-					JSON.stringify({
+				text: async () => {
+					drained403.push(true);
+					return JSON.stringify({
 						"odata.error": { code: "-2130575251, Microsoft.SharePoint.SPException", message: { value: "The security validation for this page is invalid." } },
-					}),
+					});
+				},
 			};
 		}
 
-		if (url === `${SITE_URL}/_api/web/lists(guid'${LIST_ID}')?$select=ListItemEntityTypeFullName` && method === "GET") {
+		if (url === `${baseSiteUrl}/_api/web/lists(guid'${LIST_ID}')?$select=ListItemEntityTypeFullName` && method === "GET") {
 			return { status: 200, text: async () => JSON.stringify({ ListItemEntityTypeFullName: ENTITY_TYPE }) };
 		}
 
-		if (url.startsWith(`${SITE_URL}/_api/web/lists(guid'${LIST_ID}')/items`) && method === "GET") {
+		if (url.startsWith(`${baseSiteUrl}/_api/web/lists(guid'${LIST_ID}')/items`) && method === "GET") {
 			const filterMatch = url.match(/\$filter=ThreadId eq '([^']*(?:''[^']*)*)'/);
 			if (filterMatch) {
 				const wanted = filterMatch[1].replace(/''/g, "'");
 				const matched = items.filter((i) => i.ThreadId === wanted);
 				return { status: 200, text: async () => JSON.stringify({ value: matched }) };
 			}
+			if (url.includes("page=2")) {
+				return { status: 200, text: async () => JSON.stringify({ value: items.slice(1) }) };
+			}
+			if (opts.itemsNextLink) {
+				return { status: 200, text: async () => JSON.stringify({ value: items.slice(0, 1), "@odata.nextLink": opts.itemsNextLink }) };
+			}
 			return { status: 200, text: async () => JSON.stringify({ value: items }) };
 		}
 
-		if (url === `${SITE_URL}/_api/web/lists(guid'${LIST_ID}')/items` && method === "POST") {
+		if (url === `${baseSiteUrl}/_api/web/lists(guid'${LIST_ID}')/items` && method === "POST") {
 			const created: FakeSharePointItem = {
 				Id: nextId++,
 				Title: body.Title,
@@ -160,7 +173,8 @@ function makeFakeSharePoint(opts: {
 			return { status: 201, text: async () => JSON.stringify({ d: created }) };
 		}
 
-		const itemMatch = url.match(new RegExp(`^${SITE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/_api/web/lists\\(guid'${LIST_ID}'\\)/items\\((\\d+)\\)$`));
+		const escapedBase = baseSiteUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const itemMatch = url.match(new RegExp(`^${escapedBase}/_api/web/lists\\(guid'${LIST_ID}'\\)/items\\((\\d+)\\)$`));
 		if (itemMatch && method === "POST" && init.headers["X-HTTP-Method"] === "MERGE") {
 			const id = Number(itemMatch[1]);
 			const existing = items.find((i) => i.Id === id);
@@ -172,18 +186,18 @@ function makeFakeSharePoint(opts: {
 			return { status: 204, text: async () => "" };
 		}
 
-		if (url.startsWith(`${SITE_URL}/_api/web/lists(guid'${LIST_ID}')/fields?`) && method === "GET") {
+		if (url.startsWith(`${baseSiteUrl}/_api/web/lists(guid'${LIST_ID}')/fields?`) && method === "GET") {
 			return { status: 200, text: async () => JSON.stringify({ value: fields }) };
 		}
 
-		if (url === `${SITE_URL}/_api/web/lists(guid'${LIST_ID}')/fields/createfieldasxml` && method === "POST") {
+		if (url === `${baseSiteUrl}/_api/web/lists(guid'${LIST_ID}')/fields/createfieldasxml` && method === "POST") {
 			const xml: string = body?.parameters?.SchemaXml ?? "";
 			const nameMatch = xml.match(/Name="([^"]+)"/);
 			const typeMatch = xml.match(/Type="([^"]+)"/);
 			const choices = [...xml.matchAll(/<CHOICE>([^<]+)<\/CHOICE>/g)].map((m) => m[1]);
 			const internalName = nameMatch?.[1] ?? "unknown";
 			fields.push({
-				Id: `field-${fields.length + 1}`,
+				Id: guidFor(100 + fields.length + 1),
 				InternalName: internalName,
 				Title: internalName,
 				TypeAsString: typeMatch?.[1] ?? "Text",
@@ -192,7 +206,7 @@ function makeFakeSharePoint(opts: {
 			return { status: 200, text: async () => JSON.stringify({ d: { InternalName: internalName } }) };
 		}
 
-		const fieldPatchMatch = url.match(new RegExp(`^${SITE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/_api/web/lists\\(guid'${LIST_ID}'\\)/fields\\(guid'([^']+)'\\)$`));
+		const fieldPatchMatch = url.match(new RegExp(`^${escapedBase}/_api/web/lists\\(guid'${LIST_ID}'\\)/fields\\(guid'([^']+)'\\)$`));
 		if (fieldPatchMatch && method === "POST" && init.headers["X-HTTP-Method"] === "MERGE") {
 			const fid = fieldPatchMatch[1];
 			const target = fields.find((f) => f.Id === fid);
@@ -201,11 +215,27 @@ function makeFakeSharePoint(opts: {
 			return { status: 204, text: async () => "" };
 		}
 
-		if (url.startsWith(`${SITE_URL}/_api/web/lists(guid'${LIST_ID}')/views?`) && method === "GET") {
+		if (url.startsWith(`${baseSiteUrl}/_api/web/lists(guid'${LIST_ID}')/views?`) && method === "GET") {
 			return { status: 200, text: async () => JSON.stringify({ value: views }) };
 		}
 
-		const viewPatchMatch = url.match(new RegExp(`^${SITE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/_api/web/lists\\(guid'${LIST_ID}'\\)/views\\(guid'([^']+)'\\)$`));
+		const viewFieldsMatch = url.match(new RegExp(`^${escapedBase}/_api/web/lists\\(guid'${LIST_ID}'\\)/views\\(guid'([^']+)'\\)/ViewFields$`));
+		if (viewFieldsMatch && method === "GET") {
+			const target = views.find((v) => v.Id === viewFieldsMatch[1]);
+			if (!target) return { status: 404, text: async () => "{}" };
+			return { status: 200, text: async () => JSON.stringify({ Items: target.ViewFields ?? [] }) };
+		}
+
+		const addViewFieldMatch = url.match(new RegExp(`^${escapedBase}/_api/web/lists\\(guid'${LIST_ID}'\\)/views\\(guid'([^']+)'\\)/ViewFields/addViewField\\('([^']+)'\\)$`));
+		if (addViewFieldMatch && method === "POST") {
+			const target = views.find((v) => v.Id === addViewFieldMatch[1]);
+			if (!target) return { status: 404, text: async () => "{}" };
+			target.ViewFields ??= [];
+			if (!target.ViewFields.includes(addViewFieldMatch[2])) target.ViewFields.push(addViewFieldMatch[2]);
+			return { status: 200, text: async () => "{}" };
+		}
+
+		const viewPatchMatch = url.match(new RegExp(`^${escapedBase}/_api/web/lists\\(guid'${LIST_ID}'\\)/views\\(guid'([^']+)'\\)$`));
 		if (viewPatchMatch && method === "POST" && init.headers["X-HTTP-Method"] === "MERGE") {
 			const vid = viewPatchMatch[1];
 			const target = views.find((v) => v.Id === vid);
@@ -225,7 +255,7 @@ function makeFakeSharePoint(opts: {
 		fetch: transport,
 	});
 
-	return { client, seen, scopesRequested, items, fields, views };
+	return { client, seen, scopesRequested, drained403, items, fields, views, transport };
 }
 
 function writeRulesWithPersonalBoard(extraChannelsYaml = "") {
@@ -356,6 +386,8 @@ describe("BoardClient REST operations", () => {
 		expect(digestCalls.length).toBe(2);
 		expect(sp.items[0].board_x0020_choice).toBe(DEFAULT_BOARD_COLUMNS.done);
 
+		expect(sp.drained403.length).toBe(1);
+
 		// Persistent 403 fails loudly after exactly one retry
 		const failing = makeFakeSharePoint({
 			items: [{ Id: 1, Title: "Card", board_x0020_choice: DEFAULT_BOARD_COLUMNS.waiting, ThreadId: "t-1" }],
@@ -363,26 +395,104 @@ describe("BoardClient REST operations", () => {
 		});
 		await expect(failing.client.moveCard(CFG, "t-1", "done")).rejects.toThrow(SharePointError);
 		expect(failing.seen.filter((r) => r.url.endsWith("/_api/contextinfo")).length).toBe(2);
+		expect(failing.drained403.length).toBe(2);
 	});
 
-	test("ensureSchema creates missing fields, updates choices, and patches KANBAN view without KanbanCardDesigner100 or designerConfig", async () => {
+	test("digestCache is keyed per siteUrl (two subsites on same origin fetch separate digests)", async () => {
+		const SITE_A = "https://contoso.sharepoint.test/sites/SiteA";
+		const SITE_B = "https://contoso.sharepoint.test/sites/SiteB";
+		const spA = makeFakeSharePoint({ siteUrl: SITE_A, items: [{ Id: 1, Title: "A", board_x0020_choice: DEFAULT_BOARD_COLUMNS.waiting, ThreadId: "a-1" }] });
+		const spB = makeFakeSharePoint({ siteUrl: SITE_B, items: [{ Id: 2, Title: "B", board_x0020_choice: DEFAULT_BOARD_COLUMNS.waiting, ThreadId: "b-1" }] });
+		const client = new BoardClient({
+			token: async () => fakeJwt(TENANT_ID),
+			fetch: async (url, init) => (url.startsWith(SITE_A) ? spA.transport(url, init) : spB.transport(url, init)),
+		});
+		await client.moveCard({ site_url: SITE_A, list_id: LIST_ID }, "a-1", "done");
+		await client.moveCard({ site_url: SITE_B, list_id: LIST_ID }, "b-1", "done");
+		expect(spA.seen.find((r) => r.headers["X-RequestDigest"])?.headers["X-RequestDigest"]).toBe("digest-SiteA-1");
+		expect(spB.seen.find((r) => r.headers["X-RequestDigest"])?.headers["X-RequestDigest"]).toBe("digest-SiteB-1");
+	});
+
+	test("rejects non-HTTPS site_url, non-GUID list_id / field Id / view Id, and unsafe nextLink pagination", async () => {
+		const sp = makeFakeSharePoint();
+		await expect(sp.client.listCards({ site_url: "http://contoso.sharepoint.test/sites/AgentSite", list_id: LIST_ID })).rejects.toThrow("must be https");
+		await expect(sp.client.listCards({ site_url: SITE_URL, list_id: "not-a-guid" })).rejects.toThrow("RFC-4122 GUID");
+		await expect(sp.client.listCards({ site_url: SITE_URL, list_id: "00000000-0000-4000-8000-000000000099%27" })).rejects.toThrow("RFC-4122 GUID");
+
+		const badFieldId = makeFakeSharePoint({
+			fields: [{ Id: "bad-field-id", InternalName: "board_x0020_choice", Title: "board choice", TypeAsString: "Choice", Choices: [] }],
+		});
+		await expect(badFieldId.client.ensureSchema(CFG)).rejects.toThrow("RFC-4122 GUID");
+
+		const badViewId = makeFakeSharePoint({
+			fields: [],
+			views: [{ Id: "bad-view-id", Title: "Board", ViewType: "HTML", ViewType2: "KANBAN" }],
+		});
+		await expect(badViewId.client.ensureSchema(CFG)).rejects.toThrow("RFC-4122 GUID");
+
+		const crossOriginNext = makeFakeSharePoint({
+			items: [{ Id: 1, Title: "One", board_x0020_choice: DEFAULT_BOARD_COLUMNS.waiting, ThreadId: "t-1" }],
+			itemsNextLink: "https://evil.example.test/steal-token",
+		});
+		await expect(crossOriginNext.client.listCards(CFG)).rejects.toThrow("same https origin");
+
+		const httpNext = makeFakeSharePoint({
+			items: [{ Id: 1, Title: "One", board_x0020_choice: DEFAULT_BOARD_COLUMNS.waiting, ThreadId: "t-1" }],
+			itemsNextLink: "http://contoso.sharepoint.test/sites/AgentSite/_api/web/lists?page=2",
+		});
+		await expect(httpNext.client.listCards(CFG)).rejects.toThrow("same https origin");
+
+		const sameOriginNext = makeFakeSharePoint({
+			items: [
+				{ Id: 1, Title: "One", board_x0020_choice: DEFAULT_BOARD_COLUMNS.waiting, ThreadId: "t-1" },
+				{ Id: 2, Title: "Two", board_x0020_choice: DEFAULT_BOARD_COLUMNS.working, ThreadId: "t-2" },
+			],
+			itemsNextLink: `/sites/AgentSite/_api/web/lists(guid'${LIST_ID}')/items?page=2`,
+		});
+		const paged = await sameOriginNext.client.listCards(CFG);
+		expect(paged.map((c) => c.id)).toEqual([1, 2]);
+	});
+
+	test("ensureSchema creates missing fields, updates choices, adds missing ViewFields, and patches only KANBAN views without KanbanCardDesigner100 or designerConfig", async () => {
+		const CHOICE_FIELD_ID = "00000000-0000-4000-8000-000000000101";
+		const NON_KANBAN_VIEW_ID = "00000000-0000-4000-8000-000000000201";
+		const OTHER_KANBAN_VIEW_ID = "00000000-0000-4000-8000-000000000202";
+		const BOARD_KANBAN_VIEW_ID = "00000000-0000-4000-8000-000000000203";
+
+		// Non-KANBAN view titled "Board" must NOT be touched when no KANBAN view exists
+		const nonKanbanOnly = makeFakeSharePoint({
+			views: [{ Id: NON_KANBAN_VIEW_ID, Title: "Board", ViewType: "HTML", CustomFormatter: "keep-me" }],
+		});
+		const noKanbanRes = await nonKanbanOnly.client.ensureSchema(CFG);
+		expect(noKanbanRes.viewPatched).toBe(false);
+		expect(noKanbanRes.addedViewFields).toEqual([]);
+		expect(nonKanbanOnly.views[0].CustomFormatter).toBe("keep-me");
+
 		const sp = makeFakeSharePoint({
 			fields: [
-				{ Id: "f-choice", InternalName: "board_x0020_choice", Title: "board choice", TypeAsString: "Choice", Choices: [DEFAULT_BOARD_COLUMNS.waiting] },
+				{ Id: CHOICE_FIELD_ID, InternalName: "board_x0020_choice", Title: "board choice", TypeAsString: "Choice", Choices: [DEFAULT_BOARD_COLUMNS.waiting] },
 			],
-			views: [{ Id: "v-board", Title: "Board", ViewType: "HTML", ViewType2: "KANBAN", CustomFormatter: "{}" }],
+			views: [
+				{ Id: NON_KANBAN_VIEW_ID, Title: "All Items", ViewType: "HTML", CustomFormatter: "untouched" },
+				{ Id: OTHER_KANBAN_VIEW_ID, Title: "Sprint", ViewType: "HTML", ViewType2: "KANBAN", CustomFormatter: "untouched-2" },
+				{ Id: BOARD_KANBAN_VIEW_ID, Title: "Board", ViewType: "HTML", ViewType2: "KANBAN", CustomFormatter: "{}", ViewFields: ["LinkTitle"] },
+			],
 		});
 
 		const res = await sp.client.ensureSchema(CFG);
 		expect(res.createdFields).toEqual(["Summary", "ThreadLink", "ThreadId"]);
 		expect(res.updatedFields).toEqual(["board_x0020_choice"]);
+		expect(res.addedViewFields).toEqual(["board_x0020_choice", "Summary", "ThreadLink"]);
 		expect(res.viewPatched).toBe(true);
 		expect(res.viewTitle).toBe("Board");
+		expect(sp.views[0].CustomFormatter).toBe("untouched");
+		expect(sp.views[1].CustomFormatter).toBe("untouched-2");
+		expect(sp.views[2].ViewFields).toEqual(["LinkTitle", "board_x0020_choice", "Summary", "ThreadLink"]);
 
 		const choiceField = sp.fields.find((f) => f.InternalName === "board_x0020_choice");
 		expect(choiceField?.Choices).toEqual([DEFAULT_BOARD_COLUMNS.waiting, DEFAULT_BOARD_COLUMNS.working, DEFAULT_BOARD_COLUMNS.done]);
 
-		const rawFormatter = sp.views[0].CustomFormatter!;
+		const rawFormatter = sp.views[2].CustomFormatter!;
 		expect(rawFormatter).not.toContain("KanbanCardDesigner100");
 		expect(rawFormatter).not.toContain("designerConfig");
 		const parsed = JSON.parse(rawFormatter);
@@ -423,14 +533,24 @@ describe("BoardClient REST operations", () => {
 });
 
 describe("teams_board tool & teams_react personal-channel board hook", () => {
-	function makeTeamsHarness(sp: ReturnType<typeof makeFakeSharePoint>) {
+	function makeTeamsHarness(
+		sp: ReturnType<typeof makeFakeSharePoint>,
+		graphOpts: { membershipType?: string; memberOids?: string[] } = {},
+	) {
 		const reactCalls: { path: string; body: unknown }[] = [];
+		let membersCalls = 0;
+		const membershipType = graphOpts.membershipType ?? "private";
+		const memberOids = graphOpts.memberOids ?? [OID];
 		const doGraphFetch = async (url: string, init: { method?: string; body?: string }) => {
 			const path = decodeURIComponent(url);
 			const method = init.method ?? "GET";
 			const body = init.body ? JSON.parse(init.body) : undefined;
 			if (path === `https://graph.microsoft.com/v1.0/teams/${TEAM_ID}/channels/${CHANNEL_ID}` && method === "GET") {
-				return { status: 200, text: async () => JSON.stringify({ id: CHANNEL_ID, displayName: "Agent Desk", membershipType: "private" }) };
+				return { status: 200, text: async () => JSON.stringify({ id: CHANNEL_ID, displayName: "Agent Desk", membershipType }) };
+			}
+			if (path === `https://graph.microsoft.com/v1.0/teams/${TEAM_ID}/channels/${CHANNEL_ID}/members` && method === "GET") {
+				membersCalls++;
+				return { status: 200, text: async () => JSON.stringify({ value: memberOids.map((id) => ({ userId: id })) }) };
 			}
 			if (path === `https://graph.microsoft.com/v1.0/teams/${TEAM_ID}/channels/${SHARED_CHANNEL_ID}` && method === "GET") {
 				return { status: 200, text: async () => JSON.stringify({ id: SHARED_CHANNEL_ID, displayName: "Shared Room", membershipType: "standard" }) };
@@ -446,9 +566,10 @@ describe("teams_board tool & teams_react personal-channel board hook", () => {
 		};
 		const graph = new GraphClient(async () => fakeJwt(TENANT_ID), doGraphFetch as never);
 		const backend = new GraphBackend(graph, { whoami: async () => "Operator", oid: async () => OID });
+		backend.channelStream = async () => ({ raw: [] });
 
 		const tools = new Map<string, { execute(id: string, params: Record<string, unknown>, s: undefined, u: undefined, ctx: unknown): Promise<{ content: { text: string }[] }> }>();
-		createTeams({
+		const teams = createTeams({
 			registerTool: (t) => void tools.set(t.name, t as never),
 			exec: async () => ({ code: 0, stdout: "", stderr: "" }),
 			sendMessage: () => {},
@@ -464,13 +585,13 @@ describe("teams_board tool & teams_react personal-channel board hook", () => {
 			const r = await t.execute("call", params, undefined, undefined, ctx);
 			return r.content.map((c) => c.text).join("\n");
 		};
-		return { call, reactCalls };
+		return { call, reactCalls, teams, ctx, getMembersCalls: () => membersCalls };
 	}
 
 	test("teams_board upsert auto-builds thread_url from personal channel + tid claim, then list and done work end-to-end", async () => {
 		writeRulesWithPersonalBoard();
 		const sp = makeFakeSharePoint({
-			views: [{ Id: "v-1", Title: "Board", ViewType: "HTML", ViewType2: "KANBAN" }],
+			views: [{ Id: "00000000-0000-4000-8000-000000000201", Title: "Board", ViewType: "HTML", ViewType2: "KANBAN" }],
 		});
 		const { call } = makeTeamsHarness(sp);
 
@@ -583,6 +704,83 @@ describe("teams_board tool & teams_react personal-channel board hook", () => {
 		const { call } = makeTeamsHarness(sp);
 		await expect(call("teams_board", { action: "list", team_id: TEAM_ID })).rejects.toThrow("Multiple personal channels with board config found");
 	});
+
+	test("teams_react('\u2705\ufe0f') variation selector syncs board, while downgraded or non-private personal channel skips board sync loudly", async () => {
+		writeRulesWithPersonalBoard();
+		const sp = makeFakeSharePoint({
+			items: [{ Id: 8, Title: "VS16 Task", board_x0020_choice: DEFAULT_BOARD_COLUMNS.working, ThreadId: "1700000000888" }],
+		});
+
+		// 1. No active watch, channel gained a second member -> verifyPersonal fails -> board sync skipped with warning
+		const multiMember = makeTeamsHarness(sp, { membershipType: "private", memberOids: [OID, "00000000-0000-4000-8000-000000000002"] });
+		const originalWarn = console.warn;
+		console.warn = () => {};
+		try {
+			const warnOut = await multiMember.call("teams_react", {
+				team_id: TEAM_ID,
+				channel_id: CHANNEL_ID,
+				message_id: "1700000000888",
+				reaction: "\u2705\ufe0f",
+			});
+			expect(warnOut).toContain("Reacted \u2705\ufe0f to message 1700000000888");
+			expect(warnOut).toContain("Warning: board sync skipped (personal verification failed");
+			expect(sp.items[0].board_x0020_choice).toBe(DEFAULT_BOARD_COLUMNS.working);
+
+			// 2. Active watch downgraded to shared (refused) -> skips board sync loudly without mutating board
+			const watchHandle = multiMember.teams.watches;
+			const downgradedOut = await (async () => {
+				await multiMember.teams.startChannelWatch(multiMember.ctx, { teamId: TEAM_ID, channelId: CHANNEL_ID, mode: "personal", save: false });
+				try {
+					expect(watchHandle.size).toBe(1);
+					return await multiMember.call("teams_react", {
+						team_id: TEAM_ID,
+						channel_id: CHANNEL_ID,
+						message_id: "1700000000888",
+						reaction: "\u2705\ufe0f",
+					});
+				} finally {
+					multiMember.teams.stopAllWatches();
+				}
+			})();
+			expect(downgradedOut).toContain("Warning: board sync skipped (personal verification failed");
+			expect(sp.items[0].board_x0020_choice).toBe(DEFAULT_BOARD_COLUMNS.working);
+		} finally {
+			console.warn = originalWarn;
+		}
+
+		// 3. No active watch, live verifyPersonal passes + variation selector ✅️ -> moves card to done
+		const okHarness = makeTeamsHarness(sp, { membershipType: "private", memberOids: [OID] });
+		const okOut = await okHarness.call("teams_react", {
+			team_id: TEAM_ID,
+			channel_id: CHANNEL_ID,
+			message_id: "1700000000888",
+			reaction: "\u2705\ufe0f",
+		});
+		expect(okOut).toContain('Board card #8 moved to "✅ 已完成"');
+		expect(sp.items[0].board_x0020_choice).toBe(DEFAULT_BOARD_COLUMNS.done);
+		expect(okHarness.getMembersCalls()).toBe(1);
+
+		// 4. Active personal watch -> syncs without extra /members check
+		const spActive = makeFakeSharePoint({
+			items: [{ Id: 9, Title: "Active Watch Task", board_x0020_choice: DEFAULT_BOARD_COLUMNS.working, ThreadId: "1700000000889" }],
+		});
+		const activeHarness = makeTeamsHarness(spActive, { membershipType: "private", memberOids: [OID] });
+		await activeHarness.teams.startChannelWatch(activeHarness.ctx, { teamId: TEAM_ID, channelId: CHANNEL_ID, mode: "personal", save: false });
+		try {
+			const callsBeforeReact = activeHarness.getMembersCalls();
+			const activeOut = await activeHarness.call("teams_react", {
+				team_id: TEAM_ID,
+				channel_id: CHANNEL_ID,
+				message_id: "1700000000889",
+				reaction: "✅",
+			});
+			expect(activeOut).toContain('Board card #9 moved to "✅ 已完成"');
+			expect(spActive.items[0].board_x0020_choice).toBe(DEFAULT_BOARD_COLUMNS.done);
+			expect(activeHarness.getMembersCalls()).toBe(callsBeforeReact);
+		} finally {
+			activeHarness.teams.stopAllWatches();
+		}
+	});
 });
 
 describe("inbox board CLI", () => {
@@ -597,5 +795,15 @@ describe("inbox board CLI", () => {
 		}
 		expect(caught).toBeInstanceOf(Error);
 		expect((caught as Error).message).toContain("No personal channel with a board config found");
+		for (const argv of [["board", "upsert", "   ", "--status", "waiting"], ["board", "done", ""]]) {
+			let emptyErr: unknown;
+			try {
+				await inbox(argv);
+			} catch (e) {
+				emptyErr = e;
+			}
+			expect(emptyErr).toBeInstanceOf(Error);
+			expect((emptyErr as Error).message).toBe("thread-id must not be empty");
+		}
 	});
 });
