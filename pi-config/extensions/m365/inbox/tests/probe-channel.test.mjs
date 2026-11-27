@@ -42,6 +42,9 @@ const TEAM = "team-1";
 const CHANNEL = "19:fake-channel@thread.skype";
 const KEY = `channel:${TEAM}/${CHANNEL}`;
 const T0 = Date.UTC(2026, 10, 6, 14, 0) / 1000;
+// Synthetic board fixture only: no real SharePoint site, list, or tenant.
+const BOARD = { site_url: "https://contoso.sharepoint.test/sites/AgentSite", list_id: "00000000-0000-4000-8000-000000000099" };
+const TENANT = "00000000-0000-4000-8000-000000000020";
 
 const ompTail = gzipSync(Buffer.from(JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "working on it" }], stopReason: "stop" } }))).toString("base64");
 const ompLive = (now, want) => ({
@@ -86,12 +89,17 @@ function makeFixture(dir) {
 		sendMode: "ok",
 		logs: [],
 		personal: true,
+		/** The personal channel's `board:` block; when set, each accepted thread send also upserts its board card. */
+		board: undefined,
+		/** Injected probe board client (fake): records listCards/upsertCard calls; undefined -> the live BoardClient. */
+		boardClient: undefined,
 		/** Sets one watched session and rewrites rules.yaml with every session so far, each keeping its own fields. */
 		watch(name, behaviour, fields = {}) {
 			f.agents[name] = { behaviour, fields };
 			const rows = Object.entries(f.agents).map(([n, a]) => ({ name: n, mux: "tern", pane: "1", host: "local", result: "", ...a.fields }));
 			const rules = { agents: { "*": [{ action: "notify", tag: "agent" }] }, agent_watch: rows };
-			if (f.personal) rules.teams_watch = { chats: [], channels: [{ channel: "personal-fixture", team_id: TEAM, channel_id: CHANNEL, mode: "personal", policy: "" }] };
+			if (f.personal)
+				rules.teams_watch = { chats: [], channels: [{ channel: "personal-fixture", team_id: TEAM, channel_id: CHANNEL, mode: "personal", policy: "", ...(f.board ? { board: f.board } : {}) }] };
 			fs.writeFileSync(path.join(dir, "rules.yaml"), YAML.stringify(rules));
 		},
 		run(sender = teamsSender(fakeTransport(f))) {
@@ -101,8 +109,9 @@ function makeFixture(dir) {
 				now: () => f.now * 1000,
 				log: (line) => f.logs.push(line),
 				probe: async (a, want) => f.agents[a.name].behaviour(f.now, want),
-				sender,
-			});
+			sender,
+			boardClient: f.boardClient,
+		});
 		},
 		cursor() {
 			return JSON.parse(fs.readFileSync(cursorPath(KEY), "utf8"));
@@ -348,6 +357,146 @@ try {
 			const probe = async () => ({ alive: true, agent: "omp", agent_pid: 1, session: "/s.jsonl", smtime: T0, state: "", waiting: false, text: "", rmtime: 0, rstatus: "", now: T0 });
 			await addAgent({ name: "tau", mux: "tern", pane: "9", thread: "   " }, probe);
 			strictEqual(readAgents().find((a) => a.name === "tau")?.thread, undefined);
+		}),
+	);
+
+	await check("15. board: a working agent's thread send creates its card as working with an [HH:MM] summary", () =>
+		withFixture(async (f) => {
+			f.board = BOARD;
+			f.watch("alpha", ompLive, { thread: "thread-board" });
+			f.seedCursor({});
+			const calls = { list: 0, upserts: [] };
+			f.boardClient = {
+				listCards: async () => {
+					calls.list++;
+					return [];
+				},
+				upsertCard: async (_cfg, input) => {
+					calls.upserts.push(input);
+					return { action: "created", id: 1 };
+				},
+				resolveTenantId: async () => TENANT,
+			};
+			await f.run();
+			strictEqual(calls.list, 1, "one listCards for the one thread");
+			strictEqual(calls.upserts.length, 1, "one upsert");
+			const up = calls.upserts[0];
+			strictEqual(up.threadId, "thread-board");
+			strictEqual(up.status, "working");
+			ok(/^\[\d\d:\d\d\] alpha \u00b7 working/.test(up.summary), `summary is [HH:MM] + agent + phase: ${up.summary}`);
+			ok(up.summary.length <= 220, "summary respects the 220-char cap");
+			strictEqual(up.title, "\u{1f916} alpha");
+			ok(up.threadUrl !== undefined && !up.threadUrl.includes("createdTime"), "deep link omits createdTime");
+		}),
+	);
+
+	await check("16. board: asking / blocked-RESULT / done-RESULT agents set the card to waiting, never done", () =>
+		withFixture(async (f) => {
+			f.board = BOARD;
+			f.watch("asker", (now, want) => ({ ...ompLive(now, want), state: "blocked" }), { thread: "t-ask" });
+			f.watch("blocky", (now, want) => ({ ...ompLive(now, want), rstatus: "blocked", ropen_text: "pick a branch" }), { thread: "t-block" });
+			f.watch("finisher", (now, want) => ({ ...ompLive(now, want), rstatus: "done", waiting: true }), { thread: "t-done" });
+			f.seedCursor({});
+			const upserts = [];
+			f.boardClient = {
+				listCards: async () => [],
+				upsertCard: async (_cfg, input) => {
+					upserts.push(input);
+					return { action: "created", id: 1 };
+				},
+				resolveTenantId: async () => TENANT,
+			};
+			await f.run();
+			const byThread = Object.fromEntries(upserts.map((u) => [u.threadId, u]));
+			strictEqual(byThread["t-ask"]?.status, "waiting", "asking agent -> waiting");
+			strictEqual(byThread["t-block"]?.status, "waiting", "blocked RESULT -> waiting");
+			strictEqual(byThread["t-done"]?.status, "waiting", "done RESULT -> waiting");
+			ok(upserts.every((u) => u.status !== "done"), "no upsert ever closes a card to done");
+		}),
+	);
+
+	await check("17. board: an already-done card is not reopened by idle/done probes, but a new working run reopens it", () =>
+		withFixture(async (f) => {
+			f.board = BOARD;
+			f.watch("guardian", ompLive, { thread: "t-guard" });
+			f.seedCursor({});
+			const calls = { list: 0, upserts: [] };
+			const doneCard = { id: 7, title: "done task", status: "done", column: "\u2705 \u5df2\u5b8c\u6210", summary: "s", threadId: "t-guard", threadUrl: "" };
+			f.boardClient = {
+				listCards: async () => {
+					calls.list++;
+					return [doneCard];
+				},
+				upsertCard: async (_cfg, input) => {
+					calls.upserts.push(input);
+					return { action: "updated", id: 7 };
+				},
+				resolveTenantId: async () => TENANT,
+			};
+			f.watch("guardian", (now, want) => ({ ...ompLive(now, want), waiting: true }), { thread: "t-guard" });
+			await f.run();
+			strictEqual(calls.upserts.length, 0, "an idle probe does not touch the done card");
+			f.now = T0 + 30 * 60;
+			f.watch("guardian", (now, want) => ({ ...ompLive(now, want), rstatus: "done", waiting: true }), { thread: "t-guard" });
+			await f.run();
+			strictEqual(calls.upserts.length, 0, "a done-RESULT probe does not reopen the done card");
+			f.now = T0 + 60 * 60;
+			f.watch("guardian", ompLive, { thread: "t-guard" });
+			await f.run();
+			strictEqual(calls.upserts.length, 1, "a new working run reopens the done card");
+			strictEqual(calls.upserts[0].status, "working");
+		}),
+	);
+
+	await check("18. board: a sync failure warns loudly without failing the send or the digest bookkeeping", () =>
+		withFixture(async (f) => {
+			f.board = BOARD;
+			f.watch("bravo", ompLive, { thread: "t-bravo" });
+			f.seedCursor({});
+			const stderr = [];
+			const origError = console.error;
+			console.error = (m) => stderr.push(String(m));
+			f.boardClient = {
+				listCards: async () => {
+					throw new Error("SharePoint 503 unavailable");
+				},
+				upsertCard: async () => {
+					throw new Error("unreachable");
+				},
+				resolveTenantId: async () => TENANT,
+			};
+			try {
+				await f.run();
+			} finally {
+				console.error = origError;
+			}
+			strictEqual(f.channelSends().length, 1, "the Teams progress send succeeded");
+			ok(stderr.some((m) => m.includes("[inbox-probe] board sync failed for thread t-bravo") && m.includes("SharePoint 503")), `warns loudly on stderr: ${stderr.join(" | ")}`);
+			ok(f.logs.some((l) => l.includes("board sync failed for thread t-bravo")), "the warning is in the probe log too");
+			ok(f.state().watches.bravo.digested !== undefined, "the digest is still recorded, so cursor bookkeeping is not blocked");
+		}),
+	);
+
+	await check("19. board: no board config in rules.yaml means zero board calls", () =>
+		withFixture(async (f) => {
+			f.watch("gamma", ompLive, { thread: "t-noboard" });
+			f.seedCursor({});
+			const calls = { list: 0, upserts: [] };
+			f.boardClient = {
+				listCards: async () => {
+					calls.list++;
+					return [];
+				},
+				upsertCard: async (_cfg, input) => {
+					calls.upserts.push(input);
+					return { action: "created", id: 1 };
+				},
+				resolveTenantId: async () => TENANT,
+			};
+			await f.run();
+			strictEqual(calls.list, 0, "no listCards without a board config");
+			strictEqual(calls.upserts.length, 0, "no upserts without a board config");
+			strictEqual(f.channelSends().length, 1, "the Teams thread send is unchanged");
 		}),
 	);
 } finally {

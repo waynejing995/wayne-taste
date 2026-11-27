@@ -198,6 +198,11 @@ teams_watch:
   `ThreadLink`, `ThreadId`) and patches the `KANBAN` `Board` view's `CustomFormatter` with `kanbanProps.formatter`.
 - **`teams_react("✅")`** on a root post of that personal channel moves the matching card to `done` (warning in the
   tool output if SharePoint sync fails, without hiding the Teams reaction success).
+- **`inbox agent probe`** auto-syncs the personal channel's configured `board:` with zero LLM calls: each accepted
+  thread progress post upserts that thread's card from the probed agent state — working → `working`; asking /
+  blocked-RESULT / done-RESULT → `waiting` (never auto-closed to done). An already-done card is left untouched
+  unless an agent on that thread is working again. A board failure warns and never fails the Teams send or the
+  digest bookkeeping.
 
 ## Other harnesses (MCP)
 
