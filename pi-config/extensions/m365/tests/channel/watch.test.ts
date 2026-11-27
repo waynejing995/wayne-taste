@@ -1055,12 +1055,14 @@ test("an ACK in flight reserves the turn against competing prompts and cards", a
 	s.stream.push(raw("201", "second", ME));
 	s.stream.push(raw("301", "email", ME, { s2spartnername: "MailhookService" }));
 	await s.tick();
-	expect(s.prompts).toHaveLength(1);
-	expect(s.prompts[0].options).toEqual({ deliverAs: "steer" });
-	expect(s.prompts[0].text).toContain("reply_to=201");
-	expect(s.cards).toHaveLength(0);
+	expect(s.prompts).toHaveLength(0); // the in-flight ACK holds its idle turn: nothing is steered in while it is claimed
 	release.resolve();
 	await first;
+	expect(s.prompts).toHaveLength(2);
+	expect(s.prompts[0].options).toBeUndefined(); // the first prompt starts its own turn
+	expect(s.prompts[1].options).toEqual({ deliverAs: "steer" }); // the second follows it once the claim is released
+	expect(s.prompts[1].text).toContain("reply_to=201");
+	expect(s.cards).toHaveLength(0);
 	s.teams.noteAssistantText("mixed answer");
 	s.teams.turnEnded();
 	await s.teams.replyToSelf(s.ctx);
@@ -1135,4 +1137,102 @@ test("a card waits if a command claims the turn during a display-only card hand-
 	expect(s.cards).toHaveLength(2);
 	expect(s.cards[1].options?.triggerTurn).toBe(true);
 	expect(s.cards[1].message.details.ids).toEqual(["102"]);
+});
+
+test("F1: a personal instruction arriving during an in-flight idle ACK is steered and names its reply thread, and the claimed thread is not left holding the turn", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	const gate = Promise.withResolvers<void>();
+	const ackStarted = Promise.withResolvers<void>();
+	s.onReact(async () => { ackStarted.resolve(); await gate.promise; });
+	s.stream.push(raw("201", "omp: first thread", ME));
+	const first = s.tick();
+	await ackStarted.promise; // thread 201's ACK is in flight: its idle turn is claimed
+	s.idle(false); // the host went busy while the ACK was in flight
+	s.onReact(undefined);
+	s.stream.push(raw("301", "omp: other thread, mid-turn", ME));
+	await s.tick();
+	gate.resolve();
+	await first;
+	expect(s.prompts).toHaveLength(2);
+	expect(s.prompts[0].options).toEqual({ deliverAs: "steer" }); // the host went busy during its ACK: steered, with its reply hint
+	expect(s.prompts[0].text).toContain("Answer in this thread with teams_send reply_to=201");
+	expect(s.prompts[1].options).toEqual({ deliverAs: "steer" });
+	expect(s.prompts[1].text).toContain("Answer in this thread with teams_send reply_to=301");
+});
+
+test("F1: a steered personal instruction whose ACK finishes after the turn ended is handed over as a turn start", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	s.idle(false);
+	const ackStarted = Promise.withResolvers<void>();
+	const gate = Promise.withResolvers<void>();
+	s.onReact(async () => { ackStarted.resolve(); await gate.promise; });
+	s.stream.push(raw("201", "omp: steered while busy", ME));
+	const pending = s.tick();
+	await ackStarted.promise;
+	s.idle(true); // the turn ended while the ACK was in flight
+	s.teams.turnEnded();
+	gate.resolve();
+	await pending;
+	expect(s.prompts).toHaveLength(1);
+	expect(s.prompts[0].options).toBeUndefined();
+	expect(s.prompts[0].text).toContain("thread: 201");
+});
+
+test("F2: a same-thread instruction after an owed answer does not inherit it: the owed answer is posted first, and the follow-ups stay awaiting", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	s.stream.push(raw("101", "omp: first", ME));
+	await s.tick();
+	s.teams.noteAssistantText("answer for 101");
+	s.teams.turnEnded(); // the turn for 101 ended: its answer is due
+	s.idle(true);
+	s.stream.push(raw("102", "omp: second, same thread", ME, { rootMessageId: "101" }));
+	s.stream.push(raw("103", "omp: third, same thread", ME, { rootMessageId: "101" }));
+	await s.tick();
+	expect(s.sends).toHaveLength(1);
+	expect(JSON.stringify(s.sends[0].card)).toContain("answer for 101");
+	expect(s.prompts).toHaveLength(2); // 101 started the first turn; 102 and 103 are one batch for thread 101
+	expect(s.prompts[1].options).toBeUndefined(); // the host is idle: the batch starts its own turn, auto-answered
+	expect(s.prompts[1].text).not.toContain("reply_to=101");
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["102", "103"] }); // 101 was answered by the owed answer and left awaiting
+});
+
+test("F3: flushCards stops at the first card once a turn starts mid-flush, and sends the rest only on the next idle flush", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	s.gateWill(true);
+	s.gateWill(true);
+	s.stream.push(raw("201", "an email arrived", ME, { s2spartnername: "MailhookService" }));
+	s.stream.push(raw("202", "another email", ME, { s2spartnername: "MailhookService" }));
+	s.onCard(() => { s.idle(false); });
+	await s.tick();
+	expect(s.cards).toHaveLength(1);
+	s.onCard(undefined);
+	s.idle(true);
+	s.teams.turnEnded();
+	await s.tick();
+	expect(s.cards).toHaveLength(2);
+	expect(s.cards[1].message.details.ids).toEqual(["202"]);
+});
+
+test("F4: a busy runChannelCommands re-checks idle per prompt: a turn that ends mid-batch starts the next prompt as its own turn", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	s.idle(false);
+	s.stream.push(raw("201", "omp: first while busy", ME));
+	s.stream.push(raw("202", "omp: second while busy", ME));
+	s.onPrompt(() => { s.idle(true); s.teams.turnEnded(); });
+	await s.tick();
+	s.onPrompt(undefined as never);
+	expect(s.prompts).toHaveLength(2);
+	expect(s.prompts[0].options).toEqual({ deliverAs: "steer" });
+	expect(s.prompts[1].options).toBeUndefined();
+	expect(s.prompts[1].text).toContain("thread: 202");
 });

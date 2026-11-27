@@ -543,6 +543,24 @@ try {
 		}),
 	);
 
+	await check("23. board: an update patches the status only and never overwrites an existing card's summary", () =>
+		withFixture(async (f) => {
+			f.board = BOARD;
+			f.watch("keeper", ompLive, { thread: "t-keep" });
+			f.seedCursor({});
+			const upserts = [];
+			f.boardClient = {
+				listCards: async () => [{ id: 3, title: "keep", status: "working", summary: "human text", threadId: "t-keep", threadUrl: "" }],
+				upsertCard: async (_cfg, input) => { upserts.push(input); return { action: "updated", id: 3 }; },
+				resolveTenantId: async () => TENANT,
+			};
+			await f.run();
+			strictEqual(upserts.length, 1, "one upsert");
+			strictEqual(upserts[0].summary, undefined, "existing card: no summary is sent, so Description is kept");
+			strictEqual(upserts[0].title, undefined, "existing card: no title either");
+		}),
+	);
+
 	await check("22. board timeouts warn and allow later threads and digest bookkeeping; custom links use the default", () =>
 		withFixture(async (f) => {
 			f.board = BOARD;

@@ -449,14 +449,15 @@ async function syncThreadBoard(
 		if (existing?.status === "done" && desired !== "working") return;
 		if (desired === undefined && (!existing || existing.status === "unknown")) return;
 		const status: BoardStatus = desired ?? (existing!.status as BoardStatus);
+		// The Summary is written only on create: an existing card's Description may be the Coordinator LLM's own text,
+		// and an update patches just the status column.
 		const input: UpsertCardInput = {
 			threadId,
 			status,
-			summary: boardSummary(entries, now),
-			...(existing ? {} : { title: boardTitle(entries, agentsByName, titleFallback) }),
+			...(existing ? {} : { title: boardTitle(entries, agentsByName, titleFallback), summary: boardSummary(entries, now) }),
 		};
 		try {
-			const tenantId = await client.resolveTenantId(cfg);
+			const tenantId = await within("SharePoint resolve tenant", () => client.resolveTenantId(cfg));
 			input.defaultThreadUrl = boardMod.buildThreadUrl({ teamId: channel.teamId, channelId: channel.channelId, tenantId, threadId });
 		} catch (e) {
 			log(`board thread URL skipped for ${threadId}: ${e instanceof Error ? e.message : String(e)}`);
