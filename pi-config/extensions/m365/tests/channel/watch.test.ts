@@ -449,7 +449,7 @@ test("U28: a personal channel is re-verified every 600 s: a failing check downgr
 	expect(s.counts().membersCalls).toBe(3); // the restored verification holds for another 600 s
 });
 
-test("U30: a personal instruction gets its 👀 ACK, lands in awaiting, and is answered in the thread at turn end", async () => {
+test("U30: a personal instruction gets its 🤖 ACK, lands in awaiting, and is answered in the thread at turn end", async () => {
 	const s = setup({ turnEvents: true });
 	s.stream.push(raw("100", "old note", ME));
 	await s.start("personal");
@@ -462,9 +462,9 @@ test("U30: a personal instruction gets its 👀 ACK, lands in awaiting, and is a
 	expect(s.prompts[0].text).toContain(`[Teams channel instruction] #General  team_id: ${TEAM}  channel_id: ${CHANNEL}  thread: 101`);
 	expect(s.prompts[0].text).toContain("subject:");
 	expect(s.prompts[0].text).toContain("owner:");
-	expect(s.reacts).toEqual([{ messageId: "101", type: "👀" }]);
+	expect(s.reacts).toEqual([{ messageId: "101", type: "🤖" }]);
 	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
-	// the email post and the other author's message: cards, never a 👀, never awaiting
+	// the email post and the other author's message: cards, never a 🤖, never awaiting
 	// (delivered display-only first, the card that starts the turn last)
 	expect(s.cards.map((c) => c.message.details.ids)).toEqual([["103"], ["102"]]);
 	expect(s.cards.at(-1)?.options?.triggerTurn).toBe(true); // an email post needs triage
@@ -521,7 +521,7 @@ test("U31: busy, a new instruction of the running thread is steered; another thr
 	expect(s.prompts[2].text).toContain("thread: 301");
 });
 
-test("U32: an awaiting instruction left by a previous process is re-delivered once with the mark suffix and no second 👀", async () => {
+test("U32: an awaiting instruction left by a previous process is re-delivered once with the mark suffix and no second 🤖", async () => {
 	const s = setup({ turnEvents: false });
 	s.stream.push(raw("100", "old", ME));
 	s.stream.push(raw("101", "omp: restart me", ME));
@@ -533,7 +533,7 @@ test("U32: an awaiting instruction left by a previous process is re-delivered on
 	expect(s.prompts[0].text).toContain("omp: restart me");
 	expect(s.prompts[0].text).toContain("(re-delivered after a restart: check the thread before repeating side effects)");
 	expect(s.prompts[0].text).toContain(`Answer in this thread with teams_send reply_to=101`);
-	expect(s.reacts).toEqual([]); // no second 👀
+	expect(s.reacts).toEqual([]); // no second 🤖
 	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
 	await s.tick();
 	expect(s.prompts).toHaveLength(1); // once
@@ -1235,4 +1235,204 @@ test("F4: a busy runChannelCommands re-checks idle per prompt: a turn that ends 
 	expect(s.prompts[0].options).toEqual({ deliverAs: "steer" });
 	expect(s.prompts[1].options).toBeUndefined();
 	expect(s.prompts[1].text).toContain("thread: 202");
+});
+
+test("R3-F1: a hand-off failure after the turn ended during its ACK clears turnThread instead of restoring the stale busy thread", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	s.stream.push(raw("101", "first turn", ME));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	// thread 101's turn is running when 201's instruction arrives; its ACK is held in flight
+	s.idle(false);
+	s.teams.noteAssistantText("answer for 101");
+	const ackStarted = Promise.withResolvers<void>();
+	const gate = Promise.withResolvers<void>();
+	s.onReact(async () => { ackStarted.resolve(); await gate.promise; });
+	s.onPrompt(async () => { throw new Error("turn start failed"); });
+	s.stream.push(raw("201", "second instruction", ME));
+	const pending = s.tick();
+	await ackStarted.promise;
+	// the running turn ends while 201's ACK is in flight: the host goes idle with no live turn thread
+	s.idle(true);
+	s.teams.turnEnded();
+	gate.resolve();
+	await pending;
+	// the turn start failed: the owed answer still posts, and the next poll re-delivers 201
+	s.onPrompt(undefined as never);
+	s.onReact(undefined as never);
+	await s.tick();
+	expect(s.prompts).toHaveLength(3); // 101's turn, 201's failed hand-off, 201's retry
+	expect(s.prompts[2].options).toBeUndefined(); // a clean turn start: turnThread was rolled back, not left on 101
+	expect(s.prompts[2].text).toContain("thread: 201");
+	expect(s.sends).toHaveLength(1);
+	expect(s.sends[0].target).toMatchObject({ kind: "channel", replyTo: "101" });
+	expect(JSON.stringify(s.sends[0].card)).toContain("answer for 101");
+	expect(s.reacts.length).toBe(3); // every hand-off ACKed
+	expect(s.reacts.every((r) => r.type === "🤖")).toBe(true);
+});
+
+test("R3-F2: a reply during an owed turn clears only the new prompt's ids; the owed answer still posts afterwards", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	s.stream.push(raw("101", "omp: first question", ME));
+	await s.tick();
+	expect(s.reacts).toEqual([{ messageId: "101", type: "🤖" }]);
+	s.teams.noteAssistantText("owed answer for 101");
+	s.teams.turnEnded(); // turn 1 ended unanswered: its answer is owed
+	s.idle(false);
+	// a same-thread follow-up steers in while the answer is still owed: its prompt says to answer in the thread
+	s.stream.push(raw("102", "omp: follow-up", ME, { rootMessageId: "101" }));
+	await s.tick();
+	expect(s.prompts).toHaveLength(2);
+	expect(s.prompts[1].text).toContain(`Answer in this thread with teams_send reply_to=101`);
+	expect(s.reacts.at(-1)).toEqual({ messageId: "102", type: "🤖" }); // the follow-up's ACK lands as a thread reply
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101", "102"] });
+	// the agent answers the follow-up explicitly: the owed id 101 must survive that reply
+	await s.tool("teams_send").execute("t", { target: "channel", team_id: TEAM, channel_id: CHANNEL, reply_to: "101", message: "Follow-up answered.", card: false }, undefined, undefined, s.ctx);
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+	// the steered turn ends: the owed answer is posted as it was, not suppressed by the explicit reply
+	s.teams.turnEnded();
+	s.idle(true);
+	await s.tick();
+	expect(s.sends).toHaveLength(2); // the explicit reply, then the owed answer card
+	const owed = s.sends.find((x) => x.card !== undefined)!;
+	expect(owed.target).toMatchObject({ kind: "channel", replyTo: "101" });
+	expect(JSON.stringify(owed.card)).toContain("owed answer for 101");
+	expect(s.cursor()?.awaiting).toEqual({});
+});
+
+test("R3-F3: a turn that starts and ends while an idle ACK is in flight does not release the claim; the drain beside it holds off", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	const ackStarted = Promise.withResolvers<void>();
+	const gate = Promise.withResolvers<void>();
+	s.onReact(async () => { ackStarted.resolve(); await gate.promise; });
+	s.stream.push(raw("201", "omp: claimed turn", ME));
+	const first = s.tick();
+	await ackStarted.promise; // 201's ACK is in flight: its idle turn is claimed
+	// an unrelated turn (terminal input, a self-chat note) starts and ends while the ACK is in flight
+	s.idle(false);
+	s.teams.turnEnded();
+	s.idle(true);
+	s.stream.push(raw("301", "omp: next thread", ME));
+	await s.tick(); // a poll beside the blocked hand-off queues 301 and tries to drain it
+	expect(s.prompts).toHaveLength(0); // the claim still holds: 301 waits
+	gate.resolve();
+	await first;
+	expect(s.prompts).toHaveLength(2);
+	expect(s.prompts[0].options).toBeUndefined(); // 201's claim became a clean turn start, not a steer
+	expect(s.prompts[0].text).toContain("thread: 201");
+	expect(s.prompts[1].options).toEqual({ deliverAs: "steer" }); // 301 follows once the claim is released
+	expect(s.prompts[1].text).toContain("thread: 301");
+	expect(s.reacts.every((r) => r.type === "🤖")).toBe(true);
+});
+
+test("R3-F3: a busy ACK finishing beside an idle claimed ACK starts a turn without releasing the other claim's live thread", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	s.stream.push(raw("101", "first turn", ME));
+	await s.tick();
+	s.idle(false);
+	const busyStarted = Promise.withResolvers<void>();
+	const busyGate = Promise.withResolvers<void>();
+	s.onReact(async () => { busyStarted.resolve(); await busyGate.promise; });
+	s.stream.push(raw("201", "busy ACK", ME));
+	const busy = s.tick();
+	await busyStarted.promise;
+	s.teams.turnEnded();
+	s.idle(true);
+	const claimedStarted = Promise.withResolvers<void>();
+	const claimedGate = Promise.withResolvers<void>();
+	s.onReact(async () => { claimedStarted.resolve(); await claimedGate.promise; });
+	s.stream.push(raw("202", "idle claimed ACK", ME, { rootMessageId: "201" }));
+	const claimed = s.tick();
+	await claimedStarted.promise;
+	busyGate.resolve();
+	await busy;
+	expect(s.prompts).toHaveLength(2);
+	expect(s.prompts[1].options).toBeUndefined();
+	expect(s.prompts[1].text).not.toContain("reply_to=201");
+	claimedGate.resolve();
+	await claimed;
+	expect(s.prompts).toHaveLength(3);
+	expect(s.prompts[2].options).toEqual({ deliverAs: "steer" });
+	expect(s.prompts[2].text).not.toContain("reply_to=201");
+	expect(s.cursor()?.awaiting).toEqual({ "201": ["201", "202"] });
+	s.teams.noteAssistantText("combined answer");
+	s.teams.turnEnded();
+	await s.teams.replyToSelf(s.ctx);
+	expect(s.sends.at(-1)?.target).toMatchObject({ kind: "channel", replyTo: "201" });
+	expect(JSON.stringify(s.sends.at(-1)?.card)).toContain("combined answer");
+	expect(s.cursor()?.awaiting).toEqual({});
+	expect(s.reacts.map((r) => r.type)).toEqual(["🤖", "🤖", "🤖"]);
+});
+
+test("R3-F4: the owed answer is posted before any prompt is chosen, so a concurrent drain can never double-deliver it", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	await s.tool("teams_watch").execute("t", { action: "bind", team_id: TEAM, channel_id: CHANNEL, thread_id: "500", owner: "inbox:42" }, undefined, undefined, s.ctx);
+	// a personal instruction starts turn 1; a relay prompt of the bound thread queues behind it, waiting for idle
+	s.stream.push(raw("101", "omp: first question", ME));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	s.idle(false);
+	s.stream.push(raw("501", "omp: relay the deploy question", ME, { rootMessageId: "500" }));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1); // the relay prompt waits for idle
+	s.teams.noteAssistantText("answer for 101");
+	s.teams.turnEnded(); // turn 1's answer is owed; nothing is running
+	s.idle(true);
+	// drain A (an agent_end beside nothing else) posts the owed answer first; its POST is held in flight
+	const release = Promise.withResolvers<void>();
+	s.holdSend(release.promise);
+	const drainA = s.teams.runChannelCommands();
+	await s.sendStarted(); // the owed answer's POST is in flight, held
+	// a concurrent drain delivers the queued relay prompt once
+	await s.teams.runChannelCommands();
+	expect(s.prompts).toHaveLength(2);
+	expect(s.prompts[1].text).toContain("thread: 500");
+	expect(s.prompts[1].options).toBeUndefined();
+	// the relay prompt's turn ends before the held answer resolves: the state drain A re-checks is idle again
+	s.teams.turnEnded();
+	release.resolve();
+	await drainA;
+	expect(s.prompts.filter((p) => p.text.includes("thread: 500"))).toHaveLength(1); // never delivered twice
+	expect(s.sends).toHaveLength(1); // the owed answer, posted once
+	expect(s.sends[0].target).toMatchObject({ kind: "channel", replyTo: "101" });
+	expect(JSON.stringify(s.sends[0].card)).toContain("answer for 101");
+	expect(s.cursor()?.awaiting).toEqual({});
+});
+
+test("R3-F5: a relay prompt steered into a mixed turn carries no reply_to hint; a personal one still does", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	await s.tool("teams_watch").execute("t", { action: "bind", team_id: TEAM, channel_id: CHANNEL, thread_id: "500", owner: "inbox:42" }, undefined, undefined, s.ctx);
+	// the relay thread's prompt starts turn 1: only a personal instruction is ever ACKed
+	s.stream.push(raw("501", "omp: relay the deploy question", ME, { rootMessageId: "500" }));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	expect(s.prompts[0].options).toBeUndefined();
+	s.idle(false);
+	// a personal instruction of another thread steers in: the turn is mixed, and its own hint stays
+	s.stream.push(raw("502", "omp: personal aside", ME));
+	await s.tick();
+	expect(s.prompts).toHaveLength(2);
+	expect(s.prompts[1].options).toEqual({ deliverAs: "steer" });
+	expect(s.prompts[1].text).toContain(`Answer in this thread with teams_send reply_to=502`);
+	// a second relay prompt of the bound thread steers into the mixed turn: the owner hand-off stands, no reply_to hint
+	s.stream.push(raw("503", "omp: more relay context", ME, { rootMessageId: "500" }));
+	await s.tick();
+	expect(s.prompts).toHaveLength(3);
+	expect(s.prompts[2].options).toEqual({ deliverAs: "steer" });
+	expect(s.prompts[2].text).toContain("hand it to that owner rather than answering here");
+	expect(s.prompts[2].text).not.toContain("reply_to=");
+	expect(s.reacts.map((r) => r.messageId)).toEqual(["502"]); // relay prompts get no ACK
+	expect(s.reacts[0].type).toBe("🤖");
 });

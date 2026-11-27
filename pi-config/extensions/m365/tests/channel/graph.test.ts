@@ -128,15 +128,15 @@ describe("GraphBackend channel operations", () => {
 	test("U11: reactions on roots and replies hit exactly the four URLs", async () => {
 		const { b, seen } = fakeGraph();
 		const addr = { teamId: TEAM, channelId: CHANNEL };
-		await b.reactChannel(addr, "m-1", "👀");
-		await b.reactChannel(addr, "m-1", "👀", { remove: true });
-		await b.reactChannel(addr, "m-2", "👀", { replyTo: "m-0" });
-		await b.reactChannel(addr, "m-2", "👀", { replyTo: "m-0", remove: true });
+		await b.reactChannel(addr, "m-1", "🤖");
+		await b.reactChannel(addr, "m-1", "🤖", { remove: true });
+		await b.reactChannel(addr, "m-2", "🤖", { replyTo: "m-0" });
+		await b.reactChannel(addr, "m-2", "🤖", { replyTo: "m-0", remove: true });
 		expect(seen.map(({ url, method, body }) => ({ url, method, body }))).toEqual([
-			{ url: `${GRAPH}/teams/${TEAM}/channels/${CHANNEL}/messages/m-1/setReaction`, method: "POST", body: { reactionType: "👀" } },
-		{ url: `${GRAPH}/teams/${TEAM}/channels/${CHANNEL}/messages/m-1/unsetReaction`, method: "POST", body: { reactionType: "👀" } },
-		{ url: `${GRAPH}/teams/${TEAM}/channels/${CHANNEL}/messages/m-0/replies/m-2/setReaction`, method: "POST", body: { reactionType: "👀" } },
-		{ url: `${GRAPH}/teams/${TEAM}/channels/${CHANNEL}/messages/m-0/replies/m-2/unsetReaction`, method: "POST", body: { reactionType: "👀" } },
+			{ url: `${GRAPH}/teams/${TEAM}/channels/${CHANNEL}/messages/m-1/setReaction`, method: "POST", body: { reactionType: "🤖" } },
+		{ url: `${GRAPH}/teams/${TEAM}/channels/${CHANNEL}/messages/m-1/unsetReaction`, method: "POST", body: { reactionType: "🤖" } },
+		{ url: `${GRAPH}/teams/${TEAM}/channels/${CHANNEL}/messages/m-0/replies/m-2/setReaction`, method: "POST", body: { reactionType: "🤖" } },
+		{ url: `${GRAPH}/teams/${TEAM}/channels/${CHANNEL}/messages/m-0/replies/m-2/unsetReaction`, method: "POST", body: { reactionType: "🤖" } },
 		]);
 	});
 	test("channels filters by team or channel name and maps fields; resolveChannel prefers ids", async () => {
@@ -268,7 +268,7 @@ describe("ScriptBackend refuses channels", () => {
 		await expect(b.channelRoots(addr, 20)).rejects.toThrow(refuse);
 		await expect(b.channelThread(addr, "1700000000001")).rejects.toThrow(refuse);
 		await expect(b.channelMembers(addr)).rejects.toThrow(refuse);
-		await expect(b.reactChannel(addr, "m-1", "👀")).rejects.toThrow(refuse);
+		await expect(b.reactChannel(addr, "m-1", "🤖")).rejects.toThrow(refuse);
 		await expect(b.channelStream(addr, 50)).rejects.toThrow(refuse);
 		await expect(b.me()).rejects.toThrow(refuse);
 		const sends: SendTarget[] = [

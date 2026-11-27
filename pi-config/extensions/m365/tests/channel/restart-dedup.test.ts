@@ -220,17 +220,17 @@ test("crash after Graph answer post before awaiting clear: restart does not re-d
 	expect(s.cursor()?.awaiting).toEqual({});
 });
 
-test("👀 on a reply instruction uses replyTo", async () => {
+test("🤖 on a reply instruction uses replyTo", async () => {
 	const s = setup();
 	s.stream.push(raw("100", "old note", ME));
 	await s.start("personal");
 	s.stream.push(raw("101", "root instruction", ME));
 	await s.tick();
-	expect(s.reacts).toEqual([{ messageId: "101", type: "👀" }]);
+	expect(s.reacts).toEqual([{ messageId: "101", type: "🤖" }]);
 	s.idle(false);
 	s.stream.push(raw("102", "follow-up in the thread", ME, { rootMessageId: "101" }));
 	await s.tick();
-	expect(s.reacts[1]).toEqual({ messageId: "102", type: "👀", replyTo: "101" });
+	expect(s.reacts[1]).toEqual({ messageId: "102", type: "🤖", replyTo: "101" });
 });
 
 test("explicit reply mid-turn then a steered follow-up is answered at turn end", async () => {

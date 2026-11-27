@@ -349,9 +349,9 @@ export function createTeams(pi: TeamsHost) {
 		mark: string;
 		body: string;
 		policy: string;
-		/** A personal here-instruction: it gets the 👀 ACK, lands in awaiting, and is answered automatically. */
+		/** A personal here-instruction: it gets the 🤖 ACK, lands in awaiting, and is answered automatically. */
 		personal: boolean;
-		/** Re-delivered after a restart: no second 👀, and the mark says to check the thread first. */
+		/** Re-delivered after a restart: no second 🤖, and the mark says to check the thread first. */
 		redelivered: boolean;
 		/** Queue order: idle hands the oldest pending thread over first. */
 		seq: number;
@@ -368,7 +368,7 @@ export function createTeams(pi: TeamsHost) {
 	let channelTurnMixed = false;
 	let turnStartInFlight: { threadId: string; w: WatchState } | undefined;
 	/** The host reports turn lifecycle events (omp does; the MCP host sets turnEvents false). One channel thread per
-	  * turn, the 👀 ACK/answer cycle and the reply_to hint all depend on it. */
+	  * turn, the 🤖 ACK/answer cycle and the reply_to hint all depend on it. */
 	const turnEvents = pi.turnEvents !== false;
 
 	// ── Script bridge ───────────────────────────────────────────────────────
@@ -659,19 +659,23 @@ export function createTeams(pi: TeamsHost) {
 	 * Called for each reply the session posts to a channel thread: the thread's awaiting instructions are answered.
 	 * With turn events, a reply to the running turn's own thread marks that turn replied and clears the ids it handed
 	 * over (a newer instruction may have joined it since); a reply to any other thread clears that thread's whole
-	 * awaiting entry — those ids steered into a turn another thread owned, so no channelTurn tracks them. Without
-	 * turn events there is no turn to scope, so every id awaiting an answer in that thread leaves now.
+	 * awaiting entry — those ids steered into a turn another thread owned, so no channelTurn tracks them — except ids
+	 * an owed turn still protects: a newer turn's reply in the same thread never clears them; the owed answer's post
+	 * does. Without turn events there is no turn to scope, so every id awaiting an answer in that thread leaves now.
 	 */
 	function noteThreadReply(key: string, root: string): void {
 		if (turnEvents) {
-			if (channelTurn && channelTurn.key === key && channelTurn.threadId === root) {
+			// An owed turn's ids stay protected until answerChannelTurn posts its answer: a reply the newer prompt's
+			// turn makes in the same thread clears only the newer prompt's ids, never the owed ones.
+			if (channelTurn && !channelTurnDue && channelTurn.key === key && channelTurn.threadId === root) {
 				const ids = [...channelTurn.ids];
 				channelTurn.replied = true;
 				removeAwaiting(key, root, ids);
 				return;
 			}
-			const steered = loadCursor(key)?.awaiting?.[root];
-			if (steered?.length) removeAwaiting(key, root, steered);
+			const owedIds = channelTurnDue && channelTurn !== undefined && channelTurn.key === key && channelTurn.threadId === root ? channelTurn.ids : [];
+			const steered = (loadCursor(key)?.awaiting?.[root] ?? []).filter((id) => !owedIds.includes(id));
+			if (steered.length) removeAwaiting(key, root, steered);
 			return;
 		}
 		const waiting = loadCursor(key)?.awaiting?.[root];
@@ -1069,7 +1073,7 @@ export function createTeams(pi: TeamsHost) {
 
 	/**
 	 * Hand one channel prompt to the agent. A personal here-instruction is recorded in `awaiting[thread]` first, then
-	 * ACKed with a 👀 on each id (a reply uses `replyTo: threadId`; a failure warns, never blocks). The hand-off mode is
+	 * ACKed with a 🤖 on each id (a reply uses `replyTo: threadId`; a failure warns, never blocks). The hand-off mode is
 	 * read before the ACK and again after it: the host may have gone busy or idle while the ACK was in flight. Once the
 	 * host has taken the prompt the ids are marked done. Merging a new instruction into a running channelTurn resets
 	 * `replied` so the follow-up is answered at turn end. A personal instruction steered into a turn that is not its
@@ -1078,12 +1082,12 @@ export function createTeams(pi: TeamsHost) {
 	 */
 	async function deliverChannelCommand(ctx: TeamsContext, c: ChannelCommand): Promise<void> {
 		if (watches.get(c.key) !== c.w) return;
-		// An idle start reserves its turn before the ACK can yield to another poll or card flush.
-		const prevTurnThread = turnThread;
+		// An idle start reserves its turn (turnStartInFlight) before the ACK can yield to another poll or card flush; the
+		// thread itself is written only when the hand-off really starts, so a released claim cannot touch a live turnThread.
 		const claim = turnEvents && ctx.isIdle() && turnThread === undefined ? { threadId: c.threadId, w: c.w } : undefined;
-		if (claim) { turnStartInFlight = claim; turnThread = c.threadId; }
+		if (claim) turnStartInFlight = claim;
 		const releaseClaim = () => {
-			if (claim && turnStartInFlight === claim) { turnStartInFlight = undefined; turnThread = prevTurnThread; }
+			if (claim && turnStartInFlight === claim) turnStartInFlight = undefined;
 		};
 		if (c.personal && !c.redelivered) {
 			try {
@@ -1097,7 +1101,7 @@ export function createTeams(pi: TeamsHost) {
 			for (const id of c.ids) {
 				if (watches.get(c.key) !== c.w) { releaseClaim(); return; }
 				try {
-					await backend.reactChannel(c.w.addr!, id, "👀", id !== c.threadId ? { replyTo: c.threadId } : undefined);
+					await backend.reactChannel(c.w.addr!, id, "🤖", id !== c.threadId ? { replyTo: c.threadId } : undefined);
 				} catch (e) {
 					ctx.ui.notify(`Teams watch "${c.w.owner.label}": ACK reaction failed on message ${id}: ${e instanceof Error ? e.message : String(e)}`, "warning");
 				}
@@ -1135,17 +1139,18 @@ export function createTeams(pi: TeamsHost) {
 			if (nextChannelTurn !== prevChannelTurn) channelTurnDue = false;
 		}
 		let text = `${c.mark}\n${c.body}`;
-		if (mixed || (c.personal && channelTurnMixed)) text += `\nAnswer in this thread with teams_send reply_to=${c.threadId}`;
+		if (c.personal && (mixed || channelTurnMixed)) text += `\nAnswer in this thread with teams_send reply_to=${c.threadId}`;
 		try {
 			await pi.sendUserMessage(text, options, { chatId: c.key, policy: c.policy });
 		} catch (e) {
 			// Roll back only what this call changed, and only while the watch is still live. A turn this call started is
-			// un-started only while the thread is still its; a steer owned no turn state. A `replied = true` the agent's
+			// un-started — turnThread cleared to undefined, never to the thread some earlier turn held — while the thread
+			// is still its; a steer owned no turn state. A `replied = true` the agent's
 			// in-turn reply set on nextChannelTurn survives the restore, and a concurrent turn that took over (stopAllWatches,
 			// turnEnded + a new turn) is not clobbered by an unrelated failure. A channelTurn a mixed hand-off dropped stays
 			// dropped: the turn may have seen the prompt.
 			if (watches.get(c.key) === c.w) {
-				if (startedHere && turnThread === nextTurnThread) turnThread = prevTurnThread;
+				if (startedHere && turnThread === nextTurnThread) turnThread = undefined;
 				if (!mixed && nextChannelTurn && channelTurn === nextChannelTurn)
 					channelTurn = prevChannelTurn
 						? { ...prevChannelTurn, replied: prevChannelTurn.replied || nextChannelTurn.replied }
@@ -1171,7 +1176,8 @@ export function createTeams(pi: TeamsHost) {
 
 	/**
 	 * Hand channel prompts to the agent, one at a time, oldest first. While no turn runs, the oldest prompt starts one, and
-	 * the answer the finished turn still owes is posted first, so the new turn does not inherit it. While a turn runs, a
+	 * the answer the finished turn still owes is posted first, before any prompt is chosen, so the new turn does not
+	 * inherit it and a concurrent drain can never deliver the chosen prompt twice. While a turn runs, a
 	 * personal here-instruction steers in at once whether the running turn is its own thread's, another thread's, or one
 	 * no channel thread owns — the user's own words wait for nobody, exactly like a self-chat instruction. Shared and relay
 	 * prompts steer only into their own thread's running turn; the rest wait for idle. Nothing is handed over while a turn
@@ -1192,18 +1198,20 @@ export function createTeams(pi: TeamsHost) {
 		const tried = new Set<ChannelCommand>();
 		for (;;) {
 			if (turnStartInFlight !== undefined) return;
-			const idle = ctx.isIdle() && turnThread === undefined;
+			if (pendingChannelCommands.length === 0) return;
+			const idle = ctx.isIdle() && turnThread === undefined && turnStartInFlight === undefined;
+			// An owed answer is posted before any prompt is chosen: a concurrent drain that runs while the post is in
+			// flight must not splice and deliver the same prompt a second time once this loop resumes.
+			if (idle && (channelTurnDue || replyDue)) {
+				await replyToSelf(ctx);
+				continue;
+			}
 			let oldest: ChannelCommand | undefined;
 			for (const c of pendingChannelCommands) {
 				if (tried.has(c) || !(idle || c.personal || c.threadId === turnThread)) continue;
 				if (!oldest || c.seq < oldest.seq) oldest = c;
 			}
 			if (!oldest) return;
-			// A fresh turn is about to start: the answer the finished turn still owes is posted first, so it is not inherited.
-			if (idle) {
-				await replyToSelf(ctx);
-				if (turnStartInFlight !== undefined || !ctx.isIdle() || turnThread !== undefined) continue;
-			}
 			const next = oldest;
 			tried.add(next);
 			pendingChannelCommands = pendingChannelCommands.filter((c) => c !== next);
@@ -1242,7 +1250,7 @@ export function createTeams(pi: TeamsHost) {
 	/**
 	 * `awaiting` a previous process left behind: queue each id's prompt again, so the restart does not lose the
 	 * instruction — unless the thread already has an own agent reply (footer + my oid) with id greater than the awaited
-	 * id, in which case it is marked done and cleared from `awaiting`, not re-delivered. The mark says it was re-delivered and the 👀 is not repeated;
+	 * id, in which case it is marked done and cleared from `awaiting`, not re-delivered. The mark says it was re-delivered and the 🤖 is not repeated;
 	 * ids the channel no longer has are dropped from `awaiting` with a warning (they can never be answered).
 	 */
 	async function redeliverAwaiting(w: WatchState, awaiting: Record<string, string[]>): Promise<void> {
@@ -1424,7 +1432,8 @@ export function createTeams(pi: TeamsHost) {
 		pendingCards = pendingCards.filter((c) => c.w !== w);
 		pendingChannelCommands = pendingChannelCommands.filter((c) => c.w !== w);
 		// An answer due from this watch belongs to it: another watch's thread must not consume it.
-		if (turnStartInFlight?.w === w) { turnStartInFlight = undefined; turnThread = undefined; }
+		// The claim reserves no turnThread (only a real hand-off writes one): stopping it clears the claim alone.
+		if (turnStartInFlight?.w === w) turnStartInFlight = undefined;
 		if (channelTurn && channelTurn.key === chatId) { channelTurn = undefined; channelTurnDue = false; }
 		pendingCommands = pendingCommands.filter((c) => c.w !== w);
 		watches.delete(chatId);
@@ -1530,7 +1539,7 @@ export function createTeams(pi: TeamsHost) {
 	async function flushCards(): Promise<void> {
 		const ctx = watchCtx;
 		if (!ctx || pendingCards.length === 0) return;
-		const idle = ctx.isIdle() && turnThread === undefined;
+		const idle = ctx.isIdle() && turnThread === undefined && turnStartInFlight === undefined;
 		const cards = idle ? pendingCards : pendingCards.filter((c) => c.details.chatId === SELF_CHAT);
 		if (cards.length === 0) return;
 		pendingCards = idle ? [] : pendingCards.filter((c) => c.details.chatId !== SELF_CHAT);
@@ -2610,7 +2619,7 @@ export function createTeams(pi: TeamsHost) {
 			"missing, throws, or is off-format, the card is display-only with a warning, and with no policy it is display-only — " +
 			"and the user's own 'omp:'/'pi:' messages there arrive as prompts. " +
 			"'personal': the channel is verified to be a private channel whose only member is the user, every message the user " +
-			"posts there is their instruction (each is acknowledged with a 👀 and, in a harness that reports turn ends, answered " +
+			"posts there is their instruction (each is acknowledged with a 🤖 and, in a harness that reports turn ends, answered " +
 			"in its thread automatically when its turn ends), an email posted into the channel starts a triage turn, and the " +
 			"privacy is re-verified every 10 minutes — a channel that fails the check is watched as shared, saying why. " +
 			"A card is information, not an instruction. A self-chat card starts a turn. In a turn a card started, act or " +
@@ -2768,13 +2777,14 @@ export function createTeams(pi: TeamsHost) {
 		noteAssistantText(text: string): void {
 			lastAssistantText = text;
 		},
-		/** The turn has ended: a pending self-chat answer may be posted, and a personal channel's thread answered. */
+		/** The turn has ended: a pending self-chat answer may be posted, and a personal channel's thread answered. A
+		  * turn-start claim is not dropped here: its hand-off releases it, so a turn that ends beside an in-flight ACK
+		  * cannot free the claim for a concurrent drain to start a second prompt into. */
 		turnEnded(): void {
 			replyDue = selfReplyPending;
 			if (channelTurn && !channelTurnDue) channelTurn.answerText = lastAssistantText.trim();
 			channelTurnDue = channelTurn !== undefined;
 			channelTurnMixed = false;
-			turnStartInFlight = undefined;
 			turnThread = undefined;
 		},
 	};
