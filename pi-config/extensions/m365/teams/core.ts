@@ -1150,7 +1150,7 @@ export function createTeams(pi: TeamsHost) {
 			// turnEnded + a new turn) is not clobbered by an unrelated failure. A channelTurn a mixed hand-off dropped stays
 			// dropped: the turn may have seen the prompt.
 			if (watches.get(c.key) === c.w) {
-				if (startedHere && turnThread === nextTurnThread) turnThread = undefined;
+				if (startedHere && turnThread === nextTurnThread) { turnThread = undefined; channelTurnMixed = false; }
 				if (!mixed && nextChannelTurn && channelTurn === nextChannelTurn)
 					channelTurn = prevChannelTurn
 						? { ...prevChannelTurn, replied: prevChannelTurn.replied || nextChannelTurn.replied }

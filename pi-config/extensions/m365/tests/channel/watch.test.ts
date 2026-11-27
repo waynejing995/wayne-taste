@@ -1266,11 +1266,20 @@ test("R3-F1: a hand-off failure after the turn ended during its ACK clears turnT
 	expect(s.prompts).toHaveLength(3); // 101's turn, 201's failed hand-off, 201's retry
 	expect(s.prompts[2].options).toBeUndefined(); // a clean turn start: turnThread was rolled back, not left on 101
 	expect(s.prompts[2].text).toContain("thread: 201");
+	expect(s.prompts[2].text).not.toContain("reply_to=201");
 	expect(s.sends).toHaveLength(1);
 	expect(s.sends[0].target).toMatchObject({ kind: "channel", replyTo: "101" });
 	expect(JSON.stringify(s.sends[0].card)).toContain("answer for 101");
 	expect(s.reacts.length).toBe(3); // every hand-off ACKed
 	expect(s.reacts.every((r) => r.type === "🤖")).toBe(true);
+	s.teams.noteAssistantText("answer for 201");
+	s.teams.turnEnded();
+	s.idle(true);
+	await s.tick();
+	expect(s.sends).toHaveLength(2);
+	expect(s.sends[1].target).toMatchObject({ kind: "channel", replyTo: "201" });
+	expect(JSON.stringify(s.sends[1].card)).toContain("answer for 201");
+	expect(s.cursor()?.awaiting).toEqual({});
 });
 
 test("R3-F2: a reply during an owed turn clears only the new prompt's ids; the owed answer still posts afterwards", async () => {
