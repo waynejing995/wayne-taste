@@ -42,9 +42,8 @@ const TEAM = "team-1";
 const CHANNEL = "19:fake-channel@thread.skype";
 const KEY = `channel:${TEAM}/${CHANNEL}`;
 const T0 = Date.UTC(2026, 10, 6, 14, 0) / 1000;
-// Synthetic board fixture only: no real SharePoint site, list, or tenant.
+// Synthetic board fixture only: no real SharePoint site or list. Probe must ignore it.
 const BOARD = { site_url: "https://contoso.sharepoint.test/sites/AgentSite", list_id: "00000000-0000-4000-8000-000000000099" };
-const TENANT = "00000000-0000-4000-8000-000000000020";
 
 const ompTail = gzipSync(Buffer.from(JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "working on it" }], stopReason: "stop" } }))).toString("base64");
 const ompLive = (now, want) => ({
@@ -89,10 +88,8 @@ function makeFixture(dir) {
 		sendMode: "ok",
 		logs: [],
 		personal: true,
-		/** The personal channel's `board:` block; when set, each accepted thread send also upserts its board card. */
+		/** The personal channel's `board:` block; probe must ignore it (Coordinator LLM + ✅ reaction are SSoT). */
 		board: undefined,
-		/** Injected probe board client (fake): records listCards/upsertCard calls; undefined -> the live BoardClient. */
-		boardClient: undefined,
 		/** Sets one watched session and rewrites rules.yaml with every session so far, each keeping its own fields. */
 		watch(name, behaviour, fields = {}) {
 			f.agents[name] = { behaviour, fields };
@@ -109,9 +106,8 @@ function makeFixture(dir) {
 				now: () => f.now * 1000,
 				log: (line) => f.logs.push(line),
 				probe: async (a, want) => f.agents[a.name].behaviour(f.now, want),
-			sender,
-			boardClient: f.boardClient,
-		});
+				sender,
+			});
 		},
 		cursor() {
 			return JSON.parse(fs.readFileSync(cursorPath(KEY), "utf8"));
@@ -360,239 +356,37 @@ try {
 		}),
 	);
 
-	await check("15. board: a working agent's thread send creates its card as working with an [HH:MM] summary", () =>
+	await check("15. probe never lists or upserts SharePoint cards even when board is configured and agents change phase", () =>
 		withFixture(async (f) => {
 			f.board = BOARD;
-			f.watch("alpha", ompLive, { thread: "thread-board" });
-			f.seedCursor({});
-			const calls = { list: 0, upserts: [] };
-			f.boardClient = {
-				listCards: async () => {
-					calls.list++;
-					return [];
-				},
-				upsertCard: async (_cfg, input) => {
-					calls.upserts.push(input);
-					return { action: "created", id: 1 };
-				},
-				resolveTenantId: async () => TENANT,
-			};
-			await f.run();
-			strictEqual(calls.list, 1, "one listCards for the one thread");
-			strictEqual(calls.upserts.length, 1, "one upsert");
-			const up = calls.upserts[0];
-			strictEqual(up.threadId, "thread-board");
-			strictEqual(up.status, "working");
-			ok(/^\[\d\d:\d\d\] alpha \u00b7 working/.test(up.summary), `summary is [HH:MM] + agent + phase: ${up.summary}`);
-			ok(up.summary.length <= 220, "summary respects the 220-char cap");
-			strictEqual(up.title, "\u{1f916} alpha");
-			ok(up.defaultThreadUrl !== undefined && !up.defaultThreadUrl.includes("createdTime"), "default deep link omits createdTime");
-		}),
-	);
-
-	await check("16. board: asking / blocked-RESULT / done-RESULT agents set the card to waiting, never done", () =>
-		withFixture(async (f) => {
-			f.board = BOARD;
-			f.watch("asker", (now, want) => ({ ...ompLive(now, want), state: "blocked" }), { thread: "t-ask" });
-			f.watch("blocky", (now, want) => ({ ...ompLive(now, want), state: "idle", rstatus: "blocked", ropen_text: "pick a branch" }), { thread: "t-block" });
-			f.watch("finisher", (now, want) => ({ ...ompLive(now, want), rstatus: "done", waiting: true }), { thread: "t-done" });
-			f.seedCursor({});
-			const upserts = [];
-			f.boardClient = {
-				listCards: async () => [],
-				upsertCard: async (_cfg, input) => {
-					upserts.push(input);
-					return { action: "created", id: 1 };
-				},
-				resolveTenantId: async () => TENANT,
-			};
-			await f.run();
-			const byThread = Object.fromEntries(upserts.map((u) => [u.threadId, u]));
-			strictEqual(byThread["t-ask"]?.status, "waiting", "asking agent -> waiting");
-			strictEqual(byThread["t-block"]?.status, "waiting", "blocked RESULT -> waiting");
-			strictEqual(byThread["t-done"]?.status, "waiting", "done RESULT -> waiting");
-			ok(upserts.every((u) => u.status !== "done"), "no upsert ever closes a card to done");
-		}),
-	);
-
-	await check("17. board: an already-done card is not reopened by idle/done probes, but a new working run reopens it", () =>
-		withFixture(async (f) => {
-			f.board = BOARD;
-			f.watch("guardian", ompLive, { thread: "t-guard" });
-			f.seedCursor({});
-			const calls = { list: 0, upserts: [] };
-			const doneCard = { id: 7, title: "done task", status: "done", column: "\u2705 \u5df2\u5b8c\u6210", summary: "s", threadId: "t-guard", threadUrl: "" };
-			f.boardClient = {
-				listCards: async () => {
-					calls.list++;
-					return [doneCard];
-				},
-				upsertCard: async (_cfg, input) => {
-					calls.upserts.push(input);
-					return { action: "updated", id: 7 };
-				},
-				resolveTenantId: async () => TENANT,
-			};
-			f.watch("guardian", (now, want) => ({ ...ompLive(now, want), waiting: true }), { thread: "t-guard" });
-			await f.run();
-			strictEqual(calls.upserts.length, 0, "an idle probe does not touch the done card");
-			f.now = T0 + 30 * 60;
-			f.watch("guardian", (now, want) => ({ ...ompLive(now, want), rstatus: "done", waiting: true }), { thread: "t-guard" });
-			await f.run();
-			strictEqual(calls.upserts.length, 0, "a done-RESULT probe does not reopen the done card");
-			f.now = T0 + 60 * 60;
-			f.watch("guardian", ompLive, { thread: "t-guard" });
-			await f.run();
-			strictEqual(calls.upserts.length, 1, "a new working run reopens the done card");
-			strictEqual(calls.upserts[0].status, "working");
-		}),
-	);
-
-	await check("18. board: a sync failure warns loudly without failing the send or the digest bookkeeping", () =>
-		withFixture(async (f) => {
-			f.board = BOARD;
-			f.watch("bravo", ompLive, { thread: "t-bravo" });
-			f.seedCursor({});
-			const stderr = [];
-			const origError = console.error;
-			console.error = (m) => stderr.push(String(m));
-			f.boardClient = {
-				listCards: async () => {
-					throw new Error("SharePoint 503 unavailable");
-				},
-				upsertCard: async () => {
-					throw new Error("unreachable");
-				},
-				resolveTenantId: async () => TENANT,
+			const probeSrc = fs.readFileSync(new URL("../cli/probe.ts", import.meta.url), "utf8");
+			ok(!/\b(upsertCard|listCards|BoardClient|syncThreadBoard)\b/.test(probeSrc), "probe.ts must not mention board mutation APIs");
+			const calls = [];
+			const origFetch = globalThis.fetch;
+			globalThis.fetch = async (input, init) => {
+				calls.push(["fetch", String(input), init?.method]);
+				throw new Error(`probe must not fetch ${input}`);
 			};
 			try {
+				f.watch("alpha", ompLive, { thread: "t-ssot" });
+				f.seedCursor({});
+				await f.run();
+				f.now = T0 + 30 * 60;
+				f.watch("alpha", (now, want) => ({ ...ompLive(now, want), state: "blocked" }), { thread: "t-ssot" });
+				await f.run();
+				f.now = T0 + 60 * 60;
+				f.watch("alpha", (now, want) => ({ ...ompLive(now, want), waiting: true, state: "idle" }), { thread: "t-ssot" });
+				await f.run();
+				f.now = T0 + 90 * 60;
+				f.watch("alpha", (now, want) => ({ ...ompLive(now, want), rstatus: "done", waiting: true }), { thread: "t-ssot" });
 				await f.run();
 			} finally {
-				console.error = origError;
+				globalThis.fetch = origFetch;
 			}
-			strictEqual(f.channelSends().length, 1, "the Teams progress send succeeded");
-			ok(stderr.some((m) => m.includes("[inbox-probe] board sync failed for thread t-bravo") && m.includes("SharePoint 503")), `warns loudly on stderr: ${stderr.join(" | ")}`);
-			ok(f.logs.some((l) => l.includes("board sync failed for thread t-bravo")), "the warning is in the probe log too");
-			ok(f.state().watches.bravo.digested !== undefined, "the digest is still recorded, so cursor bookkeeping is not blocked");
-		}),
-	);
-
-	await check("19. board: no board config in rules.yaml means zero board calls", () =>
-		withFixture(async (f) => {
-			f.watch("gamma", ompLive, { thread: "t-noboard" });
-			f.seedCursor({});
-			const calls = { list: 0, upserts: [] };
-			f.boardClient = {
-				listCards: async () => {
-					calls.list++;
-					return [];
-				},
-				upsertCard: async (_cfg, input) => {
-					calls.upserts.push(input);
-					return { action: "created", id: 1 };
-				},
-				resolveTenantId: async () => TENANT,
-			};
-			await f.run();
-			strictEqual(calls.list, 0, "no listCards without a board config");
-			strictEqual(calls.upserts.length, 0, "no upserts without a board config");
-			strictEqual(f.channelSends().length, 1, "the Teams thread send is unchanged");
-		}),
-	);
-	await check("20. a resumed working agent with stale done or blocked RESULT reopens a done card", () =>
-		withFixture(async (f) => {
-			f.board = BOARD;
-			f.watch("resume", (now, want) => ({ ...ompLive(now, want), state: "idle", rstatus: "done" }), { thread: "t-resume" });
-			f.seedCursor({});
-			const upserts = [];
-			f.boardClient = {
-				listCards: async () => [{ id: 1, title: "task", status: "done", summary: "", threadId: "t-resume", threadUrl: "" }],
-				upsertCard: async (_cfg, input) => { upserts.push(input); return { action: "updated", id: 1 }; },
-				resolveTenantId: async () => TENANT,
-			};
-			await f.run();
-			for (const result of ["done", "blocked"]) {
-				f.now += 30 * 60;
-				f.watch("resume", (now, want) => ({ ...ompLive(now, want), state: "working", rstatus: result }), { thread: "t-resume" });
-				// Change the tail for the second working probe, so it too is fresh.
-				if (result === "blocked") f.watch("resume", (now, want) => ({ ...ompLive(now, want), state: "working", rstatus: result, tail: want ? gzipSync(Buffer.from("another update")).toString("base64") : undefined, kind: "pane" }), { thread: "t-resume" });
-				await f.run();
-			}
-			deepStrictEqual(upserts.map((u) => u.status), ["working", "working"]);
-		}),
-	);
-
-	await check("21. unchanged asking agent keeps a shared thread waiting when another resumes", () =>
-		withFixture(async (f) => {
-			f.board = BOARD;
-			f.watch("asker", (now, want) => ({ ...ompLive(now, want), state: "blocked" }), { thread: "t-shared" });
-			f.watch("worker", (now, want) => ({ ...ompLive(now, want), state: "idle" }), { thread: "t-shared" });
-			f.seedCursor({});
-			const upserts = [];
-			f.boardClient = {
-				listCards: async () => [],
-				upsertCard: async (_cfg, input) => { upserts.push(input); return { action: "updated", id: 1 }; },
-				resolveTenantId: async () => TENANT,
-			};
-			await f.run();
-			f.now += 30 * 60;
-			f.watch("worker", (now, want) => ({ ...ompLive(now, want), state: "working" }), { thread: "t-shared" });
-			await f.run();
-			strictEqual(upserts[1].status, "waiting");
-			ok(upserts[1].summary.includes("worker") && !upserts[1].summary.includes("asker"), "summary contains only fresh entries");
-		}),
-	);
-
-	await check("23. board: an update patches the status only and never overwrites an existing card's summary", () =>
-		withFixture(async (f) => {
-			f.board = BOARD;
-			f.watch("keeper", ompLive, { thread: "t-keep" });
-			f.seedCursor({});
-			const upserts = [];
-			f.boardClient = {
-				listCards: async () => [{ id: 3, title: "keep", status: "working", summary: "human text", threadId: "t-keep", threadUrl: "" }],
-				upsertCard: async (_cfg, input) => { upserts.push(input); return { action: "updated", id: 3 }; },
-				resolveTenantId: async () => TENANT,
-			};
-			await f.run();
-			strictEqual(upserts.length, 1, "one upsert");
-			strictEqual(upserts[0].summary, undefined, "existing card: no summary is sent, so Description is kept");
-			strictEqual(upserts[0].title, undefined, "existing card: no title either");
-		}),
-	);
-
-	await check("22. board timeouts warn and allow later threads and digest bookkeeping; custom links use the default", () =>
-		withFixture(async (f) => {
-			f.board = BOARD;
-			for (const name of ["list", "upsert", "later"]) f.watch(name, ompLive, { thread: `t-${name}` });
-			f.seedCursor({});
-			const calls = [];
-			let listCount = 0;
-			f.boardClient = {
-				listCards: async () => {
-					if (++listCount === 1) return new Promise(() => {});
-					return [{ id: 1, title: "task", status: "working", summary: "", threadId: "t-later", threadUrl: "https://example.test/custom" }];
-				},
-				upsertCard: async (_cfg, input) => {
-					calls.push(input);
-					if (input.threadId === "t-upsert") return new Promise(() => {});
-					return { action: "updated", id: 1 };
-				},
-				resolveTenantId: async () => TENANT,
-			};
-			const originalTimeout = globalThis.setTimeout;
-			const originalError = console.error;
-			const stderr = [];
-			globalThis.setTimeout = (fn, ms, ...args) => originalTimeout(fn, ms === 120_000 ? 1 : ms, ...args);
-			console.error = (message) => stderr.push(String(message));
-			try { await f.run(); } finally { globalThis.setTimeout = originalTimeout; console.error = originalError; }
-			ok(stderr.some((m) => m.includes("t-list") && m.includes("SharePoint list cards") && m.includes("timed out")));
-			ok(stderr.some((m) => m.includes("t-upsert") && m.includes("SharePoint upsert card") && m.includes("timed out")));
-			const later = calls.find((input) => input.threadId === "t-later");
-			ok(later?.defaultThreadUrl, "new deep link is a fallback");
-			strictEqual(later.threadUrl, undefined, "existing custom link is not overwritten");
-			strictEqual(f.channelSends().length, 3, "all threads sent");
-			for (const name of ["list", "upsert", "later"]) ok(f.state().watches[name].digested !== undefined, `${name} recorded`);
+			strictEqual(calls.length, 0, `zero SharePoint / upsertCard / listCards / fetch calls: ${JSON.stringify(calls)}`);
+			strictEqual(f.channelSends().length, 4, "progress still posted for working, asking, idle, and done");
+			deepStrictEqual(f.channelSends().map(threadOf), ["t-ssot", "t-ssot", "t-ssot", "t-ssot"]);
+			ok(f.logs.every((l) => !/board (created|updated|sync failed)/.test(l)), "no board-sync log lines");
 		}),
 	);
 

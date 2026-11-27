@@ -31,14 +31,11 @@
  * channel's cursor binds to `agent:<name>`, else a new root post (subject `🤖 <name>`) whose id is bound in that
  * cursor the moment Teams answers, so replies route to the session and a crash between runs never posts a second
  * root. The card is built here and sent through the Teams core's own send, with no model in between: a model asked
- * to copy it could be refused by a content filter or time out after the send. When the personal channel's rules.yaml
- * entry has `board:` (`site_url` + `list_id`), each accepted thread send also upserts that thread's SharePoint task
- * card from the probed agent state — still no model: working → working; asking / blocked / done-RESULT → waiting
- * (never auto-closes to done). An already-done card is left untouched unless an agent on the thread is working. A
- * board failure is logged and never fails the Teams send or cursor bookkeeping. A card send that fails is logged and
- * the same digest goes out as plain text. A digest counts as sent only when Teams accepted it; otherwise the run
- * fails, naming the send, and the next due run sends it again — per thread, so a failed one does not lose the
- * receipts of the threads that succeeded.
+ * to copy it could be refused by a content filter or time out after the send. Probe does not write the SharePoint
+ * task board: the Coordinator LLM (`teams_board` / `inbox board`) and the `✅` reaction hook are the single source
+ * of truth for card status. A card send that fails is logged and the same digest goes out as plain text. A digest
+ * counts as sent only when Teams accepted it; otherwise the run fails, naming the send, and the next due run sends
+ * it again — per thread, so a failed one does not lose the receipts of the threads that succeeded.
  */
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -50,7 +47,6 @@ import { agentFooterText, buildCard, setAgentHarness, type AgentRow, type AgentS
 import { escapeHtml } from "../../teams/html.ts";
 import type { SendTarget } from "../../teams/types.ts";
 import { compareIds, cursorKey, loadCursor, updateCursor, type CursorFile, type ThreadBinding } from "../../teams/cursor-store.ts";
-import type { BoardClient, BoardConfig, BoardStatus, UpsertCardInput } from "../../teams/board.ts";
 import { askShown, legacyReported, minuteAtLeast, readAgents, recordAgentRow, removeClosed, resolveAsks, type AgentEntry } from "./agents.ts";
 import { runProcess } from "./jobs.ts";
 import { inboxFile, InboxError, readRulesFile, readTsv } from "./ledger.ts";
@@ -101,20 +97,14 @@ export interface ProbeOptions {
 	probe?: (a: AgentEntry, want: boolean) => Promise<Probe>;
 	/** Where the digest goes (default: the Teams core's send to the self-chat). */
 	sender?: DigestSender;
-	/** SharePoint board client. Tests inject a fake; live runs construct BoardClient when `board:` is configured. */
-	boardClient?: ProbeBoardClient;
 	now?: () => number;
 	log?: (line: string) => void;
 }
-
-/** The SharePoint calls `inbox agent probe` makes after a thread progress send. Tests inject a fake; live uses BoardClient. */
-export type ProbeBoardClient = Pick<BoardClient, "listCards" | "upsertCard" | "resolveTenantId">;
 
 const SCRIPT = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "probe.sh"), "utf8");
 const EMPTY = createHash("md5").update("").digest("hex").slice(0, 16);
 const DIGEST = "_digest";
 const CLIP = 300;
-const BOARD_SUMMARY_MAX = 220;
 const PROBE_TIMEOUT_S = 60;
 /** One Teams send of the digest: Graph has no deadline of its own, and a stuck send must fail the run, not hang it. */
 const SEND_TIMEOUT_MS = 120_000;
@@ -215,8 +205,8 @@ const hhmm = (epoch: number) => {
 	return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
-/** A session's digest line and its progress-card row, plus the probe facts the board sync needs. */
-type Entry = { line: string; row: AgentRow; phase?: Phase; resultStatus?: string };
+/** A session's digest line and its progress-card row. */
+type Entry = { line: string; row: AgentRow };
 /** One progress-card row (teams_send `agents`). `active`: epoch seconds of the session's last output, when known. */
 export function cardRow(a: AgentEntry, active: number | undefined, now: number, status: AgentStatus, tail: string): AgentRow {
 	const idle = Math.floor(Math.max(0, now - (active ?? now)) / 60);
@@ -244,7 +234,7 @@ function sessionEntry(a: AgentEntry, active: number | undefined, p: Probe): Entr
 	const phase = phaseOf(p);
 	const settled = phase !== "working" || (!p.session && !p.state);
 	const resultStatus = settled ? p.rstatus : undefined;
-	return { line, row: cardRow(a, active, p.now, cardStatus({ ...p, rstatus: resultStatus }), latest), phase, resultStatus };
+	return { line, row: cardRow(a, active, p.now, cardStatus({ ...p, rstatus: resultStatus }), latest) };
 }
 
 /** What an entry says, minus its `last activity` time: the part compared with the last digest sent. The card status
@@ -388,98 +378,14 @@ async function postDigest(digest: string, rows: AgentRow[], sender: DigestSender
  * watch never accumulates orphan roots. A session with no bound thread gets a new root, and that root's id is bound
  * in the cursor the moment Teams answers, before any other send. Sessions sharing a thread go in one card (with
  * plain-text fallback if the card send fails). A failed send is reported through `fail` and leaves its sessions
- * unrecorded, so the next due run owes them again; the others are unaffected. After an accepted send, a configured
- * `board:` is synced in the same process (no model): a board error is logged and does not fail this send.
+ * unrecorded, so the next due run owes them again; the others are unaffected.
  */
-function clipText(s: string, max: number): string {
-	if (s.length <= max) return s;
-	return max <= 1 ? "\u2026" : `${s.slice(0, max - 1)}\u2026`;
-}
-
-function boardTargetStatus(entries: Entry[]): BoardStatus | undefined {
-	if (entries.some((e) => e.phase === "asking" || e.resultStatus === "blocked" || e.resultStatus === "done")) return "waiting";
-	if (entries.some((e) => e.phase === "working")) return "working";
-	return undefined;
-}
-
-function boardSummary(entries: Entry[], at: number): string {
-	const bits = entries.map((e) => {
-		const phase = e.phase ?? e.row.status;
-		const tail = e.row.tail?.trim();
-		return tail ? `${e.row.name} \u00b7 ${phase} \u00b7 ${tail}` : `${e.row.name} \u00b7 ${phase}`;
-	});
-	return clipText(`[${hhmm(at)}] ${bits.join("; ")}`, BOARD_SUMMARY_MAX);
-}
-
-function boardTitle(entries: Entry[], agentsByName: Map<string, AgentEntry>, fallback: string): string {
-	if (entries.length === 1) {
-		const a = agentsByName.get(entries[0]!.row.name);
-		const name = a?.name ?? entries[0]!.row.name;
-		const goal = a?.goal?.trim();
-		return clipText(goal ? `${threadSubject(name)} \u00b7 ${goal}` : threadSubject(name), 255);
-	}
-	return clipText(fallback, 255);
-}
-
-async function syncThreadBoard(
-	channel: { teamId: string; channelId: string },
-	threadId: string,
-	entries: Entry[],
-	statusEntries: Entry[],
-	agentsByName: Map<string, AgentEntry>,
-	titleFallback: string,
-	log: (line: string) => void,
-	boardClient: ProbeBoardClient | undefined,
-	now: number,
-): Promise<void> {
-	try {
-		// readRulesFile, not savedWatches(): the rules path must be read per call (the same access personalChannel
-		// uses), so tests that repoint WAYNE_INBOX_DIR mid-process and live runs agree on one rules.yaml.
-		const watch = readRulesFile().teams_watch as { channels?: { team_id?: string; channel_id?: string; mode?: string; board?: { site_url?: string; list_id?: string } }[] } | undefined;
-		const ch = watch?.channels?.find((c) => c.team_id === channel.teamId && c.channel_id === channel.channelId && c.mode === "personal");
-		const raw = ch?.board;
-		if (!raw?.site_url?.trim() || !raw?.list_id?.trim()) return;
-		// Imported only when a board is configured: board.ts pulls in MSAL via core/auth.ts, and every other
-		// `inbox` command (each a fresh process) would otherwise load it for nothing — same reason as coreSender.
-		const boardMod = await import("../../teams/board.ts");
-		const cfg: BoardConfig = raw as BoardConfig;
-		const client: ProbeBoardClient = boardClient ?? new boardMod.BoardClient();
-		const desired = boardTargetStatus(statusEntries);
-		const existing = (await within("SharePoint list cards", () => client.listCards(cfg))).find((c) => c.threadId === threadId);
-		if (existing?.status === "done" && desired !== "working") return;
-		if (desired === undefined && (!existing || existing.status === "unknown")) return;
-		const status: BoardStatus = desired ?? (existing!.status as BoardStatus);
-		// The Summary is written only on create: an existing card's Description may be the Coordinator LLM's own text,
-		// and an update patches just the status column.
-		const input: UpsertCardInput = {
-			threadId,
-			status,
-			...(existing ? {} : { title: boardTitle(entries, agentsByName, titleFallback), summary: boardSummary(entries, now) }),
-		};
-		try {
-			const tenantId = await within("SharePoint resolve tenant", () => client.resolveTenantId(cfg));
-			input.defaultThreadUrl = boardMod.buildThreadUrl({ teamId: channel.teamId, channelId: channel.channelId, tenantId, threadId });
-		} catch (e) {
-			log(`board thread URL skipped for ${threadId}: ${e instanceof Error ? e.message : String(e)}`);
-		}
-		await within("SharePoint upsert card", () => client.upsertCard(cfg, input));
-		log(`board ${existing ? "updated" : "created"} for thread ${threadId}: ${status}`);
-	} catch (e) {
-		const msg = `[inbox-probe] board sync failed for thread ${threadId}: ${e instanceof Error ? e.message : String(e)}`;
-		console.error(msg);
-		log(msg);
-	}
-}
-
 async function sendToThreads(
 	fresh: [string, Entry][],
-	current: [string, Entry][],
 	channel: { teamId: string; channelId: string },
 	sender: DigestSender | undefined,
 	log: (line: string) => void,
 	fail: (name: string, e: unknown) => void,
-	boardClient?: ProbeBoardClient,
-	now = Math.floor(Date.now() / 1000),
 ): Promise<Set<string>> {
 	const key = cursorKey({ teamId: channel.teamId, channelId: channel.channelId });
 	let cursor: CursorFile | null;
@@ -515,7 +421,6 @@ async function sendToThreads(
 		}
 	}
 	const agents = readAgents();
-	const agentsByName = new Map(agents.map((a) => [a.name, a]));
 	const cursorThreads = cursor.threads ?? {};
 	const sent = new Set<string>();
 	const byThread = new Map<string, [string, Entry][]>();
@@ -546,11 +451,6 @@ async function sendToThreads(
 			);
 			log(`progress to thread ${threadId}: ${receipt}`);
 			for (const [n] of group) sent.add(n);
-			const threadEntries = current.filter(([name]) => {
-				const agent = agentsByName.get(name);
-				return agent && boundThread(agent, cursorThreads) === threadId;
-			}).map(([, e]) => e);
-			await syncThreadBoard(channel, threadId, group.map(([, e]) => e), threadEntries, agentsByName, title, log, boardClient, now);
 		} catch (e) {
 			for (const [n] of group) fail(n, e);
 		}
@@ -570,7 +470,6 @@ async function sendToThreads(
 			bindNewThread(key, posted.id, a.name, subject);
 			log(`progress to new thread ${posted.id} for ${a.name}: ${posted.receipt}`);
 			sent.add(a.name);
-			await syncThreadBoard(channel, posted.id, [e], [e], agentsByName, subject, log, boardClient, now);
 		} catch (e) {
 			fail(a.name, e);
 		}
@@ -800,7 +699,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 	}
 	if (personal || routingFailed) {
 		// Per-thread delivery: each session's receipt is recorded alone, so a failed thread is owed again on its own.
-		const sentNames = personal ? await sendToThreads(fresh, lines, personal, o.sender, log, fail, o.boardClient, now) : new Set<string>();
+		const sentNames = personal ? await sendToThreads(fresh, personal, o.sender, log, fail) : new Set<string>();
 		await updateObserved((state) => {
 			const watched = new Set(readAgents().map((a) => a.name));
 			for (const name of Object.keys(state.watches)) if (!watched.has(name)) delete state.watches[name];
