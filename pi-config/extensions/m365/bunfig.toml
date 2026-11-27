@@ -1,5 +1,6 @@
-# The channel tests must never touch the real home or inbox: the preload isolates HOME, XDG_CACHE_HOME
-# and WAYNE_INBOX_DIR in a throwaway directory before any test module loads.
+# Bare `bun test` only discovers tests/bun (the group runner). Channel tests run as
+# `bun test --preload ./tests/channel/preload.ts ./tests/channel` so they never load in
+# this process (no temp HOME / WAYNE_INBOX_DIR leak into child groups).
 [test]
-preload = ["./tests/channel/preload.ts"]
+root = "tests/bun"
 timeout = 300000

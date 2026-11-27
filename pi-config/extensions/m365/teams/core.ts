@@ -2415,8 +2415,9 @@ export function createTeams(pi: TeamsHost) {
 			"'omp:' or 'pi:' arrive as the user's prompts. The user's own messages starting with 'omp:' or 'pi:' in " +
 			"any other watched chat also arrive as prompts, headed with that chat's name, id and policy. " +
 			"A channel watch has a mode. 'shared' (the default): other people's messages arrive as cards — a card starts a turn " +
-			"only when a quick model check of the channel's policy says its messages need you to act or reply (or the check " +
-			"fails), and with no policy it is display-only — and the user's own 'omp:'/'pi:' messages there arrive as prompts. " +
+			"only when a quick model check of the channel's policy says its messages need you to act or reply; if the check is " +
+			"missing, throws, or is off-format, the card is display-only with a warning, and with no policy it is display-only — " +
+			"and the user's own 'omp:'/'pi:' messages there arrive as prompts. " +
 			"'personal': the channel is verified to be a private channel whose only member is the user, every message the user " +
 			"posts there is their instruction (each is acknowledged with a 👀 and, in a harness that reports turn ends, answered " +
 			"in its thread automatically when its turn ends), an email posted into the channel starts a triage turn, and the " +

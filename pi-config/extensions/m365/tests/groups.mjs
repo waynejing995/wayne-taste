@@ -12,6 +12,7 @@ export const groups = [
 	{ label: "inbox agents", script: join(root, "inbox", "tests", "agents.test.mjs"), local: false },
 	{ label: "inbox schedule", script: join(root, "inbox", "tests", "schedule.test.mjs"), local: false },
 	{ label: "inbox probe", script: join(root, "inbox", "tests", "probe.test.mjs"), local: false },
+	{ label: "inbox auto-review", script: join(root, "inbox", "tests", "auto-review.test.mjs"), local: false },
 	{ label: "pr ready", script: join(root, "tests", "pr-ready.test.mjs"), local: false },
 	{ label: "inbox jobs", script: join(root, "inbox", "tests", "jobs.test.mjs"), local: false },
 	{ label: "inbox thens", script: join(root, "inbox", "tests", "thens.test.mjs"), local: false },
@@ -40,7 +41,7 @@ export const groups = [
 	{ label: "teams core send", script: join(root, "inbox", "tests", "teams-send.test.mjs"), local: false, runtime: "bun", isolated: true },
 	{ label: "teams history scan", script: join(root, "tests", "history-scan.test.mjs"), local: false },
 	{ label: "teams (local-only)", script: join(root, "teams", "tests", "run.mjs"), local: true, isolated: true },
-	{ label: "teams channel (bun test)", script: join(root, "tests", "channel"), runtime: "bun", args: ["test", "tests/channel"], cwd: root, local: false, isolated: true },
+	{ label: "teams channel (bun test)", script: join(root, "tests", "channel"), runtime: "bun", args: ["test", "--preload", "./tests/channel/preload.ts", "./tests/channel"], cwd: root, local: false, isolated: true },
 ];
 
 export function runGroup({ script, isolated, runtime = process.versions.bun ? "node" : process.execPath, args, cwd }) {
