@@ -13,11 +13,21 @@ import { migrateRules, migrateRulesText } from "./migrate-rules.ts";
 import { setup } from "./setup.ts";
 import { addThen, checkThens, guardDone, openThenLines, thenDone } from "./thens.ts";
 import { sweep } from "./sweep.ts";
+import { BoardClient, type BoardStatus, buildThreadUrl, formatBoardList, requirePersonalBoard } from "../../teams/board.ts";
 
 function minutes(value: string, flag: string): number {
 	const n = Number(value);
 	if (!Number.isFinite(n) || n <= 0) throw new InboxError(`${flag} must be a positive number of minutes`);
 	return n;
+}
+
+async function runBoard(fn: (client: BoardClient) => Promise<string>): Promise<string> {
+	try {
+		return await fn(new BoardClient());
+	} catch (e) {
+		if (e instanceof InboxError) throw e;
+		throw new InboxError(e instanceof Error ? e.message : String(e));
+	}
 }
 
 type Opt = { flag?: boolean; many?: boolean; required?: boolean; choices?: string[]; default?: string; help?: string };
@@ -290,6 +300,78 @@ const COMMANDS: Record<string, Command> = {
 			return migrateRulesText(fs.readFileSync(inboxFile("rules.yaml"), "utf8")).text;
 		},
 	},
+	"board list": {
+		help: "List cards on the personal channel's SharePoint task board.",
+		opts: { "team-id": {}, "channel-id": {} },
+		run: (p) =>
+			runBoard(async (client) => {
+				const { board } = requirePersonalBoard({ teamId: p.opts["team-id"], channelId: p.opts["channel-id"] });
+				return formatBoardList(await client.listCards(board));
+			}),
+	},
+	"board upsert": {
+		help: "Create or update a task card by thread id on the SharePoint task board.",
+		args: ["thread-id"],
+		opts: {
+			status: { required: true, choices: ["waiting", "working", "done"] },
+			title: {},
+			summary: {},
+			"thread-url": {},
+			"team-id": {},
+			"channel-id": {},
+		},
+		run: (p) =>
+			runBoard(async (client) => {
+				const { channel, board } = requirePersonalBoard({ teamId: p.opts["team-id"], channelId: p.opts["channel-id"] });
+				const threadId = p.args[0].trim();
+				let defaultThreadUrl: string | undefined;
+				if (p.opts["thread-url"] === undefined) {
+					const tenantId = await client.resolveTenantId(board);
+					defaultThreadUrl = buildThreadUrl({
+						teamId: channel.team_id,
+						channelId: channel.channel_id,
+						tenantId,
+						threadId,
+					});
+				}
+				const res = await client.upsertCard(board, {
+					threadId,
+					status: p.opts.status as BoardStatus,
+					title: p.opts.title,
+					summary: p.opts.summary,
+					threadUrl: p.opts["thread-url"],
+					defaultThreadUrl,
+				});
+				return `${res.action === "created" ? "Created" : "Updated"} card #${res.id} for thread ${res.threadId} in "${res.column}".`;
+			}),
+	},
+	"board done": {
+		help: "Move a task card to the done column by thread id (no-op if missing).",
+		args: ["thread-id"],
+		opts: { "team-id": {}, "channel-id": {} },
+		run: (p) =>
+			runBoard(async (client) => {
+				const { board } = requirePersonalBoard({ teamId: p.opts["team-id"], channelId: p.opts["channel-id"] });
+				const res = await client.moveCard(board, p.args[0].trim(), "done");
+				return res.updated
+					? `Moved card #${res.id} for thread ${res.threadId} to "${res.column}".`
+					: `No card found on board for thread ${res.threadId} (no-op).`;
+			}),
+	},
+	"board setup": {
+		help: "Ensure task board columns and KANBAN Board view CustomFormatter.",
+		opts: { "team-id": {}, "channel-id": {} },
+		run: (p) =>
+			runBoard(async (client) => {
+				const { board } = requirePersonalBoard({ teamId: p.opts["team-id"], channelId: p.opts["channel-id"] });
+				const res = await client.ensureSchema(board);
+				const parts: string[] = [];
+				parts.push(res.createdFields.length > 0 ? `created fields: ${res.createdFields.join(", ")}` : "all fields present");
+				if (res.updatedFields.length > 0) parts.push(`updated fields: ${res.updatedFields.join(", ")}`);
+				parts.push(res.viewPatched ? `patched KANBAN view "${res.viewTitle ?? "Board"}"` : "no KANBAN Board view found to patch");
+				return `Board setup complete (${parts.join("; ")}).`;
+			}),
+	}
 };
 
 function usage(name: string, cmd: Command): string {

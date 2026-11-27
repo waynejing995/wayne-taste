@@ -18,8 +18,10 @@ import * as path from "node:path";
 import YAML from "yaml";
 import { replaceBlock } from "../core/rules-block.ts";
 
+export type BoardColumnsConfig = { waiting?: string; working?: string; done?: string };
+export type SavedBoardConfig = { site_url: string; list_id: string; columns?: BoardColumnsConfig };
 export type SavedWatch = { chat: string; chat_id: string; policy: string };
-export type SavedChannelWatch = { channel: string; team_id: string; channel_id: string; mode?: "shared" | "personal"; policy: string };
+export type SavedChannelWatch = { channel: string; team_id: string; channel_id: string; mode?: "shared" | "personal"; policy: string; board?: SavedBoardConfig };
 export type WatchList = { interval_sec?: number; chats: SavedWatch[]; channels?: SavedChannelWatch[] };
 
 export const WATCH_LIST = path.join(process.env.WAYNE_INBOX_DIR ?? path.join(os.homedir(), ".wayne", "inbox"), "rules.yaml");
@@ -94,10 +96,14 @@ export function rememberInterval(sec: number): string {
 }
 
 export function rememberChannelWatch(w: SavedChannelWatch): string {
-	return save((l) => ({
-		...l,
-		channels: [...(l.channels ?? []).filter((c) => c.team_id !== w.team_id || c.channel_id !== w.channel_id), w],
-	}));
+	return save((l) => {
+		const prev = (l.channels ?? []).find((c) => c.team_id === w.team_id && c.channel_id === w.channel_id);
+		const merged: SavedChannelWatch = w.board === undefined && prev?.board !== undefined ? { ...w, board: prev.board } : w;
+		return {
+			...l,
+			channels: [...(l.channels ?? []).filter((c) => c.team_id !== w.team_id || c.channel_id !== w.channel_id), merged],
+		};
+	});
 }
 
 export function forgetChannelWatch(teamId: string, channelId: string): string {

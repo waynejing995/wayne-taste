@@ -128,3 +128,46 @@ if (warnings.join("")) { console.error(warnings.join("")); process.exit(1); }
 	expect(saved).toEqual([...ids("a"), ...ids("b")].sort());
 	expect(YAML.parse(readFileSync(RULES, "utf8")).schedule).toEqual([{ at: "09:00" }]);
 });
+
+test("board config on a personal channel survives rememberChannelWatch, rememberWatch, and rememberInterval", () => {
+	const withBoard = [
+		"teams_watch:",
+		"  chats: []",
+		"  channels:",
+		"    - channel: Agent Desk",
+		"      team_id: team-1",
+		'      channel_id: "19:fake-channel@thread.skype"',
+		"      mode: personal",
+		'      policy: ""',
+		"      board:",
+		"        site_url: https://contoso.sharepoint.test/sites/AgentSite",
+		"        list_id: 00000000-0000-4000-8000-000000000099",
+		"        columns:",
+		'          waiting: "🟡 Waiting"',
+		'          working: "🔄 Working"',
+		'          done: "✅ Done"',
+		"",
+	].join("\n");
+	writeFileSync(RULES, withBoard);
+
+	expect(m.rememberChannelWatch({ channel: "Agent Desk", team_id: "team-1", channel_id: "19:fake-channel@thread.skype", mode: "personal", policy: "new policy" })).toBe("");
+	expect(m.rememberInterval(30)).toBe("");
+	expect(m.rememberWatch({ chat: "self", chat_id: "48:notes", policy: "" })).toBe("");
+
+	const saved = m.savedWatches();
+	expect(saved.interval_sec).toBe(30);
+	expect(saved.channels).toEqual([
+		{
+			channel: "Agent Desk",
+			team_id: "team-1",
+			channel_id: "19:fake-channel@thread.skype",
+			mode: "personal",
+			policy: "new policy",
+			board: {
+				site_url: "https://contoso.sharepoint.test/sites/AgentSite",
+				list_id: "00000000-0000-4000-8000-000000000099",
+				columns: { waiting: "🟡 Waiting", working: "🔄 Working", done: "✅ Done" },
+			},
+		},
+	]);
+});

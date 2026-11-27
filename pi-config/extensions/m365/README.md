@@ -49,7 +49,7 @@ Until step 2 a session shows one warning naming `/inbox setup`; no job runs and 
 `bin/inbox` runs `inbox/cli/` on plain node (`bin/strip-types.mjs` strips the types at load: no build step, and
 unlike `--experimental-strip-types` it works under `node_modules`, where omp links the plugin). `bin/inbox --help`
 lists the commands: `ls`, `add`, `set`, `done`, `ask`, `fact`, `places`, `then`, `then-done`, `agent add|close|ls|probe`,
-`schedule add|ls|rm|enable|disable|run|pending|show|exec|finish|widget`, `setup`. The plugin calls the same code
+`board list|upsert|done|setup`, `schedule add|ls|rm|enable|disable|run|pending|show|exec|finish|widget`, `setup`. The plugin calls the same code
 in-process for its own cards and scheduler.
 
 Agents get the ledger as tools, so they do not shell out: `inbox_ls`, `inbox_ask`, `inbox_fact`, `inbox_facts`,
@@ -159,6 +159,37 @@ message with nothing new to read (`cursors/agent-said.json` keeps what the last 
 An optional `card-note.md` in the inbox directory is said on every inbox and Teams watch card (the user's own
 standing instructions for the agent that receives them).
 
+### Task board (`teams_board` / `inbox board`)
+
+A `mode: personal` channel entry in `~/.wayne/inbox/rules.yaml` (`teams_watch.channels`) can carry an optional
+`board:` block pointing at a SharePoint / Microsoft Lists Kanban board (zero IDs live in code; `teams_watch` edits
+preserve the `board:` block):
+
+```yaml
+teams_watch:
+  channels:
+    - channel: my-agent
+      team_id: 00000000-0000-4000-8000-000000000010
+      channel_id: 19:fake-channel@thread.skype
+      mode: personal
+      policy: ""
+      board:
+        site_url: https://tenant.sharepoint.com/sites/MySite
+        list_id: 00000000-0000-4000-8000-000000000000
+        columns: # optional, defaults shown
+          waiting: "🟡 待拍板"
+          working: "🔄 进行中"
+          done: "✅ 已完成"
+```
+
+- **`teams_board`** (and `bin/inbox board list|upsert|done|setup`): `list` lists cards, `upsert` creates/updates by
+  `thread_id` (`status`: `waiting` | `working` | `done`, auto-building a `<= 255`-char `ThreadLink` from the personal
+  channel and token `tid` claim when `thread_url` is omitted, stripping `&createdTime=...`), `done` moves a card to
+  the done column (no-op if absent), and `setup` creates missing columns (`board_x0020_choice`, `Summary`,
+  `ThreadLink`, `ThreadId`) and patches the `KANBAN` `Board` view's `CustomFormatter` with `kanbanProps.formatter`.
+- **`teams_react("✅")`** on a root post of that personal channel moves the matching card to `done` (warning in the
+  tool output if SharePoint sync fails, without hiding the Teams reaction success).
+
 ## Other harnesses (MCP)
 
 `mcp/server.ts` is a stdio MCP server, run with [bun](https://bun.sh) (Node's type stripping cannot load the Teams
@@ -171,7 +202,7 @@ and `outlook_*` tool, plus the inbox tools above (from `mcp/inbox.ts`, which run
 - **Sign-in** is omp's: the server reads the token cache `/teams init` wrote (`~/.cache/pi/teams-auth/`) and
   refuses to start without it (`run /teams init in omp`). There is no second login.
 - **Pictures** come back as MCP image content, each with the local file path (`[image n saved: <file>]`).
-- **Write tools** (`teams_send`, `teams_react`, `outlook_send`, `outlook_draft`, `outlook_move`, `outlook_mark`,
+- **Write tools** (`teams_send`, `teams_react`, `teams_board`, `outlook_send`, `outlook_draft`, `outlook_move`, `outlook_mark`,
   `inbox_ask`, `inbox_fact`, `inbox_fact_drop`, `inbox_set`, `inbox_done`, `inbox_then`, `inbox_then_done`, `inbox_agent_add`,
   `inbox_agent_close`) have no confirmation of their own
   in the server: approval is the client's job (Claude Code permissions or `allowedTools`, Codex `approval_mode`,

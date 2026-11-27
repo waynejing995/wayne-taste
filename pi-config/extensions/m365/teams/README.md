@@ -71,6 +71,7 @@ click per refresh-token lifetime is a bad trade. Nothing here ever reads it.
 | `teams_channels` tool | Lists the team channels you belong to (`team_id`, `channel_id`, membership type, channel email address when present, `[archived]`, `[watched here]`), optionally filtered by `query`. See [Channels and threads](#channels-and-threads) |
 | `teams_read` tool | The agent reads the last 20 messages of a chat, the self-chat, or a channel (`limit` up to 200; in a channel, newest root posts or one thread with `message_id`). Each line carries the message id (`id: …`, what `teams_react` takes, plus `reply_to` on channel replies); reactions follow as `reactions: 👍 2 · 😆 1`. A shared file becomes two lines: the name, and the url `teams_download` needs |
 | `teams_react` tool | Adds a reaction to one message (`like`, `heart`, `laugh`, `surprised`, `sad`, `angry`, or an emoji), or takes it back with `remove: true`. Graph `setReaction`/`unsetReaction`, in any chat, the self-chat (`48:notes`), or a team channel (`team_id`, `channel_id`, and `reply_to` for replies) |
+| `teams_board` tool | Syncs task cards with a Microsoft Lists / SharePoint Kanban board configured under a `mode: personal` channel in `rules.yaml` (`list`, `upsert`, `done`, `setup`). `teams_react("✅")` on a personal channel root post moves its matching card to `done` |
 | `teams_download` tool | Fetches a file someone shared, to a local path. Size-capped (256 MB default) |
 | `teams_transcript` tool | Reads the speaker-attributed transcript of a recorded meeting (`19:meeting_...@thread.v2`), or lists its recorded sessions (`list: true`, `date: "YYYY-MM-DD"` picks one). If the speaker-attributed Stream JSON is unavailable it falls back to WebVTT, which can lose speakers; the result then carries a `fallbackWarning` |
 | `teams_unread` tool | The agent reads the unread list |
@@ -324,6 +325,9 @@ teams_watch:
       channel_id: 19:fake-channel@thread.skype
       mode: personal
       policy: ""
+      board: # optional SharePoint / Microsoft Lists Kanban sync
+        site_url: https://tenant.sharepoint.com/sites/MySite
+        list_id: 00000000-0000-4000-8000-000000000000
     - channel: Team Beta / Engineering
       team_id: team-2
       channel_id: 19:fake-shared@thread.skype

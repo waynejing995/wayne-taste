@@ -36,6 +36,7 @@ import { claim, describeOwner, listOwners, type WatchLease, type WatchOwner } fr
 import { COMMAND, planDelivery, toChannelEvent, type ChannelAddr, type ChannelEvent, type ChannelMode, type DeliveryEntry } from "./channel.ts";
 import { addDone, compareIds, cursorKey, loadCursor, markDone, updateCursor, type CursorFile, type ThreadBinding } from "./cursor-store.ts";
 import { forgetChannelWatch, forgetWatch, rememberChannelWatch, rememberInterval, rememberWatch } from "./watch-list.ts";
+import { BoardClient, buildThreadUrl, findPersonalBoard, formatBoardList, requirePersonalBoard } from "./board.ts";
 
 /** Local `StringEnum` helper — `Type.Unsafe({type:"string", enum})` so tool schemas
   * use a flat form providers can handle (not `anyOf/const`). Identical to the
@@ -268,6 +269,8 @@ export interface TeamsHost {
 	registerTool: RegisterTool;
 	/** A test seam: the backend to use in place of makeBackend(), which builds the real MSAL clients. */
 	backend?: Backend;
+	/** A test seam: the SharePoint task-board client to use in place of the default FOCI client. */
+	board?: BoardClient;
 	exec(command: string, args: string[], options: { timeout?: number; cwd?: string }): Promise<{ code: number; stdout: string; stderr: string }>;
 	/** Hand a watch card to the agent. `meta.senders` names who wrote its messages, for a harness that labels pushed events. */
 	sendMessage(
@@ -291,6 +294,7 @@ export function createTeams(pi: TeamsHost) {
 	const renderStatus = (ctx?: TeamsContext) => pi.renderStatus?.(ctx);
 	const flash = (ctx: TeamsContext, text: string, holdMs?: number) => pi.flash?.(ctx, text, holdMs);
 	const cfg = loadConfig();
+	const boardClient = pi.board ?? new BoardClient();
 
 	// ── State (single source of truth for the status bar) ───────────────────
 	let unreadCount: number | null = null;
@@ -2134,13 +2138,92 @@ export function createTeams(pi: TeamsHost) {
 				const addr = await backend.resolveChannel({ teamId: params.team_id, channelId: params.channel_id });
 				await backend.reactChannel(addr, params.message_id, type, { replyTo: params.reply_to, remove: params.remove === true });
 				const where = `channel ${addr.label}`;
-				const text = params.remove ? `Removed ${type} from message ${params.message_id} in ${where}.` : `Reacted ${type} to message ${params.message_id} in ${where}.`;
+				let text = params.remove ? `Removed ${type} from message ${params.message_id} in ${where}.` : `Reacted ${type} to message ${params.message_id} in ${where}.`;
+				if (params.remove !== true && type === "✅" && !params.reply_to) {
+					try {
+						const hit = findPersonalBoard(addr.teamId, addr.channelId);
+						if (hit) {
+							const moved = await boardClient.moveCard(hit.board, params.message_id, "done");
+							if (moved.updated) text += ` Board card #${moved.id} moved to "${moved.column}".`;
+						}
+					} catch (e) {
+						const msg = e instanceof Error ? e.message : String(e);
+						console.warn(`[teams_react] board sync failed for ${params.message_id}: ${msg}`);
+						text += ` Warning: board sync failed (${msg}).`;
+					}
+				}
 				return { content: [{ type: "text", text }], details: {} };
 			}
 			const chatId = params.chat_id as string;
 			await backend.react(chatId, params.message_id, type, params.remove === true);
 			const where = chatId === SELF_CHAT ? "the self-chat" : `chat ${chatId}`;
 			const text = params.remove ? `Removed ${type} from message ${params.message_id} in ${where}.` : `Reacted ${type} to message ${params.message_id} in ${where}.`;
+			return { content: [{ type: "text", text }], details: {} };
+		},
+	});
+
+	pi.registerTool({
+		name: "teams_board",
+		label: "Teams Board",
+		description:
+			"Sync tasks with the Microsoft Lists / SharePoint Kanban board configured under a personal channel in ~/.wayne/inbox/rules.yaml. " +
+			"action='list' lists cards; action='upsert' creates or updates a card by `thread_id` (`status`: waiting|working|done, " +
+			"optional `title`, `summary`, `thread_url` — defaults to the Teams deep link for the personal channel & thread_id); " +
+			"action='done' moves a card by `thread_id` to the done column (no-op if no card exists); action='setup' ensures list columns and Board view formatter.",
+		parameters: Type.Object({
+			action: StringEnum(["list", "upsert", "done", "setup"], { description: "What to do on the task board" }),
+			thread_id: Type.Optional(Type.String({ description: "With action='upsert'/'done': the Teams channel thread root post id" })),
+			status: Type.Optional(StringEnum(["waiting", "working", "done"], { description: "With action='upsert': target board column" })),
+			title: Type.Optional(Type.String({ description: "With action='upsert': card title" })),
+			summary: Type.Optional(Type.String({ description: "With action='upsert': card summary" })),
+			thread_url: Type.Optional(Type.String({ description: "With action='upsert': Teams thread link (auto-built when omitted)" })),
+			team_id: Type.Optional(Type.String({ description: "Optional: personal channel's team_id when multiple boards are configured" })),
+			channel_id: Type.Optional(Type.String({ description: "Optional: personal channel's channel_id when multiple boards are configured" })),
+		}),
+		async execute(_id, params) {
+			const { channel, board } = requirePersonalBoard({ teamId: params.team_id, channelId: params.channel_id });
+			let text: string;
+			if (params.action === "list") {
+				const cards = await boardClient.listCards(board);
+				text = formatBoardList(cards);
+			} else if (params.action === "upsert") {
+				const threadId = params.thread_id?.trim();
+				if (!threadId) throw new Error("teams_board action='upsert' requires 'thread_id'");
+				if (!params.status) throw new Error("teams_board action='upsert' requires 'status' (waiting, working, or done)");
+				let defaultThreadUrl: string | undefined;
+				if (params.thread_url === undefined) {
+					const tenantId = await boardClient.resolveTenantId(board);
+					defaultThreadUrl = buildThreadUrl({
+						teamId: channel.team_id,
+						channelId: channel.channel_id,
+						tenantId,
+						threadId,
+					});
+				}
+				const res = await boardClient.upsertCard(board, {
+					threadId,
+					status: params.status,
+					title: params.title,
+					summary: params.summary,
+					threadUrl: params.thread_url,
+					defaultThreadUrl,
+				});
+				text = `${res.action === "created" ? "Created" : "Updated"} card #${res.id} for thread ${res.threadId} in "${res.column}".`;
+			} else if (params.action === "done") {
+				const threadId = params.thread_id?.trim();
+				if (!threadId) throw new Error("teams_board action='done' requires 'thread_id'");
+				const res = await boardClient.moveCard(board, threadId, "done");
+				text = res.updated
+					? `Moved card #${res.id} for thread ${res.threadId} to "${res.column}".`
+					: `No card found on board for thread ${res.threadId} (no-op).`;
+			} else {
+				const res = await boardClient.ensureSchema(board);
+				const parts: string[] = [];
+				parts.push(res.createdFields.length > 0 ? `created fields: ${res.createdFields.join(", ")}` : "all fields present");
+				if (res.updatedFields.length > 0) parts.push(`updated fields: ${res.updatedFields.join(", ")}`);
+				parts.push(res.viewPatched ? `patched KANBAN view "${res.viewTitle ?? "Board"}"` : "no KANBAN Board view found to patch");
+				text = `Board setup complete (${parts.join("; ")}).`;
+			}
 			return { content: [{ type: "text", text }], details: {} };
 		},
 	});

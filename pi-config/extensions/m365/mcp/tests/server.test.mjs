@@ -77,7 +77,7 @@ rules([]);
 	const { tools } = await client.listTools();
 	const names = tools.map((t) => t.name);
 	check("lists every teams_* tool", () =>
-		deepStrictEqual(names.filter((n) => n.startsWith("teams_")).sort(), ["teams_channels", "teams_chats", "teams_download", "teams_people", "teams_react", "teams_read", "teams_send", "teams_transcript", "teams_unread", "teams_watch"]),
+		deepStrictEqual(names.filter((n) => n.startsWith("teams_")).sort(), ["teams_board", "teams_channels", "teams_chats", "teams_download", "teams_people", "teams_react", "teams_read", "teams_send", "teams_transcript", "teams_unread", "teams_watch"]),
 	);
 	const props = (name) => Object.keys(tools.find((t) => t.name === name).inputSchema.properties);
 	check("teams_send takes files, teams_react a chat or channel, message and reaction", () =>
