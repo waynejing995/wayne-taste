@@ -76,6 +76,7 @@ A row that has a thread carries `thread <root id>` in its note; `$I done` on it 
 - A decision Wayne answers at the desk (in a terminal pane) gets one reply in its thread, `answered at desk: <choice>`, so the phone never shows a stale question.
 - Mobile-readable answers: inline PNG (`images`) plus a 2-4 line summary; no internal-only links as the only content.
 - Finished workstream: final result card in the thread, then ✅ on the root.
+- Native `task board` (optional `board:` config under the `mode: personal` channel in `rules.yaml`, backed by SharePoint/Microsoft Lists Kanban via FOCI SharePoint REST): **every task creation, status/progress update, and completion MUST update that thread's card** (`ThreadId` = root id) via `teams_board` (`upsert` with `status: waiting | working | done` and concise `[HH:MM]` latest detail in `summary`; clickable deep-link omits optional `createdTime` to fit SharePoint's 255-char URL limit). Reacting `✅` on a personal-channel thread root via `teams_react` automatically moves the matching card to `done` (log any warning loudly; never silently ignore). Never hardcode tenant/site/list IDs in skills or plugin code — keep them strictly in local `rules.yaml`.
 - An email-forwarded thread is material to triage: summarise it and draft a reply in the thread; act only on Wayne's own reply there.
 - Shared chats and shared channels: answer where the work was asked. A private decision or approval needed from Wayne becomes a new root in the personal channel that links the source and binds the owner.
 
