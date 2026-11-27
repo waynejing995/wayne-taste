@@ -655,8 +655,10 @@ export function createTeams(pi: TeamsHost) {
 
 	/**
 	 * Called for each reply the session posts to a channel thread: the thread's awaiting instructions are answered.
-	 * With turn events only the ids the running turn handed over leave `awaiting` (a newer instruction may have joined it
-	 * since); without them there is no turn to scope, so every id awaiting an answer in that thread leaves now.
+	 * With turn events, a reply to the running turn's own thread marks that turn replied and clears the ids it handed
+	 * over (a newer instruction may have joined it since); a reply to any other thread clears that thread's whole
+	 * awaiting entry — those ids steered into a turn another thread owned, so no channelTurn tracks them. Without
+	 * turn events there is no turn to scope, so every id awaiting an answer in that thread leaves now.
 	 */
 	function noteThreadReply(key: string, root: string): void {
 		if (turnEvents) {
@@ -664,7 +666,10 @@ export function createTeams(pi: TeamsHost) {
 				const ids = [...channelTurn.ids];
 				channelTurn.replied = true;
 				removeAwaiting(key, root, ids);
+				return;
 			}
+			const steered = loadCursor(key)?.awaiting?.[root];
+			if (steered?.length) removeAwaiting(key, root, steered);
 			return;
 		}
 		const waiting = loadCursor(key)?.awaiting?.[root];
@@ -1064,7 +1069,8 @@ export function createTeams(pi: TeamsHost) {
 	 * Hand one channel prompt to the agent. A personal here-instruction is recorded in `awaiting[thread]` first, then
 	 * ACKed with a 👀 on each id (a reply uses `replyTo: threadId`; a failure warns, never blocks). Once the host has
 	 * taken the prompt the ids are marked done. Merging a new instruction into a running channelTurn resets `replied`
-	 * so the follow-up is answered at turn end.
+	 * so the follow-up is answered at turn end. A personal instruction steered into a turn that is not its thread's
+	 * claims no turn state at all: its prompt says to answer explicitly in its thread.
 	 */
 	async function deliverChannelCommand(ctx: TeamsContext, c: ChannelCommand, options: { deliverAs: "steer" } | undefined): Promise<void> {
 		if (watches.get(c.key) !== c.w) return;
@@ -1088,42 +1094,55 @@ export function createTeams(pi: TeamsHost) {
 		}
 		logCard("flushed", { chatId: c.key, ids: [...c.ids], thread: c.threadId, route: c.route }, { how: options ? "steer" : "turn", kind: "prompt" });
 		ctx.ui.notify(`Teams → ${c.body.slice(0, 80)}`, "info");
-		// The turn state is set before the hand-off: the agent may reply (teams_send reply_to) while sendUserMessage is
-		// still in progress, and noteThreadReply only marks a reply on a channelTurn that already exists.
-		const prevTurnThread = turnThread;
-		const prevChannelTurn = channelTurn;
-		const nextTurnThread = c.threadId;
-		let nextChannelTurn = channelTurn;
-		if (turnEvents) {
-			turnThread = nextTurnThread;
-			if (c.personal) {
-				nextChannelTurn = channelTurn && channelTurn.key === c.key && channelTurn.threadId === c.threadId
-					? { ...channelTurn, ids: [...new Set([...channelTurn.ids, ...c.ids])], replied: false }
-					: { key: c.key, threadId: c.threadId, ids: [...c.ids], w: c.w, addr: c.w.addr!, replied: false };
-				channelTurn = nextChannelTurn;
-			}
+	// The turn state is set before the hand-off: the agent may reply (teams_send reply_to) while sendUserMessage is
+	// still in progress, and noteThreadReply only marks a reply on a channelTurn that already exists.
+	const prevTurnThread = turnThread;
+	const prevChannelTurn = channelTurn;
+	const nextTurnThread = c.threadId;
+	let nextChannelTurn = channelTurn;
+	// A personal instruction steered into a turn that is not its thread's claims nothing: turnThread stays with the
+	// thread whose turn is running, and channelTurn is not re-pointed at this thread, so answerChannelTurn can never
+	// post the mixed turn's answer into the wrong thread. A channelTurn of another thread that is not already due an
+	// answer is dropped — that turn now answers more than one thread, so no thread gets its answer automatically.
+	// The prompt itself tells the agent to answer explicitly in this thread.
+	const crossThread = options?.deliverAs === "steer" && c.personal && turnThread !== c.threadId;
+	if (crossThread) {
+		if (channelTurn && !channelTurnDue && (channelTurn.key !== c.key || channelTurn.threadId !== c.threadId)) channelTurn = undefined;
+	} else if (turnEvents) {
+		turnThread = nextTurnThread;
+		if (c.personal) {
+			nextChannelTurn = channelTurn && channelTurn.key === c.key && channelTurn.threadId === c.threadId
+				? { ...channelTurn, ids: [...new Set([...channelTurn.ids, ...c.ids])], replied: false }
+				: { key: c.key, threadId: c.threadId, ids: [...c.ids], w: c.w, addr: c.w.addr!, replied: false };
+			channelTurn = nextChannelTurn;
 		}
-		try {
-			await pi.sendUserMessage(`${c.mark}\n${c.body}`, options, { chatId: c.key, policy: c.policy });
-		} catch (e) {
-			// Roll back only when this call still owns the turn state and the watch is still live; a `replied = true`
-			// the agent's in-turn reply set on nextChannelTurn survives the restore, and a concurrent turn that took
-			// over (stopAllWatches, turnEnded + a new turn) is not clobbered by an unrelated failure.
-			if (watches.get(c.key) === c.w) {
+	}
+	let text = `${c.mark}\n${c.body}`;
+	if (crossThread) text += `\nAnswer in this thread with teams_send reply_to=${c.threadId}`;
+	try {
+		await pi.sendUserMessage(text, options, { chatId: c.key, policy: c.policy });
+	} catch (e) {
+		// Roll back only when this call still owns the turn state and the watch is still live; a `replied = true`
+		// the agent's in-turn reply set on nextChannelTurn survives the restore, and a concurrent turn that took
+		// over (stopAllWatches, turnEnded + a new turn) is not clobbered by an unrelated failure. A cross-thread
+		// steer owned no turn state, and a channelTurn it dropped stays dropped: the turn may have seen the prompt.
+		if (watches.get(c.key) === c.w) {
+			if (!crossThread) {
 				if (turnThread === nextTurnThread) turnThread = prevTurnThread;
 				if (nextChannelTurn && channelTurn === nextChannelTurn)
 					channelTurn = prevChannelTurn
 						? { ...prevChannelTurn, replied: prevChannelTurn.replied || nextChannelTurn.replied }
 						: undefined;
-				if (c.redelivered) pendingChannelCommands.push(c);
-				else {
-					if (c.personal) removeAwaiting(c.key, c.threadId, c.ids);
-					for (const id of c.ids) { c.w.inflight.delete(id); c.w.retry.add(id); }
-				}
-				watchError(c.w, e);
 			}
-			return;
+			if (c.redelivered) pendingChannelCommands.push(c);
+			else {
+				if (c.personal) removeAwaiting(c.key, c.threadId, c.ids);
+				for (const id of c.ids) { c.w.inflight.delete(id); c.w.retry.add(id); }
+			}
+			watchError(c.w, e);
 		}
+		return;
+	}
 		if (watches.get(c.key) !== c.w) return;
 		for (const id of c.ids) c.w.inflight.delete(id);
 		try {
@@ -1135,9 +1154,12 @@ export function createTeams(pi: TeamsHost) {
 	}
 
 	/**
-	 * Hand channel prompts to the agent, one thread per turn while the host reports turn events: idle hands the
-	 * oldest pending thread over as a turn, busy steers only the running thread's, the rest wait. Without turn
-	 * events every pending prompt goes at once (the MCP host has no turns to queue against).
+	 * Hand channel prompts to the agent, one thread per turn while the host reports turn events: idle hands the oldest
+	 * pending thread over as a turn, and a personal here-instruction steers in at once whether the host is busy on its
+	 * own thread's turn, another thread's, or a turn no channel thread owns — the user's own words wait for nobody,
+	 * exactly like a self-chat instruction. Shared and relay prompts steer only into their own thread's running turn;
+	 * the rest wait for idle. Without turn events every pending prompt goes at once (the MCP host has no turns to
+	 * queue against).
 	 */
 	async function runChannelCommands(): Promise<void> {
 		const ctx = watchCtx;
@@ -1148,21 +1170,20 @@ export function createTeams(pi: TeamsHost) {
 			for (const c of commands) await deliverChannelCommand(ctx, c, undefined);
 			return;
 		}
-		if (!ctx.isIdle() || turnThread !== undefined) {
-			if (turnThread === undefined) return;
-			const mine = pendingChannelCommands.filter((c) => c.threadId === turnThread);
-			pendingChannelCommands = pendingChannelCommands.filter((c) => c.threadId !== turnThread);
-			for (const c of mine) await deliverChannelCommand(ctx, c, { deliverAs: "steer" });
+		if (ctx.isIdle() && turnThread === undefined) {
+			const oldest = pendingChannelCommands.reduce((a, b) => (a.seq < b.seq ? a : b));
+			const batch = pendingChannelCommands.filter((c) => c.threadId === oldest.threadId);
+			pendingChannelCommands = pendingChannelCommands.filter((c) => c.threadId !== oldest.threadId);
+			let first = true;
+			for (const c of batch) {
+				await deliverChannelCommand(ctx, c, first ? undefined : { deliverAs: "steer" });
+				first = false;
+			}
 			return;
 		}
-		const oldest = pendingChannelCommands.reduce((a, b) => (a.seq < b.seq ? a : b));
-		const batch = pendingChannelCommands.filter((c) => c.threadId === oldest.threadId);
-		pendingChannelCommands = pendingChannelCommands.filter((c) => c.threadId !== oldest.threadId);
-		let first = true;
-		for (const c of batch) {
-			await deliverChannelCommand(ctx, c, first ? undefined : { deliverAs: "steer" });
-			first = false;
-		}
+		const mine = pendingChannelCommands.filter((c) => c.personal || c.threadId === turnThread);
+		pendingChannelCommands = pendingChannelCommands.filter((c) => !(c.personal || c.threadId === turnThread));
+		for (const c of mine) await deliverChannelCommand(ctx, c, { deliverAs: "steer" });
 	}
 
 	/** Scan the stream back for specific ids: the events a restart re-delivers, plus every other event on those pages so a later agent reply in the same thread is visible. */
@@ -1475,7 +1496,8 @@ export function createTeams(pi: TeamsHost) {
 	 * as an omp:/pi: note is; other chats' cards, display-only or not, wait for agent_end or the next poll, so a
 	 * display-only card is never steered. A steer keeps `triggerTurn`: if the turn ends while the card is on its way,
 	 * omp starts a turn with it instead. One card per chat per poll, never merged across chats: each carries its own
-	 * chat's policy.
+	 * chat's policy. A channel card that starts a turn claims its thread before the send, not after: omp awaits the
+	 * whole turn, so turnEnded() has already run when the send resolves.
 	 */
 	async function flushCards(): Promise<void> {
 		const ctx = watchCtx;
@@ -1484,25 +1506,30 @@ export function createTeams(pi: TeamsHost) {
 		const cards = idle ? pendingCards : pendingCards.filter((c) => c.details.chatId === SELF_CHAT);
 		if (cards.length === 0) return;
 		pendingCards = idle ? [] : pendingCards.filter((c) => c.details.chatId !== SELF_CHAT);
-		const send = async (card: (typeof cards)[number], how: string, options: { triggerTurn: boolean; deliverAs?: "steer" }) => {
-			if (watches.get(card.details.chatId) !== card.w) return;
-			await handoff(card.w, card.details.ids, () => {
-				logCard("flushed", card.details, { how });
-				return pi.sendMessage({ customType: "teams-watch", content: card.content, display: true, details: card.details }, options, { senders: card.senders });
-			});
-		};
+	const send = async (card: (typeof cards)[number], how: string, options: { triggerTurn: boolean; deliverAs?: "steer" }): Promise<boolean> => {
+		if (watches.get(card.details.chatId) !== card.w) return false;
+		return handoff(card.w, card.details.ids, () => {
+			logCard("flushed", card.details, { how });
+			return pi.sendMessage({ customType: "teams-watch", content: card.content, display: true, details: card.details }, options, { senders: card.senders });
+		});
+	};
 		if (!idle) {
 			for (const card of cards) await send(card, "steer", { triggerTurn: true, deliverAs: "steer" });
 			return;
 		}
-		for (const card of cards.filter((c) => !c.turn)) await send(card, "display", { triggerTurn: false });
-		const turns = cards.filter((c) => c.turn);
-		for (const [i, card] of turns.entries()) {
-			const last = i === turns.length - 1;
-			await send(card, last ? "turn" : "context", { triggerTurn: last });
-			// A channel card that starts a turn claims its thread: other threads' prompts wait for that turn to end.
-			if (last && turnEvents && card.details.thread !== undefined) turnThread = card.details.thread;
-		}
+	for (const card of cards.filter((c) => !c.turn)) await send(card, "display", { triggerTurn: false });
+	const turns = cards.filter((c) => c.turn);
+	for (const [i, card] of turns.entries()) {
+		const last = i === turns.length - 1;
+		// A channel card that starts a turn claims its thread BEFORE the send: omp awaits the whole turn, so turnEnded()
+		// has already cleared turnThread by the time the send resolves, and writing the thread back afterwards would
+		// lock it forever. A failed hand-off un-claims it, unless another delivery has claimed the thread since.
+		const claims = last && turnEvents && card.details.thread !== undefined;
+		const prevTurnThread = turnThread;
+		if (claims) turnThread = card.details.thread;
+		const sent = await send(card, last ? "turn" : "context", { triggerTurn: last });
+		if (claims && !sent && turnThread === card.details.thread) turnThread = prevTurnThread;
+	}
 	}
 
 	/**
@@ -1729,11 +1756,16 @@ export function createTeams(pi: TeamsHost) {
 				logCard("queued", details, { gate, ...(note ? { images: note } : {}) });
 			});
 		} finally {
+			// The poll gate is released before any hand-off awaits a whole turn: omp's sendUserMessage, and a
+			// sendMessage with triggerTurn, resolve only when the turn does, so holding watchInFlight across them
+			// would freeze the poll timer for the turn's whole length. Every read is queued by now, each hand-off
+			// splices its pending queue before its first await, and w.inflight dedupes ids, so a poll that runs
+			// beside a live turn stays safe.
+			watchInFlight = false;
 			if (watchCtx) await replyToSelf(watchCtx);
 			await runChannelCommands();
 			await flushCards();
 			await runCommands();
-			watchInFlight = false;
 			renderStatus();
 		}
 	}
@@ -2690,6 +2722,7 @@ export function createTeams(pi: TeamsHost) {
 		stopAllWatches,
 		logCard,
 		flushCards,
+		runChannelCommands,
 		replyToSelf,
 		/** The agent's last answer, posted to the self-chat when a self-chat command asked for one. */
 		noteAssistantText(text: string): void {

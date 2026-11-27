@@ -53,8 +53,9 @@ type Harness = {
 	tick(): Promise<void>;
 	tool(name: string): Tool;
 	cursor(): CursorFile | null;
-	teams: { stopAllWatches(): void; startChannelWatch(ctx: unknown, opts: { teamId: string; channelId: string; mode?: "shared" | "personal"; policy?: string }): Promise<string>; watchList(): Promise<string>; noteAssistantText(text: string): void; turnEnded(): void; replyToSelf(ctx: unknown): Promise<void> };
+	teams: { stopAllWatches(): void; startChannelWatch(ctx: unknown, opts: { teamId: string; channelId: string; mode?: "shared" | "personal"; policy?: string }): Promise<string>; watchList(): Promise<string>; noteAssistantText(text: string): void; turnEnded(): void; replyToSelf(ctx: unknown): Promise<void>; runChannelCommands(): Promise<void> };
 	onPrompt(hook: () => Promise<unknown>): void;
+	onCard(hook: (() => unknown) | undefined): void;
 	idle(v: boolean): void;
 	setMembers(m: Members): void;
 	gateWill(turn: boolean | Error | { turn: boolean; answer: string }): void;
@@ -94,6 +95,8 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 	const prompts: { text: string; options?: { deliverAs: string }; meta: { chatId: string; policy: string } }[] = [];
 	/** Runs inside sendUserMessage, before it resolves: a reply the agent makes while its instruction turn starts. */
 	let onPromptHook: (() => Promise<unknown>) | undefined;
+	/** Runs inside sendMessage after the card is recorded: omp awaits the whole turn a triggerTurn card starts. */
+	let onCardHook: (() => unknown) | undefined;
 	const notices: string[] = [];
 	const warningNotices: string[] = [];
 	const gates: { policy: string; messages: unknown[] }[] = [];
@@ -152,7 +155,11 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 					return { ...next, model: "synthetic" };
 				},
 			}),
-			sendMessage: async (message: unknown, options: { triggerTurn: boolean; deliverAs?: string } | undefined, meta: { senders: string[] }) => cards.push({ message: message as never, options, senders: meta.senders }),
+			sendMessage: async (message: unknown, options: { triggerTurn: boolean; deliverAs?: string } | undefined, meta: { senders: string[] }) => {
+				const pushed = cards.push({ message: message as never, options, senders: meta.senders });
+				await onCardHook?.();
+				return pushed;
+			},
 			sendUserMessage: async (text: string, options: { deliverAs: string } | undefined, meta: { chatId: string; policy: string }) => {
 				prompts.push({ text, options, meta });
 				await onPromptHook?.();
@@ -178,6 +185,9 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 	h = {
 		onPrompt: (hook) => {
 			onPromptHook = hook;
+		},
+		onCard: (hook) => {
+			onCardHook = hook;
 		},
 		selfNotes,
 		key, ctx, stream, cards, prompts, notices, warningNotices, gates, reacts, sends, start, restart, tick, tool, cursor,
@@ -233,7 +243,7 @@ test("U14: paging stops at the watermark; a 1200-item backlog is handed over exa
 	await s.tick();
 	expect(s.cards).toHaveLength(1); // exactly once
 
-	// the user's instruction 101 below a newer agent echo 102, busy, then restart: 101 handed over exactly once
+	// the user's instruction 101 below a newer agent echo 102, busy: steered in at once, the echo never delivered
 	const s2 = setup({ turnEvents: true });
 	s2.stream.push(raw("100", "baseline", ME));
 	await s2.start("personal");
@@ -241,16 +251,19 @@ test("U14: paging stops at the watermark; a 1200-item backlog is handed over exa
 	s2.stream.push(raw("102", `done\n\n---\n\n*${FOOTER}*`, ME));
 	s2.idle(false);
 	await s2.tick();
-	expect(s2.prompts).toHaveLength(0);
-	expect(s2.cursor()?.done).toContain("102");
-	expect(s2.cursor()?.watermark).toBe("100");
+	expect(s2.prompts).toHaveLength(1); // busy no longer holds a personal instruction back
+	expect(s2.prompts[0].options).toEqual({ deliverAs: "steer" });
+	expect(s2.prompts[0].text).toContain("please summarize the thread");
+	expect(s2.cursor()?.watermark).toBe("102"); // both ids settled: the echo was skipped, the instruction handed over
+	// answered explicitly in its thread, then a restart: re-delivered exactly zero more times
+	await s2.tool("teams_send").execute("t", { target: "channel", team_id: TEAM, channel_id: CHANNEL, reply_to: "101", message: "summarized", card: false }, undefined, undefined, s2.ctx);
+	expect(s2.cursor()?.awaiting).toEqual({});
 	await s2.restart("personal");
 	s2.idle(true);
 	await s2.tick();
-	expect(s2.prompts).toHaveLength(1);
-	expect(s2.prompts[0].text).toContain("please summarize the thread");
+	expect(s2.prompts).toHaveLength(1); // exactly once, the echo never delivered
 	await s2.tick();
-	expect(s2.prompts).toHaveLength(1); // exactly once, echo never delivered
+	expect(s2.prompts).toHaveLength(1);
 
 	// 51 pages above the watermark: the backlog error, nothing handed over, cursor bytes unchanged
 	const s3 = setup();
@@ -891,4 +904,127 @@ test("steered sendUserMessage rejecting after in-turn teams_send reply_to preser
 	await s.teams.replyToSelf(s.ctx);
 	expect(s.sends).toHaveLength(1); // only the explicit reply; prevChannelTurn kept replied=true
 	expect(s.sends[0].card).toBeUndefined();
+});
+
+test("a channel card whose turn ends inside its own hand-off does not lock turnThread: the next personal instruction starts its own turn", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	// omp awaits the whole turn a triggerTurn card starts: turnEnded() has fired before sendMessage resolves.
+	s.onCard(() => {
+		s.teams.turnEnded();
+	});
+	s.stream.push(raw("102", "an email arrived", ME, { s2spartnername: "MailhookService" }));
+	await s.tick();
+	expect(s.cards).toHaveLength(1);
+	expect(s.cards[0].options?.triggerTurn).toBe(true);
+	s.onCard(undefined);
+	s.stream.push(raw("201", "omp: next thread", ME));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	expect(s.prompts[0].options).toBeUndefined(); // its own turn: turnThread was not left stuck on the card's thread
+	expect(s.prompts[0].text).toContain("thread: 201");
+});
+
+test("a poll beside a running turn: watchInFlight is released before the turn is awaited, so the next poll steers a new personal instruction in", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	const gate = Promise.withResolvers<void>();
+	const firstPrompt = Promise.withResolvers<void>();
+	const secondPrompt = Promise.withResolvers<void>();
+	let seen = 0;
+	s.onPrompt(() => {
+		if (++seen === 1) firstPrompt.resolve();
+		else secondPrompt.resolve();
+		return gate.promise; // omp: sendUserMessage resolves only when the whole turn does
+	});
+	s.stream.push(raw("201", "omp: start a turn", ME));
+	const first = s.tick();
+	await firstPrompt.promise; // the prompt is with the agent; the poll is now awaiting the whole turn
+	expect(s.prompts[0].options).toBeUndefined();
+	s.idle(false); // the turn is running now
+	s.stream.push(raw("301", "omp: steer me in", ME));
+	const second = s.tick();
+	await secondPrompt.promise; // the second poll ran beside the first: the gate was released before the turn was awaited
+	expect(s.prompts[1].options).toEqual({ deliverAs: "steer" }); // steered in by the second poll while the first still awaits the turn
+	expect(s.prompts[1].text).toContain(`Answer in this thread with teams_send reply_to=301`);
+	gate.resolve();
+	await first;
+	await second;
+	s.teams.noteAssistantText("one answer for both threads");
+	s.teams.turnEnded();
+	s.idle(true);
+	await s.tick();
+	expect(s.sends).toHaveLength(0); // the mixed turn gets no automatic answer: it would land in the wrong thread
+	expect(s.cursor()?.awaiting).toEqual({ "201": ["201"], "301": ["301"] });
+});
+
+test("busy on a turn no channel thread owns, a personal instruction steers in at once instead of starving", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	s.stream.push(raw("101", "first instruction", ME));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	s.idle(false);
+	s.teams.turnEnded(); // an inbox/terminal/self-chat turn is running: no channel thread owns it
+	s.stream.push(raw("201", "omp: steer while busy elsewhere", ME));
+	await s.tick();
+	expect(s.prompts).toHaveLength(2); // steered in at once, not held for idle
+	expect(s.prompts[1].options).toEqual({ deliverAs: "steer" });
+	expect(s.prompts[1].text).toContain("thread: 201");
+	expect(s.prompts[1].text).toContain(`Answer in this thread with teams_send reply_to=201`);
+	// the instruction that owned channelTurn keeps its automatic answer: the steer did not clobber it
+	s.teams.noteAssistantText("answer for 101");
+	s.teams.turnEnded();
+	s.idle(true);
+	await s.tick();
+	expect(s.sends).toHaveLength(1);
+	expect(s.sends[0].target).toMatchObject({ kind: "channel", teamId: TEAM, channelId: CHANNEL, replyTo: "101" });
+	expect(JSON.stringify(s.sends[0].card)).toContain("answer for 101");
+});
+
+test("busy on thread A's turn, thread B's personal instruction steers in at once and the mixed turn answers neither thread automatically", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	s.stream.push(raw("101", "handle thread A", ME));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	expect(s.prompts[0].options).toBeUndefined();
+	s.idle(false);
+	s.stream.push(raw("201", "omp: thread B now", ME));
+	await s.tick();
+	expect(s.prompts).toHaveLength(2); // B does not wait for A's turn to end
+	expect(s.prompts[1].options).toEqual({ deliverAs: "steer" });
+	expect(s.prompts[1].text).toContain("thread: 201");
+	expect(s.prompts[1].text).toContain(`Answer in this thread with teams_send reply_to=201`);
+	s.teams.noteAssistantText("one answer for both threads");
+	s.teams.turnEnded();
+	s.idle(true);
+	await s.tick();
+	expect(s.sends).toHaveLength(0); // no automatic reply: A's answer must not land in B's thread, nor B's in A's
+	// an explicit reply answers the thread it is posted to, steered or not
+	await s.tool("teams_send").execute("t", { target: "channel", team_id: TEAM, channel_id: CHANNEL, reply_to: "201", message: "B answered.", card: false }, undefined, undefined, s.ctx);
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+});
+
+test("the drain runChannelCommands exports (what agent_end calls beside flushCards) hands a queued shared prompt its own turn once idle", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", AUTHOR));
+	await s.start(); // shared: one thread per turn, another thread's prompt waits for the running one
+	s.stream.push(raw("101", "omp: handle thread A", ME));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	s.idle(false);
+	s.stream.push(raw("201", "omp: thread B now", ME));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1); // shared serialization stays: B waits for A's turn
+	s.teams.turnEnded();
+	s.idle(true);
+	await s.teams.runChannelCommands(); // the agent_end drain
+	expect(s.prompts).toHaveLength(2);
+	expect(s.prompts[1].options).toBeUndefined();
+	expect(s.prompts[1].text).toContain("thread: 201");
 });

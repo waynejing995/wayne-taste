@@ -55,7 +55,7 @@ export default function (pi: ExtensionAPI) {
 		gate: (ctx, policy, messages) => askTurnGate(ctx as ExtensionContext, policy, messages),
 	});
 	const { cfg, pollUnread } = teams;
-	const { watchList, setWatchInterval, startWatch, unwatch, stopAllWatches, replyToSelf, flushCards } = teams;
+	const { watchList, setWatchInterval, startWatch, unwatch, stopAllWatches, replyToSelf, flushCards, runChannelCommands } = teams;
 
 	// ── Status bar ──────────────────────────────────────────────────────────
 
@@ -250,12 +250,14 @@ export default function (pi: ExtensionAPI) {
 		await replyToSelf(ctx);
 	});
 
-	// A card held back during a turn goes in once the agent is idle. omp is not idle yet inside agent_end
+	// A card held back during a turn goes in once the agent is idle, and channel prompts left queued while the turn
+	// ran (another thread's, in shared mode) are handed over the same way. omp is not idle yet inside agent_end
 	// (the prompt is still settling), so look again on the next tick; the poll timer is the backstop.
 	pi.on("agent_end", async (_event, ctx) => {
 		teams.turnEnded();
 		setTimeout(() => {
 			void replyToSelf(ctx);
+			void runChannelCommands();
 			flushCards();
 		}, 0);
 	});
