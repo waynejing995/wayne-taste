@@ -15,6 +15,7 @@ import {
 	SharePointError,
 	buildKanbanFormatter,
 	buildThreadUrl,
+	requirePersonalBoard,
 	sanitizeThreadUrl,
 } from "../../teams/board.ts";
 import { createTeams, type TeamsHost } from "../../teams/core.ts";
@@ -556,6 +557,31 @@ describe("teams_board tool & teams_react personal-channel board hook", () => {
 		} finally {
 			console.warn = originalWarn;
 		}
+	});
+
+	test("requirePersonalBoard and teams_board reject ambiguous partial team_id when multiple personal boards share a team", async () => {
+		const SECOND_LIST_ID = "00000000-0000-4000-8000-000000000088";
+		const SECOND_CHANNEL_ID = "19:fake-personal-2@thread.skype";
+		writeRulesWithPersonalBoard([
+			"    - channel: Agent Desk 2",
+			`      team_id: ${TEAM_ID}`,
+			`      channel_id: "${SECOND_CHANNEL_ID}"`,
+			"      mode: personal",
+			'      policy: ""',
+			"      board:",
+			`        site_url: ${SITE_URL}`,
+			`        list_id: ${SECOND_LIST_ID}`,
+			"",
+		].join("\n"));
+
+		expect(() => requirePersonalBoard()).toThrow("Multiple personal channels with board config found");
+		expect(() => requirePersonalBoard({ teamId: TEAM_ID })).toThrow("Multiple personal channels with board config found");
+		expect(requirePersonalBoard({ teamId: TEAM_ID, channelId: SECOND_CHANNEL_ID }).board.list_id).toBe(SECOND_LIST_ID);
+		expect(requirePersonalBoard({ channelId: SECOND_CHANNEL_ID }).board.list_id).toBe(SECOND_LIST_ID);
+
+		const sp = makeFakeSharePoint();
+		const { call } = makeTeamsHarness(sp);
+		await expect(call("teams_board", { action: "list", team_id: TEAM_ID })).rejects.toThrow("Multiple personal channels with board config found");
 	});
 });
 

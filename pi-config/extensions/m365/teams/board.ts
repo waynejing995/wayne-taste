@@ -279,24 +279,26 @@ export function findPersonalBoard(teamId: string, channelId: string): { channel:
 
 /** Resolve the configured personal-channel board from rules.yaml (fail loud if missing or ambiguous). */
 export function requirePersonalBoard(opts?: { teamId?: string; channelId?: string }): { channel: SavedChannelWatch; board: BoardConfig } {
-	const channels = (savedWatches().channels ?? []).filter((c) => c.mode === "personal" && c.board !== undefined);
-	if (opts?.teamId || opts?.channelId) {
-		const hit = channels.find(
-			(c) => (!opts.teamId || c.team_id === opts.teamId) && (!opts.channelId || c.channel_id === opts.channelId),
-		);
-		if (!hit?.board) {
-			throw new Error(`No personal channel matching team_id=${opts.teamId ?? "*"} channel_id=${opts.channelId ?? "*"} with a board config found in ${WATCH_LIST}.`);
+	const teamId = opts?.teamId?.trim() || undefined;
+	const channelId = opts?.channelId?.trim() || undefined;
+	const matches = (savedWatches().channels ?? []).filter(
+		(c) =>
+			c.mode === "personal" &&
+			c.board !== undefined &&
+			(!teamId || c.team_id === teamId) &&
+			(!channelId || c.channel_id === channelId),
+	);
+	if (matches.length === 0) {
+		if (teamId || channelId) {
+			throw new Error(`No personal channel matching team_id=${teamId ?? "*"} channel_id=${channelId ?? "*"} with a board config found in ${WATCH_LIST}.`);
 		}
-		return { channel: hit, board: validateBoardConfig(hit.board) };
-	}
-	if (channels.length === 0) {
 		throw new Error(`No personal channel with a board config found in ${WATCH_LIST}. Add board: { site_url, list_id } under a mode: personal channel in teams_watch.channels.`);
 	}
-	if (channels.length > 1) {
-		const labels = channels.map((c) => `${c.channel} (${c.team_id}/${c.channel_id})`).join(", ");
+	if (matches.length > 1) {
+		const labels = matches.map((c) => `${c.channel} (${c.team_id}/${c.channel_id})`).join(", ");
 		throw new Error(`Multiple personal channels with board config found in ${WATCH_LIST}: ${labels}. Pass team_id and channel_id.`);
 	}
-	return { channel: channels[0], board: validateBoardConfig(channels[0].board!) };
+	return { channel: matches[0], board: validateBoardConfig(matches[0].board!) };
 }
 
 export function formatBoardList(cards: BoardCard[]): string {
