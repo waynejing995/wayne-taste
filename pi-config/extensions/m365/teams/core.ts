@@ -1077,24 +1077,51 @@ export function createTeams(pi: TeamsHost) {
 				return;
 			}
 			for (const id of c.ids) {
+				if (watches.get(c.key) !== c.w) return;
 				try {
 					await backend.reactChannel(c.w.addr!, id, "👀", id !== c.threadId ? { replyTo: c.threadId } : undefined);
 				} catch (e) {
 					ctx.ui.notify(`Teams watch "${c.w.owner.label}": ACK reaction failed on message ${id}: ${e instanceof Error ? e.message : String(e)}`, "warning");
 				}
 			}
+			if (watches.get(c.key) !== c.w) return;
 		}
 		logCard("flushed", { chatId: c.key, ids: [...c.ids], thread: c.threadId, route: c.route }, { how: options ? "steer" : "turn", kind: "prompt" });
 		ctx.ui.notify(`Teams → ${c.body.slice(0, 80)}`, "info");
+		// The turn state is set before the hand-off: the agent may reply (teams_send reply_to) while sendUserMessage is
+		// still in progress, and noteThreadReply only marks a reply on a channelTurn that already exists.
+		const prevTurnThread = turnThread;
+		const prevChannelTurn = channelTurn;
+		const nextTurnThread = c.threadId;
+		let nextChannelTurn = channelTurn;
+		if (turnEvents) {
+			turnThread = nextTurnThread;
+			if (c.personal) {
+				nextChannelTurn = channelTurn && channelTurn.key === c.key && channelTurn.threadId === c.threadId
+					? { ...channelTurn, ids: [...new Set([...channelTurn.ids, ...c.ids])], replied: false }
+					: { key: c.key, threadId: c.threadId, ids: [...c.ids], w: c.w, addr: c.w.addr!, replied: false };
+				channelTurn = nextChannelTurn;
+			}
+		}
 		try {
 			await pi.sendUserMessage(`${c.mark}\n${c.body}`, options, { chatId: c.key, policy: c.policy });
 		} catch (e) {
-			if (c.redelivered) pendingChannelCommands.push(c);
-			else {
-				if (c.personal) removeAwaiting(c.key, c.threadId, c.ids);
-				for (const id of c.ids) { c.w.inflight.delete(id); c.w.retry.add(id); }
+			// Roll back only when this call still owns the turn state and the watch is still live; a `replied = true`
+			// the agent's in-turn reply set on nextChannelTurn survives the restore, and a concurrent turn that took
+			// over (stopAllWatches, turnEnded + a new turn) is not clobbered by an unrelated failure.
+			if (watches.get(c.key) === c.w) {
+				if (turnThread === nextTurnThread) turnThread = prevTurnThread;
+				if (nextChannelTurn && channelTurn === nextChannelTurn)
+					channelTurn = prevChannelTurn
+						? { ...prevChannelTurn, replied: prevChannelTurn.replied || nextChannelTurn.replied }
+						: undefined;
+				if (c.redelivered) pendingChannelCommands.push(c);
+				else {
+					if (c.personal) removeAwaiting(c.key, c.threadId, c.ids);
+					for (const id of c.ids) { c.w.inflight.delete(id); c.w.retry.add(id); }
+				}
+				watchError(c.w, e);
 			}
-			watchError(c.w, e);
 			return;
 		}
 		if (watches.get(c.key) !== c.w) return;
@@ -1104,14 +1131,6 @@ export function createTeams(pi: TeamsHost) {
 		} catch (e) {
 			for (const id of c.ids) c.w.inflight.add(id);
 			watchError(c.w, e);
-		}
-		if (turnEvents) {
-			turnThread = c.threadId;
-			if (c.personal) {
-				channelTurn = channelTurn && channelTurn.key === c.key && channelTurn.threadId === c.threadId
-					? { ...channelTurn, ids: [...new Set([...channelTurn.ids, ...c.ids])], replied: false }
-					: { key: c.key, threadId: c.threadId, ids: [...c.ids], w: c.w, addr: c.w.addr!, replied: false };
-			}
 		}
 	}
 

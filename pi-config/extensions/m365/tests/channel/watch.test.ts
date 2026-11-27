@@ -54,6 +54,7 @@ type Harness = {
 	tool(name: string): Tool;
 	cursor(): CursorFile | null;
 	teams: { stopAllWatches(): void; startChannelWatch(ctx: unknown, opts: { teamId: string; channelId: string; mode?: "shared" | "personal"; policy?: string }): Promise<string>; watchList(): Promise<string>; noteAssistantText(text: string): void; turnEnded(): void; replyToSelf(ctx: unknown): Promise<void> };
+	onPrompt(hook: () => Promise<unknown>): void;
 	idle(v: boolean): void;
 	setMembers(m: Members): void;
 	gateWill(turn: boolean | Error | { turn: boolean; answer: string }): void;
@@ -91,6 +92,8 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 	const selfNotes: { id: string; at: string; text: string }[] = [];
 	const cards: { message: { details: { chatId: string; ids: string[]; thread?: string; route?: string }; content: unknown }; options?: { triggerTurn: boolean; deliverAs?: string }; senders: string[] }[] = [];
 	const prompts: { text: string; options?: { deliverAs: string }; meta: { chatId: string; policy: string } }[] = [];
+	/** Runs inside sendUserMessage, before it resolves: a reply the agent makes while its instruction turn starts. */
+	let onPromptHook: (() => Promise<unknown>) | undefined;
 	const notices: string[] = [];
 	const warningNotices: string[] = [];
 	const gates: { policy: string; messages: unknown[] }[] = [];
@@ -150,7 +153,10 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 				},
 			}),
 			sendMessage: async (message: unknown, options: { triggerTurn: boolean; deliverAs?: string } | undefined, meta: { senders: string[] }) => cards.push({ message: message as never, options, senders: meta.senders }),
-			sendUserMessage: async (text: string, options: { deliverAs: string } | undefined, meta: { chatId: string; policy: string }) => prompts.push({ text, options, meta }),
+			sendUserMessage: async (text: string, options: { deliverAs: string } | undefined, meta: { chatId: string; policy: string }) => {
+				prompts.push({ text, options, meta });
+				await onPromptHook?.();
+			},
 		} as TeamsHost);
 
 	let teams = makeTeams();
@@ -170,6 +176,9 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 	const cursor = () => loadCursor(key);
 
 	h = {
+		onPrompt: (hook) => {
+			onPromptHook = hook;
+		},
 		selfNotes,
 		key, ctx, stream, cards, prompts, notices, warningNotices, gates, reacts, sends, start, restart, tick, tool, cursor,
 		get teams() { return teams as unknown as Harness["teams"]; },
@@ -795,4 +804,91 @@ test("replyToSelf skips ctx when no reply is due, gates personal channel reply o
 
 	await s.teams.replyToSelf(undefined as never);
 	expect(s.sends).toHaveLength(afterAck + 1);
+});
+
+for (const card of [false, true]) {
+	test(`RCA (card=${card}): a reply the agent makes while its instruction turn is starting suppresses the automatic answer`, async () => {
+		const s = setup({ turnEvents: true });
+		s.stream.push(raw("100", "old note", ME));
+		await s.start("personal");
+		s.onPrompt(() => s.tool("teams_send").execute("t", { target: "channel", team_id: TEAM, channel_id: CHANNEL, reply_to: "101", message: "Checked during the turn.", card }, undefined, undefined, s.ctx));
+		s.stream.push(raw("101", "please check the log", ME));
+		await s.tick();
+		s.teams.noteAssistantText("Checked during the turn.");
+		s.teams.turnEnded();
+		s.idle(true);
+		await s.tick();
+		expect(s.sends).toHaveLength(1); // the agent's own reply only: no automatic answer card on top of it
+		expect(s.sends[0].target).toMatchObject({ kind: "channel", replyTo: "101" });
+		expect(Boolean(s.sends[0].card)).toBe(card);
+	});
+}
+
+test("steered sendUserMessage rejecting after stopAllWatches does not revive turn state or mutate stopped watch", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "old note", ME));
+	await s.start("personal");
+	s.stream.push(raw("101", "start turn", ME));
+	await s.tick();
+	s.idle(false);
+	s.teams.noteAssistantText("stale answer");
+	s.onPrompt(async () => {
+		s.teams.stopAllWatches();
+		throw new Error("watch stopped mid-steer");
+	});
+	s.stream.push(raw("102", "steer follow-up", ME, { rootMessageId: "101" }));
+	await s.tick();
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101", "102"] });
+	expect(s.warningNotices).toEqual([]); // stopped watch gets no watchError warning
+	s.onPrompt(undefined as never);
+	await s.start("personal");
+	s.teams.turnEnded();
+	s.idle(true);
+	await s.tick();
+	expect(s.sends).toHaveLength(0); // stopAllWatches's cleared channelTurn stayed cleared
+});
+
+test("steered sendUserMessage rejecting after turnEnded + replyToSelf does not restore stale prevChannelTurn", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "old note", ME));
+	await s.start("personal");
+	s.stream.push(raw("101", "start turn", ME));
+	await s.tick();
+	s.idle(false);
+	s.teams.noteAssistantText("initial answer");
+	s.onPrompt(async () => {
+		s.teams.turnEnded();
+		s.idle(true);
+		await s.teams.replyToSelf(s.ctx);
+		throw new Error("steer rejected after turn ended");
+	});
+	s.stream.push(raw("102", "steer follow-up", ME, { rootMessageId: "101" }));
+	await s.tick();
+	expect(s.sends).toHaveLength(1);
+	s.onPrompt(undefined as never);
+	s.teams.turnEnded();
+	await s.teams.replyToSelf(s.ctx);
+	expect(s.sends).toHaveLength(1); // rollback did not resurrect prevChannelTurn to post a second card
+});
+
+test("steered sendUserMessage rejecting after in-turn teams_send reply_to preserves replied=true", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "old note", ME));
+	await s.start("personal");
+	s.stream.push(raw("101", "start turn", ME));
+	await s.tick();
+	s.idle(false);
+	s.onPrompt(async () => {
+		await s.tool("teams_send").execute("t", { target: "channel", team_id: TEAM, channel_id: CHANNEL, reply_to: "101", message: "Explicit reply.", card: false }, undefined, undefined, s.ctx);
+		throw new Error("steer failed after explicit reply");
+	});
+	s.stream.push(raw("102", "steer follow-up", ME, { rootMessageId: "101" }));
+	await s.tick();
+	s.onPrompt(undefined as never);
+	s.teams.noteAssistantText("Explicit reply.");
+	s.teams.turnEnded();
+	s.idle(true);
+	await s.teams.replyToSelf(s.ctx);
+	expect(s.sends).toHaveLength(1); // only the explicit reply; prevChannelTurn kept replied=true
+	expect(s.sends[0].card).toBeUndefined();
 });
