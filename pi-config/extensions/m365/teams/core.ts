@@ -362,9 +362,11 @@ export function createTeams(pi: TeamsHost) {
 	let turnThread: string | undefined;
 	/** The personal thread whose turn is running, the ids that turn handed over, and whether the agent answered in it.
 	  * replyToSelf posts the last assistant text to the thread when the turn ends unanswered. */
-	let channelTurn: { key: string; threadId: string; ids: string[]; w: WatchState; addr: ChannelAddr; replied: boolean } | undefined;
+	let channelTurn: { key: string; threadId: string; ids: string[]; w: WatchState; addr: ChannelAddr; replied: boolean; answerText?: string } | undefined;
 	/** The turn that channelTurn belongs to has ended: its answer is due at the next idle replyToSelf. */
 	let channelTurnDue = false;
+	let channelTurnMixed = false;
+	let turnStartInFlight: { threadId: string; w: WatchState } | undefined;
 	/** The host reports turn lifecycle events (omp does; the MCP host sets turnEvents false). One channel thread per
 	  * turn, the 👀 ACK/answer cycle and the reply_to hint all depend on it. */
 	const turnEvents = pi.turnEvents !== false;
@@ -1074,29 +1076,37 @@ export function createTeams(pi: TeamsHost) {
 	 */
 	async function deliverChannelCommand(ctx: TeamsContext, c: ChannelCommand, options: { deliverAs: "steer" } | undefined): Promise<void> {
 		if (watches.get(c.key) !== c.w) return;
+		// Reserve an idle turn before the ACK can yield to another poll or card flush.
+		const prevTurnThread = turnThread;
+		const claim = turnEvents && !options && turnThread === undefined ? { threadId: c.threadId, w: c.w } : undefined;
+		if (claim) { turnStartInFlight = claim; turnThread = c.threadId; }
+		const releaseClaim = () => {
+			if (claim && turnStartInFlight === claim) { turnStartInFlight = undefined; turnThread = prevTurnThread; }
+		};
 		if (c.personal && !c.redelivered) {
 			try {
 				addAwaiting(c.key, c.threadId, c.ids);
 			} catch (e) {
 				for (const id of c.ids) { c.w.inflight.delete(id); c.w.retry.add(id); }
+				releaseClaim();
 				watchError(c.w, e);
 				return;
 			}
 			for (const id of c.ids) {
-				if (watches.get(c.key) !== c.w) return;
+				if (watches.get(c.key) !== c.w) { releaseClaim(); return; }
 				try {
 					await backend.reactChannel(c.w.addr!, id, "👀", id !== c.threadId ? { replyTo: c.threadId } : undefined);
 				} catch (e) {
 					ctx.ui.notify(`Teams watch "${c.w.owner.label}": ACK reaction failed on message ${id}: ${e instanceof Error ? e.message : String(e)}`, "warning");
 				}
 			}
-			if (watches.get(c.key) !== c.w) return;
+			if (watches.get(c.key) !== c.w) { releaseClaim(); return; }
 		}
+		if (turnStartInFlight === claim) turnStartInFlight = undefined;
 		logCard("flushed", { chatId: c.key, ids: [...c.ids], thread: c.threadId, route: c.route }, { how: options ? "steer" : "turn", kind: "prompt" });
 		ctx.ui.notify(`Teams → ${c.body.slice(0, 80)}`, "info");
 	// The turn state is set before the hand-off: the agent may reply (teams_send reply_to) while sendUserMessage is
 	// still in progress, and noteThreadReply only marks a reply on a channelTurn that already exists.
-	const prevTurnThread = turnThread;
 	const prevChannelTurn = channelTurn;
 	const nextTurnThread = c.threadId;
 	let nextChannelTurn = channelTurn;
@@ -1105,12 +1115,13 @@ export function createTeams(pi: TeamsHost) {
 	// post the mixed turn's answer into the wrong thread. A channelTurn of another thread that is not already due an
 	// answer is dropped — that turn now answers more than one thread, so no thread gets its answer automatically.
 	// The prompt itself tells the agent to answer explicitly in this thread.
-	const crossThread = options?.deliverAs === "steer" && c.personal && turnThread !== c.threadId;
+	const crossThread = options?.deliverAs === "steer" && (channelTurnMixed || (c.personal && turnThread !== c.threadId));
 	if (crossThread) {
-		if (channelTurn && !channelTurnDue && (channelTurn.key !== c.key || channelTurn.threadId !== c.threadId)) channelTurn = undefined;
+		channelTurnMixed = true;
+		if (!channelTurnDue) channelTurn = undefined;
 	} else if (turnEvents) {
 		turnThread = nextTurnThread;
-		if (c.personal) {
+		if (c.personal && !channelTurnMixed) {
 			nextChannelTurn = channelTurn && channelTurn.key === c.key && channelTurn.threadId === c.threadId
 				? { ...channelTurn, ids: [...new Set([...channelTurn.ids, ...c.ids])], replied: false }
 				: { key: c.key, threadId: c.threadId, ids: [...c.ids], w: c.w, addr: c.w.addr!, replied: false };
@@ -1174,10 +1185,8 @@ export function createTeams(pi: TeamsHost) {
 			const oldest = pendingChannelCommands.reduce((a, b) => (a.seq < b.seq ? a : b));
 			const batch = pendingChannelCommands.filter((c) => c.threadId === oldest.threadId);
 			pendingChannelCommands = pendingChannelCommands.filter((c) => c.threadId !== oldest.threadId);
-			let first = true;
 			for (const c of batch) {
-				await deliverChannelCommand(ctx, c, first ? undefined : { deliverAs: "steer" });
-				first = false;
+				await deliverChannelCommand(ctx, c, ctx.isIdle() && turnThread === undefined ? undefined : { deliverAs: "steer" });
 			}
 			return;
 		}
@@ -1399,6 +1408,7 @@ export function createTeams(pi: TeamsHost) {
 		pendingCards = pendingCards.filter((c) => c.w !== w);
 		pendingChannelCommands = pendingChannelCommands.filter((c) => c.w !== w);
 		// An answer due from this watch belongs to it: another watch's thread must not consume it.
+		if (turnStartInFlight?.w === w) { turnStartInFlight = undefined; turnThread = undefined; }
 		if (channelTurn && channelTurn.key === chatId) { channelTurn = undefined; channelTurnDue = false; }
 		pendingCommands = pendingCommands.filter((c) => c.w !== w);
 		watches.delete(chatId);
@@ -1423,6 +1433,8 @@ export function createTeams(pi: TeamsHost) {
 		selfSentThisTurn = false;
 		channelTurn = undefined;
 		channelTurnDue = false;
+		channelTurnMixed = false;
+		turnStartInFlight = undefined;
 		turnThread = undefined;
 	}
 
@@ -1502,7 +1514,7 @@ export function createTeams(pi: TeamsHost) {
 	async function flushCards(): Promise<void> {
 		const ctx = watchCtx;
 		if (!ctx || pendingCards.length === 0) return;
-		const idle = ctx.isIdle();
+		const idle = ctx.isIdle() && turnThread === undefined;
 		const cards = idle ? pendingCards : pendingCards.filter((c) => c.details.chatId === SELF_CHAT);
 		if (cards.length === 0) return;
 		pendingCards = idle ? [] : pendingCards.filter((c) => c.details.chatId !== SELF_CHAT);
@@ -1521,6 +1533,10 @@ export function createTeams(pi: TeamsHost) {
 	const turns = cards.filter((c) => c.turn);
 	for (const [i, card] of turns.entries()) {
 		const last = i === turns.length - 1;
+		if (last && (!ctx.isIdle() || turnThread !== undefined)) {
+			if (watches.get(card.details.chatId) === card.w) pendingCards.unshift(card);
+			return;
+		}
 		// A channel card that starts a turn claims its thread BEFORE the send: omp awaits the whole turn, so turnEnded()
 		// has already cleared turnThread by the time the send resolves, and writing the thread back afterwards would
 		// lock it forever. A failed hand-off un-claims it, unless another delivery has claimed the thread since.
@@ -1659,9 +1675,8 @@ export function createTeams(pi: TeamsHost) {
 	}
 
 	/**
-	 * Read every watched chat, send my omp:/pi: commands to the agent, then gate the card batches. The commands go
-	 * before any gate is asked: a slow or hung gate on one chat must never hold back the user's own instruction.
-	 * The gates run concurrently, one per chat with news, and each card is queued only if its watch is still live.
+	 * Read watched chats and queue their instructions and gated cards. Hand-offs start only after the poll gate is
+	 * released, because a host may await an entire turn. Gates run concurrently, and stopped watches drop their cards.
 	 */
 	async function pollWatches(): Promise<void> {
 		if (watchInFlight || watches.size === 0) return;
@@ -1728,7 +1743,6 @@ export function createTeams(pi: TeamsHost) {
 					watchError(w, e);
 				}
 			}
-			await runCommands();
 			// decideTurn never throws: a failed gate comes back as a turn.
 			// Pictures are fetched only for chats that start a turn. Display-only cards carry text, not downloads.
 			const verdicts = await Promise.all(batches.map((b) => decideTurn(b.w.owner.label, b.chatId, b.read.news, b.policy)));
@@ -2674,9 +2688,10 @@ export function createTeams(pi: TeamsHost) {
 		channelTurn = undefined;
 		channelTurnDue = false;
 		const ids = [...due.ids];
-		if (!due.replied && cfg.selfReply && lastAssistantText.trim()) {
+		const answerText = due.answerText ?? lastAssistantText.trim();
+		if (!due.replied && cfg.selfReply && answerText) {
 			try {
-				const answer = truncate(lastAssistantText.trim());
+				const answer = truncate(answerText);
 				const folder = path.basename(ctx.cwd);
 				await sendCardPosted({ kind: "channel", teamId: due.addr.teamId, channelId: due.addr.channelId, replyTo: due.threadId }, { title: folder, message: answer });
 				flash(ctx, "replied ✓");
@@ -2731,7 +2746,10 @@ export function createTeams(pi: TeamsHost) {
 		/** The turn has ended: a pending self-chat answer may be posted, and a personal channel's thread answered. */
 		turnEnded(): void {
 			replyDue = selfReplyPending;
+			if (channelTurn && !channelTurnDue) channelTurn.answerText = lastAssistantText.trim();
 			channelTurnDue = channelTurn !== undefined;
+			channelTurnMixed = false;
+			turnStartInFlight = undefined;
 			turnThread = undefined;
 		},
 	};

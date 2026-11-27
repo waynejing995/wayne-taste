@@ -386,7 +386,7 @@ try {
 			ok(/^\[\d\d:\d\d\] alpha \u00b7 working/.test(up.summary), `summary is [HH:MM] + agent + phase: ${up.summary}`);
 			ok(up.summary.length <= 220, "summary respects the 220-char cap");
 			strictEqual(up.title, "\u{1f916} alpha");
-			ok(up.threadUrl !== undefined && !up.threadUrl.includes("createdTime"), "deep link omits createdTime");
+			ok(up.defaultThreadUrl !== undefined && !up.defaultThreadUrl.includes("createdTime"), "default deep link omits createdTime");
 		}),
 	);
 
@@ -394,7 +394,7 @@ try {
 		withFixture(async (f) => {
 			f.board = BOARD;
 			f.watch("asker", (now, want) => ({ ...ompLive(now, want), state: "blocked" }), { thread: "t-ask" });
-			f.watch("blocky", (now, want) => ({ ...ompLive(now, want), rstatus: "blocked", ropen_text: "pick a branch" }), { thread: "t-block" });
+			f.watch("blocky", (now, want) => ({ ...ompLive(now, want), state: "idle", rstatus: "blocked", ropen_text: "pick a branch" }), { thread: "t-block" });
 			f.watch("finisher", (now, want) => ({ ...ompLive(now, want), rstatus: "done", waiting: true }), { thread: "t-done" });
 			f.seedCursor({});
 			const upserts = [];
@@ -499,6 +499,85 @@ try {
 			strictEqual(f.channelSends().length, 1, "the Teams thread send is unchanged");
 		}),
 	);
+	await check("20. a resumed working agent with stale done or blocked RESULT reopens a done card", () =>
+		withFixture(async (f) => {
+			f.board = BOARD;
+			f.watch("resume", (now, want) => ({ ...ompLive(now, want), state: "idle", rstatus: "done" }), { thread: "t-resume" });
+			f.seedCursor({});
+			const upserts = [];
+			f.boardClient = {
+				listCards: async () => [{ id: 1, title: "task", status: "done", summary: "", threadId: "t-resume", threadUrl: "" }],
+				upsertCard: async (_cfg, input) => { upserts.push(input); return { action: "updated", id: 1 }; },
+				resolveTenantId: async () => TENANT,
+			};
+			await f.run();
+			for (const result of ["done", "blocked"]) {
+				f.now += 30 * 60;
+				f.watch("resume", (now, want) => ({ ...ompLive(now, want), state: "working", rstatus: result }), { thread: "t-resume" });
+				// Change the tail for the second working probe, so it too is fresh.
+				if (result === "blocked") f.watch("resume", (now, want) => ({ ...ompLive(now, want), state: "working", rstatus: result, tail: want ? gzipSync(Buffer.from("another update")).toString("base64") : undefined, kind: "pane" }), { thread: "t-resume" });
+				await f.run();
+			}
+			deepStrictEqual(upserts.map((u) => u.status), ["working", "working"]);
+		}),
+	);
+
+	await check("21. unchanged asking agent keeps a shared thread waiting when another resumes", () =>
+		withFixture(async (f) => {
+			f.board = BOARD;
+			f.watch("asker", (now, want) => ({ ...ompLive(now, want), state: "blocked" }), { thread: "t-shared" });
+			f.watch("worker", (now, want) => ({ ...ompLive(now, want), state: "idle" }), { thread: "t-shared" });
+			f.seedCursor({});
+			const upserts = [];
+			f.boardClient = {
+				listCards: async () => [],
+				upsertCard: async (_cfg, input) => { upserts.push(input); return { action: "updated", id: 1 }; },
+				resolveTenantId: async () => TENANT,
+			};
+			await f.run();
+			f.now += 30 * 60;
+			f.watch("worker", (now, want) => ({ ...ompLive(now, want), state: "working" }), { thread: "t-shared" });
+			await f.run();
+			strictEqual(upserts[1].status, "waiting");
+			ok(upserts[1].summary.includes("worker") && !upserts[1].summary.includes("asker"), "summary contains only fresh entries");
+		}),
+	);
+
+	await check("22. board timeouts warn and allow later threads and digest bookkeeping; custom links use the default", () =>
+		withFixture(async (f) => {
+			f.board = BOARD;
+			for (const name of ["list", "upsert", "later"]) f.watch(name, ompLive, { thread: `t-${name}` });
+			f.seedCursor({});
+			const calls = [];
+			let listCount = 0;
+			f.boardClient = {
+				listCards: async () => {
+					if (++listCount === 1) return new Promise(() => {});
+					return [{ id: 1, title: "task", status: "working", summary: "", threadId: "t-later", threadUrl: "https://example.test/custom" }];
+				},
+				upsertCard: async (_cfg, input) => {
+					calls.push(input);
+					if (input.threadId === "t-upsert") return new Promise(() => {});
+					return { action: "updated", id: 1 };
+				},
+				resolveTenantId: async () => TENANT,
+			};
+			const originalTimeout = globalThis.setTimeout;
+			const originalError = console.error;
+			const stderr = [];
+			globalThis.setTimeout = (fn, ms, ...args) => originalTimeout(fn, ms === 120_000 ? 1 : ms, ...args);
+			console.error = (message) => stderr.push(String(message));
+			try { await f.run(); } finally { globalThis.setTimeout = originalTimeout; console.error = originalError; }
+			ok(stderr.some((m) => m.includes("t-list") && m.includes("SharePoint list cards") && m.includes("timed out")));
+			ok(stderr.some((m) => m.includes("t-upsert") && m.includes("SharePoint upsert card") && m.includes("timed out")));
+			const later = calls.find((input) => input.threadId === "t-later");
+			ok(later?.defaultThreadUrl, "new deep link is a fallback");
+			strictEqual(later.threadUrl, undefined, "existing custom link is not overwritten");
+			strictEqual(f.channelSends().length, 3, "all threads sent");
+			for (const name of ["list", "upsert", "later"]) ok(f.state().watches[name].digested !== undefined, `${name} recorded`);
+		}),
+	);
+
 } finally {
 	for (const k of Object.keys(SAVED_ENV)) {
 		if (SAVED_ENV[k] === undefined) delete process.env[k];

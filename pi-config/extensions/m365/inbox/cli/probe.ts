@@ -241,7 +241,10 @@ function sessionEntry(a: AgentEntry, active: number | undefined, p: Probe): Entr
 	const text = gunzipSync(Buffer.from(p.tail ?? "", "base64")).toString("utf8");
 	const latest = p.kind === "jsonl" ? latestLine(text) : paneLine(text);
 	const line = `- ${a.name} \u00b7 ${a.host || "local"} \u00b7 last activity ${hhmm(active ?? p.now)} \u00b7 ${latest}`;
-	return { line, row: cardRow(a, active, p.now, cardStatus(p), latest), phase: phaseOf(p), resultStatus: p.rstatus };
+	const phase = phaseOf(p);
+	const settled = phase !== "working" || (!p.session && !p.state);
+	const resultStatus = settled ? p.rstatus : undefined;
+	return { line, row: cardRow(a, active, p.now, cardStatus({ ...p, rstatus: resultStatus }), latest), phase, resultStatus };
 }
 
 /** What an entry says, minus its `last activity` time: the part compared with the last digest sent. The card status
@@ -422,6 +425,7 @@ async function syncThreadBoard(
 	channel: { teamId: string; channelId: string },
 	threadId: string,
 	entries: Entry[],
+	statusEntries: Entry[],
 	agentsByName: Map<string, AgentEntry>,
 	titleFallback: string,
 	log: (line: string) => void,
@@ -440,8 +444,8 @@ async function syncThreadBoard(
 		const boardMod = await import("../../teams/board.ts");
 		const cfg: BoardConfig = raw as BoardConfig;
 		const client: ProbeBoardClient = boardClient ?? new boardMod.BoardClient();
-		const desired = boardTargetStatus(entries);
-		const existing = (await client.listCards(cfg)).find((c) => c.threadId === threadId);
+		const desired = boardTargetStatus(statusEntries);
+		const existing = (await within("SharePoint list cards", () => client.listCards(cfg))).find((c) => c.threadId === threadId);
 		if (existing?.status === "done" && desired !== "working") return;
 		if (desired === undefined && (!existing || existing.status === "unknown")) return;
 		const status: BoardStatus = desired ?? (existing!.status as BoardStatus);
@@ -453,11 +457,11 @@ async function syncThreadBoard(
 		};
 		try {
 			const tenantId = await client.resolveTenantId(cfg);
-			input.threadUrl = boardMod.buildThreadUrl({ teamId: channel.teamId, channelId: channel.channelId, tenantId, threadId });
+			input.defaultThreadUrl = boardMod.buildThreadUrl({ teamId: channel.teamId, channelId: channel.channelId, tenantId, threadId });
 		} catch (e) {
 			log(`board thread URL skipped for ${threadId}: ${e instanceof Error ? e.message : String(e)}`);
 		}
-		await client.upsertCard(cfg, input);
+		await within("SharePoint upsert card", () => client.upsertCard(cfg, input));
 		log(`board ${existing ? "updated" : "created"} for thread ${threadId}: ${status}`);
 	} catch (e) {
 		const msg = `[inbox-probe] board sync failed for thread ${threadId}: ${e instanceof Error ? e.message : String(e)}`;
@@ -468,6 +472,7 @@ async function syncThreadBoard(
 
 async function sendToThreads(
 	fresh: [string, Entry][],
+	current: [string, Entry][],
 	channel: { teamId: string; channelId: string },
 	sender: DigestSender | undefined,
 	log: (line: string) => void,
@@ -540,7 +545,11 @@ async function sendToThreads(
 			);
 			log(`progress to thread ${threadId}: ${receipt}`);
 			for (const [n] of group) sent.add(n);
-			await syncThreadBoard(channel, threadId, group.map(([, e]) => e), agentsByName, title, log, boardClient, now);
+			const threadEntries = current.filter(([name]) => {
+				const agent = agentsByName.get(name);
+				return agent && boundThread(agent, cursorThreads) === threadId;
+			}).map(([, e]) => e);
+			await syncThreadBoard(channel, threadId, group.map(([, e]) => e), threadEntries, agentsByName, title, log, boardClient, now);
 		} catch (e) {
 			for (const [n] of group) fail(n, e);
 		}
@@ -560,7 +569,7 @@ async function sendToThreads(
 			bindNewThread(key, posted.id, a.name, subject);
 			log(`progress to new thread ${posted.id} for ${a.name}: ${posted.receipt}`);
 			sent.add(a.name);
-			await syncThreadBoard(channel, posted.id, [e], agentsByName, subject, log, boardClient, now);
+			await syncThreadBoard(channel, posted.id, [e], [e], agentsByName, subject, log, boardClient, now);
 		} catch (e) {
 			fail(a.name, e);
 		}
@@ -790,7 +799,7 @@ export async function probeAgents(o: ProbeOptions): Promise<string> {
 	}
 	if (personal || routingFailed) {
 		// Per-thread delivery: each session's receipt is recorded alone, so a failed thread is owed again on its own.
-		const sentNames = personal ? await sendToThreads(fresh, personal, o.sender, log, fail, o.boardClient, now) : new Set<string>();
+		const sentNames = personal ? await sendToThreads(fresh, lines, personal, o.sender, log, fail, o.boardClient, now) : new Set<string>();
 		await updateObserved((state) => {
 			const watched = new Set(readAgents().map((a) => a.name));
 			for (const name of Object.keys(state.watches)) if (!watched.has(name)) delete state.watches[name];

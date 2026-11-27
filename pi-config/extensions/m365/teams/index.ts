@@ -255,10 +255,10 @@ export default function (pi: ExtensionAPI) {
 	// (the prompt is still settling), so look again on the next tick; the poll timer is the backstop.
 	pi.on("agent_end", async (_event, ctx) => {
 		teams.turnEnded();
-		setTimeout(() => {
-			void replyToSelf(ctx);
-			void runChannelCommands();
-			flushCards();
+		setTimeout(async () => {
+			await replyToSelf(ctx);
+			await runChannelCommands();
+			await flushCards();
 		}, 0);
 	});
 

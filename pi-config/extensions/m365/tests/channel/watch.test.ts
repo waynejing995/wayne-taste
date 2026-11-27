@@ -55,6 +55,7 @@ type Harness = {
 	cursor(): CursorFile | null;
 	teams: { stopAllWatches(): void; startChannelWatch(ctx: unknown, opts: { teamId: string; channelId: string; mode?: "shared" | "personal"; policy?: string }): Promise<string>; watchList(): Promise<string>; noteAssistantText(text: string): void; turnEnded(): void; replyToSelf(ctx: unknown): Promise<void>; runChannelCommands(): Promise<void> };
 	onPrompt(hook: () => Promise<unknown>): void;
+	onReact(hook: (() => Promise<void>) | undefined): void;
 	onCard(hook: (() => unknown) | undefined): void;
 	idle(v: boolean): void;
 	setMembers(m: Members): void;
@@ -95,6 +96,7 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 	const prompts: { text: string; options?: { deliverAs: string }; meta: { chatId: string; policy: string } }[] = [];
 	/** Runs inside sendUserMessage, before it resolves: a reply the agent makes while its instruction turn starts. */
 	let onPromptHook: (() => Promise<unknown>) | undefined;
+	let onReactHook: (() => Promise<void>) | undefined;
 	/** Runs inside sendMessage after the card is recorded: omp awaits the whole turn a triggerTurn card starts. */
 	let onCardHook: (() => unknown) | undefined;
 	const notices: string[] = [];
@@ -127,7 +129,7 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 			const start = cursor === undefined ? 0 : Number(cursor);
 			return { raw: all.slice(start, start + size), older: start + size < all.length ? String(start + size) : undefined };
 		},
-		reactChannel: async (_a: unknown, messageId: string, type: string) => { otherCalls++; reacts.push({ messageId, type }); },
+		reactChannel: async (_a: unknown, messageId: string, type: string) => { otherCalls++; reacts.push({ messageId, type }); await onReactHook?.(); },
 		send: async (target: unknown, message: string, _h: boolean, _m: unknown, _i: unknown, card?: unknown) => {
 			otherCalls++;
 			sendStarted.resolve();
@@ -186,6 +188,7 @@ function setup(opts: { turnEvents?: boolean; members?: Members; gate?: boolean }
 		onPrompt: (hook) => {
 			onPromptHook = hook;
 		},
+		onReact: (hook) => { onReactHook = hook; },
 		onCard: (hook) => {
 			onCardHook = hook;
 		},
@@ -453,6 +456,7 @@ test("U30: a personal instruction gets its 👀 ACK, lands in awaiting, and is a
 	s.stream.push(raw("101", "please summarize the deploy thread", ME));
 	s.stream.push(raw("102", "an email arrived", ME, { s2spartnername: "MailhookService" }));
 	s.stream.push(raw("103", "someone else writes too", AUTHOR));
+	s.onPrompt(async () => { s.teams.noteAssistantText("Summarized: the deploy went out at noon."); s.teams.turnEnded(); });
 	await s.tick();
 	expect(s.prompts).toHaveLength(1);
 	expect(s.prompts[0].text).toContain(`[Teams channel instruction] #General  team_id: ${TEAM}  channel_id: ${CHANNEL}  thread: 101`);
@@ -464,6 +468,7 @@ test("U30: a personal instruction gets its 👀 ACK, lands in awaiting, and is a
 	// (delivered display-only first, the card that starts the turn last)
 	expect(s.cards.map((c) => c.message.details.ids)).toEqual([["103"], ["102"]]);
 	expect(s.cards.at(-1)?.options?.triggerTurn).toBe(true); // an email post needs triage
+	await s.teams.replyToSelf(s.ctx);
 	expect(s.cards[0].options?.triggerTurn).toBe(false); // another author's message is display-only here
 	// the turn ends without the agent answering in the thread: the last assistant text is posted as a reply card
 	s.teams.noteAssistantText("Summarized: the deploy went out at noon.");
@@ -752,6 +757,7 @@ test("U43: shared channel policy gate fails closed on missing/throwing/off-forma
 	s.stream.push(raw("503", "please check the build", AUTHOR));
 	await s.tick();
 	expect(s.cards[3].options?.triggerTurn).toBe(true);
+	s.teams.turnEnded();
 	s.gateWill({ turn: true, answer: "MAYBE" });
 	s.stream.push(raw("504", "after recovery, fails again", AUTHOR));
 	await s.tick();
@@ -762,6 +768,7 @@ test("U43: shared channel policy gate fails closed on missing/throwing/off-forma
 	const personal = setup({ gate: false, turnEvents: true });
 	personal.stream.push(raw("100", "old", ME));
 	await personal.start("personal");
+	personal.onPrompt(async () => { personal.teams.turnEnded(); });
 	personal.stream.push(raw("101", "summarize the release", ME));
 	personal.stream.push(raw("102", "mail alert", ME, { s2spartnername: "MailhookService" }));
 	await personal.tick();
@@ -968,6 +975,7 @@ test("busy on a turn no channel thread owns, a personal instruction steers in at
 	await s.tick();
 	expect(s.prompts).toHaveLength(1);
 	s.idle(false);
+	s.teams.noteAssistantText("answer for 101");
 	s.teams.turnEnded(); // an inbox/terminal/self-chat turn is running: no channel thread owns it
 	s.stream.push(raw("201", "omp: steer while busy elsewhere", ME));
 	await s.tick();
@@ -975,8 +983,8 @@ test("busy on a turn no channel thread owns, a personal instruction steers in at
 	expect(s.prompts[1].options).toEqual({ deliverAs: "steer" });
 	expect(s.prompts[1].text).toContain("thread: 201");
 	expect(s.prompts[1].text).toContain(`Answer in this thread with teams_send reply_to=201`);
-	// the instruction that owned channelTurn keeps its automatic answer: the steer did not clobber it
-	s.teams.noteAssistantText("answer for 101");
+	// The completed turn's answer is a snapshot, not the later steered turn's text.
+	s.teams.noteAssistantText("answer for 201");
 	s.teams.turnEnded();
 	s.idle(true);
 	await s.tick();
@@ -1000,6 +1008,10 @@ test("busy on thread A's turn, thread B's personal instruction steers in at once
 	expect(s.prompts[1].options).toEqual({ deliverAs: "steer" });
 	expect(s.prompts[1].text).toContain("thread: 201");
 	expect(s.prompts[1].text).toContain(`Answer in this thread with teams_send reply_to=201`);
+	s.stream.push(raw("202", "return to thread A", ME, { rootMessageId: "101" }));
+	await s.tick();
+	expect(s.prompts[2].options).toEqual({ deliverAs: "steer" });
+	expect(s.prompts[2].text).toContain("Answer in this thread with teams_send reply_to=101");
 	s.teams.noteAssistantText("one answer for both threads");
 	s.teams.turnEnded();
 	s.idle(true);
@@ -1007,7 +1019,7 @@ test("busy on thread A's turn, thread B's personal instruction steers in at once
 	expect(s.sends).toHaveLength(0); // no automatic reply: A's answer must not land in B's thread, nor B's in A's
 	// an explicit reply answers the thread it is posted to, steered or not
 	await s.tool("teams_send").execute("t", { target: "channel", team_id: TEAM, channel_id: CHANNEL, reply_to: "201", message: "B answered.", card: false }, undefined, undefined, s.ctx);
-	expect(s.cursor()?.awaiting).toEqual({ "101": ["101"] });
+	expect(s.cursor()?.awaiting).toEqual({ "101": ["101", "202"] });
 });
 
 test("the drain runChannelCommands exports (what agent_end calls beside flushCards) hands a queued shared prompt its own turn once idle", async () => {
@@ -1027,4 +1039,100 @@ test("the drain runChannelCommands exports (what agent_end calls beside flushCar
 	expect(s.prompts).toHaveLength(2);
 	expect(s.prompts[1].options).toBeUndefined();
 	expect(s.prompts[1].text).toContain("thread: 201");
+});
+
+test("an ACK in flight reserves the turn against competing prompts and cards", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	s.onReact(async () => { entered.resolve(); await release.promise; });
+	s.stream.push(raw("101", "first", ME));
+	const first = s.tick();
+	await entered.promise;
+	s.onReact(undefined);
+	s.stream.push(raw("201", "second", ME));
+	s.stream.push(raw("301", "email", ME, { s2spartnername: "MailhookService" }));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	expect(s.prompts[0].options).toEqual({ deliverAs: "steer" });
+	expect(s.prompts[0].text).toContain("reply_to=201");
+	expect(s.cards).toHaveLength(0);
+	release.resolve();
+	await first;
+	s.teams.noteAssistantText("mixed answer");
+	s.teams.turnEnded();
+	await s.teams.replyToSelf(s.ctx);
+	expect(s.sends).toHaveLength(0);
+	await s.tick();
+	expect(s.cards).toHaveLength(1);
+});
+
+test("a self-chat hand-off does not hold the poll gate for the turn", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	s.selfNotes.push({ id: "100", at: "2026-01-01T00:00:00Z", text: "baseline" });
+	await s.tool("teams_watch").execute("w", { action: "start", chat_id: "48:notes" }, undefined, undefined, s.ctx);
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	s.onPrompt(async () => { if (s.prompts.length === 1) { entered.resolve(); await release.promise; } });
+	s.selfNotes.push({ id: "101", at: "2026-01-01T00:01:00Z", text: "omp: self instruction" });
+	const first = s.tick();
+	await entered.promise;
+	s.idle(false);
+	s.stream.push(raw("201", "channel instruction", ME));
+	await s.tick();
+	expect(s.prompts).toHaveLength(2);
+	expect(s.prompts[1].options).toEqual({ deliverAs: "steer" });
+	release.resolve();
+	await first;
+});
+
+test("queued prompts in one thread each start fresh when the preceding full turn ended", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", AUTHOR));
+	await s.start();
+	s.stream.push(raw("101", "omp: running", ME));
+	await s.tick();
+	s.idle(false);
+	s.stream.push(raw("201", "omp: queued one", ME));
+	await s.tick();
+	s.stream.push(raw("202", "omp: queued two", ME, { rootMessageId: "201" }));
+	await s.tick();
+	expect(s.prompts).toHaveLength(1);
+	s.teams.turnEnded();
+	s.idle(true);
+	s.onPrompt(async () => { s.teams.turnEnded(); });
+	await s.teams.runChannelCommands();
+	expect(s.prompts).toHaveLength(3);
+	expect(s.prompts[1].options).toBeUndefined();
+	expect(s.prompts[2].options).toBeUndefined();
+});
+
+test("a card waits if a command claims the turn during a display-only card hand-off", async () => {
+	const s = setup({ turnEvents: true });
+	s.stream.push(raw("100", "baseline", ME));
+	await s.start("personal");
+	const entered = Promise.withResolvers<void>();
+	const release = Promise.withResolvers<void>();
+	s.onCard(async () => { entered.resolve(); await release.promise; });
+	s.stream.push(raw("101", "display only", AUTHOR));
+	s.stream.push(raw("102", "email", ME, { s2spartnername: "MailhookService" }));
+	const first = s.tick();
+	await entered.promise;
+	expect(s.cards[0].options?.triggerTurn).toBe(false);
+	s.stream.push(raw("201", "start another turn", ME));
+	await s.tick();
+	expect(s.prompts[0].options).toBeUndefined();
+	release.resolve();
+	await first;
+	expect(s.cards).toHaveLength(1);
+	s.onCard(undefined);
+	s.teams.turnEnded();
+	await s.tick();
+	expect(s.cards).toHaveLength(2);
+	expect(s.cards[1].options?.triggerTurn).toBe(true);
+	expect(s.cards[1].message.details.ids).toEqual(["102"]);
 });
